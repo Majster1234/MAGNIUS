@@ -101,11 +101,11 @@ rzeczywistymi danymi podczas implementacji ich obsługi.
 
 ## Przygotowanie CAN
 
-Nazwa `can0` jest docelową nazwą interfejsu w szablonie, a nie potwierdzeniem
-wykrycia urządzenia. Udostępnienie U2C przez SocketCAN zależy od firmware
-mostka i obsługi przez system. Bitrate należy uzgodnić z napędami przed
-konfiguracją interfejsu.
+Podłączony U2C jest wykrywany jako `can0` przez systemowy sterownik `gs_usb`.
+Prędkość potwierdzona dla napędów to **500000 bit/s**. Trwałą konfigurację
+systemd i instalację `can-utils` wykonuje `scripts/install_socketcan.sh`.
+Instrukcja znajduje się w [integracji SocketCAN](socketcan.md).
 
-Ten etap nie obejmuje podnoszenia interfejsu CAN, reguł udev, konfiguracji
-sieci ani flashowania urządzeń. Zapisz stan sprzętu zgodnie z
-[opisem komunikacji](can_protocol.md).
+Konfiguracja systemowa jest niezależna od terminali i pakietów ROS.
+Firmware urządzeń nie jest aktualizowany przez ten skrypt. Dane protokołu
+i sprzętu opisuje [dokumentacja CAN](can_protocol.md).

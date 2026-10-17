@@ -2,7 +2,7 @@
 # null = TODO, wartość wymaga ustalenia na podstawie fizycznego sprzętu.
 transport: socketcan
 interface: can0
-bitrate: null  # bit/s; ta sama wartość dla interfejsu i napędów
+bitrate: 500000  # bit/s; prędkość napędów potwierdzona przez użytkownika
 adapter:
   manufacturer: BIGTREETECH
   model: U2C

@@ -18,6 +18,7 @@ pakietów i zasoby; nie uruchamia komunikacji z napędami.
 ├── CONTRIBUTING.md               # Zasady pracy nad projektem
 ├── start_ros2.sh                  # Otwieranie terminali projektu
 ├── scripts/                      # Inicjalizacja środowiska terminali
+├── system/can/                   # Usługa systemd i wzór konfiguracji SocketCAN
 ├── hardware/
 │   ├── wiring/                   # Schematy połączeń
 │   ├── datasheets/               # Dokumentacja posiadanych urządzeń
@@ -94,6 +95,20 @@ Zakończenie skryptu oznacza przekazanie żądań otwarcia okien, a nie potwierd
 gotowości przyszłych węzłów ROS. Logi polecenia aplikacji są widoczne w jego oknie;
 zamknięcie przyszłej aplikacji nie zamyka automatycznie tych terminali.
 
+## Magistrala CAN w systemie
+
+Podłączony U2C v2.1 jest wykrywany przez sterownik `gs_usb` jako `can0`.
+Potwierdzona prędkość napędów wynosi **500000 bit/s**. Skrypt instalacyjny dodaje
+narzędzia `can-utils` i usługę systemd konfigurującą link wraz z urządzeniem:
+
+```bash
+./scripts/install_socketcan.sh --bitrate 500000 --dry-run
+sudo ./scripts/install_socketcan.sh --bitrate 500000
+```
+
+Szczegóły konfiguracji, diagnostyki i wyłączenia usługi są w
+[instrukcji integracji SocketCAN](docs/socketcan.md).
+
 ## Repozytorium GitHub
 
 Folder jest przygotowany jako lokalne repozytorium z gałęzią `main`.
@@ -113,5 +128,5 @@ Pole licencji ma wartość `TODO`: licencja nie została jeszcze wybrana.
 Przed wydaniem pakietów ROS należy zastąpić te metadane rzeczywistymi danymi.
 Wybór licencji został odłożony; na tym etapie nie dodano pliku `LICENSE`.
 
-Instalacja ROS 2, konfiguracja magistrali i aktualizowanie firmware nie są
-wykonywane automatycznie przez ten projekt.
+Instalacja ROS 2 i aktualizowanie firmware nie są wykonywane automatycznie.
+Konfiguracja systemowa CAN wymaga jawnego uruchomienia skryptu instalacyjnego z `sudo`.

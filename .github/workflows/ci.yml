@@ -31,7 +31,7 @@ jobs:
 
       - name: Sprawdź składnię plików
         run: |
-          bash -n start_ros2.sh scripts/ros2_terminal.bash
+          bash -n start_ros2.sh scripts/ros2_terminal.bash scripts/install_socketcan.sh
           python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET

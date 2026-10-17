@@ -1,0 +1,18 @@
+[Unit]
+Description=Robot SocketCAN interface %i
+BindsTo=sys-subsystem-net-devices-%i.device
+After=sys-subsystem-net-devices-%i.device
+ConditionPathExists=/etc/robot-can/%i.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/robot-can/%i.conf
+# Configure only an interface actually handled by the U2C-compatible gs_usb driver.
+ExecCondition=/bin/sh -c 'test "$(basename "$(readlink -f /sys/class/net/%i/device/driver)")" = gs_usb'
+ExecStart=/usr/sbin/ip link set dev %i type can bitrate ${BITRATE}
+ExecStart=/usr/sbin/ip link set dev %i up
+ExecStop=-/usr/sbin/ip link set dev %i down
+
+[Install]
+WantedBy=sys-subsystem-net-devices-%i.device

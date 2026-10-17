@@ -2,9 +2,12 @@
 
 ## Podział warstw
 
-U2C jest mostkiem USB–CAN. Docelowo system Linux udostępni go jako interfejs
-SocketCAN, np. `can0`. Biblioteka `mks_servo_can` będzie korzystać z tego
+U2C jest mostkiem USB–CAN. Na tym komputerze Linux wykrywa go jako interfejs
+SocketCAN `can0` ze sterownikiem `gs_usb`. Biblioteka `mks_servo_can` będzie korzystać z tego
 interfejsu do wymiany ramek z napędami MKS SERVO42D CAN.
+
+Użytkownik potwierdził bitrate **500000 bit/s**. Konfigurację systemową i sposób
+jej instalacji opisuje [integracja SocketCAN](socketcan.md).
 
 Transport CAN i protokół komend napędu są odrębnymi warstwami. Projekt jest
 przygotowywany pod protokół producenta MKS; nie zakłada CANopen/CiA 402.
@@ -34,9 +37,9 @@ pobrania. Wersja sprzętowa U2C `2.1` nie określa wersji jego firmware.
 | Jednostki napędu, zakres licznika, tryb sterowania i bazowanie | Ten dokument oraz konfiguracja osi |
 | Timeouty, błędy, częstotliwość odczytu i obciążenie magistrali dla sześciu osi | Ten dokument po pomiarach |
 
-Każdy z sześciu napędów wymaga jednoznacznego mapowania do osi. Nie przypisano
-przykładowych CAN ID ani bitrate, ponieważ te wartości muszą odpowiadać
-konfiguracji fizycznych urządzeń.
+Każdy z sześciu napędów wymaga jednoznacznego mapowania do osi. CAN ID pozostają
+nieustalone. Bitrate 500000 bit/s został potwierdzony przez użytkownika i zapisany
+w szablonie konfiguracji; musi odpowiadać ustawieniom fizycznych urządzeń.
 
 ## Stan implementacji
 
