@@ -1,0 +1,72 @@
+# Szablon projektu; brak programu wczytującego. To nie jest plik parametrów ROS 2.
+# null = TODO; nie zastępować arbitralnymi wartościami.
+# gear_ratio: liczba obrotów silnika na obrót przegubu, dodatnia.
+# direction: 1 lub -1. Pozycja: direction * motor_rad / gear_ratio + zero_offset_rad.
+# Limity dotyczą przegubu po przekładni, w jednostkach wskazanych w nazwach pól.
+joints:
+  joint_1:
+    can_id: null
+    firmware_version: null
+    gear_ratio: null
+    direction: null
+    zero_offset_rad: null
+    limits:
+      lower_rad: null
+      upper_rad: null
+      velocity_rad_s: null
+      acceleration_rad_s2: null
+  joint_2:
+    can_id: null
+    firmware_version: null
+    gear_ratio: null
+    direction: null
+    zero_offset_rad: null
+    limits:
+      lower_rad: null
+      upper_rad: null
+      velocity_rad_s: null
+      acceleration_rad_s2: null
+  joint_3:
+    can_id: null
+    firmware_version: null
+    gear_ratio: null
+    direction: null
+    zero_offset_rad: null
+    limits:
+      lower_rad: null
+      upper_rad: null
+      velocity_rad_s: null
+      acceleration_rad_s2: null
+  joint_4:
+    can_id: null
+    firmware_version: null
+    gear_ratio: null
+    direction: null
+    zero_offset_rad: null
+    limits:
+      lower_rad: null
+      upper_rad: null
+      velocity_rad_s: null
+      acceleration_rad_s2: null
+  joint_5:
+    can_id: null
+    firmware_version: null
+    gear_ratio: null
+    direction: null
+    zero_offset_rad: null
+    limits:
+      lower_rad: null
+      upper_rad: null
+      velocity_rad_s: null
+      acceleration_rad_s2: null
+  joint_6:
+    can_id: null
+    firmware_version: null
+    gear_ratio: null
+    direction: null
+    zero_offset_rad: null
+    limits:
+      lower_rad: null
+      upper_rad: null
+      velocity_rad_s: null
+      acceleration_rad_s2: null

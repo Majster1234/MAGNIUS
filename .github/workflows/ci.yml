@@ -1,0 +1,70 @@
+name: ROS 2 Humble
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container: ros:humble-ros-base-jammy
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Pobierz repozytorium
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Przygotuj narzędzia
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends \
+            build-essential python3-colcon-common-extensions python3-rosdep python3-yaml
+
+      - name: Sprawdź składnię plików
+        run: |
+          bash -n start_ros2.sh scripts/ros2_terminal.bash
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          import yaml
+
+          for manifest in Path("ros2_ws/src").glob("*/package.xml"):
+              ET.parse(manifest)
+          for directory in (Path(".github"), Path("ros2_ws/src")):
+              for pattern in ("*.yaml", "*.yml"):
+                  for path in directory.rglob(pattern):
+                      yaml.safe_load(path.read_text())
+          PY
+
+      - name: Zainstaluj zależności workspace
+        run: |
+          source /opt/ros/humble/setup.bash
+          if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+            rosdep init
+          fi
+          rosdep update --rosdistro humble
+          rosdep install --from-paths ros2_ws/src --ignore-src --rosdistro humble -r -y
+
+      - name: Zbuduj pakiety
+        working-directory: ros2_ws
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon list
+          colcon build --symlink-install
+
+      - name: Uruchom dostępne testy
+        working-directory: ros2_ws
+        run: |
+          source /opt/ros/humble/setup.bash
+          source install/local_setup.bash
+          colcon test
+          colcon test-result --verbose

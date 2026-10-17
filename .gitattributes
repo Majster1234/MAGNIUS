@@ -1,0 +1,15 @@
+# Spójne końce linii na Linuksie i Windows; skrypty Bash wymagają LF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.stl binary
+*.blend binary
+*.FCStd binary
+*.zip binary
+*.gz binary
+*.bin binary

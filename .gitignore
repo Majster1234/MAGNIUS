@@ -1,0 +1,50 @@
+# Wyniki budowania i logi workspace ROS 2 / colcon
+build/
+install/
+log/
+
+# Python i lokalne środowiska
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Pliki tymczasowe edytorów i systemu
+*~
+*.swp
+*.swo
+*.tmp
+.DS_Store
+Thumbs.db
+.cache/
+
+# Lokalne ustawienia narzędzi i edytorów
+/.aws/
+/.codex/
+/.agents/
+.idea/
+.vscode/
+*.code-workspace
+
+# Lokalne sekrety
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Lokalne nagrania ROS 2
+bags/
+rosbags/
+*.bag
+*.db3
+*.db3-shm
+*.db3-wal
+*.mcap

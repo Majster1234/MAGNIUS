@@ -1,0 +1,23 @@
+# Szablon parametrów ROS 2; nie jest gotowy do uruchomienia.
+# update_rate = null wymaga uzupełnienia. Model i adapter nie są zaimplementowane.
+controller_manager:
+  ros__parameters:
+    update_rate: null  # TODO: częstotliwość w Hz po analizie cyklu i magistrali
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - joint_1
+      - joint_2
+      - joint_3
+      - joint_4
+      - joint_5
+      - joint_6
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position

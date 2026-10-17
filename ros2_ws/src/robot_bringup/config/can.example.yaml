@@ -1,0 +1,11 @@
+# Szablon projektu; brak programu wczytującego. To nie jest plik parametrów ROS 2.
+# null = TODO, wartość wymaga ustalenia na podstawie fizycznego sprzętu.
+transport: socketcan
+interface: can0
+bitrate: null  # bit/s; ta sama wartość dla interfejsu i napędów
+adapter:
+  manufacturer: BIGTREETECH
+  model: U2C
+  hardware_version: "2.1"
+  firmware_version: null
+protocol: mks_servo_can  # Protokół producenta MKS SERVO42D CAN

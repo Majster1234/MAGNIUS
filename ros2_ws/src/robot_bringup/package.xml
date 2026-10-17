@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robot_bringup</name>
+  <version>0.0.0</version>
+  <description>Launch directory and configuration templates for the six-axis robot.</description>
+  <!-- TODO: Replace placeholder maintainer data and choose a project license. -->
+  <maintainer email="maintainer@example.com">Project maintainer (TODO)</maintainer>
+  <license>TODO</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
