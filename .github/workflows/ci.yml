@@ -29,9 +29,22 @@ jobs:
           apt-get install --yes --no-install-recommends \
             build-essential python3-colcon-common-extensions python3-rosdep python3-yaml
 
+      - name: Przygotuj Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Zbuduj i sprawdź panel
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          npm test
+
       - name: Sprawdź składnię plików
         run: |
-          bash -n start_ros2.sh scripts/ros2_terminal.bash scripts/install_socketcan.sh
+          bash -n start_ros2.sh scripts/*.sh scripts/*.bash
           python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET

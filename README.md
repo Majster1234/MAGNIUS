@@ -1,13 +1,28 @@
 # Robot 6-DOF — ROS 2 Humble / CAN
 
-Szkielet projektu sześcioosiowego robota dla Ubuntu 22.04 i ROS 2 Humble.
+Projekt sześcioosiowego robota dla Ubuntu 22.04 i ROS 2 Humble.
 Docelowa komunikacja: Linux SocketCAN → BIGTREETECH U2C v2.1 → napędy
 MKS SERVO42D w wersji CAN.
 
-Repozytorium zawiera cztery bazowe pakiety `ament_cmake`, dokumentację i szablony
-konfiguracji. Nie zawiera jeszcze modelu robota, węzłów, bibliotek sterujących,
-pluginu sprzętowego ani plików uruchomieniowych. Budowanie instaluje szkielet
-pakietów i zasoby; nie uruchamia komunikacji z napędami.
+Repozytorium zawiera cztery bazowe pakiety `ament_cmake`, dwa pakiety
+diagnostyczne `ament_python` oraz panel React/TypeScript. Monitor i backend
+udostępniają rzeczywiste statusy ROS i systemowego CAN w sieci LAN.
+Nie ma jeszcze modelu robota, bibliotek sterujących ani pluginu sprzętowego.
+Panel nie wysyła ramek CAN i nie uruchamia napędów.
+
+## Panel diagnostyczny
+
+Po przygotowaniu zależności i zbudowaniu panelu oraz workspace według
+[instrukcji panelu](docs/web_status.md), uruchom z katalogu repozytorium:
+
+```bash
+./scripts/start_web_status.sh
+```
+
+Otwórz URL wypisany w terminalu, obecnie **http://192.168.1.69:8080**,
+na komputerze robota lub innym urządzeniu w `192.168.1.0/24`.
+Panel pokazuje API, łączność ROS, CPU/RAM, CAN, kontrolery i stan integracji
+napędów. Jest dostępny bez logowania, tylko do odczytu. `Ctrl+C` zamyka sesję.
 
 ## Układ projektu
 
@@ -18,6 +33,7 @@ pakietów i zasoby; nie uruchamia komunikacji z napędami.
 ├── CONTRIBUTING.md               # Zasady pracy nad projektem
 ├── start_ros2.sh                  # Otwieranie terminali projektu
 ├── scripts/                      # Inicjalizacja środowiska terminali
+├── web/                          # Panel React/TypeScript, budowany przez Vite
 ├── system/can/                   # Usługa systemd i wzór konfiguracji SocketCAN
 ├── hardware/
 │   ├── wiring/                   # Schematy połączeń
@@ -27,17 +43,19 @@ pakietów i zasoby; nie uruchamia komunikacji z napędami.
     ├── robot_description/        # Przyszły URDF/Xacro, meshes, RViz
     ├── mks_servo_can/            # Przyszła biblioteka C++: SocketCAN i protokół MKS
     ├── robot_hardware/           # Przyszły adapter sześciu osi do ros2_control
-    └── robot_bringup/            # Miejsce na launch i szablony konfiguracji
+    ├── robot_bringup/            # Launch panelu i szablony konfiguracji
+    ├── robot_system_monitor/     # Pomiary systemowe i diagnostyka ROS
+    └── robot_web_bridge/         # API HTTP/WebSocket i serwowanie panelu
 ```
 
-Każdy pakiet zawiera `package.xml`, `CMakeLists.txt` i README.
+Każdy pakiet zawiera `package.xml`, konfigurację CMake lub setuptools i README.
 Puste katalogi zachowują pliki `.gitkeep`. `build/`, `install/` i `log/`
 powstaną dopiero podczas pracy z `colcon` i są ignorowane przez Git.
 
 ## Początek pracy
 
 1. Przygotuj ROS 2 Humble i narzędzia według [instrukcji środowiska](docs/setup.md).
-2. Zbuduj workspace poleceniami z tej instrukcji.
+2. Zbuduj frontend i workspace poleceniami z tej instrukcji.
 3. Uzupełnij dane sprzętowe i mechaniczne opisane w
    [architekturze](docs/architecture.md) oraz [opisie CAN](docs/can_protocol.md).
 4. Na tej podstawie zaimplementuj model, bibliotekę CAN i adapter sprzętowy.
@@ -67,11 +85,10 @@ Podgląd poleceń bez otwierania okien:
 ./start_ros2.sh --dry-run
 ```
 
-Docelowo można przekazać polecenie aplikacji po `--`, np. po dodaniu odpowiedniego
-pakietu i pliku launch:
+Można przekazać polecenie panelu po `--`:
 
 ```bash
-./start_ros2.sh -- ros2 launch NAZWA_PAKIETU PLIK.launch.py
+./start_ros2.sh -- ros2 launch robot_bringup web_status.launch.py
 ```
 
 Polecenie uruchamia się tylko w terminalu aplikacji. Po jego zakończeniu lub
@@ -92,7 +109,7 @@ subprocess.Popen([str(Path(project_dir) / "start_ros2.sh")])
 Wywołuj skrypt raz przy starcie sesji pracy; każde kolejne wywołanie otwiera
 następny zestaw okien. Skrypt wymaga GNOME Terminal i dostępu do sesji graficznej.
 Zakończenie skryptu oznacza przekazanie żądań otwarcia okien, a nie potwierdzenie
-gotowości przyszłych węzłów ROS. Logi polecenia aplikacji są widoczne w jego oknie;
+gotowości węzłów ROS. Logi polecenia aplikacji są widoczne w jego oknie;
 zamknięcie przyszłej aplikacji nie zamyka automatycznie tych terminali.
 
 ## Magistrala CAN w systemie

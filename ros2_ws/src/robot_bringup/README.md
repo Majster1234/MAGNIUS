@@ -1,8 +1,9 @@
 # robot_bringup
 
-Miejsce na przyszłe pliki launch i konfigurację całego robota.
-Katalog `launch/` jest pusty. Nie ma jeszcze polecenia uruchamiającego robota
-ani programu wczytującego szablony CAN i osi.
+Pliki launch i konfiguracja całego robota.
+`web_status.launch.py` uruchamia monitor i backend panelu, bez kontrolerów
+i bez napędów. Szczegóły: [panel diagnostyczny](../../../docs/web_status.md).
+Nie ma jeszcze programu wczytującego szablony CAN i osi do sterowania robotem.
 
 ## Szablony konfiguracji
 
@@ -48,5 +49,5 @@ do wydajności napędów, protokołu oraz obciążenia magistrali.
 ## Instalacja
 
 CMake instaluje `launch/` i `config/` do `share/robot_bringup`.
-Zależności uruchomieniowe od pozostałych pakietów, `launch_ros` i kontrolerów
-należy dodać wraz z rzeczywistymi plikami launch.
+Manifest deklaruje zależności od pakietów diagnostycznych oraz `launch` i
+`launch_ros`. Zależności od przyszłych kontrolerów zostaną dodane z ich uruchamianiem.

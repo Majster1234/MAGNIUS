@@ -1,13 +1,52 @@
 # Architektura projektu
 
-## Platforma i stan początkowy
+## Platforma i stan implementacji
 
 - System docelowy: Ubuntu 22.04, ROS 2 Humble, workspace budowany przez `colcon`.
 - Sześć osi o stałych nazwach `joint_1`–`joint_6`.
 - Mostek USB–CAN: BIGTREETECH U2C v2.1, docelowo udostępniony przez SocketCAN.
 - Napędy: MKS SERVO42D CAN; rewizje płytek i firmware wymagają zapisania.
 - C++ dla przyszłej biblioteki komunikacji i adaptera sprzętowego.
-- Wszystkie pakiety są obecnie szkieletami `ament_cmake`, bez kodu sterowania.
+- Cztery pakiety `ament_cmake` zawierają zasoby i szablony, bez kodu sterowania.
+- Dwa pakiety `ament_python` dostarczają monitor systemu i backend FastAPI.
+- Frontend React/TypeScript jest dostępny w fizycznej sieci LAN.
+
+## Działająca diagnostyka i przyszłe sterowanie
+
+```mermaid
+flowchart TD
+    UI[Przeglądarka / React + TypeScript]
+    API[robot_web_bridge / Python + FastAPI + rclpy]
+    MON[robot_system_monitor / Python + rclpy]
+    LINUX[Linux / CPU / RAM / Netlink CAN]
+    MOVE[Docelowo: C++ / obsługa ruchu / MoveIt]
+    CTRL[Docelowo: ros2_control / kontroler trajektorii]
+    HW[Docelowo: robot_hardware / C++]
+    CAN[Docelowo: mks_servo_can / C++ / SocketCAN / U2C]
+    DRIVES[Napędy MKS / sześć osi]
+    UI <-->|HTTP + WebSocket / port 8080| API
+    LINUX --> MON
+    MON -->|DiagnosticArray / 1 Hz| API
+    API -. przyszłe polecenia operatora .-> MOVE
+    MOVE --> CTRL
+    CTRL <--> HW
+    HW <--> CAN
+    CAN <--> DRIVES
+```
+
+Monitor i backend są osobnymi procesami. Backend ma jeden executor ROS
+w osobnym wątku i współdzielony snapshot. HTTP i WebSocket odczytują pamięć;
+liczba klientów nie wpływa na liczbę pomiarów ani węzłów ROS.
+Panel nie udostępnia poleceń ruchu i nie wysyła ramek CAN.
+
+Python obsługuje diagnostykę i interfejs webowy. Przyszła pętla sterowania,
+adapter sprzętowy i protokół MKS pozostają w C++. Trajektorie będą wykonywane
+lokalnie, niezależnie od odświeżania strony i opóźnień sieci.
+Dobór cyklu sterowania wymaga pomiarów możliwości firmware, synchronizacji
+osi, opóźnień i obciążenia CAN; sama architektura nie gwarantuje płynności.
+
+Uruchomienie, kontrakt API i zasady LAN: [panel diagnostyczny](web_status.md)
+oraz [README backendu](../ros2_ws/src/robot_web_bridge/README.md).
 
 ## Docelowy przepływ danych
 
@@ -33,16 +72,19 @@ uruchamiania. Diagram opisuje docelową architekturę, nie istniejącą implemen
 | `mks_servo_can` | Transport SocketCAN, kodowanie i dekodowanie protokołu producenta | Katalogi `include`, `src`, `test` |
 | `robot_hardware` | Jeden komponent `hardware_interface::SystemInterface` dla sześciu osi | Katalogi `include`, `src`, `test` |
 | `robot_bringup` | Pliki launch i konfiguracja całego robota | Katalog `launch`, trzy szablony YAML |
+| `robot_system_monitor` | CPU, RAM, stan CAN i kontrolerów | Węzeł `monitor`, testy |
+| `robot_web_bridge` | API tylko do odczytu i pliki panelu | Węzeł `bridge`, HTTP/WebSocket, testy |
 
 Biblioteka `mks_servo_can` powinna oddzielać transport od kodowania wiadomości,
 aby przyszłe testy protokołu nie wymagały napędów. Adapter `robot_hardware`
 będzie odpowiadał za mapowanie osi, przekładnie, znaki, offsety oraz konwersję
 jednostek między ROS i napędami.
 
-Obecne manifesty deklarują tylko używany system budowania `ament_cmake`.
+Manifesty pakietów sprzętowych deklarują tylko używany system budowania `ament_cmake`.
 Zależności od `hardware_interface`, `pluginlib`, `rclcpp`, biblioteki CAN,
 kontrolerów i narzędzi wizualizacji należy dodać wraz z korzystającym z nich
-kodem. Nie ma jeszcze eksportowanych bibliotek, pluginów, tematów ani usług.
+kodem. Nie ma jeszcze bibliotek ani pluginów sprzętowych. Diagnostyka używa
+tematu `/robot/system_status` i opcjonalnie odczytuje usługę kontrolerów.
 
 Przyszły adapter należy oprzeć na API Humble, opisanym w
 [instrukcji tworzenia komponentu sprzętowego ros2_control](https://control.ros.org/humble/doc/ros2_control/hardware_interface/doc/writing_new_hardware_component.html).

@@ -42,7 +42,9 @@ W narzędziu, które nie rozpoznaje `AGENTS.md`, trzeba jawnie polecić jego odc
 | `ros2_ws/src/robot_description` | Model URDF/Xacro, geometria i konfiguracja RViz |
 | `ros2_ws/src/mks_servo_can` | Przyszła biblioteka C++: transport i protokół CAN |
 | `ros2_ws/src/robot_hardware` | Przyszły adapter C++ `SystemInterface` dla Humble |
-| `ros2_ws/src/robot_bringup` | Konfiguracje przykładowe i przyszłe pliki launch |
+| `ros2_ws/src/robot_bringup` | Launch diagnostyki i konfiguracje przykładowe |
+| `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN, diagnostyka ROS w Pythonie |
+| `ros2_ws/src/robot_web_bridge`, `web/` | API FastAPI, WebSocket i panel React/TypeScript |
 | `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale aplikacji, diagnostyki i workspace |
 | `hardware/`, `docs/` | Materiały sprzętowe i dokumentacja projektu |
 | `system/can/`, `scripts/install_socketcan.sh` | Systemowa konfiguracja SocketCAN przez systemd |
@@ -73,8 +75,9 @@ W narzędziu, które nie rozpoznaje `AGENTS.md`, trzeba jawnie polecić jego odc
 Uruchamiaj odpowiedni podzbiór z katalogu głównego repozytorium:
 
 ```bash
-bash -n start_ros2.sh scripts/ros2_terminal.bash scripts/install_socketcan.sh
+bash -n start_ros2.sh scripts/*.sh scripts/*.bash
 ./start_ros2.sh --dry-run
+(cd web && npm ci && npm run build && npm test)
 source /opt/ros/humble/setup.bash
 cd ros2_ws
 colcon build --symlink-install
@@ -92,6 +95,7 @@ zakończonych sukcesem. Dla zmian samej dokumentacji wystarczy sprawdzenie treś
 - [README.md](README.md) — uruchamianie i stan projektu.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — zasady zmian i lokalna weryfikacja.
 - [docs/architecture.md](docs/architecture.md) — architektura i konwencje osi.
+- [docs/web_status.md](docs/web_status.md) — panel LAN, uruchomienie i wyniki weryfikacji.
 - [docs/can_protocol.md](docs/can_protocol.md) — dane wymagane do implementacji CAN.
 - [docs/socketcan.md](docs/socketcan.md) — instalacja i diagnostyka systemowego CAN.
 - [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko i GitHub.
@@ -99,22 +103,21 @@ zakończonych sukcesem. Dla zmian samej dokumentacji wystarczy sprawdzenie treś
 
 ## Bieżący kontekst
 
-- Aktualizacja: 2026-10-17, strefa Europe/Prague.
-- Ostatnie zadanie: integracja U2C v2.1 z systemowym SocketCAN; użytkownik podał 500000 bit/s.
-- Rezultat: istniejący `gs_usb` obsługuje adapter; zainstalowano `can-utils` i usługę
-  `robot-can@can0.service`, konfigurację `/etc/robot-can/can0.conf` z `BITRATE=500000`.
-- Usługa jest aktywna i włączona jako zależność urządzenia; instrukcja: `docs/socketcan.md`.
-- Weryfikacja tej zmiany: `can0` ma flagi UP/LOWER_UP, bitrate 500000, ERROR-ACTIVE;
-  zwykły użytkownik otworzył socket CAN. Liczniki RX/TX: 0; nie wysyłano ramek.
-- Sprawdzono składnię Bash, błędne argumenty, jednostkę systemd, YAML i lokalne linki.
-  Nie wykonano restartu komputera, fizycznego ponownego podłączenia ani testu napędów.
-- Implementacja ROS nadal obejmuje cztery szkielety; brak modelu, biblioteki CAN,
-  adaptera sprzętowego i plików launch. W szablonie CAN ustawiono bitrate 500000.
-- Wcześniejsze sprawdzenie (2026-10-17): czyste budowanie 4 pakietów udane,
-  0 testów wykonywalnych. Nie powtarzano builda w tym zadaniu ani zdalnego CI.
-- Git na początku zadania: `main` śledzi `origin/main`; `AGENTS.md` był bez commitu.
-  W tym zadaniu nie tworzono commitu ani nie wykonywano push.
-- Pozostaje konflikt bibliotek GNOME w środowisku VS Code Snap; skrypt terminali
-  nie otrzymał poprawki, a jego testy GUI były symulowane. ROS, MoveIt i Desktop są zainstalowane.
-- Otwarte dane: firmware, CAN ID, geometria, przekładnie, bazowanie i limity osi;
-  licencja i metadane opiekuna nieustalone. Dalszy zakres określi użytkownik.
+- Aktualizacja: 2026-10-18, strefa Europe/Prague.
+- Zadanie wykonane: panel diagnostyczny LAN, dwa pakiety ament_python i połączenie ROS.
+- Instrukcja, schemat i szczegółowa weryfikacja: `docs/web_status.md`, `docs/architecture.md`.
+- Start: `./scripts/start_web_status.sh`; enp2s0, 192.168.1.0/24, port 8080; wykryty URL http://192.168.1.69:8080.
+- API/WebSocket tylko do odczytu, ROS_LOCALHOST_ONLY=1, pomiary 1 Hz, stale po 3 s.
+- Wybrano wsproto z Uvicorn; pakiet websockets 9 z Jammy nie działa z Pythonem 3.10.
+- Potwierdzono 2026-10-18: build 6 pakietów, 38 testów Python, 3 frontendu, build produkcyjny i typy TS.
+- Sprawdzono Bash/XML/YAML, lokalne linki i git diff --check; CI rozszerzone, bez zdalnego uruchomienia.
+- Chromium desktop/mobile: 5 paneli, 2 węzły ROS, utrata danych po ok. 2,8 s, powrót monitora i restart backendu.
+- Ctrl+C czysto zamyka procesy; brak błędów JS i zewnętrznych żądań. Procesy testowe zakończono.
+- Źródło Tailscale otrzymało HTTP 403; brak nasłuchu na jego adresie. Inne podsieci sprawdzono w ASGI.
+- CAN: 500000 bit/s, ERROR-ACTIVE, RX/TX 0 przed i po; usługa active/enabled. Monitor tylko odczytuje Netlink.
+- Brakuje systemowo FastAPI/Uvicorn/aiofiles: sudo wymaga hasła. Testy używały pakietów Ubuntu z /tmp i tymczasowego Node.js.
+- Następny krok: `sudo ./scripts/install_web_dependencies.sh`, start panelu i odbiór na drugim urządzeniu LAN.
+- Nie sprawdzono fizycznego drugiego klienta LAN, zapory wymagającej sudo, zdalnego CI ani napędów.
+- Git: feature/web-status, zmiany bez commitu; nie wykonywano commit ani push.
+- C++/ros2_control, model i protokół MKS do implementacji; firmware, CAN ID, geometria, przekładnie, bazowanie i limity nieustalone.
+- Licencja/metadane TODO. Konflikt GNOME w VS Code Snap pozostaje; nowy start panelu nie wymaga GNOME Terminal.
