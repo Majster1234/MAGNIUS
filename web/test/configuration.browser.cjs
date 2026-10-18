@@ -4,12 +4,13 @@ const path=require('path');
 const assert=require('assert/strict');
 const dist=path.resolve(__dirname,'../dist');
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const context=await browser.newContext({viewport:{width:1366,height:768}});
  const errors=[],apiWrites=[];
  context.on('page',page=>page.on('pageerror',e=>errors.push(e.message)));
  await context.route('http://robot.test/**',async route=>{
   const request=route.request(),url=new URL(request.url());
+  if(url.pathname.startsWith('/api/v1/configuration'))return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({detail:'Węzeł konfiguracji wyłączony w teście szkicu lokalnego'})});
   if(request.method()!=='GET'){apiWrites.push(url.pathname);return route.abort();}
   const name=url.pathname==='/'?'index.html':url.pathname.slice(1),file=path.resolve(dist,name);
   assert(file.startsWith(dist+path.sep));
@@ -128,8 +129,8 @@ const dist=path.resolve(__dirname,'../dist');
    assert.equal(await page.getByRole('combobox',{name:`Kierunek osi J${axis}`,exact:true}).inputValue(),'-1');
   }
   await page.getByText('Narzędzie i TCP',{exact:true}).click();
-  for(const [name,expected] of [['TCP X',100],['TCP Y',-50],['TCP Roll',90],['TCP Pitch',-45],['Środek masy X',1],['Środek masy Y',-2]]){
-   await near(page.getByLabel(name),expected);
+  for(const [name,unit,expected] of [['TCP X','mm',100],['TCP Y','mm',-50],['TCP Roll','°',90],['TCP Pitch','°',-45],['Środek masy X','mm',1],['Środek masy Y','mm',-2]]){
+   await near(page.getByLabel(`${name}${unit}`,{exact:true}),expected);
   }
   assert.equal(await page.getByLabel('Masa narzędzia').inputValue(),'1.2');
   assert.equal(await page.getByLabel('Układ narzędzia',{exact:false}).inputValue(),'');

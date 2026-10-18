@@ -27,7 +27,8 @@ flowchart TD
 działa w `robot_can_diagnostics`. Podczas sterowania ten sam kod i publikator
 diagnostyki działają w pluginie `robot_hardware/CanSystem`; osobny właściciel
 magistrali nie jest uruchamiany. Panel należy wtedy uruchamiać przez
-`web_status.launch.py standalone_can:=false`.
+`web_status.launch.py standalone_can:=false configuration_enabled:=false preview_enabled:=false`
+(konfiguracja i podgląd są wtedy uruchomione przez launch sterowania).
 
 Blokada procesu dla pary użytkownik/interfejs w `/tmp` zapobiega uruchomieniu
 dwóch właścicieli z projektu przez to samo konto. Nie blokuje obcych programów
@@ -122,7 +123,7 @@ Po uzupełnieniu modelu i odbiorze sprzętu:
 ros2 launch robot_bringup motion_control.launch.py \
   robot_description_file:=/ścieżka/do/pełnego.urdf \
   controllers_file:=/ścieżka/do/uzupełnionych_kontrolerów.yaml
-./scripts/start_web_status.sh standalone_can:=false
+./scripts/start_web_status.sh standalone_can:=false configuration_enabled:=false preview_enabled:=false
 ```
 
 Launch pozostawia hardware i kontroler trajektorii nieaktywne. Po skanie,

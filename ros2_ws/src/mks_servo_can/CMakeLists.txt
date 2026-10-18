@@ -9,6 +9,7 @@ add_library(${PROJECT_NAME} SHARED
   src/socketcan.cpp
   src/trace.cpp
   src/bus_manager.cpp
+  src/configuration.cpp
   src/manual_motor_controller.cpp
   src/bus_runtime.cpp)
 target_link_libraries(${PROJECT_NAME} Threads::Threads)

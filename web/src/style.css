@@ -716,9 +716,13 @@ footer {
 .manual-header h1 { font-size:18px; letter-spacing:-.4px; white-space:nowrap; }
 .manual-statuses { display:flex; align-items:center; gap:6px; }
 .manual-header > a { margin-left:auto; color:var(--muted); font-size:10px; white-space:nowrap; }
-.manual-message { min-height:23px; display:flex; align-items:center; color:var(--muted); font-size:10px; padding:3px 0; }
-.manual-error { padding:7px 10px; margin-bottom:6px; border-radius:5px; background:var(--surface); border:1px solid var(--border); font-size:11px; }
-.manual-error { color:#e0a29b; border:1px solid #78494c; }
+.event-console { height:76px; margin:6px 0 8px; padding:3px; overflow-y:auto; overflow-x:hidden; overflow-anchor:none; scrollbar-gutter:stable; border:1px solid var(--border); border-radius:4px; background:#10161c; font:10px/17px Consolas,"SFMono-Regular",monospace; }
+.event-console:focus-visible { outline:2px solid var(--green); outline-offset:1px; }
+.console-entry { display:grid; grid-template-columns:90px 49px minmax(0,1fr); padding:0 5px; color:var(--muted); overflow-wrap:anywhere; }
+.console-entry time { font-variant-numeric:tabular-nums; color:inherit; opacity:.8; }
+.console-level { font-size:9px; }
+.console-warning { background:#4e401e; color:#f0d18b; }
+.console-error { background:#56282d; color:#ffbec2; }
 .manual-table { border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--surface); }
 .manual-table table { width:100%; border-collapse:collapse; }
 .manual-table th, .manual-table td { padding:2px 7px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
@@ -794,3 +798,41 @@ footer {
 .settings-extra { padding:8px 12px; }
 .settings-extra > summary { cursor:pointer; font-size:11px; font-weight:600; }
 .settings-extra .settings-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+/* Podgląd tylko do odczytu, nad zwartą tabelą sterowania. */
+.robot-preview { height:50dvh; margin-bottom:8px; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--surface); }
+.robot-preview > header { height:34px; padding:0 10px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--border); }
+.robot-preview h2 { font-size:12px; font-weight:600; white-space:nowrap; }
+.preview-home { position:absolute; z-index:1; top:10px; right:10px; width:30px; height:30px; display:grid; place-items:center; padding:0; border:1px solid #465663; border-radius:5px; background:#202b35dd; color:#cad7df; }
+.preview-home:hover { background:#344651; }
+.preview-home:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
+.preview-completeness { margin-left:auto; font-size:10px; }
+.preview-completeness.partial { color:#d9bd86; }.preview-completeness.complete { color:var(--green); }
+.preview-body { height:calc(100% - 34px); }
+.preview-viewport { position:relative; width:100%; height:100%; overflow:hidden; background:#131b22; }
+.preview-canvas { width:100%; height:100%; position:relative; }
+.preview-canvas canvas { display:block; cursor:grab; }
+.preview-canvas canvas:active { cursor:grabbing; }
+.preview-joint-label { position:absolute; pointer-events:none; transform:translate(7px,-12px); padding:1px 3px; background:#131b22bb; border-radius:3px; color:#b2c8bc; font-size:9px; }
+.preview-limit-label { position:absolute; pointer-events:none; transform:translate(-50%,-50%); padding:2px 4px; border:1px solid currentColor; border-radius:3px; background:#131b22e6; color:#ffca45; font-size:9px; white-space:nowrap; }
+.preview-limit-label[data-level="danger"], .preview-limit-label[data-level="exceeded"] { color:#ff6676; }
+.preview-limit-label[data-level="exceeded"] { font-weight:700; }
+.preview-limit-label[data-fresh="false"] { opacity:.65; }
+.preview-overlay { position:absolute; inset:0; display:grid; place-content:center; padding:20px; font-size:11px; color:var(--muted); pointer-events:none; }
+/* Snapshoty i lokalny edytor geometrii. */
+.snapshot-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:5px; padding:8px; margin-bottom:8px; border:1px solid var(--border); border-radius:5px; background:var(--surface); }
+.snapshot-toolbar button, .snapshot-toolbar input, .snapshot-toolbar select { height:27px; padding:3px 7px; border:1px solid var(--border); border-radius:4px; background:var(--surface-raised); color:inherit; font-size:10px; }
+.snapshot-toolbar input:not([hidden]) { width:145px; }
+.snapshot-toolbar select { width:230px; }
+.snapshot-toolbar .configuration-apply { margin-left:auto; border-color:#477467; background:#294a43; }
+.snapshot-toolbar button:disabled { cursor:not-allowed; opacity:.4; }
+.robot-settings .field-dirty { background:#3f3825; border-color:#a38950; }
+.robot-settings .field-invalid { border-color:#c46c70; box-shadow:inset 0 0 0 1px #c46c70; }
+.configuration-validation { color:#edb6b5; font-size:10px; margin:4px 0 8px; }
+.configuration-preview { height:clamp(260px,36dvh,390px); margin-top:10px; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--surface); }
+.configuration-preview > header { height:33px; display:flex; align-items:center; gap:10px; padding:0 10px; border-bottom:1px solid var(--border); }
+.configuration-preview h2 { font-size:12px; }
+.configuration-preview header small { margin-left:auto; color:var(--muted); font-size:9px; }
+.configuration-preview > .preview-viewport { height:calc(100% - 33px); }
+.configuration-legend { position:absolute; left:10px; bottom:7px; pointer-events:none; font-size:9px; color:var(--muted); background:#131b22cc; }
+.configuration-bubble { font-size:9px; max-width:340px; white-space:nowrap; padding:2px 5px; border:1px solid #3a4853; }
+.configuration-bubble.selected { color:#a6ddc5; border-color:#77bda3; }

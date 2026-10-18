@@ -9,7 +9,8 @@ from diagnostic_msgs.msg import DiagnosticArray
 import rclpy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import QoSProfile
+from rclpy.qos import QoSProfile, DurabilityPolicy
+from std_msgs.msg import String
 import uvicorn
 
 from .app import create_app
@@ -17,6 +18,8 @@ from .network import lan_address
 from .status import StatusStore
 from .status import CanStatusStore
 from .manual import ManualStore, ManualRosClient
+from .description import DescriptionStore
+from .configuration import ConfigurationClient
 from .trace import trace, recording
 from robot_control_interfaces.msg import ManualState
 from std_srvs.srv import Trigger
@@ -51,7 +54,11 @@ def main(args=None):
         store = StatusStore(address, port, interface, subnet)
         can_store = CanStatusStore(node.declare_parameter('can_interface', 'can0').value)
         manual_store = ManualStore()
+        description_store = DescriptionStore()
+        node.create_subscription(String, '/robot/preview/robot_description', description_store.update,
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         manual_action = ManualRosClient(node)
+        configuration_action = ConfigurationClient(node)
         node.create_subscription(ManualState, '/robot/manual/state', manual_store.update, QoSProfile(depth=1))
         def system_update(message):
             store.update(message)
@@ -97,7 +104,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

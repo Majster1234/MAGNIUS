@@ -58,7 +58,7 @@ hardware_interface::CallbackReturn CanSystem::on_init(const hardware_interface::
 hardware_interface::CallbackReturn CanSystem::on_configure(const rclcpp_lifecycle::State &) {
   try {
     runtime_->reset_session();
-    runtime_->start(true);
+    runtime_->start(false);
     if (!runtime_->snapshot().open) { runtime_->shutdown(); return hardware_interface::CallbackReturn::ERROR; }
     diagnostics_ = std::make_shared<robot_can_diagnostics::DiagnosticsNode>(runtime_, config_);
     executor_ = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();

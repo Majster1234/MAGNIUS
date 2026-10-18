@@ -13,3 +13,12 @@ float64 enable_age_seconds
 bool can_jog
 bool can_zero
 string motion
+bool joint_configured
+bool calibration_valid
+bool joint_position_known
+float64 joint_position_rad
+float64 joint_lower_rad
+float64 joint_upper_rad
+float64 jog_min_velocity_rad_s
+float64 jog_max_velocity_rad_s
+string configuration_message

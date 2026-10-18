@@ -1,13 +1,27 @@
 """Panel i diagnostyka, bez uruchamiania kontrolerów ani napędów."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler, SetEnvironmentVariable
+from pathlib import Path
+from ament_index_python.packages import get_package_share_directory
+from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler, SetEnvironmentVariable, OpaqueFunction, LogInfo
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch.conditions import IfCondition
+
+
+def preview(context):
+    try:
+        model = Path(LaunchConfiguration('preview_urdf').perform(context)).read_text()
+    except OSError as error:
+        return [LogInfo(msg=f'Podgląd URDF niedostępny: {error}')]
+    return [Node(package='robot_state_publisher', executable='robot_state_publisher',
+                 namespace='/robot/preview', name='state_publisher', output='screen',
+                 parameters=[{'robot_description': model, 'frame_prefix': 'preview/', 'publish_frequency': 20.0}],
+                 remappings=[('joint_states', '/robot/preview/joint_states'),
+                             ('/tf', '/robot/preview/tf'), ('/tf_static', '/robot/preview/tf_static')])]
 
 
 def generate_launch_description():
@@ -31,6 +45,9 @@ def generate_launch_description():
             'port': ParameterValue(LaunchConfiguration('port'), value_type=int),
             'can_interface': LaunchConfiguration('can_interface'),
         }])
+    configuration = Node(package='robot_configuration', executable='configuration', output='screen',
+                         condition=IfCondition(LaunchConfiguration('configuration_enabled')),
+                         parameters=[{'configuration_dir': LaunchConfiguration('configuration_dir')}])
     return LaunchDescription([
         DeclareLaunchArgument('lan_interface', default_value='enp2s0'),
         DeclareLaunchArgument('lan_subnet', default_value='192.168.1.0/24'),
@@ -39,6 +56,10 @@ def generate_launch_description():
         DeclareLaunchArgument('can_bitrate', default_value='500000'),
         DeclareLaunchArgument('can_timeout_ms', default_value='20'),
         DeclareLaunchArgument('manual_max_rpm', default_value='30'),
+        DeclareLaunchArgument('preview_enabled', default_value='true'),
+        DeclareLaunchArgument('configuration_dir', default_value=str(Path.home() / '.local/state/robot/configuration')),
+        DeclareLaunchArgument('configuration_enabled', default_value='true'),
+        DeclareLaunchArgument('preview_urdf', default_value=str(Path(get_package_share_directory('robot_description')) / 'urdf/preview_6dof.example.urdf')),
         DeclareLaunchArgument('standalone_can', default_value='true',
                               description='false, gdy właścicielem CAN jest plugin robot_hardware'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '1'),
@@ -46,5 +67,6 @@ def generate_launch_description():
         RegisterEventHandler(OnProcessExit(
             target_action=bridge,
             on_exit=[EmitEvent(event=Shutdown(reason='Backend zakończył działanie'))])),
-        monitor, can_diagnostics, bridge,
+        monitor, can_diagnostics, bridge, configuration,
+        OpaqueFunction(function=preview, condition=IfCondition(LaunchConfiguration('preview_enabled'))),
     ])

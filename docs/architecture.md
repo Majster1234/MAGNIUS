@@ -16,6 +16,12 @@
 
 Harmonogram, arbitraż źródeł, interfejsy i warunki aktywacji opisuje
 [strategia CAN](can_strategy.md). Model i konfiguracja MoveIt wymagają danych robota.
+Panel ręczny zawiera [podgląd URDF 3D](robot_preview.md): przykładowy model
+ROS w `/robot/preview` i ten sam strumień pozycji. Osie skonfigurowane uwzględniają
+przekładnie, kierunki i offsety; pozostałe mają demonstracyjne odwzorowanie 1:1.
+Węzeł `robot_configuration` zarządza snapshotami JSON i transakcją zastosowania;
+podgląd szkicu nie zmienia ROS przed zatwierdzeniem. Opis: [konfiguracja](configuration.md).
+Ta geometria służy wyłącznie wizualizacji, bez dodatkowych odczytów CAN.
 
 ```mermaid
 flowchart TD
@@ -104,7 +110,7 @@ Eksport pluginu i test jego ładowania znajdują się w `robot_hardware`.
   przed narzędziem. Tych nazw należy używać w modelu, adapterze i kontrolerze.
 - Jednostki po stronie ROS: radiany, rad/s i rad/s²; długości modelu w metrach.
 - Wymiary, osie obrotu, układy współrzędnych, masy i bezwładności wymagają danych
-  mechanicznych. Szkielet nie dostarcza zastępczej geometrii.
+  mechanicznych. Przykładowy URDF jest oddzielony od rzeczywistej konfiguracji.
 - CAN ID 1–6 odpowiadają J1–J6. Dla każdego przegubu trzeba potwierdzić firmware, przełożenie, kierunek,
   offset zera, limity pozycji, prędkości i przyspieszenia oraz metodę bazowania.
 - Przed implementacją trzeba określić częstotliwość cyklu sterowania, sposób

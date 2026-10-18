@@ -5,3 +5,11 @@ Typowane wiadomości i usługi ręcznego sterowania wałami silników CAN 1–6.
 `SetMotorEnable`, `ZeroMotor`, `JogMotor` odrzucają przeterminowane żądania;
 czas monotoniczny pochodzi z tego samego komputera, a nie z przeglądarki.
 Szczegóły: [sterowanie ręczne](../../../docs/manual_control.md).
+
+`JointConfiguration`/`RobotConfiguration` opisują konfigurację w SI.
+`ConfigureRobot` obsługuje przygotowanie, commit, rollback, finish, status i odtworzenie
+przy starcie. Żądania mają identyfikator i czas monotoniczny. `ConfigurationCommand`
+przekazuje wersjonowany JSON do jedynego właściciela plików, `robot_configuration`.
+`JogJoint` ma prędkość rad/s i rewizję; `JogMotor.rpm` nadal oznacza RPM wału.
+`ManualState` udostępnia rewizję i obie przestrzenie pomiarów.
+Opis: [konfiguracja](../../../docs/configuration.md).

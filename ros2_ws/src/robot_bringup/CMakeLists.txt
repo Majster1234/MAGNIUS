@@ -7,6 +7,7 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_motion_gate test/test_motion_gate.py)
   ament_add_pytest_test(test_motion_gate_ros test/test_motion_gate_ros.py TIMEOUT 30)
+  ament_add_pytest_test(test_preview_ros test/test_preview_ros.py TIMEOUT 30)
 endif()
 
 install(DIRECTORY launch config

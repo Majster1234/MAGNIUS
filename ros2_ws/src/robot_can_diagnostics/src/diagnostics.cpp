@@ -1,4 +1,5 @@
 #include "robot_can_diagnostics/diagnostics.hpp"
+#include "robot_can_diagnostics/preview.hpp"
 #include "mks_servo_can/trace.hpp"
 #include <algorithm>
 #include <cmath>
@@ -56,6 +57,30 @@ std::string timestamp(mks_servo_can::Time stamp, mks_servo_can::Time monotonic_n
 DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runtime,
                                const mks_servo_can::BusConfig &config)
     : Node("robot_can_diagnostics"), runtime_(std::move(runtime)), config_(config) {
+  runtime_->require_configuration();
+  using Configure = robot_control_interfaces::srv::ConfigureRobot;
+  configuration_ = create_service<Configure>("/robot/configuration/control",
+      [this](std::shared_ptr<Configure::Request> req, std::shared_ptr<Configure::Response> res) {
+        if (resetting_ || req->phase > Configure::Request::BOOTSTRAP) { res->message = "Reset CAN lub błędna faza"; return; }
+        const auto issued = req->issued_monotonic_ns;
+        const auto now = static_cast<std::uint64_t>(mks_servo_can::trace_ns(mks_servo_can::Clock::now()));
+        if (req->phase != Configure::Request::STATUS && (!issued || issued > now || now - issued > 3000000000ULL)) {
+          res->message = "Przeterminowane żądanie konfiguracji"; return;
+        }
+        mks_servo_can::RobotProfile profile; profile.revision = req->configuration.revision;
+        profile.changed = req->configuration.changed;
+        profile.calibration_invalid = req->configuration.calibration_invalid;
+        for (std::size_t i = 0; i < 6; ++i) {
+          const auto &a = req->configuration.axes[i];
+          if (a.axis != i + 1) { res->message = "Wymagane osie 1–6 w stałej kolejności"; return; }
+          profile.axes[i] = {a.configured, a.gear_ratio, static_cast<double>(a.direction), a.zero_offset_rad,
+              a.lower_rad, a.upper_rad, a.velocity_rad_s, a.acceleration_rad_s2};
+        }
+        const auto result = runtime_->configure(static_cast<mks_servo_can::ConfigurationPhase>(req->phase),
+            req->operation_id, req->expected_revision, profile);
+        res->accepted = result.accepted; res->message = result.message; res->revision = result.revision;
+        res->operation_id = result.operation_id; res->stage = result.stage; res->locked = result.locked;
+      });
   publisher_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/robot/can/diagnostics", rclcpp::QoS(1));
   using Enable = robot_control_interfaces::srv::SetMotorEnable;
   using Zero = robot_control_interfaces::srv::ZeroMotor;
@@ -78,7 +103,17 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
           req->rpm, req->session, req->sequence, mks_servo_can::Time(std::chrono::nanoseconds(req->issued_monotonic_ns)));
     res->message = res->accepted ? "Komenda JOG przyjęta" : "JOG odrzucony: ENABLE, świeżość danych, limit lub inny właściciel ruchu";
   });
+  using JointJog = robot_control_interfaces::srv::JogJoint;
+  joint_jog_ = create_service<JointJog>("/robot/manual/jog_joint", [this, fresh_request](std::shared_ptr<JointJog::Request> req, std::shared_ptr<JointJog::Response> res) {
+    res->accepted = !resetting_ && req->action <= JointJog::Request::STOP && fresh_request(req->issued_monotonic_ns) &&
+        runtime_->joint_jog(static_cast<mks_servo_can::JogAction>(req->action), req->axis, req->direction,
+            req->velocity_rad_s, req->revision, req->session, req->sequence,
+            mks_servo_can::Time(std::chrono::nanoseconds(req->issued_monotonic_ns)));
+    res->message = res->accepted ? "JOG przegubu przyjęty" : "JOG przegubu odrzucony: rewizja, profil, limit lub gotowość osi";
+  });
   manual_publisher_ = create_publisher<robot_control_interfaces::msg::ManualState>("/robot/manual/state", rclcpp::QoS(1));
+  // Podgląd nie może czekać na potwierdzenia wolnego odbiorcy DDS.
+  preview_publisher_ = create_publisher<sensor_msgs::msg::JointState>("/robot/preview/joint_states", rclcpp::QoS(6).best_effort());
   manual_timer_ = create_wall_timer(50ms, [this] { publish_manual(); });
   if (config.motion_enabled) {
     lease_ = create_subscription<std_msgs::msg::UInt64MultiArray>("/robot/motion/lease", rclcpp::QoS(1).best_effort(),
@@ -118,6 +153,7 @@ void DiagnosticsNode::publish_manual() {
   out.monotonic_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
   out.busy = state.busy || resetting_; out.fault = state.fault; out.active_axis = state.axis; out.max_rpm = state.max_rpm;
   out.operation = state.operation; out.message = state.message;
+  out.configuration_revision = state.configuration_revision;
   const auto sample_age = [now](const auto &sample) { return sample.stamp == mks_servo_can::Time{} ? -1.0 : std::chrono::duration<double>(now - sample.stamp).count(); };
   for (std::size_t i = 0; i < state.axes.size(); ++i) {
     const auto &a = state.axes[i]; auto &b = out.axes[i]; b.axis = a.axis; b.available = a.available;
@@ -125,6 +161,11 @@ void DiagnosticsNode::publish_manual() {
     b.position_known = a.position.valid; b.position_degrees = a.position.value; b.position_age_seconds = sample_age(a.position);
     b.speed_known = a.speed.valid; b.speed_rpm = a.speed.value; b.speed_age_seconds = sample_age(a.speed);
     b.enable_age_seconds = sample_age(a.enable); b.can_jog = a.can_jog && !resetting_; b.can_zero = a.can_zero && !resetting_; b.motion = a.motion;
+    b.joint_configured = a.configured; b.calibration_valid = a.calibration_valid;
+    b.joint_position_known = a.joint_position.valid; b.joint_position_rad = a.joint_position.value;
+    b.joint_lower_rad = a.joint_lower; b.joint_upper_rad = a.joint_upper;
+    b.jog_min_velocity_rad_s = a.minimum_velocity; b.jog_max_velocity_rad_s = a.maximum_velocity;
+    b.configuration_message = a.configuration_message;
     mks_servo_can::TraceEvent e; e.event = "ros_axis"; e.axis = a.axis; e.request_ns = out.monotonic_ns;
     e.position_age_ns = a.position.stamp == mks_servo_can::Time{} ? -1 : mks_servo_can::trace_ns(now) - mks_servo_can::trace_ns(a.position.stamp);
     e.speed_age_ns = a.speed.stamp == mks_servo_can::Time{} ? -1 : mks_servo_can::trace_ns(now) - mks_servo_can::trace_ns(a.speed.stamp);
@@ -138,6 +179,8 @@ void DiagnosticsNode::publish_manual() {
   e.flags = unsigned(out.busy) | (unsigned(out.fault) << 1); e.axis = out.active_axis;
   mks_servo_can::trace(e); last_manual_publish_ = now;
   manual_publisher_->publish(out);
+  for (const auto &sample : preview_states(state, now, get_clock()->now(), last_preview_))
+    preview_publisher_->publish(sample);
   const auto end = mks_servo_can::Clock::now();
   if (end - begin > 5ms) { e.event = "ros_publish_slow"; e.duration_ns = mks_servo_can::trace_ns(end) - mks_servo_can::trace_ns(begin); mks_servo_can::trace(e); }
 }

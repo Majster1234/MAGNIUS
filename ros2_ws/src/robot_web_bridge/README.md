@@ -26,4 +26,8 @@ Brak kont i CORS. API ręczne przekazuje żądania do C++ przez ROS; Python
 nie posiada transportu CAN ani pętli ruchu. Opis usług i WebSocket:
 [sterowanie ręczne](../../../docs/manual_control.md).
 
+`/api/v1/configuration` i `/snapshots` przekazują operacje do `robot_configuration`.
+Backend nie jest drugim właścicielem plików. Snapshoty, import/eksport i zastosowanie:
+[konfiguracja](../../../docs/configuration.md).
+
 Uruchomienie i testy: [docs/web_status.md](../../../docs/web_status.md).

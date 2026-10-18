@@ -18,11 +18,21 @@ class ManualStore:
         state = {'busy': message.busy, 'fault': message.fault,
                  'active_axis': message.active_axis, 'max_rpm': message.max_rpm,
                  'operation': message.operation, 'message': message.message, 'axes': []}
+        state['configuration_revision'] = getattr(message, 'configuration_revision', 'initial')
         fields = ('axis', 'available', 'prepared', 'can_jog', 'can_zero', 'motion',
                   'enable_known', 'enabled', 'position_known', 'position_degrees',
                   'position_age_seconds', 'speed_known', 'speed_rpm',
                   'speed_age_seconds', 'enable_age_seconds')
         state['axes'] = [{key: getattr(axis, key) for key in fields} for axis in message.axes]
+        for source, axis in zip(message.axes, state['axes']):
+            for key in ('joint_configured', 'calibration_valid', 'joint_position_known'):
+                axis[key] = getattr(source, key, False)
+            axis['configuration_message'] = getattr(source, 'configuration_message', '')
+            import math
+            for source_key, target_key in (('joint_position_rad', 'joint_position_degrees'),
+                    ('joint_lower_rad', 'joint_lower_degrees'), ('joint_upper_rad', 'joint_upper_degrees'),
+                    ('jog_min_velocity_rad_s', 'jog_min_velocity_degrees_s'), ('jog_max_velocity_rad_s', 'jog_max_velocity_degrees_s')):
+                axis[target_key] = math.degrees(getattr(source, source_key, 0.0))
         stamp = message.monotonic_ns / 1e9
         with self.lock:
             if self.stamp is not None and stamp <= self.stamp:
@@ -61,6 +71,7 @@ class ManualStore:
             axis['available'] = fresh and axis.get('available', False) and axis['position_known']
             axis['can_jog'] = control_fresh and axis.get('can_jog', False) and axis['available'] and axis['enable_known'] and axis['speed_known']
             axis['can_zero'] = control_fresh and axis.get('can_zero', False) and axis['available'] and axis['speed_known']
+            axis['joint_position_known'] = axis.get('joint_position_known', False) and axis['position_known'] and axis.get('calibration_valid', False)
             if not axis['speed_known']:
                 axis['motion'] = 'stan nieznany'
         return state
@@ -68,8 +79,8 @@ class ManualStore:
 
 class ManualRosClient:
     def __init__(self, node):
-        from robot_control_interfaces.srv import JogMotor, SetMotorEnable, ZeroMotor
-        self.types = {'enable': SetMotorEnable, 'zero': ZeroMotor, 'jog': JogMotor}
+        from robot_control_interfaces.srv import JogMotor, JogJoint, SetMotorEnable, ZeroMotor
+        self.types = {'enable': SetMotorEnable, 'zero': ZeroMotor, 'jog': JogMotor, 'jog_joint': JogJoint}
         self.clients = {name: node.create_client(kind, '/robot/manual/' + name)
                         for name, kind in self.types.items()}
         self.pending = 0

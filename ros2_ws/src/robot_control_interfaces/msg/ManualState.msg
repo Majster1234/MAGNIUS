@@ -6,3 +6,4 @@ uint16 max_rpm
 string operation
 string message
 ManualAxisState[6] axes
+string configuration_revision

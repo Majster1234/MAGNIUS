@@ -27,6 +27,11 @@ class BusRuntime {
   bool manual_zero(unsigned axis);
   bool manual_jog(JogAction action, unsigned axis, int direction, unsigned rpm,
                   const std::string &session, std::uint64_t sequence, Time issued);
+  bool joint_jog(JogAction action, unsigned axis, int direction, double velocity,
+      const std::string &revision, const std::string &session, std::uint64_t sequence, Time issued);
+  void require_configuration();
+  ConfigurationResult configure(ConfigurationPhase phase, const std::string &operation,
+      const std::string &expected, const RobotProfile &profile);
  private:
   std::mutex mutex_;
   CanBusManager manager_;

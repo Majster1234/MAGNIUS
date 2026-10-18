@@ -1,0 +1,18 @@
+uint8 PREPARE=0
+uint8 COMMIT=1
+uint8 ROLLBACK=2
+uint8 FINISH=3
+uint8 STATUS=4
+uint8 BOOTSTRAP=5
+uint8 phase
+uint64 issued_monotonic_ns
+string operation_id
+string expected_revision
+RobotConfiguration configuration
+---
+bool accepted
+string message
+string revision
+string operation_id
+string stage
+bool locked

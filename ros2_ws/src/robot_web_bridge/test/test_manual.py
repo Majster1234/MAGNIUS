@@ -154,6 +154,40 @@ def test_jog_rate_limit_bounds_burst_and_sustained_rate():
         assert limit.allow(now + i * .05)
 
 
+def test_joint_jog_converts_degrees_to_si_and_disconnect_uses_joint_stop(manual_app):
+    app, calls = manual_app
+    async def scenario():
+        incoming = asyncio.Queue()
+        await incoming.put({'type': 'websocket.connect'})
+        await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(
+            action='start', axis=2, sequence=1, direction=-1, space='joint', velocity_degrees_s=30., revision='revision-1'))})
+        async def send(event):
+            if event['type'] == 'websocket.send' and json.loads(event['text'])['type'] == 'ack':
+                await incoming.put({'type': 'websocket.disconnect', 'code': 1000})
+        await asyncio.wait_for(app(scope('websocket', '/api/v1/manual/ws'), incoming.get, send), 1.)
+    asyncio.run(scenario())
+    import math
+    assert calls[0][0] == calls[-1][0] == 'jog_joint'
+    assert calls[0][1]['velocity_rad_s'] == pytest.approx(math.pi/6)
+    assert calls[0][1]['revision'] == 'revision-1'
+    assert calls[-1][1]['action'] == 2 and calls[-1][1]['velocity_rad_s'] == 0
+
+
+def test_joint_position_freshness_and_units():
+    message = state(); message.configuration_revision = 'revision-1'
+    axis = message.axes[0]
+    axis.joint_configured = axis.calibration_valid = axis.joint_position_known = True
+    axis.joint_position_rad = -.5; axis.joint_lower_rad = -1.; axis.joint_upper_rad = 1.
+    axis.jog_min_velocity_rad_s = .01; axis.jog_max_velocity_rad_s = .1
+    now = [10.0]; store = ManualStore(lambda: now[0]); store.update(message)
+    result = store.snapshot()
+    assert result['configuration_revision'] == 'revision-1'
+    import math
+    assert result['axes'][0]['joint_position_degrees'] == pytest.approx(math.degrees(-.5))
+    now[0] += .3
+    assert not store.snapshot()['axes'][0]['joint_position_known']
+
+
 def test_manual_ws_flood_still_stops_owner(manual_app):
     app, calls = manual_app
     async def scenario():

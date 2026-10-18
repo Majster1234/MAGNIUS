@@ -48,4 +48,11 @@ describe("JOG przytrzymywany przez operatora", () => {
     it("zamknięty socket nie wznowi ruchu", () => {
         const r = rig(); r.socket.readyState = 3; expect(r.control.start(1, 1, 30)).toBe(false);
     });
+    it("JOG przegubu zachowuje jednostki i rewizję także przy STOP", () => {
+        const r=rig();expect(r.control.start(2,-1,2.4,"revision-1")).toBe(true);
+        expect(r.commands[0]).toMatchObject({space:"joint",velocity_degrees_s:2.4,rpm:0,revision:"revision-1"});
+        r.control.ack(1,true);r.advance(50);r.control.pulse();
+        expect(r.commands[1]).toMatchObject({action:"keepalive",revision:"revision-1"});
+        r.control.stop();expect(r.commands.at(-1)).toMatchObject({action:"stop",space:"joint",revision:"revision-1"});
+    });
 });

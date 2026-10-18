@@ -7,6 +7,10 @@ struct ManualAxisState {
   bool available{}, prepared{}, can_jog{}, can_zero{};
   Sample<bool> enable;
   Sample<double> position, speed;
+  Sample<double> joint_position;
+  bool configured{}, calibration_valid{};
+  double minimum_velocity{}, maximum_velocity{}, joint_lower{}, joint_upper{};
+  std::string configuration_message;
   std::string motion{"stan nieznany"};
 };
 struct ManualState {
@@ -14,6 +18,7 @@ struct ManualState {
   bool busy{}, fault{};
   unsigned axis{}, max_rpm{30};
   std::string operation, message{"Sterowanie ręczne gotowe"};
+  std::string configuration_revision{"initial"};
 };
 enum class JogAction { start, keepalive, stop };
 
@@ -25,6 +30,11 @@ class ManualMotorController {
   bool zero(unsigned axis, Time now);
   bool jog(JogAction action, unsigned axis, int direction, unsigned rpm,
            const std::string &session, std::uint64_t sequence, Time issued, Time now);
+  bool jog_joint(JogAction action, unsigned axis, int direction, double velocity,
+      const std::string &revision, const std::string &session, std::uint64_t sequence, Time issued, Time now);
+  void configuration_changed(const std::array<bool, kAxes> &changed);
+  bool configuration_stopped(unsigned axis, Time now) const;
+  bool calibration_valid(unsigned axis) const { return calibrated_[axis - 1]; }
   void tick(Time now);
   void reply(const std::vector<std::uint8_t> &data, Time stamp);
   void timeout();
@@ -52,9 +62,14 @@ class ManualMotorController {
   void observe_positions(Time now);
   bool ready(unsigned axis, Time now) const;
   double brake_distance(unsigned axis, double rpm, Time now) const;
+  bool limit_reached(unsigned axis, int direction, double rpm, Time now) const;
+  bool jog_impl(JogAction action, unsigned axis, int direction, double rpm,
+      const std::string &session, std::uint64_t sequence, Time issued, Time now, bool joint);
   void complete(Time now);
   CanBusManager &bus_;
   std::array<bool, kAxes> prepared_{};
+  std::array<bool, kAxes> calibrated_{}, profile_verified_{};
+  std::array<std::string, kAxes> configuration_messages_{};
   std::array<std::uint16_t, kAxes> microstep_{};
   std::array<Sample<std::int64_t>, kAxes> stationary_anchor_{};
   std::array<Sample<std::int64_t>, kAxes> jog_rest_anchor_{};
@@ -62,7 +77,8 @@ class ManualMotorController {
   std::array<Sample<double>, kAxes> velocity_{};
   std::array<Step, 24> steps_{};
   std::size_t step_{}, step_count_{};
-  unsigned axis_{}, rpm_{};
+  unsigned axis_{};
+  double rpm_{};
   int direction_{};
   Phase phase_{Phase::idle};
   Operation operation_{Operation::enable};

@@ -1,4 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { EventConsole, useEventConsole } from "./EventConsole";
+import { ConfigurationPreview } from "./ConfigurationPreview";
+import { dirtyKeys, fieldErrors } from "./configurationData";
+import { useConfiguration } from "./useConfiguration";
 
 type Field = {
     key: string; label: string; unit?: string; placeholder?: string; min?: number;
@@ -68,7 +72,17 @@ export function ConfigurationPage() {
     const [section, setSection] = useState<"system" | "robot">("system");
     const [tableView, setTableView] = useState<"geometry" | "limits">("geometry");
     const [draft, setDraft] = useState(readDraft);
+    const [nativeErrors, setNativeErrors] = useState<Record<string, string>>({});
+    const replaceDraft = useCallback((next: Record<string,string>) => {setDraft(next);setNativeErrors({});}, []);
     const [stored, setStored] = useState(true);
+    const [selectedAxis, setSelectedAxis] = useState(0);
+    const {entries, notice} = useEventConsole();
+    const hasLocal = useRef((() => {try { return sessionStorage.getItem(storageKey) !== null || sessionStorage.getItem(legacyStorageKey) !== null; } catch { return true; }})());
+    const fileInput = useRef<HTMLInputElement>(null);
+    const configuration = useConfiguration(draft, replaceDraft, section === "robot", hasLocal.current, notice);
+    const dirty = dirtyKeys(draft, configuration.baseline), errors = {...fieldErrors(draft), ...nativeErrors}, invalid = Object.keys(errors).length > 0;
+    const applying = configuration.status && !["idle", "done", "failed", "uncertain"].includes(configuration.status.operation.phase);
+    const conflict = configuration.status && configuration.baseRevision !== configuration.status.active.revision;
     useEffect(() => {
         try {
             sessionStorage.setItem(storageKey, JSON.stringify(draft));
@@ -79,12 +93,16 @@ export function ConfigurationPage() {
     function control(prefix: string, field: Field, axis?: number) {
         const key = `${prefix}.${field.key}`, id = `config-${key}`;
         const label = axis ? `${field.label} J${axis}${field.unit ? ` [${field.unit}]` : ""}` : undefined;
-        const change = (value: string) => setDraft(previous => ({ ...previous, [key]: value.slice(0, 256) }));
-        return field.options ? <select id={id} aria-label={label} value={draft[key]} onChange={event => change(event.target.value)}>
+        const change = (value: string, bad = false) => {
+            setDraft(previous => ({ ...previous, [key]: value.slice(0, 256) }));
+            setNativeErrors(previous => {const next = {...previous};if(bad)next[key] = "Dokończ wpisywanie poprawnej liczby";else delete next[key];return next;});
+        };
+        const attributes = {className: `${dirty.has(key) ? "field-dirty" : ""} ${errors[key] ? "field-invalid" : ""}`, "data-dirty":dirty.has(key), "aria-invalid": !!errors[key], title:errors[key] || (dirty.has(key) ? "Zmieniono względem konfiguracji ROS" : ""), onFocus: () => setSelectedAxis(axis ?? 0), onMouseEnter: () => setSelectedAxis(axis ?? 0)};
+        return field.options ? <select {...attributes} id={id} aria-label={label} value={draft[key]} onChange={event => change(event.target.value)}>
             <option value="">{axis ? "—" : "Nie określono"}</option>{field.options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-        </select> : <input id={id} aria-label={label} type={field.numeric ? "number" : "text"} step={field.numeric ? "any" : undefined}
+        </select> : <input {...attributes} id={id} aria-label={label} type={field.numeric ? "number" : "text"} step={field.numeric ? "any" : undefined}
             min={field.min} maxLength={256} placeholder={axis ? "—" : field.placeholder ?? "Nie określono"} value={draft[key]}
-            onChange={event => change(event.target.value)} />;
+            onChange={event => change(event.target.value, event.currentTarget.validity.badInput)} />;
     }
     function fields(prefix: string, definitions: Field[]) {
         return <div className="settings-fields">{definitions.map(field => {
@@ -96,7 +114,8 @@ export function ConfigurationPage() {
         })}</div>;
     }
     return <section className="configuration-screen" aria-label="Konfiguracja">
-        <header className="configuration-header"><h1>Konfiguracja</h1><span className="badge warn">Szkic lokalny</span><a href="#overview">← Przegląd systemu</a></header>
+        <header className="configuration-header"><h1>Konfiguracja</h1><span className={`badge ${dirty.size ? "warn" : "ok"}`}>{dirty.size ? `Szkic · ${dirty.size} zmian` : "Bez zmian w szkicu"}</span>{conflict && <span className="badge error">Konflikt rewizji</span>}<a href="#overview">← Przegląd systemu</a></header>
+        {section === "robot" && <EventConsole entries={entries}/>}
         <div className="configuration-tabs" role="tablist" aria-label="Obszar konfiguracji" onKeyDown={event => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
             event.preventDefault();
@@ -111,11 +130,27 @@ export function ConfigurationPage() {
             </button>
         </div>
         {section === "robot" && <p className="configuration-notice" role="status">{stored
-            ? "Szkic jest zachowywany w tej karcie przeglądarki. Zastosowanie ustawień w robocie będzie dostępne w kolejnym etapie."
+            ? "Szkic i model aktualizują się lokalnie. Bursztynowe pola różnią się od konfiguracji ROS; snapshot nie stosuje zmian w sterowaniu."
             : "Przeglądarka blokuje zapis szkicu. Wpisy pozostaną tylko do odświeżenia lub opuszczenia strony."}</p>}
         {section === "system" ? <div id="config-system-panel" role="tabpanel" aria-labelledby="config-system-tab" className="settings-system-empty">
             <p>Ustawienia będą dodawane wraz z rozwojem projektu.</p>
         </div> : <div id="config-robot-panel" role="tabpanel" aria-labelledby="config-robot-tab" className="robot-settings">
+            <div className="snapshot-toolbar" aria-label="Snapshoty konfiguracji">
+                <input aria-label="Nazwa snapshotu" placeholder="Nazwa snapshotu" maxLength={80} value={configuration.name} onChange={event => configuration.setName(event.target.value)}/>
+                <button disabled={!configuration.online || configuration.busy || invalid} onClick={configuration.saveSnapshot}>Zapisz snapshot</button>
+                <select aria-label="Zapisany snapshot" value={configuration.selected} onChange={event => configuration.setSelected(event.target.value)}><option value="">Wybierz snapshot</option>{configuration.items.map(item => <option key={item.id} value={item.id}>{item.name} · {new Date(item.created_at).toLocaleString("pl-PL")}</option>)}</select>
+                <button disabled={!configuration.selected || configuration.busy} onClick={configuration.loadSnapshot}>Wczytaj</button>
+                <button disabled={!configuration.selected || configuration.busy} onClick={configuration.deleteSnapshot}>Usuń</button>
+                <button aria-label="Poprzednia strona snapshotów" disabled={configuration.cursors.length < 2 || configuration.busy} onClick={() => configuration.page(false)}>‹</button><button aria-label="Następna strona snapshotów" disabled={!configuration.nextCursor || configuration.busy} onClick={() => configuration.page(true)}>›</button>
+                <input hidden ref={fileInput} type="file" accept=".json,application/json" onChange={event => {const file = event.target.files?.[0]; if(file) void configuration.importFile(file); event.target.value = "";}}/>
+                <button onClick={() => fileInput.current?.click()} disabled={configuration.busy}>Importuj JSON</button>
+                <button onClick={configuration.exportFile} disabled={configuration.busy || invalid}>Eksportuj JSON</button>
+                <button onClick={configuration.example}>Wczytaj przykład</button>
+                <button onClick={configuration.loadActive} disabled={!configuration.online || configuration.busy}>Wczytaj aktywną</button>
+                <button className="configuration-apply" onClick={configuration.apply} disabled={!configuration.online || configuration.busy || !!applying || !!conflict || invalid || configuration.status?.operation.phase === "uncertain"}>{applying ? "Stosowanie…" : "Zapisz do ROS"}</button>
+                {configuration.status?.operation.phase === "uncertain" && <button onClick={configuration.reconcile} disabled={configuration.busy}>Uzgodnij stan ROS</button>}
+            </div>
+            {invalid && <p className="configuration-validation" role="status">Popraw {Object.keys(errors).length} pól: {Object.values(errors)[0]}</p>}
             <section className="machine-panel" aria-label="Dane maszynowe">
                 <div className="machine-toolbar"><h2>Dane maszynowe</h2>
                     <div className="machine-view-control">
@@ -135,6 +170,7 @@ export function ConfigurationPage() {
                 </table></div>
                 <p className="machine-note">{tableView === "geometry" ? "Translacja i rotacja względem poprzedniego członu." : "Przełożenie: obroty silnika na obrót przegubu. Limity dotyczą przegubu."}</p>
             </section>
+            <ConfigurationPreview draft={draft} view={tableView} selected={selectedAxis} nativeErrors={nativeErrors}/>
             <div className="settings-extras">
                 <SettingsCard title="Dane robota" description="Nazwy i układy odniesienia wspólne dla modelu.">{fields("robot", robotFields)}</SettingsCard>
                 <SettingsCard title="Narzędzie i TCP" description="TCP względem kołnierza; środek masy w układzie narzędzia.">{fields("tool", toolFields)}</SettingsCard>

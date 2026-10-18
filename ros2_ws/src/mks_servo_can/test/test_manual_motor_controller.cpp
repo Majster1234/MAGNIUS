@@ -325,3 +325,142 @@ TEST(ManualMotor, FullScanEchoCannotInventDevices) {
   unsigned count = 0; for (const auto &d : snapshot.devices) count += d.detected;
   EXPECT_EQ(count, 3u); EXPECT_TRUE(r.port->writes.empty());
 }
+
+namespace {
+RobotProfile joint_profile() {
+  RobotProfile profile; profile.revision = "profile-1"; profile.changed[0] = true;
+  profile.axes[0] = {true, 10, -1, 0, -1, 1, .5, 10};
+  return profile;
+}
+void apply_profile(Rig &r, const RobotProfile &profile, const std::string &operation = "apply-1", const std::string &previous = "initial") {
+  const auto prepare = r.bus.configure(ConfigurationPhase::prepare, operation, previous, profile, r.now);
+  ASSERT_TRUE(prepare.accepted) << prepare.message;
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::commit, operation, "", profile, r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish, operation, "", profile, r.now).accepted);
+}
+}
+TEST(Configuration, StartupBlocksEnableUntilBootstrapAndNeverEnablesAutomatically) {
+  Rig r; r.bus.require_configuration();
+  EXPECT_FALSE(r.manual().set_enable(1, true, r.now)); EXPECT_TRUE(r.bus.service_allowed());
+  RobotProfile profile;
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::bootstrap, "boot", "", profile, r.now).accepted);
+  EXPECT_FALSE(r.manual().set_enable(1, true, r.now));
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish, "boot", "", profile, r.now).accepted);
+  EXPECT_TRUE(r.port->writes.empty());r.enable(2);
+}
+TEST(Configuration, EnableStopAndRevisionGuardsAndRollback) {
+  Rig r; auto profile = joint_profile(); r.enable();
+  EXPECT_FALSE(r.bus.configure(ConfigurationPhase::prepare,"apply","initial",profile,r.now).accepted);
+  ASSERT_TRUE(r.manual().set_enable(1,false,r.now));r.step(160);
+  EXPECT_FALSE(r.bus.configure(ConfigurationPhase::prepare,"apply","wrong",profile,r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::prepare,"apply","initial",profile,r.now).accepted);
+  EXPECT_FALSE(r.manual().set_enable(2,true,r.now));EXPECT_FALSE(r.bus.start_scan());
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::commit,"apply","",profile,r.now).accepted);
+  EXPECT_TRUE(r.state().axes[0].configured);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::rollback,"apply","",profile,r.now).accepted);
+  EXPECT_FALSE(r.state().axes[0].configured);
+  EXPECT_FALSE(r.bus.configure(ConfigurationPhase::commit,"apply","",profile,r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish,"apply","",profile,r.now).accepted);
+  EXPECT_FALSE(r.state().busy);EXPECT_FALSE(r.port->motors[1].enabled);
+}
+TEST(Configuration, CancelledLatePrepareAndCommitCannotApply) {
+  Rig r; auto profile=joint_profile();
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::rollback,"cancelled","",profile,r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish,"cancelled","",profile,r.now).accepted);
+  EXPECT_FALSE(r.bus.configure(ConfigurationPhase::prepare,"cancelled","initial",profile,r.now).accepted);
+  EXPECT_FALSE(r.bus.configure(ConfigurationPhase::commit,"cancelled","",profile,r.now).accepted);
+  EXPECT_FALSE(r.state().axes[0].configured);
+}
+TEST(Configuration, JointJogUsesRatioDirectionAndFloorsSpeedWithoutLegacyBypass) {
+  Rig r; apply_profile(r,joint_profile());r.enable();
+  EXPECT_TRUE(r.state().axes[0].configured);EXPECT_TRUE(r.state().axes[0].calibration_valid);
+  EXPECT_FALSE(r.start());
+  EXPECT_FALSE(r.manual().jog_joint(JogAction::start,1,1,.1,"stale","owner",1,r.now,r.now));
+  EXPECT_FALSE(r.manual().jog_joint(JogAction::start,1,1,.001,"profile-1","owner",1,r.now,r.now));
+  ASSERT_TRUE(r.manual().jog_joint(JogAction::start,1,1,.1,"profile-1","owner",1,r.now,r.now));
+  r.step(160);
+  EXPECT_DOUBLE_EQ(r.port->motors[1].target,-9);
+  EXPECT_GT(r.state().axes[0].joint_position.value,0);EXPECT_LT(r.state().axes[0].position.value,0);
+  EXPECT_FALSE(r.manual().jog(JogAction::start,2,1,30,"other",1,r.now,r.now));
+  ASSERT_TRUE(r.manual().jog_joint(JogAction::stop,1,0,0,"old-revision","owner",2,r.now,r.now));
+  r.step(700);EXPECT_FALSE(r.state().busy);
+}
+TEST(Configuration, JointLimitIncludesBrakingAndWatchdogStillStops) {
+  Rig r;auto profile=joint_profile();profile.axes[0].lower=-.03;profile.axes[0].upper=.03;
+  apply_profile(r,profile);r.enable();
+  ASSERT_TRUE(r.manual().jog_joint(JogAction::start,1,1,.1,"profile-1","owner",1,r.now,r.now));
+  unsigned sequence=1;
+  for(int i=0;i<30&&r.state().busy;i++){
+    r.step(50);r.manual().jog_joint(JogAction::keepalive,1,0,0,"profile-1","owner",++sequence,r.now,r.now);
+  }
+  EXPECT_FALSE(r.state().busy);EXPECT_LE(r.state().axes[0].joint_position.value,.03);
+  r.step(100);
+  ASSERT_TRUE(r.manual().jog_joint(JogAction::start,1,-1,.1,"profile-1","owner",++sequence,r.now,r.now));
+  r.step(900);EXPECT_FALSE(r.state().busy);EXPECT_FALSE(r.state().fault);
+}
+TEST(Configuration, UnsupportedAccelerationRejectsPreparationWithoutEnablingOrFaultingOtherAxes) {
+  Rig r;auto profile=joint_profile();profile.axes[0].acceleration=.001;apply_profile(r,profile);
+  ASSERT_TRUE(r.manual().set_enable(1,true,r.now));r.step(300);
+  EXPECT_FALSE(r.port->motors[1].enabled);EXPECT_FALSE(r.state().axes[0].can_jog);
+  EXPECT_NE(r.state().axes[0].configuration_message.find("przyspieszenie"),std::string::npos);
+  EXPECT_FALSE(r.state().fault);r.enable(2);
+}
+TEST(Configuration, AccelerationLimitUsesJointDegreesAndReportsBothValues) {
+  Rig r; auto profile = joint_profile();
+  profile.axes[0].gear_ratio = 1;
+  profile.axes[0].acceleration = 100 * std::acos(-1.0) / 180;
+  apply_profile(r, profile);
+  ASSERT_TRUE(r.manual().set_enable(1, true, r.now)); r.step(300);
+  EXPECT_FALSE(r.port->motors[1].enabled);
+  EXPECT_FALSE(r.state().axes[0].can_jog);
+  EXPECT_FALSE(r.state().fault);
+  const auto message = r.state().axes[0].configuration_message;
+  EXPECT_NE(message.find("470.6 °/s²"), std::string::npos) << message;
+  EXPECT_NE(message.find("100.0 °/s²"), std::string::npos) << message;
+  EXPECT_EQ(message.find("rad/s"), std::string::npos) << message;
+}
+TEST(Configuration, AccelerationLimitAccountsForActualGearRatio) {
+  Rig r; auto profile = joint_profile();
+  profile.axes[0].gear_ratio = 5;
+  profile.axes[0].acceleration = 100 * std::acos(-1.0) / 180;
+  apply_profile(r, profile); r.enable();
+  EXPECT_TRUE(r.port->motors[1].enabled);
+  EXPECT_TRUE(r.state().axes[0].can_jog);
+}
+TEST(Configuration, RepresentableAccelerationLimitAllowsPreparation) {
+  Rig r; auto profile = joint_profile();
+  profile.axes[0].gear_ratio = 1;
+  profile.axes[0].acceleration = 500 * std::acos(-1.0) / 180;
+  apply_profile(r, profile); r.enable();
+  EXPECT_TRUE(r.port->motors[1].enabled);
+  EXPECT_TRUE(r.state().axes[0].can_jog);
+}
+TEST(Configuration, ZeroInvalidatesCalibrationAndResetCannotBypassIt) {
+  Rig r;apply_profile(r,joint_profile());r.enable();r.step(200);
+  ASSERT_TRUE(r.manual().zero(1,r.now));r.step(180);
+  EXPECT_FALSE(r.state().axes[0].calibration_valid);EXPECT_FALSE(r.state().axes[0].can_jog);
+  r.bus.close();r.bus.reset_session();r.bus.open(r.now);
+  EXPECT_FALSE(r.state().axes[0].calibration_valid);
+}
+TEST(Configuration, BootstrapRestoresPersistedInvalidCalibration) {
+  Rig r;r.bus.require_configuration();auto profile=joint_profile();profile.calibration_invalid[0]=true;
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::bootstrap,"boot","",profile,r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish,"boot","",profile,r.now).accepted);
+  EXPECT_TRUE(r.state().axes[0].configured);EXPECT_FALSE(r.state().axes[0].calibration_valid);
+}
+TEST(Configuration, RejectedApplyAndCancellationDoNotInterruptExistingJog) {
+  Rig r;r.enable();ASSERT_TRUE(r.start());auto profile=joint_profile();
+  EXPECT_FALSE(r.bus.configure(ConfigurationPhase::prepare,"rejected","initial",profile,r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::rollback,"rejected","",profile,r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish,"rejected","",profile,r.now).accepted);
+  r.step(40);EXPECT_EQ(r.state().operation,"jog");EXPECT_GT(r.port->motors[1].target,0);
+}
+TEST(Configuration, BusOffBetweenPrepareAndCommitCannotCommit) {
+  Rig r;auto profile=joint_profile();ASSERT_TRUE(r.bus.configure(ConfigurationPhase::prepare,"apply","initial",profile,r.now).accepted);
+  r.port->rx.push_back({0,{},true,CAN_ERR_BUSOFF,r.now});r.step(5);
+  EXPECT_FALSE(r.bus.configure(ConfigurationPhase::commit,"apply","",profile,r.now).accepted);
+  EXPECT_FALSE(r.state().axes[0].configured);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::rollback,"apply","",profile,r.now).accepted);
+  ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish,"apply","",profile,r.now).accepted);
+  EXPECT_TRUE(r.state().fault);EXPECT_TRUE(r.bus.service_allowed());
+}

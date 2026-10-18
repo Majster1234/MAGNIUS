@@ -2,6 +2,8 @@
 #include "mks_servo_can/trace.hpp"
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
 
 using namespace std::chrono_literals;
@@ -50,13 +52,15 @@ void ManualMotorController::observe_positions(Time now) {
 }
 bool ManualMotorController::ready(unsigned axis, Time now) const {
   if (!axis || axis > kAxes) return false;
+  if (!bus_.configuration_ready_ || bus_.configuration_locked_ ||
+      (bus_.profile_.axes[axis - 1].configured && (!calibrated_[axis - 1] || !profile_verified_[axis - 1]))) return false;
   const auto &d = bus_.devices_[axis];
   return prepared_[axis - 1] && d.detected && d.identity.model == Model::kServo42D &&
       d.position.fresh(now, 60ms) && d.enable.fresh(now, 300ms) && d.enable.value &&
       d.stall.fresh(now, 300ms) && !d.stall.value && d.mode.valid && d.mode.value == 5;
 }
 bool ManualMotorController::begin(unsigned axis, Operation op, Time now) {
-  if (!axis || axis > kAxes || busy() || bus_.active_ || bus_.fault_ || !bus_.transport_->is_open()) return false;
+  if (!axis || axis > kAxes || !bus_.configuration_ready_ || bus_.configuration_locked_ || busy() || bus_.active_ || bus_.fault_ || !bus_.transport_->is_open()) return false;
   const auto &d = bus_.devices_[axis];
   if (!d.detected || d.identity.model != Model::kServo42D || !d.position.fresh(now, 60ms)) return false;
   bus_.scanning_ = false;
@@ -112,8 +116,50 @@ double ManualMotorController::brake_distance(unsigned axis, double rpm, Time now
   const auto age = std::max(0.0, std::chrono::duration<double>(now - bus_.devices_[axis].position.stamp).count());
   return 6.0 * rpm * rpm / (2.0 * acceleration) + 6.0 * rpm * (age + 0.06) + 1.0;
 }
+void ManualMotorController::configuration_changed(const std::array<bool, kAxes> &changed) {
+  for (std::size_t i = 0; i < kAxes; ++i) if (changed[i]) {
+    prepared_[i] = profile_verified_[i] = false;
+    calibrated_[i] = bus_.profile_.axes[i].configured && !bus_.calibration_invalid_[i];
+    configuration_messages_[i] = calibrated_[i] ? "Wymagane przygotowanie i weryfikacja napędu" : "JOG wału — brak pełnej konfiguracji przegubu";
+  }
+}
+bool ManualMotorController::configuration_stopped(unsigned axis, Time now) const {
+  const auto &device = bus_.devices_[axis];
+  return device.enable.fresh(now, 300ms) && !device.enable.value && position_stable(axis, now, 100ms);
+}
+bool ManualMotorController::limit_reached(unsigned axis, int direction, double rpm, Time now) const {
+  const auto motor = degrees(bus_.devices_[axis].position.value);
+  const auto distance = brake_distance(axis, rpm, now);
+  if (direction * motor + distance >= 3600) return true;
+  const auto &profile = bus_.profile_.axes[axis - 1];
+  if (!profile.configured) return false;
+  const auto q = (profile.direction * motor / profile.gear_ratio) * std::acos(-1.0) / 180.0 + profile.offset;
+  const auto brake = distance * std::acos(-1.0) / 180.0 / profile.gear_ratio;
+  return direction * profile.direction > 0 ? q + brake >= profile.upper : q - brake <= profile.lower;
+}
 bool ManualMotorController::jog(JogAction action, unsigned axis, int direction, unsigned rpm,
     const std::string &session, std::uint64_t sequence, Time issued, Time now) {
+  return jog_impl(action, axis, direction, rpm, session, sequence, issued, now, false);
+}
+bool ManualMotorController::jog_joint(JogAction action, unsigned axis, int direction, double velocity,
+    const std::string &revision, const std::string &session, std::uint64_t sequence, Time issued, Time now) {
+  if (action != JogAction::start) {
+    if (action != JogAction::stop && revision != bus_.profile_.revision) return false;
+    return jog_impl(action, axis, direction, 0, session, sequence, issued, now, true);
+  }
+  if (!axis || axis > kAxes || revision != bus_.profile_.revision || !std::isfinite(velocity) || velocity <= 0) return false;
+  const auto &profile = bus_.profile_.axes[axis - 1];
+  if (!profile.configured || velocity > profile.velocity || !microstep_[axis - 1]) return false;
+  const auto scale = speed_scale(microstep_[axis - 1]);
+  const auto requested_rpm = velocity * profile.gear_ratio * 60 / (2 * std::acos(-1.0));
+  const auto raw = std::floor(std::min<double>(requested_rpm, bus_.config_.manual_max_rpm) / scale + 1e-10);
+  if (raw < 1 || raw > 3000) return false;
+  const double actual_rpm = raw * scale;
+  if (actual_rpm > requested_rpm + 1e-9) return false;
+  return jog_impl(action, axis, direction * static_cast<int>(profile.direction), actual_rpm, session, sequence, issued, now, true);
+}
+bool ManualMotorController::jog_impl(JogAction action, unsigned axis, int direction, double rpm,
+    const std::string &session, std::uint64_t sequence, Time issued, Time now, bool joint) {
   if (session.empty() || session.size() > 64 || !sequence || issued > now || now - issued >= 100ms) return false;
   if (action == JogAction::stop) {
     // STOP może dotrzeć przed opóźnionym START. Bariera czasu uniemożliwia jego wykonanie później.
@@ -127,14 +173,14 @@ bool ManualMotorController::jog(JogAction action, unsigned axis, int direction, 
     sequence_ = sequence; lease_ = issued; return true;
   }
   if (issued <= last_stop_ || busy() || bus_.active_ || bus_.fault_ || !ready(axis, now) || !jog_stopped(axis, now) ||
-      (direction != -1 && direction != 1) || rpm < 1 || rpm > bus_.config_.manual_max_rpm) return false;
+      bus_.profile_.axes[axis - 1].configured != joint ||
+      (direction != -1 && direction != 1) || !std::isfinite(rpm) || rpm <= 0 || rpm > bus_.config_.manual_max_rpm) return false;
   const auto raw = std::lround(rpm / speed_scale(microstep_[axis - 1]));
   if (raw < 1 || raw > 3000 || std::abs(raw * speed_scale(microstep_[axis - 1]) - rpm) > .001) {
     message_ = "Wybrana prędkość nie jest reprezentowalna dla mikrokroku napędu";
     return false;
   }
-  const auto q = degrees(bus_.devices_[axis].position.value);
-  if (direction * q + brake_distance(axis, rpm, now) >= 3600.0) return false;
+  if (limit_reached(axis, direction, rpm, now)) return false;
   if (!begin(axis, Operation::jog, now)) return false;
   owner_ = session; sequence_ = sequence; lease_ = issued; rpm_ = rpm; direction_ = direction;
   phase_ = Phase::starting;
@@ -177,6 +223,11 @@ void ManualMotorController::complete(Time) {
   }
   if (operation_ == Operation::zero) {
     bus_.config_.commissioning_verified = false;
+    if (bus_.profile_.axes[axis_ - 1].configured) {
+      calibrated_[axis_ - 1] = prepared_[axis_ - 1] = false;
+      bus_.calibration_invalid_[axis_ - 1] = true;
+      configuration_messages_[axis_ - 1] = "Zerowano wał; zatwierdź ponownie offset w konfiguracji";
+    }
     stationary_anchor_[axis_ - 1].valid = jog_rest_anchor_[axis_ - 1].valid =
         velocity_previous_[axis_ - 1].valid = velocity_[axis_ - 1].valid = false;
   }
@@ -211,6 +262,27 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
       // Zero w odpowiedzi jest niejednoznaczne (256 w polu uint8). Nie zgadujemy.
       try { speed_scale(static_cast<std::uint16_t>(value)); } catch (const std::exception &e) { fail(e.what()); return; }
       microstep_[axis_ - 1] = static_cast<std::uint16_t>(value);
+      const auto &profile = bus_.profile_.axes[axis_ - 1];
+      if (profile.configured) {
+        const auto acceleration = speed_scale(microstep_[axis_ - 1]) / .01275 * 2 * std::acos(-1.0) / 60 / profile.gear_ratio;
+        if (!calibrated_[axis_ - 1] || acceleration > profile.acceleration + 1e-9) {
+          if (!calibrated_[axis_ - 1]) {
+            configuration_messages_[axis_ - 1] = "Wymagane ponowne zatwierdzenie offsetu";
+          } else {
+            std::ostringstream description;
+            description << std::fixed << std::setprecision(1)
+                << "JOG zablokowany: minimalne przyspieszenie MKS przy acc=1 wynosi "
+                << acceleration * 180 / std::acos(-1.0) << " °/s², limit konfiguracji: "
+                << profile.acceleration * 180 / std::acos(-1.0) << " °/s². Przełożenie: "
+                << profile.gear_ratio << ". Większe acc oznacza szybszą rampę.";
+            configuration_messages_[axis_ - 1] = description.str();
+          }
+          message_ = configuration_messages_[axis_ - 1]; phase_ = Phase::idle; prepared_[axis_ - 1] = false;
+          return;  // Sekwencja kończy się przy ENABLE=0, bez awarii pozostałych osi.
+        }
+        profile_verified_[axis_ - 1] = true;
+        configuration_messages_[axis_ - 1] = "JOG przegubu — profil zweryfikowany";
+      }
     }
     if (data[0] == 0x82) d.mode.set(static_cast<std::uint8_t>(value), stamp);
   }
@@ -245,10 +317,9 @@ void ManualMotorController::tick(Time now) {
         ", stall=" + ms(d.stall) + " ms/" + std::to_string(d.stall.value));
     }
     else {
-      const auto &d = bus_.devices_[axis_];
       const auto &v = velocity_[axis_ - 1];
       const auto actual = v.fresh(now, 100ms) ? std::abs(v.value) : static_cast<double>(rpm_);
-      if (direction_ * degrees(d.position.value) + brake_distance(axis_, std::max<double>(rpm_, actual), now) >= 3600)
+      if (limit_reached(axis_, direction_, std::max<double>(rpm_, actual), now))
         stop(now, "Hamowanie przed limitem osi");
     }
   }
@@ -279,7 +350,8 @@ void ManualMotorController::tick(Time now) {
   }
 }
 ManualState ManualMotorController::snapshot(Time now) const {
-  ManualState result; result.busy = busy() || bus_.active_; result.fault = bus_.fault_;
+  ManualState result; result.busy = busy() || bus_.active_ || bus_.configuration_locked_ || !bus_.configuration_ready_; result.fault = bus_.fault_;
+  result.configuration_revision = bus_.profile_.revision;
   result.axis = busy() ? axis_ : 0; result.max_rpm = bus_.config_.manual_max_rpm; result.message = message_;
   result.operation = phase_ == Phase::fault ? "fault" : phase_ == Phase::stopping ? "stopping" :
       phase_ == Phase::starting || phase_ == Phase::moving ? "jog" : phase_ == Phase::sequence ? "operation" : "idle";
@@ -290,6 +362,17 @@ ManualState ManualMotorController::snapshot(Time now) const {
     a.prepared = prepared_[axis - 1];
     a.enable = d.enable; a.enable.valid = d.enable.fresh(now, 500ms) && !bus_.fault_;
     a.position = {degrees(d.position.value), d.position.stamp, d.position.fresh(now, 250ms) && !bus_.fault_};
+    const auto &profile = bus_.profile_.axes[axis - 1];
+    a.configured = profile.configured; a.calibration_valid = calibrated_[axis - 1];
+    a.configuration_message = configuration_messages_[axis - 1];
+    if (profile.configured) {
+      a.joint_lower = profile.lower; a.joint_upper = profile.upper;
+      a.joint_position = {profile.direction * a.position.value * std::acos(-1.0) / 180 / profile.gear_ratio + profile.offset,
+          a.position.stamp, a.position.valid && a.calibration_valid};
+      const auto scale = microstep_[axis - 1] ? speed_scale(microstep_[axis - 1]) : 0;
+      a.minimum_velocity = scale * 2 * std::acos(-1.0) / 60 / profile.gear_ratio;
+      a.maximum_velocity = std::min(profile.velocity, std::floor(bus_.config_.manual_max_rpm / (scale ? scale : 1)) * (scale ? scale : 1) * 2 * std::acos(-1.0) / 60 / profile.gear_ratio);
+    }
     // Prędkość w układzie 31: pochodna pozycji, filtr 100 ms, stała pamięć.
     a.speed = velocity_[axis - 1]; a.speed.valid = a.speed.fresh(now, 250ms) && !bus_.fault_;
     if (jog_stopped(axis, now)) a.speed = {0, d.position.stamp, !bus_.fault_};

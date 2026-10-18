@@ -74,7 +74,7 @@ void CanBusManager::close() {
   transport_->close(); scanning_ = false;
   for (auto &p : pending_) p.used = false;
 }
-bool CanBusManager::service_allowed() const { return !active_ && !inflight_ && (!manual_->busy() || fault_); }
+bool CanBusManager::service_allowed() const { return (configuration_stage_ == "boot" || (configuration_ready_ && !configuration_locked_)) && !active_ && !inflight_ && (!manual_->busy() || fault_); }
 bool CanBusManager::start_scan() {
   if (!service_allowed() || scanning_ || fault_ || !transport_->is_open()) return false;
   scanning_ = true; scan_address_ = 1; checked_ = 0; message_ = "Skanowanie adresów 1–2047"; return true;
@@ -84,6 +84,7 @@ void CanBusManager::clear_fault() {
   fault_ = false; stop_sent_ = false; latest_.reset(); last_sequence_ = 0;
   source_ = Source::none; lease_stamp_ = {};
   manual_ = std::make_unique<ManualMotorController>(*this);
+  std::array<bool, kAxes> changed; changed.fill(true); manual_->configuration_changed(changed);
   for (auto &p : pending_) p.used = false;
   message_ = "Błąd skasowany — wymagana ponowna aktywacja";
 }
@@ -111,6 +112,7 @@ bool CanBusManager::feedback_good(Time now) const {
   return true;
 }
 bool CanBusManager::activate(Source source, Time now) {
+  if (!configuration_ready_ || configuration_locked_) return false;
   if (config_.source_lease_required) {
     if (source_ == Source::none || now < lease_stamp_ || now - lease_stamp_ >= config_.source_lease_timeout) return false;
     source = source_;

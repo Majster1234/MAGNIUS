@@ -1,4 +1,4 @@
-export type JogCommand = { action: "start" | "keepalive" | "stop"; axis: number; direction: number; rpm: number; sequence: number };
+export type JogCommand = { action: "start" | "keepalive" | "stop"; axis: number; direction: number; rpm: number; sequence: number; space?: "joint"; velocity_degrees_s?: number; revision?: string };
 export interface JogSocket { readyState: number; send(data: string): void }
 export const MANUAL_STATE_TIMEOUT_MS = 500;
 export type StopReason = "release" | "ack_timeout" | "state_timeout" | "socket_closed" | "state_stale" | "ack_rejected";
@@ -6,7 +6,7 @@ export type StopReason = "release" | "ack_timeout" | "state_timeout" | "socket_c
 // Jedno niepotwierdzone podtrzymanie; brak kolejki historycznych poleceń.
 export class JogControl {
     private sequence = 0;
-    private held: { axis: number; direction: number; rpm: number } | null = null;
+    private held: Omit<JogCommand, "action" | "sequence"> | null = null;
     private pending = 0;
     private sentAt = 0;
     private stateAt = -Infinity;
@@ -14,9 +14,9 @@ export class JogControl {
         private onStop?: (reason: StopReason, axis: number) => void) {}
     get holding() { return this.held !== null; }
     stateReceived(fresh: boolean) { this.stateAt = fresh ? this.clock() : -Infinity; if (!fresh) this.stop("state_stale"); }
-    start(axis: number, direction: number, rpm: number) {
+    start(axis: number, direction: number, rpm: number, revision?: string) {
         if (this.held || this.socket.readyState !== 1 || this.clock() - this.stateAt >= MANUAL_STATE_TIMEOUT_MS) return false;
-        this.held = { axis, direction, rpm };
+        this.held = revision ? {axis, direction, rpm: 0, space: "joint", velocity_degrees_s: rpm, revision} : { axis, direction, rpm };
         this.send("start"); return true;
     }
     private send(action: JogCommand["action"]) {

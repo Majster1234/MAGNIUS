@@ -34,7 +34,7 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 - Komunikacja: Linux SocketCAN → BIGTREETECH U2C v2.1 → MKS SERVO42D CAN.
 - Bitrate potwierdzony przez użytkownika: 500000 bit/s, interfejs `can0`, sterownik `gs_usb`.
 - Protokół napędów jest protokołem producenta MKS; nie zakładaj CANopen/CiA 402.
-- CAN 1–6 → J1–J6 / `joint_1`–`joint_6`. ROS: SI; panel desktop: stopnie wału i RPM; mobile zakończone.
+- CAN 1–6 → J1–J6. ROS: SI; GUI: mm/°. JOG: °/s przegubu lub RPM wału. Mobile zakończone.
 
 | Miejsce | Odpowiedzialność |
 | --- | --- |
@@ -43,7 +43,8 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 | `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN i usługi ręczne w C++ |
 | `ros2_ws/src/robot_hardware` | Plugin CanSystem dla sześciu osi, Humble |
 | `ros2_ws/src/robot_bringup` | Launch diagnostyki i konfiguracje przykładowe |
-| `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN, diagnostyka ROS w Pythonie |
+| `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN |
+| `ros2_ws/src/robot_configuration` | Snapshoty JSON i zapis do ROS |
 | `ros2_ws/src/robot_web_bridge`, `web/` | API FastAPI, WebSocket i panel React/TypeScript |
 | `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale aplikacji, diagnostyki i workspace |
 | `hardware/`, `docs/` | Materiały sprzętowe i dokumentacja projektu |
@@ -66,8 +67,8 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
   Zależności deklaruj w `package.xml` i CMake wraz z korzystającą z nich implementacją.
 - Nie wymyślaj geometrii, CAN ID, bitrate, przełożeń, limitów ani wersji firmware.
   `null` w `.example.yaml` oznacza brak danych, a nie zero lub wartość domyślną.
-- Dopasowuj sprawdzenia do zmiany. Nie utożsamiaj budowania szkieletu z testem
-  sterowania ani testu z atrapą terminala z uruchomieniem rzeczywistych okien GUI.
+  Wyjątek: zatwierdzony przykładowy URDF podglądu 1:1, oddzielony od fizycznego robota.
+- Dopasuj sprawdzenia do zmiany: build nie jest testem sterowania, a atrapa terminala testem GUI.
 - Zachowuj zmiany użytkownika. Sprawdzaj stan Git przed operacjami na repozytorium;
   nie wnioskuj o publikacji na podstawie samej obecności lokalnego commitu.
 - Wybór licencji jest odłożony przez użytkownika. Pozostaw brak `LICENSE` i pola
@@ -96,27 +97,24 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Dokumentacja źródłowa
 
-- [README.md](README.md) — uruchamianie i stan projektu.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — zasady zmian i lokalna weryfikacja.
-- [docs/architecture.md](docs/architecture.md) — architektura i konwencje osi.
-- [docs/web_status.md](docs/web_status.md) — panel LAN, uruchomienie i wyniki weryfikacji.
-- [docs/can_diagnostics.md](docs/can_diagnostics.md) — skan, Reset CAN i ograniczenia odczytów.
-- [docs/can_strategy.md](docs/can_strategy.md) — harmonogram, ruch, watchdog i konfiguracja.
-- [docs/manual_control.md](docs/manual_control.md) — ENABLE, zero, JOG i interfejsy ROS/API.
-- [docs/configuration.md](docs/configuration.md) — szkielet ustawień systemu i parametrów robota.
-- [docs/can_recording.md](docs/can_recording.md) — zapis/analiza incydentów; wyniki w can_recording_results.md.
-- [docs/socketcan.md](docs/socketcan.md) — instalacja i diagnostyka systemowego CAN.
-- [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko i GitHub.
+- [README.md](README.md) — uruchamianie; [CONTRIBUTING.md](CONTRIBUTING.md) — zmiany i sprawdzenia.
+- [docs/architecture.md](docs/architecture.md) — architektura i osie.
+- [docs/web_status.md](docs/web_status.md) — LAN/API; [docs/can_diagnostics.md](docs/can_diagnostics.md) — skan CAN.
+- [docs/can_strategy.md](docs/can_strategy.md) — harmonogram; [docs/manual_control.md](docs/manual_control.md) — JOG/ENABLE/zero.
+- [docs/configuration.md](docs/configuration.md) — snapshoty i parametry; [docs/robot_preview.md](docs/robot_preview.md) — podgląd URDF.
+- [docs/can_recording.md](docs/can_recording.md) — nagrywanie; wyniki w docs/can_recording_results.md.
+- [docs/socketcan.md](docs/socketcan.md) — SocketCAN; [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko/Git.
 
 ## Bieżący kontekst
 
-- Aktualizacja: 2026-10-18, Europe/Prague. Usunięto pola systemowe; parametry robota zmieniono w tabelę.
-- Wiersze: parametry; kolumny J1–J6. Suwak: geometria / przełożenia i ograniczenia. SI, nieznane dane puste.
-- Tabela z suwakiem: 259 / 287 px, maks. połowa wolnej wysokości. Dane ogólne i narzędzie są zwinięte poniżej.
-- Szkic sessionStorage zgodny z wcześniejszymi danymi osi; klucze systemowe usuwane. Bez API zapisu/zastosowania.
-- TypeScript/build, 12 Vitest, Chromium konfiguracji i JOG OK; 1280×800–1920×1080, sprawdzony budżet miejsca.
-- Działający LAN: pusta zakładka systemu, oba widoki i wysokości OK. Bez restartu, ruchu ani nowych testów ROS/API.
-- JOG nadal ciemny i kompaktowy; postój ±1° / 60 ms / F1=1, zero/ENABLE ±3 impulsy / 100 ms. Patrz docs/manual_control.md.
-- Nagrywanie log/manual-can do 96 MiB; wcześniejszy WS: docs/can_incident_2026-10-18.md. Ostatnio 1/2/4 obecne, brak 3/5/6.
-- Dalej: zapis/walidacja konfiguracji, model/parametry, odbiór limitów/USB/BUS-OFF/watchdog, sześciu osi i zapory. Licencja TODO.
-- Git feature/web-status, bez commit/push; sudoers bez zmian. Panel 192.168.1.69:8080/#configuration; odświeżyć stronę.
+- Aktualizacja: 2026-10-19, Europe/Prague. Ostatnio: analiza możliwego przeregulowania; kod JOG i instrukcja MKS 1.0.9 §5.3/9.1.
+- SR_vFOC ma nastawy Kp/Ki/Kd/Kv (96H), CLOSE osobne (97H). Bez odczytu nastaw z napędów, zmian i ruchu.
+- JOG zadaje prędkość F6 i hamuje do zera acc=1. Przy 1:1 i 30°/s samo hamowanie daje ok. 64 ms/0,96° plus opóźnienia; oscylacje wymagają osobnej diagnozy.
+- Dalej: odróżnić dojazd od oscylacji; porównać STOP/ACK/pozycję/postój przed strojeniem.
+- Poświaty manualne: >15° brak, (5,15]° żółta, [0,5]° czerwona (mocniej ≤1°), poza limitem puls 1 Hz; granice −/+ wg URDF. docs/robot_preview.md.
+- Wcześniej 19.10: TS/Vite, 31 Vitest i 3 Chromium OK; pasywny LAN bez błędów JS/poleceń sterujących. Teraz bez powtarzania testów.
+- Wcześniej zatwierdzono 500 °/s² J1/J2/J4, reszta 100; acc=1 przy 1:1 daje 470,6 °/s². Bez rampy programowej.
+- Snapshoty JSON/edytor 3D/ROS/C++: docs/configuration.md; rewizje/rollback, zapis przy postoju/ENABLE=0 zmienianych osi.
+- JOG °/s przegubu lub RPM wału, 30 RPM, jedna oś; zero unieważnia kalibrację trwale. Podgląd 50dvh, 2 próbki/osi, konsola 100, logi 96 MiB.
+- Pozostają fizyczne przekładnie/geometria/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog i drugi klient LAN.
+- Git feature/web-status bez commit/push; licencja TODO. Panel 192.168.1.69:8080.

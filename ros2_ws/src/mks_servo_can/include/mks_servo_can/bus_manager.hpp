@@ -8,6 +8,7 @@
 #include <string>
 #include "mks_servo_can/protocol.hpp"
 #include "mks_servo_can/socketcan.hpp"
+#include "mks_servo_can/configuration.hpp"
 
 namespace mks_servo_can {
 class ManualMotorController;
@@ -112,6 +113,9 @@ class CanBusManager {
   const BusConfig &config() const { return config_; }
   static double position_to_joint(const AxisConfig &axis, std::int64_t ticks);
   static std::int32_t joint_to_position(const AxisConfig &axis, double position);
+  void require_configuration();
+  ConfigurationResult configure(ConfigurationPhase phase, const std::string &operation,
+      const std::string &expected, const RobotProfile &profile, Time now);
 
  private:
   friend class ManualMotorController;
@@ -160,5 +164,13 @@ class CanBusManager {
   Source source_{Source::none};
   double spent_bits_{};
   std::string message_{"Oczekiwanie na magistralę CAN"};
+  RobotProfile profile_{}, candidate_profile_{}, previous_profile_{};
+  std::array<AxisConfig, kAxes> previous_axes_{};
+  bool configuration_ready_{true}, configuration_locked_{false};
+  bool configuration_bootstrap_{false};
+  std::array<bool, kAxes> calibration_invalid_{}, previous_calibration_invalid_{};
+  std::string configuration_operation_, configuration_stage_{"finished"};
+  std::array<std::string, 64> retired_configuration_operations_{};
+  std::size_t retired_configuration_cursor_{};
 };
 }  // namespace mks_servo_can

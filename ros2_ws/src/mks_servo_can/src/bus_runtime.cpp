@@ -70,4 +70,16 @@ bool BusRuntime::manual_jog(JogAction action, unsigned axis, int direction, unsi
   e.request_ns = trace_ns(issued); e.flags = accepted; e.duration_ns = trace_ns(Clock::now()) - trace_ns(issued); trace(e);
   return accepted;
 }
+bool BusRuntime::joint_jog(JogAction action, unsigned axis, int direction, double velocity,
+    const std::string &revision, const std::string &session, std::uint64_t sequence, Time issued) {
+  std::lock_guard<std::mutex> guard(mutex_);
+  return manager_.manual().jog_joint(action, axis, direction, velocity, revision, session, sequence, issued, Clock::now());
+}
+void BusRuntime::require_configuration() {
+  std::lock_guard<std::mutex> guard(mutex_); manager_.require_configuration();
+}
+ConfigurationResult BusRuntime::configure(ConfigurationPhase phase, const std::string &operation,
+    const std::string &expected, const RobotProfile &profile) {
+  std::lock_guard<std::mutex> guard(mutex_); return manager_.configure(phase, operation, expected, profile, Clock::now());
+}
 }  // namespace mks_servo_can

@@ -9,6 +9,9 @@
 #include "robot_control_interfaces/srv/set_motor_enable.hpp"
 #include "robot_control_interfaces/srv/zero_motor.hpp"
 #include "robot_control_interfaces/srv/jog_motor.hpp"
+#include "robot_control_interfaces/srv/jog_joint.hpp"
+#include "robot_control_interfaces/srv/configure_robot.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 
 namespace robot_can_diagnostics {
 class DiagnosticsNode : public rclcpp::Node {
@@ -31,8 +34,12 @@ class DiagnosticsNode : public rclcpp::Node {
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::TimerBase::SharedPtr manual_timer_;
   rclcpp::Publisher<robot_control_interfaces::msg::ManualState>::SharedPtr manual_publisher_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr preview_publisher_;
+  std::array<mks_servo_can::Time, mks_servo_can::kAxes> last_preview_{};
   rclcpp::Service<robot_control_interfaces::srv::SetMotorEnable>::SharedPtr enable_;
   rclcpp::Service<robot_control_interfaces::srv::ZeroMotor>::SharedPtr zero_;
   rclcpp::Service<robot_control_interfaces::srv::JogMotor>::SharedPtr jog_;
+  rclcpp::Service<robot_control_interfaces::srv::JogJoint>::SharedPtr joint_jog_;
+  rclcpp::Service<robot_control_interfaces::srv::ConfigureRobot>::SharedPtr configuration_;
 };
 }  // namespace robot_can_diagnostics

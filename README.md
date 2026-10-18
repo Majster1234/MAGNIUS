@@ -27,7 +27,11 @@ Otwórz URL wypisany w terminalu, obecnie **http://192.168.1.69:8080**,
 na komputerze robota lub innym urządzeniu w `192.168.1.0/24`.
 Panel pokazuje API, łączność ROS, CPU/RAM, CAN, kontrolery i stan integracji
 napędów. Strona [Konfiguracja](docs/configuration.md) oddziela ustawienia systemu
-od danych robota i udostępnia lokalny szkic przegubów, przekładni i narzędzia.
+od danych robota. Udostępnia szkic, wspólne snapshoty JSON, import/eksport,
+lokalny podgląd geometrii 3D oraz osobne zastosowanie parametrów do ROS.
+Nad sterowaniem jest [podgląd URDF 3D](docs/robot_preview.md) na połowę wysokości okna,
+z enkoderami, przełożeniami skonfigurowanych osi i domkiem dopasowania kamery. Pod tytułem strony
+znajduje się przewijana konsola komunikatów, ostrzeżeń i awarii (do 100 wpisów).
 Ekran [Sterowanie ręczne](docs/manual_control.md) obsługuje ENABLE,
 zero i JOG wałów J1–J6 (CAN 1–6), bez modelu robota. Panel jest dostępny
 bez logowania w LAN. `Ctrl+C` zamyka sesję.

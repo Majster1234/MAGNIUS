@@ -3,13 +3,21 @@
 Ekran **Sterowanie ręczne** i kafelek przeglądu są przeznaczone dla stanowiska
 desktop. Rozwój widoku mobilnego został zakończony. J1–J6 odpowiadają kolejno
 adresom CAN 1–6; brak napędu nie oznacza zmiany numeracji pozostałych osi.
+Nad tabelą jest [podgląd URDF 3D](robot_preview.md) o wysokości połowy okna,
+wykorzystujący te same pomiary i połączenie WebSocket co panel ręczny.
 Panel ma ciemne tło wspólne z przeglądem i diagnostyką CAN. Tytuł, stan połączenia
-i nagrywania mieszczą się w pasku u góry; wynik operacji pojawia się tuż pod nim.
-Sześć wierszy zajmuje z nagłówkiem i opisem około 280 px wysokości, czyli około
-jednej trzeciej ekranu desktop. Wiersz ma 29 px; pozostałe miejsce jest wolne
-na kolejne funkcje. Pole prędkości, przyciski i wskaźniki pozostają dostępne
+i nagrywania mieszczą się w pasku u góry; pod nim jest przewijana konsola zdarzeń.
+Ostrzeżenia mają żółte tło, awarie czerwone, informacje pozostają bez tła.
+Historia jest ograniczona do 100 wpisów; nie zapisuje kolejnych kopii tego samego
+statusu. Tabela sześciu osi znajduje się pod modelem i nadal zajmuje około 200 px;
+wiersz ma 29 px. Pozycje nie są powtarzane w bocznym panelu podglądu 3D.
+Pole prędkości, przyciski i wskaźniki pozostają dostępne
 bez rozwijania sekcji.
 Do analizy zaniku danych służy [nagrywanie CAN/ROS/API/panelu](can_recording.md).
+Po zastosowaniu kompletnego profilu w [konfiguracji](configuration.md) wiersz osi
+przechodzi na pozycję przegubu i JOG w °/s z przełożeniem, kierunkiem, offsetem
+oraz limitami przegubu. Poniższy opis RPM i ±3600° dotyczy trybu wału; ochrona
+wału pozostaje dodatkowym ograniczeniem także przy JOG przegubu.
 Kompaktowe wiersze zawierają wskaźnik pozycji wału między −3600° i +3600°,
 z zaznaczonym zerem. Wskaźnik służy wyłącznie do odczytu; nie zadaje ruchu.
 Przy braku pomiaru nie pokazuje punktu pozycji. Poza limitem punkt pozostaje
