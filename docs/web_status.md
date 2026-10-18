@@ -86,11 +86,17 @@ przy następnym uruchomieniu. Stały adres można zapewnić rezerwacją w router
 | Komputer | Rzeczywiste CPU, RAM i czas pracy systemu |
 | CAN | Podsumowanie interfejsu; osobny ekran pokazuje skan i statusy urządzeń |
 | Kontrolery | Odpowiedź `ListControllers`; przy braku usługi: nieuruchomione |
-| Napędy | Brak integracji do czasu dodania rzeczywistego sterownika |
+| Napędy | Szczegóły CAN oraz osobny ekran ręcznego sterowania wałami |
 
 Ekran **Magistrala CAN** prowadzi automatyczny skan po starcie i pokazuje
 wykryte adresy, ENABLE, stan pracy, RTT oraz szczegóły po rozwinięciu wiersza.
 Opis protokołu, Reset CAN i ograniczenia są w [diagnostyce CAN](can_diagnostics.md).
+
+Ekran **Sterowanie ręczne** obsługuje ENABLE, ustawienie bieżącej pozycji zero
+i JOG pojedynczych silników. Mapowanie: CAN 1–6 → J1–J6. Moduł nie wymaga
+modelu ani przekładni robota; szczegóły i zasady odbioru: [sterowanie ręczne](manual_control.md).
+Nowe funkcje są rozwijane dla desktopu. Panel główny nadal odświeża się przy 1 Hz,
+a ręczny przy 20 Hz; samo otwarcie ekranu nie załącza napędów.
 
 `ERROR-ACTIVE` to normalny stan CAN, a nie zgłoszenie awarii.
 Aktywny CAN ani licznik RX nie potwierdzają gotowości konkretnej osi.
@@ -123,7 +129,8 @@ bez uwzględnienia pozostałych usług komputera.
 - Zatrzymaj i uruchom backend: otwarta strona powinna wznowić połączenie.
 - Otwórz pięć paneli: nadal działa jeden monitor i jeden bridge.
 - Sprawdź odrzucenie dostępu przez adres Tailscale i spoza dozwolonej podsieci.
-- Porównaj licznik TX CAN przed i po; sama diagnostyka go nie zwiększa.
+- Porównaj odczytowe ramki CAN z opisem diagnostyki; nowy manager wysyła zapytania
+  pozycji i statusów. W trybie diagnostycznym nie mogą pojawić się komendy ruchu.
 
 Testy automatyczne nie zastępują sprawdzenia na drugim fizycznym urządzeniu.
 

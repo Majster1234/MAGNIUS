@@ -1,0 +1,15 @@
+uint8 axis
+bool available
+bool prepared
+bool enable_known
+bool enabled
+bool position_known
+float64 position_degrees
+float64 position_age_seconds
+bool speed_known
+float64 speed_rpm
+float64 speed_age_seconds
+float64 enable_age_seconds
+bool can_jog
+bool can_zero
+string motion

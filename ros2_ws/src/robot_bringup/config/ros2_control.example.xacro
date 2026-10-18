@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!-- Fragment do włączenia do rzeczywistego modelu; nie dostarcza geometrii. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="mks_axis" params="name settings">
+    <joint name="${name}">
+      <command_interface name="position" />
+      <state_interface name="position" />
+      <param name="can_id">${settings['can_id']}</param>
+      <param name="gear_ratio">${settings['gear_ratio']}</param>
+      <param name="direction">${settings['direction']}</param>
+      <param name="zero_offset_rad">${settings['zero_offset_rad']}</param>
+      <param name="lower_rad">${settings['limits']['lower_rad']}</param>
+      <param name="upper_rad">${settings['limits']['upper_rad']}</param>
+      <param name="velocity_rad_s">${settings['limits']['velocity_rad_s']}</param>
+      <param name="acceleration_rad_s2">${settings['limits']['acceleration_rad_s2']}</param>
+      <param name="tracking_error_rad">${settings['tracking_error_rad']}</param>
+      <param name="mks_acceleration_code">${settings['mks_acceleration_code']}</param>
+    </joint>
+  </xacro:macro>
+  <xacro:macro name="mks_control" params="joints_yaml">
+    <xacro:property name="axes" value="${xacro.load_yaml(joints_yaml)['joints']}" />
+    <ros2_control name="RobotSystem" type="system">
+      <hardware>
+        <plugin>robot_hardware/CanSystem</plugin>
+        <param name="can_interface">can0</param>
+        <param name="cycle_ms">20</param>
+        <param name="response_timeout_ms">20</param>
+        <param name="feedback_timeout_ms">60</param>
+        <param name="command_timeout_ms">60</param>
+        <param name="motion_enabled">false</param>
+        <param name="commissioning_verified">false</param>
+        <param name="synchronization_verified">false</param>
+        <param name="stop_verified">false</param>
+      </hardware>
+      <xacro:mks_axis name="joint_1" settings="${axes['joint_1']}" />
+      <xacro:mks_axis name="joint_2" settings="${axes['joint_2']}" />
+      <xacro:mks_axis name="joint_3" settings="${axes['joint_3']}" />
+      <xacro:mks_axis name="joint_4" settings="${axes['joint_4']}" />
+      <xacro:mks_axis name="joint_5" settings="${axes['joint_5']}" />
+      <xacro:mks_axis name="joint_6" settings="${axes['joint_6']}" />
+    </ros2_control>
+  </xacro:macro>
+</robot>

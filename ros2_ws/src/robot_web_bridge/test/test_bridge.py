@@ -135,6 +135,29 @@ def test_can_snapshot_keeps_only_detected_devices_and_stales_independently():
     assert snapshot['devices'][0]['values']['enable'] is True
     can_store.received -= 3
     assert can_store.snapshot()['summary']['state'] == 'stale'
+    assert can_store.snapshot()['devices'][0]['values']['enable'] is None
+    assert can_store.snapshot()['devices'][0]['state'] == 'stale'
+
+
+def test_can_websocket_disconnect_releases_publisher(store, tmp_path):
+    """Zamknięcie modułu CAN nie pozostawia zadania publikującego co 200 ms."""
+    can_store = CanStatusStore('can0')
+    app = create_app(store, tmp_path, can_store)
+    output = []
+    connected = False
+
+    async def receive():
+        nonlocal connected
+        if not connected:
+            connected = True
+            return {'type': 'websocket.connect'}
+        return {'type': 'websocket.disconnect', 'code': 1000}
+
+    async def send(event):
+        output.append(event)
+
+    asyncio.run(asyncio.wait_for(app(scope('websocket', '/api/v1/can/ws'), receive, send), 0.5))
+    assert output[0]['type'] == 'websocket.accept'
 
 
 def test_can_routes_are_lan_protected(app):

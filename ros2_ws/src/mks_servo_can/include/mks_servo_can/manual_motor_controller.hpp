@@ -1,0 +1,76 @@
+#pragma once
+#include "mks_servo_can/bus_manager.hpp"
+
+namespace mks_servo_can {
+struct ManualAxisState {
+  unsigned axis{};
+  bool available{}, prepared{}, can_jog{}, can_zero{};
+  Sample<bool> enable;
+  Sample<double> position, speed;
+  std::string motion{"stan nieznany"};
+};
+struct ManualState {
+  std::array<ManualAxisState, kAxes> axes;
+  bool busy{}, fault{};
+  unsigned axis{}, max_rpm{30};
+  std::string operation, message{"Sterowanie ręczne gotowe"};
+};
+enum class JogAction { start, keepalive, stop };
+
+// Sekwencje napędu i stan ruchu. Nie posiada socketu ani własnego wątku.
+class ManualMotorController {
+ public:
+  explicit ManualMotorController(CanBusManager &bus) : bus_(bus) {}
+  bool set_enable(unsigned axis, bool enabled, Time now);
+  bool zero(unsigned axis, Time now);
+  bool jog(JogAction action, unsigned axis, int direction, unsigned rpm,
+           const std::string &session, std::uint64_t sequence, Time issued, Time now);
+  void tick(Time now);
+  void reply(const std::vector<std::uint8_t> &data, Time stamp);
+  void timeout();
+  void transport_fault();
+  void abort(const std::string &reason) { fail(reason); }
+  bool busy() const { return phase_ != Phase::idle; }
+  unsigned axis() const { return axis_; }
+  bool fast_feedback(unsigned axis) const { return axis <= kAxes && axis && prepared_[axis - 1]; }
+  ManualState snapshot(Time now) const;
+ private:
+  enum class Phase { idle, sequence, starting, moving, stopping, fault };
+  enum class Operation { enable, disable, zero, jog };
+  struct Step {
+    std::vector<std::uint8_t> data;
+    std::size_t length{3};
+    int expected{1};
+  };
+  bool begin(unsigned axis, Operation op, Time now);
+  void add(std::vector<std::uint8_t> data, std::size_t length = 3, int expected = 1);
+  void stop(Time now, const std::string &reason);
+  void fail(const std::string &message);
+  bool stopped(unsigned axis, Time now, std::chrono::milliseconds window = std::chrono::milliseconds(60)) const;
+  bool jog_stopped(unsigned axis, Time now) const;
+  bool position_stable(unsigned axis, Time now, std::chrono::milliseconds window = std::chrono::milliseconds(100)) const;
+  void observe_positions(Time now);
+  bool ready(unsigned axis, Time now) const;
+  double brake_distance(unsigned axis, double rpm, Time now) const;
+  void complete(Time now);
+  CanBusManager &bus_;
+  std::array<bool, kAxes> prepared_{};
+  std::array<std::uint16_t, kAxes> microstep_{};
+  std::array<Sample<std::int64_t>, kAxes> stationary_anchor_{};
+  std::array<Sample<std::int64_t>, kAxes> jog_rest_anchor_{};
+  std::array<Sample<std::int64_t>, kAxes> velocity_previous_{};
+  std::array<Sample<double>, kAxes> velocity_{};
+  std::array<Step, 24> steps_{};
+  std::size_t step_{}, step_count_{};
+  unsigned axis_{}, rpm_{};
+  int direction_{};
+  Phase phase_{Phase::idle};
+  Operation operation_{Operation::enable};
+  bool waiting_{}, stop_sent_{}, disable_after_{};
+  Time lease_{}, stop_at_{}, stop_deadline_{}, last_stop_{}, operation_deadline_{};
+  Time retry_at_{};
+  Time next_trace_{};
+  std::string owner_, message_{"Sterowanie ręczne gotowe"};
+  std::uint64_t sequence_{};
+};
+}  // namespace mks_servo_can

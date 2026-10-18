@@ -142,6 +142,12 @@ class CanStatusStore:
                 summary['state'] = 'stale'
             if not scan:
                 scan = {'state': 'stale', 'message': 'Brak aktualnych danych', 'values': {}}
+            for device in devices.values():
+                device['state'] = 'stale'
+                device['message'] = 'Brak aktualnych danych CAN'
+                device['values']['enable'] = None
+                device['values']['stall'] = None
+                device['values']['motor_state'] = 'Niedostępny'
         return {'schema_version': 1, 'updated_at': updated_at, 'age_seconds': age,
                 'fresh': fresh, 'interface': self.interface, 'summary': summary,
                 'scan': scan, 'devices': [devices[key] for key in sorted(devices)]}

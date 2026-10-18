@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useCanStatus, type CanDevice } from "./canStatus";
 import { dataIsStale, numeric, type Component, type State } from "./status";
 import { useStatus } from "./useStatus";
+import { ManualPage } from "./ManualPage";
 import "./style.css";
 
 const labels: Record<State, string> = {
@@ -114,18 +115,48 @@ function CanPage({ onClose }: { onClose: () => void }) {
         <section className={`can-progress ${stale ? "waiting" : ""}`}><Badge state={stale ? "stale" : snapshot?.summary.state ?? "stale"} text={snapshot?.scan.message ?? "Oczekiwanie na diagnostykę CAN"}/><span>{Boolean(scan?.scanning) ? `Adres ${String(scan?.checked ?? 0)} / ${String(scan?.total ?? 2047)}` : String(scan?.state ?? "—")}</span><span className="progress-error">{scan?.error ? String(scan.error) : ""}</span></section>
         <section className="can-strip" aria-label="Podsumowanie magistrali"><div className="strip-state"><strong>{String(value("bus_state") ?? "—")}</strong><small>{String(value("interface") ?? "can0")}</small></div><Metric label="Bitrate" value={value("bitrate")} unit=" bit/s"/><Metric label="Urządzenia" value={value("device_count")}/><Metric label="Obieg odczytu" value={value("full_round_ms")} unit=" ms"/><Metric label="Błędy" value={value("errors")}/></section>
         <section className="can-table-card"><div className="table-heading"><div><h2>Urządzenia bieżącej sesji</h2><p>Wykryte i utracone adresy. Puste adresy nie są pokazywane.</p></div><span>{devices.length} rekordów</span></div>{devices.length === 0 ? <div className="can-empty"><span>⇄</span><strong>Tabela jest pusta</strong><p>Wyniki będą pojawiać się w trakcie automatycznego skanowania.</p></div> : <><div className="table-scroll"><table><thead><tr><th>CAN ID</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th>RTT [ms]</th></tr></thead><tbody>{visible.map((device) => <DeviceRow key={device.id} device={device}/>)}</tbody></table></div>{totalPages > 1 && <div className="pagination"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Poprzednie</button><span>{page + 1} / {totalPages}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>Następne</button></div>}</>}</section>
-        <p className="can-note">Odczyty są ograniczone do 200 zapytań/s. Aktualizacja widoku: 5 Hz. Reset wykonuje tylko restart usługi interfejsu `can0` i rozpoczyna nowy skan.</p>
+        <details className="card can-bus-details"><summary>Szczegóły komunikacji</summary>
+            <div className="metrics compact">
+                <Metric label="Planowane obciążenie" value={value("scheduled_utilization_percent")} unit="%" />
+                <Metric label="Jitter cyklu" value={value("cycle_jitter_ms")} unit=" ms" />
+                <Metric label="Odstęp między ramkami" value={value("rx_interval_mean_ms")} unit=" ms" />
+                <Metric label="Ramki RX / sesja" value={value("rx_frames")} />
+                <Metric label="Ramki TX / sesja" value={value("tx_frames")} />
+            </div>
+            <p className="muted-note">Obciążenie jest oszacowaniem kosztu zapytań i odpowiedzi. Nie obejmuje retransmisji.</p>
+        </details>
+        <p className="can-note">Aktualizacja panelu: 5 Hz. Pozycje mają osobne znaczniki czasu. SCAN i Reset CAN są blokowane podczas aktywnego sterowania.</p>
     </section>;
 }
 function DeviceRow({ device }: { device: CanDevice }) {
     const [open, setOpen] = useState(false);
     const v = device.values;
     const enable = v.enable === true ? "Włączony" : v.enable === false ? "Wyłączony" : "—";
-    return <><tr className="device-row" onClick={() => setOpen(!open)}><td><code>{device.id}</code></td><td>{String(v.model ?? "—")}</td><td><Badge state={device.state} text={device.message}/></td><td>{String(v.motor_state ?? "Niedostępny")}</td><td>{enable}</td><td>{numeric(v.rtt_ms)?.toLocaleString("pl-PL", { maximumFractionDigits: 2 }) ?? "—"}</td></tr>{open && <tr className="device-details"><td colSpan={6}><div><span>Tryb: <b>{String(v.mode ?? "—")}</b></span><span>Stall: <b>{v.stall === true ? "Tak" : v.stall === false ? "Nie" : "—"}</b></span><span>RTT min / śr. / max: <b>{numeric(v.rtt_min_ms)?.toFixed(2) ?? "—"} / {numeric(v.rtt_mean_ms)?.toFixed(2) ?? "—"} / {numeric(v.rtt_max_ms)?.toFixed(2) ?? "—"} ms</b></span><span>Timeouty / błędne: <b>{String(v.timeouts ?? 0)} / {String(v.invalid_responses ?? 0)}</b></span><span>Ostatni poprawny odczyt: <b>{numeric(v.last_ok_age_seconds)?.toFixed(1) ?? "—"} s temu</b></span></div></td></tr>}</>;
+    return <>
+        <tr className="device-row">
+            <td><button className="link-button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} {device.id}</button></td>
+            <td>{String(v.model ?? "—")}</td>
+            <td><Badge state={device.state} text={device.message} /></td>
+            <td>{String(v.motor_state ?? "Niedostępny")}</td>
+            <td>{enable}</td>
+            <td>{numeric(v.rtt_ms)?.toLocaleString("pl-PL", { maximumFractionDigits: 2 }) ?? "—"}</td>
+        </tr>
+        {open && <tr className="device-details"><td colSpan={6}><div>
+            <span>Tryb: <b>{String(v.mode ?? "—")}</b></span>
+            <span>Pozycja enkodera: <b>{numeric(v.position_ticks)?.toLocaleString("pl-PL") ?? "—"} impulsów</b></span>
+            <span>Wiek pozycji: <b>{numeric(v.position_age_seconds) === null ? "—" : `${(Number(v.position_age_seconds) * 1000).toFixed(1)} ms`}</b></span>
+            <span>Wiek ENABLE: <b>{numeric(v.enable_age_seconds) === null ? "—" : `${(Number(v.enable_age_seconds) * 1000).toFixed(1)} ms`}</b></span>
+            <span>Stall: <b>{v.stall === true ? "Tak" : v.stall === false ? "Nie" : "—"}</b></span>
+            <span>RTT min / śr. / max: <b>{numeric(v.rtt_min_ms)?.toFixed(2) ?? "—"} / {numeric(v.rtt_mean_ms)?.toFixed(2) ?? "—"} / {numeric(v.rtt_max_ms)?.toFixed(2) ?? "—"} ms</b></span>
+            <span>Timeouty / błędne: <b>{String(v.timeouts ?? 0)} / {String(v.invalid_responses ?? 0)}</b></span>
+            <span>Ostatni poprawny odczyt: <b>{numeric(v.last_ok_age_seconds)?.toFixed(1) ?? "—"} s temu</b></span>
+        </div></td></tr>}
+    </>;
 }
 function App() {
-    const [canView, setCanView] = useState(location.hash === "#can");
-    useEffect(() => { const update = () => setCanView(location.hash === "#can"); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
+    const [view, setView] = useState(location.hash);
+    const canView = view === "#can", manualView = view === "#manual";
+    useEffect(() => { const update = () => setView(location.hash); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
     const { snapshot, connection, receivedAt, now } = useStatus();
     const stale =
         connection !== "online" || dataIsStale(snapshot, receivedAt, now);
@@ -150,23 +181,24 @@ function App() {
                 </a>
                 <div className="nav-label">PRZESTRZEŃ ROBOCZA</div>
                 <nav aria-label="Sekcje panelu">
-                    <a className={canView ? "" : "selected"} href="#overview">
+                    <a className={canView || manualView ? "" : "selected"} href="#overview">
                         <span>◫</span>Przegląd systemu
                     </a>
                     <a className={canView ? "selected" : ""} href="#can">
                         <span>⇄</span>Magistrala CAN
                     </a>
+                    <a className={manualView ? "selected" : ""} href="#manual"><span>↔</span>Sterowanie ręczne</a>
                     <a href="#architecture">
                         <span>⌘</span>Architektura
                     </a>
                 </nav>
                 <div className="sidebar-bottom">
                     <span className="dot" />
-                    PANEL DIAGNOSTYCZNY<p>Dostęp lokalny · Tylko odczyt</p>
+                    PANEL ROBOTA<p>Dostęp lokalny · CAN</p>
                 </div>
             </aside>
             <main id="overview">
-                {canView ? <CanPage onClose={() => { location.hash = "overview"; }} /> : <>
+                {manualView ? <ManualPage /> : canView ? <CanPage onClose={() => { location.hash = "overview"; }} /> : <>
                 <header className="topbar">
                     <span>
                         Stanowisko robota <span className="divider">/</span>{" "}
@@ -198,6 +230,7 @@ function App() {
                         <span>Odświeżanie co 1 s</span>
                     </div>
                 </div>
+                <a className="manual-tile" href="#manual"><span>↔</span><div><strong>Sterowanie ręczne</strong><p>ENABLE, zero i JOG pojedynczych silników J1–J6</p></div><span>→</span></a>
                 <section
                     className={`summary ${stale ? "waiting" : ""}`}
                     aria-label="Świeżość danych"
@@ -362,7 +395,7 @@ function App() {
                     >
                         <div
                             className="joints"
-                            aria-label="Sześć osi bez integracji"
+                            aria-label="Sześć osi robota"
                         >
                             {[1, 2, 3, 4, 5, 6].map((n) => (
                                 <span key={n}>
@@ -372,7 +405,7 @@ function App() {
                             ))}
                         </div>
                         <p className="muted-note">
-                            Oczekuje na sterownik MKS i konfigurację osi.
+                            Pełny robot wymaga konfiguracji osi. <a href="#manual">ENABLE, zero i JOG silników →</a>
                         </p>
                     </Card>
                 </section>

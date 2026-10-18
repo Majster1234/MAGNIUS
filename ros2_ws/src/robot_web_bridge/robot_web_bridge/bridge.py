@@ -3,7 +3,6 @@
 import os
 from pathlib import Path
 import threading
-import time
 
 from ament_index_python.packages import get_package_share_directory
 from diagnostic_msgs.msg import DiagnosticArray
@@ -17,6 +16,9 @@ from .app import create_app
 from .network import lan_address
 from .status import StatusStore
 from .status import CanStatusStore
+from .manual import ManualStore, ManualRosClient
+from .trace import trace, recording
+from robot_control_interfaces.msg import ManualState
 from std_srvs.srv import Trigger
 
 
@@ -48,9 +50,22 @@ def main(args=None):
         static_dir = (Path(static_dir) / 'index.html').resolve().parent
         store = StatusStore(address, port, interface, subnet)
         can_store = CanStatusStore(node.declare_parameter('can_interface', 'can0').value)
-        node.create_subscription(DiagnosticArray, '/robot/system_status', store.update,
+        manual_store = ManualStore()
+        manual_action = ManualRosClient(node)
+        node.create_subscription(ManualState, '/robot/manual/state', manual_store.update, QoSProfile(depth=1))
+        def system_update(message):
+            store.update(message)
+            if recording():
+                trace('system_status', components=store.snapshot()['components'])
+
+        def can_update(message):
+            can_store.update(message)
+            if recording():
+                trace('can_summary', summary=can_store.snapshot()['summary'])
+
+        node.create_subscription(DiagnosticArray, '/robot/system_status', system_update,
                                  QoSProfile(depth=1))
-        node.create_subscription(DiagnosticArray, '/robot/can/diagnostics', can_store.update,
+        node.create_subscription(DiagnosticArray, '/robot/can/diagnostics', can_update,
                                  QoSProfile(depth=1))
         scan_client = node.create_client(Trigger, '/robot/can/scan')
         reset_client = node.create_client(Trigger, '/robot/can/reset')
@@ -63,7 +78,9 @@ def main(args=None):
             done = threading.Event()
             future.add_done_callback(lambda _: done.set())
             if not done.wait(0.35):
-                return True, 'Operacja przyjęta przez diagnostykę CAN'
+                client.remove_pending_request(future)
+                future.cancel()
+                return False, 'Brak potwierdzenia przyjęcia operacji — sprawdź status CAN'
             try:
                 result = future.result()
                 return bool(result.success), result.message
@@ -80,7 +97,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

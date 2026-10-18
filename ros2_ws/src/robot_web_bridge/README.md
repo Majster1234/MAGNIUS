@@ -22,6 +22,8 @@ ostatnim odczytem, a nie bieżącym pomiarem. API nadal może odpowiadać popraw
 
 Nasłuch obejmuje konkretny adres LAN. Polityka ASGI sprawdza adres klienta,
 Host i Origin także przed rozpoczęciem WebSocket. Nagłówki proxy są ignorowane.
-Brak kont, CORS, metod sterujących i transmisji CAN.
+Brak kont i CORS. API ręczne przekazuje żądania do C++ przez ROS; Python
+nie posiada transportu CAN ani pętli ruchu. Opis usług i WebSocket:
+[sterowanie ręczne](../../../docs/manual_control.md).
 
 Uruchomienie i testy: [docs/web_status.md](../../../docs/web_status.md).

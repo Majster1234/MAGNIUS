@@ -37,15 +37,18 @@ pobrania. Wersja sprzętowa U2C `2.1` nie określa wersji jego firmware.
 | Jednostki napędu, zakres licznika, tryb sterowania i bazowanie | Ten dokument oraz konfiguracja osi |
 | Timeouty, błędy, częstotliwość odczytu i obciążenie magistrali dla sześciu osi | Ten dokument po pomiarach |
 
-Każdy z sześciu napędów wymaga jednoznacznego mapowania do osi. CAN ID pozostają
-nieustalone. Bitrate 500000 bit/s został potwierdzony przez użytkownika i zapisany
+Mapowanie potwierdzone przez użytkownika: CAN 1–6 → J1–J6, odpowiednio
+`joint_1`–`joint_6`; zapisano je w szablonie osi. Bitrate 500000 bit/s został potwierdzony i zapisany
 w szablonie konfiguracji; musi odpowiadać ustawieniom fizycznych urządzeń.
 
 ## Stan implementacji
 
-Nie ma jeszcze kodowania ani dekodowania ramek, socketów CAN, sekwencji
-inicjalizacji lub automatycznego wykrywania urządzeń. Szablony są materiałem
-do zebrania parametrów. Projekt nie wysyła komend i nie aktualizuje firmware.
+Biblioteka koduje i dekoduje ramki MKS, skanuje adresy i odczytuje pozycję,
+ENABLE, stall, tryb oraz stan pracy. Manager ma harmonogram i transakcję F5/ACK/SYNC;
+ruch sześciu osi wymaga pełnej konfiguracji i odbioru. Osobny moduł obsługuje
+ENABLE, zero i prędkościowy JOG wałów bez modelu robota:
+[sterowanie ręczne](manual_control.md). Szczegóły trajektorii: [strategia CAN](can_strategy.md).
+Szablony nadal wymagają parametrów rzeczywistych osi.
 
 Przyszłe testy protokołu powinny sprawdzać ramki referencyjne z instrukcji,
 niepoprawne długości i sumy kontrolne, dopasowanie odpowiedzi do napędu oraz

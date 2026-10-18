@@ -2,7 +2,7 @@
 <package format="3">
   <name>robot_can_diagnostics</name>
   <version>0.1.0</version>
-  <description>Nieinwazyjna diagnostyka magistrali CAN i napędów MKS SERVO42D.</description>
+  <description>Diagnostyka CAN i usługi ręcznego sterowania napędami MKS SERVO42D.</description>
   <!-- TODO: Replace placeholder maintainer data and choose a project license. -->
   <maintainer email="maintainer@example.com">Project maintainer (TODO)</maintainer>
   <license>TODO</license>
@@ -11,5 +11,7 @@
   <depend>mks_servo_can</depend>
   <depend>rclcpp</depend>
   <depend>std_srvs</depend>
+  <depend>std_msgs</depend>
+  <depend>robot_control_interfaces</depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

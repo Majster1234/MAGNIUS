@@ -47,5 +47,17 @@ std::string model_name(Model model);
 std::string motor_state_name(std::uint8_t state);
 std::string work_mode_name(std::uint8_t mode);
 bool supports_motor_state(std::uint8_t mode);
+std::optional<std::int64_t> parse_position(std::uint16_t address, const std::vector<std::uint8_t> &data);
+std::vector<std::uint8_t> absolute_position_request(std::uint16_t address, std::int32_t ticks,
+                                                 std::uint16_t rpm, std::uint8_t acceleration);
+std::vector<std::uint8_t> synchronize_request();
+std::vector<std::uint8_t> stop_request(std::uint16_t address);
+std::vector<std::uint8_t> speed_request(std::uint16_t address, bool clockwise,
+                                       std::uint16_t rpm, std::uint8_t acceleration = 1);
+std::vector<std::uint8_t> enable_request(std::uint16_t address, bool enabled);
+std::vector<std::uint8_t> zero_request(std::uint16_t address);
+std::vector<std::uint8_t> parameter_request(std::uint16_t address, std::uint8_t parameter);
+std::optional<std::int16_t> parse_speed(std::uint16_t address, const std::vector<std::uint8_t> &data);
+double speed_scale(std::uint16_t microstep);
 
 }  // namespace mks_servo_can

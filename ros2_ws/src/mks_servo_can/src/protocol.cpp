@@ -3,6 +3,29 @@
 #include <stdexcept>
 
 namespace mks_servo_can {
+std::vector<std::uint8_t> speed_request(std::uint16_t address, bool clockwise,
+                                      std::uint16_t rpm, std::uint8_t acceleration) {
+  if (rpm > 3000 || acceleration == 0) throw std::invalid_argument("Nieprawidłowa prędkość/rampa JOG");
+  return request(address, 0xf6, {static_cast<std::uint8_t>((clockwise ? 0x80 : 0) | (rpm >> 8)),
+                                static_cast<std::uint8_t>(rpm), acceleration});
+}
+std::vector<std::uint8_t> enable_request(std::uint16_t address, bool enabled) {
+  return request(address, 0xf3, {static_cast<std::uint8_t>(enabled)});
+}
+std::vector<std::uint8_t> zero_request(std::uint16_t address) { return request(address, 0x92); }
+std::vector<std::uint8_t> parameter_request(std::uint16_t address, std::uint8_t parameter) {
+  return request(address, 0, {parameter});
+}
+std::optional<std::int16_t> parse_speed(std::uint16_t address, const std::vector<std::uint8_t> &data) {
+  if (!validate_response(address, data, 0x32, 4).valid) return std::nullopt;
+  const auto raw = static_cast<std::uint16_t>((std::uint16_t(data[1]) << 8) | data[2]);
+  return static_cast<std::int16_t>(raw >= 0x8000 ? static_cast<std::int32_t>(raw) - 65536 : raw);
+}
+double speed_scale(std::uint16_t microstep) {
+  if (!microstep || microstep > 256 || (microstep & (microstep - 1)))
+    throw std::invalid_argument("Nieobsługiwany mikrokrok — wymagane 1, 2, 4, 8, 16, 32, 64, 128 lub 256");
+  return microstep == 16 || microstep == 32 || microstep == 64 ? 1.0 : 16.0 / microstep;
+}
 namespace {
 std::optional<std::uint8_t> parse_byte(std::uint16_t address,
                                        const std::vector<std::uint8_t> &data,
@@ -100,4 +123,24 @@ std::string work_mode_name(std::uint8_t mode) {
   return mode <= 5 ? labels[mode] : "Niedostępny";
 }
 bool supports_motor_state(std::uint8_t mode) { return mode >= 3 && mode <= 5; }
+
+std::optional<std::int64_t> parse_position(std::uint16_t address,
+                                        const std::vector<std::uint8_t> &data) {
+  if (!validate_response(address, data, 0x31, 8).valid) return std::nullopt;
+  std::int64_t value = 0;
+  for (std::size_t i = 1; i < 7; ++i) value = (value << 8) | data[i];
+  if (value & (std::int64_t{1} << 47)) value -= std::int64_t{1} << 48;
+  return value;
+}
+std::vector<std::uint8_t> absolute_position_request(std::uint16_t address, std::int32_t ticks,
+                                                 std::uint16_t rpm, std::uint8_t acceleration) {
+  if (ticks < -8388607 || ticks > 8388607 || rpm == 0 || rpm > 3000)
+    throw std::invalid_argument("pozycja/prędkość poza zakresem MKS F5");
+  const auto bits = static_cast<std::uint32_t>(ticks);
+  return request(address, 0xf5, {static_cast<std::uint8_t>(rpm >> 8), static_cast<std::uint8_t>(rpm),
+      acceleration, static_cast<std::uint8_t>(bits >> 16), static_cast<std::uint8_t>(bits >> 8),
+      static_cast<std::uint8_t>(bits)});
+}
+std::vector<std::uint8_t> synchronize_request() { return {0x4b, 0x4b}; }
+std::vector<std::uint8_t> stop_request(std::uint16_t address) { return request(address, 0xf7); }
 }  // namespace mks_servo_can

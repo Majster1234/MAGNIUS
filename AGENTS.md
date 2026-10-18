@@ -26,8 +26,7 @@ są źródłem prawdy o implementacji.
 8. Jeżeli tryb pracy lub uprawnienia zabraniają zapisu, nie omijaj ograniczeń.
    Poinformuj w odpowiedzi, że aktualizacja kontekstu nie została zapisana.
 
-To zobowiązanie wykonuje agent; ten plik nie jest skryptem ani automatycznym hookiem.
-W narzędziu, które nie rozpoznaje `AGENTS.md`, trzeba jawnie polecić jego odczytanie.
+Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zleć jego odczytanie.
 
 ## Projekt i mapa repozytorium
 
@@ -35,14 +34,14 @@ W narzędziu, które nie rozpoznaje `AGENTS.md`, trzeba jawnie polecić jego odc
 - Komunikacja: Linux SocketCAN → BIGTREETECH U2C v2.1 → MKS SERVO42D CAN.
 - Bitrate potwierdzony przez użytkownika: 500000 bit/s, interfejs `can0`, sterownik `gs_usb`.
 - Protokół napędów jest protokołem producenta MKS; nie zakładaj CANopen/CiA 402.
-- Nazwy osi: `joint_1`–`joint_6`, od podstawy do narzędzia. Jednostki ROS: SI.
+- CAN 1–6 → J1–J6 / `joint_1`–`joint_6`. ROS: SI; panel desktop: stopnie wału i RPM; mobile zakończone.
 
 | Miejsce | Odpowiedzialność |
 | --- | --- |
 | `ros2_ws/src/robot_description` | Model URDF/Xacro, geometria i konfiguracja RViz |
-| `ros2_ws/src/mks_servo_can` | Przyszła biblioteka C++: transport i protokół CAN |
-| `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN, skan i statusy MKS w C++ |
-| `ros2_ws/src/robot_hardware` | Przyszły adapter C++ `SystemInterface` dla Humble |
+| `ros2_ws/src/mks_servo_can` | Protokół, transport, manager i ManualMotorController |
+| `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN i usługi ręczne w C++ |
+| `ros2_ws/src/robot_hardware` | Plugin CanSystem dla sześciu osi, Humble |
 | `ros2_ws/src/robot_bringup` | Launch diagnostyki i konfiguracje przykładowe |
 | `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN, diagnostyka ROS w Pythonie |
 | `ros2_ws/src/robot_web_bridge`, `web/` | API FastAPI, WebSocket i panel React/TypeScript |
@@ -53,6 +52,10 @@ W narzędziu, które nie rozpoznaje `AGENTS.md`, trzeba jawnie polecić jego odc
 
 ## Zasady pracy
 
+- Domyślnie przed każdym testem ruchu opisz oś, kierunek, prędkość, czas/zakres
+  i zatrzymanie oraz uzyskaj zgodę użytkownika przed wykonaniem.
+  Wyjątek: w obecnej rozmowie 2026-10-18 użytkownik zezwolił na testy sesji,
+  w tym dostępne osie po 15 s w obu kierunkach; nie pytaj ponownie. Wyjątek nie przechodzi do nowej sesji.
 - Rozmawiaj i pisz dokumentację po polsku; zachowuj istniejące nazwy pakietów i API.
 - Najpierw sprawdź odpowiedni kod i dokumentację. Wyszukuj przez `rg`; nie czytaj
   całego repozytorium, jeśli zadanie dotyczy małego fragmentu.
@@ -86,10 +89,9 @@ colcon test
 colcon test-result --verbose
 ```
 
-`--dry-run` wymaga zainstalowanego GNOME Terminal, ale nie otwiera okien.
-Po niepowodzeniu polecenia sprawdź przyczynę; nie raportuj dalszych kroków jako
-zakończonych sukcesem. Dla zmian samej dokumentacji wystarczy sprawdzenie treści,
-ścieżek i formatowania. Wynik `0 tests` oznacza brak testów wykonywalnych.
+`--dry-run` wymaga GNOME Terminal i nie otwiera okien. Po błędzie sprawdź przyczynę;
+nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treści/ścieżek/formatu.
+`0 tests` oznacza brak testów wykonywalnych.
 
 ## Dokumentacja źródłowa
 
@@ -98,27 +100,21 @@ zakończonych sukcesem. Dla zmian samej dokumentacji wystarczy sprawdzenie treś
 - [docs/architecture.md](docs/architecture.md) — architektura i konwencje osi.
 - [docs/web_status.md](docs/web_status.md) — panel LAN, uruchomienie i wyniki weryfikacji.
 - [docs/can_diagnostics.md](docs/can_diagnostics.md) — skan, Reset CAN i ograniczenia odczytów.
-- [docs/can_protocol.md](docs/can_protocol.md) — dane wymagane do implementacji CAN.
+- [docs/can_strategy.md](docs/can_strategy.md) — harmonogram, ruch, watchdog i konfiguracja.
+- [docs/manual_control.md](docs/manual_control.md) — ENABLE, zero, JOG i interfejsy ROS/API.
+- [docs/can_recording.md](docs/can_recording.md) — zapis/analiza incydentów; wyniki w can_recording_results.md.
 - [docs/socketcan.md](docs/socketcan.md) — instalacja i diagnostyka systemowego CAN.
 - [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko i GitHub.
-- [OpenAI Docs: AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md) — wczytywanie instrukcji.
 
 ## Bieżący kontekst
 
-- Aktualizacja: 2026-10-18, strefa Europe/Prague.
-- Zadanie wykonane: moduł CAN dla MKS SERVO42D CAN, firmware 1.0.9.
-- Dodano `mks_servo_can`: C++ SocketCAN i walidację identyfikacji, ENABLE, stanu, stall oraz trybu pracy.
-- Dodano `robot_can_diagnostics`: właściciel socketu, skan 1–2047, temat 5 Hz i usługi SCAN/RESET; tylko komendy odczytowe.
-- Timeout: 20 ms; limit: 200 zapytań/s i 4 oczekujące ramki; stan sesji ma stały rozmiar. BUS-OFF zatrzymuje odpytywanie.
-- Bridge ma API/WebSocket CAN 5 Hz oraz widok React z tabelą, postępem, szczegółami i paginacją; LAN/Host/Origin pozostają aktywne.
-- Reset używa tylko `robot-can@can0.service`; instalator tworzy minimalną regułę sudoers. Reguły nie instalowano i nie resetowano CAN.
-- Dokumentacja: `docs/can_diagnostics.md`, `docs/web_status.md`, README i architektura.
-- Sprawdzenia: build C++, 3 GTest protokołu, 11 testów monitora, 29 testów bridge i 3 testy frontendu; zbudowano panel produkcyjny.
-- Poprawka 2026-10-18: odpowiedź identyfikacyjna MKS ma 7, nie 5 bajtów;
-  potwierdzono `40 12 01 00 09 20 7D` z adresu 1 i poprawiono dekoder/testy.
-- Nowa instancja panelu działa na porcie 8080. Skan wykrył SERVO42D pod adresami
-  1, 2 i 4: `CR_vFOC`, ENABLE wyłączony, stall nie, RTT ok. 5 ms, bez błędów.
-  Urządzenia są odpytywane wyłącznie komendami diagnostycznymi; skan pozostałych adresów trwał.
-- Test Uvicorn wymagał lokalnego socketu poza sandboxem. Nie testowano BUS-OFF, resetu usługi, sześciu napędów, drugiego LAN ani zapory.
-- Git: `feature/web-status`, zmiany zadania są niezatwierdzone; bez commitu i push.
-- Brakuje modelu, adaptera `ros2_control` i konfiguracji osi; CAN ID, geometria, przełożenia, bazowanie, limity, licencja i metadane są nieustalone/TODO.
+- Aktualizacja: 2026-10-18, Europe/Prague. Zmniejszono panel ręczny i zastosowano ciemny motyw całego GUI.
+- Tytuł, połączenie i nagrywanie u góry; wynik operacji poniżej. Panel 279,5 px, wiersze 29 px; reszta miejsca wolna.
+- TypeScript/build, 12 Vitest i Chromium OK: cztery rozdzielczości 1280×800–1920×1080, bez przepełnienia.
+- Testy atrap obejmują nadal ENABLE, przytrzymanie/puszczenie, dwóch klientów, zanik danych i brak auto wznowienia.
+- Działający LAN sprawdzony tylko odczytem: nowe pliki statyczne, statusy 20 Hz, ciemny przegląd i CAN, brak błędów JS.
+- Bez restartu backendu i prób ruchu; nie powtarzano ROS/C++ ani API. Dokumentacja: docs/manual_control.md.
+- Poprzednio JOG: F1=1, 60 ms, ±1° od stałego punktu; zero/ENABLE nadal 100 ms / ±3 impulsy. 50 GTest i J1/J2 sprzętowo OK.
+- Nagrywanie: log/manual-can, do 96 MiB; analiza wcześniejszego WS: docs/can_incident_2026-10-18.md. Ostatnio dostępne 1/2/4, brak 3/5/6.
+- Dalej: odbiór limitów/USB/BUS-OFF/watchdog, sześciu osi, modelu/parametrów i zapory. Licencja TODO, sudoers bez zmian.
+- Git feature/web-status, bez commit/push. Panel 192.168.1.69:8080/#manual; odświeżyć stronę dla nowego wyglądu.

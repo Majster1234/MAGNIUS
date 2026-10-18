@@ -1,8 +1,8 @@
 # Szablon parametrów ROS 2; nie jest gotowy do uruchomienia.
-# update_rate = null wymaga uzupełnienia. Model i adapter nie są zaimplementowane.
+# Profil startowy 50 Hz; wymaga pełnego URDF, konfiguracji osi i odbioru sprzętu.
 controller_manager:
   ros__parameters:
-    update_rate: null  # TODO: częstotliwość w Hz po analizie cyklu i magistrali
+    update_rate: 50  # Profil pomiarowy, nie potwierdzenie płynności ruchu.
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
     joint_trajectory_controller:
@@ -21,3 +21,4 @@ joint_trajectory_controller:
       - position
     state_interfaces:
       - position
+    allow_partial_joints_goal: false

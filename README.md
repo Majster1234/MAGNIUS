@@ -1,14 +1,18 @@
 # Robot 6-DOF — ROS 2 Humble / CAN
 
+Diagnostyka zaniku danych podczas JOG: [nagrywanie i analiza CAN/ROS/API](docs/can_recording.md).
+
 Projekt sześcioosiowego robota dla Ubuntu 22.04 i ROS 2 Humble.
 Docelowa komunikacja: Linux SocketCAN → BIGTREETECH U2C v2.1 → napędy
 MKS SERVO42D w wersji CAN.
 
-Repozytorium zawiera pakiety ROS 2, panel React/TypeScript oraz odczytową
-diagnostykę CAN. Monitor i backend udostępniają rzeczywiste statusy ROS i
-systemu w sieci LAN. `robot_can_diagnostics` wysyła wyłącznie zapytania
-diagnostyczne MKS, nigdy polecenia ruchu ani zmiany parametrów napędów.
-Nie ma jeszcze modelu robota, sterownika ruchu ani pluginu sprzętowego.
+Repozytorium zawiera pakiety ROS 2, panel React/TypeScript, diagnostykę CAN
+oraz ręczne sterowanie pojedynczymi silnikami. Monitor i backend udostępniają
+rzeczywiste statusy w LAN. Po starcie wykonywane są wyłącznie odczyty;
+ENABLE, zerowanie i JOG wymagają jawnego działania operatora.
+Istnieją manager C++, adapter `ros2_control` i arbitraż trajektorii/jog, z aktywacją
+zablokowaną do czasu konfiguracji i odbioru sprzętu. Brakuje modelu i parametrów osi.
+Hierarchia i uruchamianie: [strategia CAN](docs/can_strategy.md).
 
 ## Panel diagnostyczny
 
@@ -22,7 +26,9 @@ Po przygotowaniu zależności i zbudowaniu panelu oraz workspace według
 Otwórz URL wypisany w terminalu, obecnie **http://192.168.1.69:8080**,
 na komputerze robota lub innym urządzeniu w `192.168.1.0/24`.
 Panel pokazuje API, łączność ROS, CPU/RAM, CAN, kontrolery i stan integracji
-napędów. Jest dostępny bez logowania, tylko do odczytu. `Ctrl+C` zamyka sesję.
+napędów. Ekran [Sterowanie ręczne](docs/manual_control.md) obsługuje ENABLE,
+zero i JOG wałów J1–J6 (CAN 1–6), bez modelu robota. Panel jest dostępny
+bez logowania w LAN. `Ctrl+C` zamyka sesję.
 
 ## Układ projektu
 
@@ -41,9 +47,10 @@ napędów. Jest dostępny bez logowania, tylko do odczytu. `Ctrl+C` zamyka sesj�
 │   └── cad/                      # Modele mechaniczne i pliki źródłowe CAD
 └── ros2_ws/src/
     ├── robot_description/        # Przyszły URDF/Xacro, meshes, RViz
-    ├── mks_servo_can/            # Biblioteka C++: SocketCAN i odczytowy protokół MKS
+    ├── mks_servo_can/            # SocketCAN, protokół, manager i moduł ręczny
+    ├── robot_control_interfaces/ # Typowane usługi i stan sterowania ręcznego
     ├── robot_can_diagnostics/    # Skaner MKS i diagnostyka CAN 5 Hz
-    ├── robot_hardware/           # Przyszły adapter sześciu osi do ros2_control
+    ├── robot_hardware/           # Plugin sześciu osi, wspólny manager CAN
     ├── robot_bringup/            # Launch panelu i szablony konfiguracji
     ├── robot_system_monitor/     # Pomiary systemowe i diagnostyka ROS
     └── robot_web_bridge/         # API HTTP/WebSocket i serwowanie panelu
@@ -59,7 +66,7 @@ powstaną dopiero podczas pracy z `colcon` i są ignorowane przez Git.
 2. Zbuduj frontend i workspace poleceniami z tej instrukcji.
 3. Uzupełnij dane sprzętowe i mechaniczne opisane w
    [architekturze](docs/architecture.md) oraz [opisie CAN](docs/can_protocol.md).
-4. Na tej podstawie zaimplementuj model, bibliotekę CAN i adapter sprzętowy.
+4. Uzupełnij model i konfigurację osi, następnie przeprowadź odbiór ruchu na stanowisku.
 
 Szablony w `ros2_ws/src/robot_bringup/config/` mają rozszerzenie `.example.yaml`.
 Wartość `null` oznacza brak ustalenia, a nie zero ani wartość domyślną.

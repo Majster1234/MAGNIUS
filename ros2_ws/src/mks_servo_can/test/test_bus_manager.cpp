@@ -1,0 +1,242 @@
+#include <gtest/gtest.h>
+#include <algorithm>
+#include <deque>
+#include <map>
+#include <fstream>
+#include <unistd.h>
+#include <linux/can/error.h>
+#include "mks_servo_can/bus_manager.hpp"
+
+using namespace mks_servo_can;
+using namespace std::chrono_literals;
+
+namespace {
+class Emulator final : public Transport {
+ public:
+  bool opened{false}, disconnected{false}, own_echo{false};
+  std::uint16_t missing_ack{}, missing_position{};
+  std::uint16_t absent_address{};
+  std::array<unsigned, 7> position_requests{};
+  Time now{};
+  std::array<std::uint64_t, 256> counts{};
+  std::array<std::int64_t, 7> positions{}, prepared{};
+  std::deque<Frame> responses;
+  std::vector<std::pair<std::uint16_t, std::uint8_t>> trace;
+  void open(const std::string &) override { opened = true; }
+  void close() override { opened = false; }
+  bool is_open() const override { return opened; }
+  void send(std::uint16_t address, const std::vector<std::uint8_t> &data) override {
+    if (disconnected) throw std::runtime_error("USB odłączone");
+    ++counts[data[0]];
+    if (trace.size() < 10000) trace.emplace_back(address, data[0]);
+    if (own_echo) responses.push_back({address, data, false, 0, now + 1ms});
+    if (address == 0 && data[0] == 0x4b) { positions = prepared; return; }
+    if (address < 1 || address > 6) return;
+    if (data[0] == 0x31) ++position_requests[address];
+    if (address == absent_address) return;
+    std::vector<std::uint8_t> reply;
+    switch (data[0]) {
+      case 0x40: reply = {0x40, 0x12, 1, 0, 9, 0x20}; break;
+      case 0x00: reply = {0x82, 5}; break;
+      case 0x3a: reply = {0x3a, 1}; break;
+      case 0x3e: reply = {0x3e, 0}; break;
+      case 0xf1: reply = {0xf1, 1}; break;
+      case 0x31: {
+        if (missing_position == address) return;
+        reply = {0x31};
+        const auto p = static_cast<std::uint64_t>(positions[address]);
+        for (int shift = 40; shift >= 0; shift -= 8) reply.push_back(static_cast<std::uint8_t>(p >> shift));
+        break;
+      }
+      case 0xf5: {
+        const auto raw = (std::int32_t(data[4]) << 16) | (std::int32_t(data[5]) << 8) | data[6];
+        prepared[address] = raw & 0x800000 ? raw - 0x1000000 : raw;
+        if (missing_ack == address) return;
+        reply = {0xf5, 5}; break;
+      }
+      default: return;
+    }
+    reply.push_back(checksum(address, reply));
+    responses.push_back({address, reply, false, 0, now + 1ms});
+  }
+  std::optional<Frame> receive() override {
+    if (disconnected) throw std::runtime_error("USB odłączone");
+    if (responses.empty() || responses.front().received_at > now) return std::nullopt;
+    auto frame = responses.front(); responses.pop_front(); return frame;
+  }
+};
+BusConfig configured() {
+  BusConfig config; config.motion_enabled = true;
+  config.commissioning_verified = config.synchronization_verified = config.stop_verified = true;
+  for (std::size_t i = 0; i < kAxes; ++i)
+    config.axes[i] = {static_cast<std::uint16_t>(i + 1), 1, 1, 0, -2, 2, 1, 100, 0.2, 2};
+  return config;
+}
+struct Harness {
+  Emulator *bus;
+  std::unique_ptr<CanBusManager> manager;
+  Time now{1s};
+  explicit Harness(BusConfig config = configured()) {
+    auto transport = std::make_unique<Emulator>(); bus = transport.get(); bus->now = now;
+    manager = std::make_unique<CanBusManager>(config, std::move(transport));
+    manager->open(now); manager->start_scan();
+  }
+  void run(int ms) {
+    for (int i = 0; i < ms; ++i) { bus->now = now; manager->tick(now); now += 1ms; }
+  }
+  void ready() { run(45000); ASSERT_FALSE(manager->snapshot().scanning); }
+  CommandBatch batch(std::uint64_t sequence, double position = 0.001) const {
+    CommandBatch batch; batch.positions.fill(position); batch.sequence = sequence;
+    batch.created = now; batch.expires = now + 19ms; batch.source = Source::trajectory; return batch;
+  }
+};
+}
+
+TEST(BusManager, CompleteScanDetectsOnlyResponsesAndDoesNotMove) {
+  Harness h; h.bus->own_echo = true; h.ready();
+  const auto snapshot = h.manager->snapshot();
+  EXPECT_EQ(snapshot.checked, 2047u);
+  EXPECT_EQ(std::count_if(snapshot.devices.begin(), snapshot.devices.end(), [](const auto &d) { return d.detected; }), 6);
+  EXPECT_EQ(h.bus->counts[0xf5], 0u); EXPECT_EQ(h.bus->counts[0x4b], 0u);
+  EXPECT_TRUE(snapshot.devices[6].position.valid);
+  EXPECT_LT(snapshot.devices[6].rtt.maximum, 2.0);
+}
+TEST(BusManager, AllSixAcknowledgementsRequiredForSync) {
+  Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  ASSERT_TRUE(h.manager->submit(h.batch(1))); h.run(10);
+  EXPECT_EQ(h.bus->counts[0xf5], 6u); EXPECT_EQ(h.bus->counts[0x4b], 1u);
+  EXPECT_EQ(h.manager->snapshot().statistics.committed, 1u);
+  EXPECT_FALSE(h.manager->start_scan()); EXPECT_FALSE(h.manager->service_allowed());
+}
+TEST(BusManager, MissingAckStopsWithoutPartialSyncOrAutomaticRecovery) {
+  Harness h; h.ready(); h.bus->missing_ack = 2;
+  ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  h.manager->submit(h.batch(1)); h.run(30);
+  EXPECT_TRUE(h.manager->snapshot().fault);
+  EXPECT_EQ(h.bus->counts[0x4b], 0u); EXPECT_EQ(h.bus->counts[0xf7], 6u);
+  const auto tx = h.manager->snapshot().statistics.tx;
+  h.run(1000); EXPECT_EQ(h.manager->snapshot().statistics.tx, tx);
+  EXPECT_FALSE(h.manager->activate(Source::trajectory, h.now));
+}
+TEST(BusManager, OldCommandAndWrongSourceCannotExecute) {
+  Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  auto batch = h.batch(1); batch.source = Source::jog;
+  EXPECT_FALSE(h.manager->submit(batch));
+  batch.source = Source::trajectory; batch.created -= 1s; batch.expires -= 1s;
+  EXPECT_TRUE(h.manager->submit(batch)); h.run(2);
+  EXPECT_TRUE(h.manager->snapshot().fault); EXPECT_EQ(h.bus->counts[0xf5], 0u);
+}
+TEST(BusManager, FeedbackAndWatchdogAreIndependentOfDiagnosticTraffic) {
+  Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  h.run(70);
+  EXPECT_TRUE(h.manager->snapshot().fault); EXPECT_EQ(h.bus->counts[0xf7], 6u);
+}
+TEST(BusManager, LostPositionStopsEvenWhenEnableAndOtherRepliesContinue) {
+  Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  h.bus->missing_position = 4;
+  for (std::uint64_t i = 1; i <= 8; ++i) { h.manager->submit(h.batch(i, 0)); h.run(20); }
+  EXPECT_TRUE(h.manager->snapshot().fault);
+  EXPECT_EQ(h.bus->counts[0xf7], 6u);
+}
+TEST(BusManager, BusOffAndUsbLossLatchFault) {
+  for (const bool bus_off : {false, true}) {
+    Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+    if (bus_off) h.bus->responses.push_front({0, {}, true, CAN_ERR_BUSOFF, h.now});
+    else h.bus->disconnected = true;
+    h.run(1); EXPECT_TRUE(h.manager->snapshot().fault);
+    EXPECT_FALSE(h.manager->snapshot().active);
+  }
+}
+TEST(BusManager, BoundsAndCommissioningGatesRejectMotion) {
+  auto config = configured(); config.motion_enabled = false;
+  Harness h(config); h.ready(); EXPECT_FALSE(h.manager->activate(Source::trajectory, h.now));
+  auto broken = configured(); broken.axes[2].address = broken.axes[1].address;
+  EXPECT_THROW(CanBusManager(broken, std::make_unique<Emulator>()), std::invalid_argument);
+  EXPECT_THROW(absolute_position_request(1, 8388608, 10, 2), std::invalid_argument);
+}
+TEST(BusManager, SixAxesLongRunKeepsFeedbackAndBoundedState) {
+  Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  const auto rss = [] { std::size_t size{}, resident{}; std::ifstream("/proc/self/statm") >> size >> resident; return resident * static_cast<std::size_t>(sysconf(_SC_PAGESIZE)); };
+  const auto memory_before = rss();
+  const auto position_before = h.bus->counts[0x31];
+  for (std::uint64_t i = 1; i <= 3000; ++i) { ASSERT_TRUE(h.manager->submit(h.batch(i, 0))); h.run(20); }
+  const auto snapshot = h.manager->snapshot();
+  EXPECT_FALSE(snapshot.fault) << snapshot.message;
+  EXPECT_GE(snapshot.statistics.committed, 2999u);
+  EXPECT_GE(h.bus->counts[0x31] - position_before, 6 * 2900u);
+  EXPECT_LE(snapshot.statistics.scheduled_utilization, 0.5);
+  EXPECT_LT(h.bus->responses.size(), 10u);
+  EXPECT_LT(sizeof(CanBusManager), 2u * 1024u * 1024u);
+  EXPECT_LE(rss(), memory_before + 4u * 1024u * 1024u);
+  for (const auto &axis : configured().axes)
+    EXPECT_TRUE(snapshot.devices[axis.address].position.fresh(h.now, 60ms));
+}
+TEST(BusManager, InvalidFramesCannotConsumePendingResponse) {
+  Harness h; h.run(1);
+  h.bus->responses.push_front({1, {0x40, 0x12}, false, 0, h.now});
+  h.run(3);
+  EXPECT_TRUE(h.manager->snapshot().devices[1].detected);
+  EXPECT_GT(h.manager->snapshot().statistics.invalid, 0u);
+}
+TEST(BusManager, PositionCodecSupportsNegativeInt48AndConversion) {
+  std::vector<std::uint8_t> frame{0x31, 0xff, 0xff, 0xff, 0xff, 0xc0, 0};
+  frame.push_back(checksum(4, frame));
+  EXPECT_EQ(parse_position(4, frame), -16384);
+  auto axis = configured().axes[0]; axis.gear_ratio = 2; axis.direction = -1;
+  EXPECT_NEAR(CanBusManager::position_to_joint(axis, -16384), 3.141592653589793, 1e-10);
+  EXPECT_EQ(CanBusManager::joint_to_position(axis, 3.141592653589793), -16384);
+}
+TEST(BusManager, SourceLeaseLossStopsEvenIfControllerKeepsWriting) {
+  auto config = configured(); config.source_lease_required = true;
+  Harness h(config); h.ready();
+  EXPECT_FALSE(h.manager->activate(Source::trajectory, h.now));
+  h.manager->renew_source_lease(Source::jog, h.now);
+  ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  for (std::uint64_t i = 1; i <= 15; ++i) {
+    auto command = h.batch(i, 0); command.source = Source::jog;
+    h.manager->submit(command); h.run(20);
+  }
+  EXPECT_TRUE(h.manager->snapshot().fault);
+  EXPECT_EQ(h.bus->counts[0xf7], 6u);
+}
+TEST(BusManager, RejectsCycleWhenCriticalTrafficCannotFitBudget) {
+  auto config = configured(); config.cycle = 10ms;
+  EXPECT_THROW(CanBusManager(config, std::make_unique<Emulator>()), std::invalid_argument);
+}
+TEST(BusManager, DelayedPositionDoesNotRefreshAnUnrelatedFieldOrSuppressTimeout) {
+  Harness h; h.ready(); h.bus->missing_position = 1;
+  h.run(100);
+  const auto previous = h.manager->snapshot().devices[1].position;
+  std::vector<std::uint8_t> reply{0x31, 0, 0, 0, 0, 0, 0}; reply.push_back(checksum(1, reply));
+  h.bus->responses.push_back({1, reply, false, 0, h.now - 100ms});
+  h.run(2);
+  const auto next = h.manager->snapshot().devices[1].position;
+  EXPECT_EQ(next.stamp, previous.stamp);
+  EXPECT_GE(h.manager->snapshot().statistics.late, 1u);
+}
+TEST(BusManager, OversuppliedCommandsDoNotStarveFeedbackOrGrowQueue) {
+  Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
+  for (std::uint64_t sequence = 1; sequence <= 1000; ++sequence) {
+    ASSERT_TRUE(h.manager->submit(h.batch(sequence, 0))); h.run(1);
+  }
+  const auto snapshot = h.manager->snapshot();
+  EXPECT_FALSE(snapshot.fault) << snapshot.message;
+  EXPECT_GT(snapshot.statistics.dropped_commands, 900u);
+  EXPECT_LE(snapshot.statistics.scheduled_utilization, 0.5);
+  EXPECT_LE(snapshot.statistics.committed, 51u);
+  for (const auto &axis : configured().axes)
+    EXPECT_TRUE(snapshot.devices[axis.address].position.fresh(h.now, 60ms));
+}
+TEST(BusManager, OfflineProbeIsLimitedAndReconnectRestoresNormalFeedback) {
+  Harness h; h.ready(); h.bus->absent_address = 4; h.run(150);
+  ASSERT_GE(h.manager->snapshot().devices[4].consecutive_timeouts, 3u);
+  const auto requests = h.bus->position_requests[4];
+  h.run(2000);
+  EXPECT_LE(h.bus->position_requests[4] - requests, 3u);
+  h.bus->absent_address = 0; h.run(1200);
+  const auto device = h.manager->snapshot().devices[4];
+  EXPECT_LT(device.consecutive_timeouts, 3u);
+  EXPECT_TRUE(device.position.fresh(h.now, 60ms));
+  EXPECT_TRUE(device.enable.fresh(h.now, 300ms));
+  EXPECT_TRUE(device.mode.valid);
+}

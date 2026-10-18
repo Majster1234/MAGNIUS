@@ -1,5 +1,7 @@
 # robot_can_diagnostics
 
-Węzeł C++ prowadzi wyłącznie odczytową diagnostykę SocketCAN: skan identyfikacji
-MKS, odczyt ENABLE, stanu pracy, flagi stall oraz metryki komunikacji. Nie publikuje
-ani nie wykonuje poleceń ruchu. Szczegóły uruchamiania opisuje `docs/can_diagnostics.md`.
+Węzeł C++ udostępnia diagnostykę SocketCAN, skan identyfikacji i statusy MKS.
+Ten sam runtime udostępnia usługi ręcznego ENABLE, zerowania i JOG; sekwencje
+realizuje osobny `ManualMotorController` w bibliotece CAN. Po starcie nie są
+wysyłane polecenia ruchu ani konfiguracji. Opisy: `docs/can_diagnostics.md`
+i `docs/manual_control.md`. Nie uruchamiaj drugiego właściciela CAN przy pluginie.

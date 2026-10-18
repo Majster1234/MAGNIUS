@@ -41,17 +41,25 @@ jobs:
           npm ci
           npm run build
           npm test
+          npx playwright install --with-deps chromium
+          npm run test:browser
 
       - name: Sprawdź składnię plików
         run: |
           bash -n start_ros2.sh scripts/*.sh scripts/*.bash
+          python3 -m py_compile scripts/analyze_can_recording.py
           python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
+          import ast
           import yaml
 
           for manifest in Path("ros2_ws/src").glob("*/package.xml"):
               ET.parse(manifest)
+          for source in Path("ros2_ws/src").rglob("*.py"):
+              ast.parse(source.read_text())
+          ET.parse("ros2_ws/src/robot_hardware/robot_hardware.xml")
+          ET.parse("ros2_ws/src/robot_bringup/config/ros2_control.example.xacro")
           for directory in (Path(".github"), Path("ros2_ws/src")):
               for pattern in ("*.yaml", "*.yml"):
                   for path in directory.rglob(pattern):
@@ -74,7 +82,7 @@ jobs:
           colcon list
           colcon build --symlink-install
 
-      - name: Uruchom dostępne testy
+      - name: Sprawdź protokół, ręczny JOG, emulatory, plugin hardware i arbitraż źródeł
         working-directory: ros2_ws
         run: |
           source /opt/ros/humble/setup.bash
