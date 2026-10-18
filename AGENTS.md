@@ -41,6 +41,7 @@ W narzędziu, które nie rozpoznaje `AGENTS.md`, trzeba jawnie polecić jego odc
 | --- | --- |
 | `ros2_ws/src/robot_description` | Model URDF/Xacro, geometria i konfiguracja RViz |
 | `ros2_ws/src/mks_servo_can` | Przyszła biblioteka C++: transport i protokół CAN |
+| `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN, skan i statusy MKS w C++ |
 | `ros2_ws/src/robot_hardware` | Przyszły adapter C++ `SystemInterface` dla Humble |
 | `ros2_ws/src/robot_bringup` | Launch diagnostyki i konfiguracje przykładowe |
 | `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN, diagnostyka ROS w Pythonie |
@@ -96,6 +97,7 @@ zakończonych sukcesem. Dla zmian samej dokumentacji wystarczy sprawdzenie treś
 - [CONTRIBUTING.md](CONTRIBUTING.md) — zasady zmian i lokalna weryfikacja.
 - [docs/architecture.md](docs/architecture.md) — architektura i konwencje osi.
 - [docs/web_status.md](docs/web_status.md) — panel LAN, uruchomienie i wyniki weryfikacji.
+- [docs/can_diagnostics.md](docs/can_diagnostics.md) — skan, Reset CAN i ograniczenia odczytów.
 - [docs/can_protocol.md](docs/can_protocol.md) — dane wymagane do implementacji CAN.
 - [docs/socketcan.md](docs/socketcan.md) — instalacja i diagnostyka systemowego CAN.
 - [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko i GitHub.
@@ -104,20 +106,19 @@ zakończonych sukcesem. Dla zmian samej dokumentacji wystarczy sprawdzenie treś
 ## Bieżący kontekst
 
 - Aktualizacja: 2026-10-18, strefa Europe/Prague.
-- Zadanie wykonane: panel diagnostyczny LAN, dwa pakiety ament_python i połączenie ROS.
-- Instrukcja, schemat i szczegółowa weryfikacja: `docs/web_status.md`, `docs/architecture.md`.
-- Start: `./scripts/start_web_status.sh`; enp2s0, 192.168.1.0/24, port 8080; wykryty URL http://192.168.1.69:8080.
-- API/WebSocket tylko do odczytu, ROS_LOCALHOST_ONLY=1, pomiary 1 Hz, stale po 3 s.
-- Wybrano wsproto z Uvicorn; pakiet websockets 9 z Jammy nie działa z Pythonem 3.10.
-- Potwierdzono 2026-10-18: build 6 pakietów, 38 testów Python, 3 frontendu, build produkcyjny i typy TS.
-- Sprawdzono Bash/XML/YAML, lokalne linki i git diff --check; CI rozszerzone, bez zdalnego uruchomienia.
-- Chromium desktop/mobile: 5 paneli, 2 węzły ROS, utrata danych po ok. 2,8 s, powrót monitora i restart backendu.
-- Ctrl+C czysto zamyka procesy; brak błędów JS i zewnętrznych żądań. Procesy testowe zakończono.
-- Źródło Tailscale otrzymało HTTP 403; brak nasłuchu na jego adresie. Inne podsieci sprawdzono w ASGI.
-- CAN: 500000 bit/s, ERROR-ACTIVE, RX/TX 0 przed i po; usługa active/enabled. Monitor tylko odczytuje Netlink.
-- Brakuje systemowo FastAPI/Uvicorn/aiofiles: sudo wymaga hasła. Testy używały pakietów Ubuntu z /tmp i tymczasowego Node.js.
-- Następny krok: `sudo ./scripts/install_web_dependencies.sh`, start panelu i odbiór na drugim urządzeniu LAN.
-- Nie sprawdzono fizycznego drugiego klienta LAN, zapory wymagającej sudo, zdalnego CI ani napędów.
-- Git: feature/web-status, zmiany bez commitu; nie wykonywano commit ani push.
-- C++/ros2_control, model i protokół MKS do implementacji; firmware, CAN ID, geometria, przekładnie, bazowanie i limity nieustalone.
-- Licencja/metadane TODO. Konflikt GNOME w VS Code Snap pozostaje; nowy start panelu nie wymaga GNOME Terminal.
+- Zadanie wykonane: moduł CAN dla MKS SERVO42D CAN, firmware 1.0.9.
+- Dodano `mks_servo_can`: C++ SocketCAN i walidację identyfikacji, ENABLE, stanu, stall oraz trybu pracy.
+- Dodano `robot_can_diagnostics`: właściciel socketu, skan 1–2047, temat 5 Hz i usługi SCAN/RESET; tylko komendy odczytowe.
+- Timeout: 20 ms; limit: 200 zapytań/s i 4 oczekujące ramki; stan sesji ma stały rozmiar. BUS-OFF zatrzymuje odpytywanie.
+- Bridge ma API/WebSocket CAN 5 Hz oraz widok React z tabelą, postępem, szczegółami i paginacją; LAN/Host/Origin pozostają aktywne.
+- Reset używa tylko `robot-can@can0.service`; instalator tworzy minimalną regułę sudoers. Reguły nie instalowano i nie resetowano CAN.
+- Dokumentacja: `docs/can_diagnostics.md`, `docs/web_status.md`, README i architektura.
+- Sprawdzenia: build C++, 3 GTest protokołu, 11 testów monitora, 29 testów bridge i 3 testy frontendu; zbudowano panel produkcyjny.
+- Poprawka 2026-10-18: odpowiedź identyfikacyjna MKS ma 7, nie 5 bajtów;
+  potwierdzono `40 12 01 00 09 20 7D` z adresu 1 i poprawiono dekoder/testy.
+- Nowa instancja panelu działa na porcie 8080. Skan wykrył SERVO42D pod adresami
+  1, 2 i 4: `CR_vFOC`, ENABLE wyłączony, stall nie, RTT ok. 5 ms, bez błędów.
+  Urządzenia są odpytywane wyłącznie komendami diagnostycznymi; skan pozostałych adresów trwał.
+- Test Uvicorn wymagał lokalnego socketu poza sandboxem. Nie testowano BUS-OFF, resetu usługi, sześciu napędów, drugiego LAN ani zapory.
+- Git: `feature/web-status`, zmiany zadania są niezatwierdzone; bez commitu i push.
+- Brakuje modelu, adaptera `ros2_control` i konfiguracji osi; CAN ID, geometria, przełożenia, bazowanie, limity, licencja i metadane są nieustalone/TODO.

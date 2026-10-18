@@ -76,3 +76,72 @@ class StatusStore:
         return {'schema_version': 1, 'updated_at': updated_at,
                 'age_seconds': age, 'fresh': fresh, 'network': self.network,
                 'components': components}
+
+
+class CanStatusStore:
+    """Ostatni stan diagnostyki CAN, niezależny od monitora 1 Hz."""
+
+    def __init__(self, interface, clock=time.monotonic):
+        self.interface = interface
+        self.clock = clock
+        self.lock = threading.Lock()
+        self.received = None
+        self.updated_at = None
+        self.summary = {}
+        self.scan = {}
+        self.devices = {}
+
+    @staticmethod
+    def _values(item):
+        result = {}
+        for pair in item.values:
+            try:
+                result[pair.key] = json.loads(pair.value)
+            except (TypeError, ValueError):
+                result[pair.key] = pair.value
+        return result
+
+    def update(self, message):
+        summary, scan, devices = None, None, {}
+        for item in message.status:
+            values = self._values(item)
+            if item.name == 'can':
+                summary = {'state': LEVELS.get(item.level[0], 'error'),
+                           'message': item.message, 'values': values}
+            elif item.name == 'scan':
+                scan = {'state': LEVELS.get(item.level[0], 'error'),
+                        'message': item.message, 'values': values}
+            elif item.name.startswith('device/'):
+                try:
+                    address = int(item.name.split('/', 1)[1])
+                except ValueError:
+                    continue
+                devices[address] = {
+                    'id': address, 'state': LEVELS.get(item.level[0], 'error'),
+                    'message': item.message, 'values': values,
+                }
+        if summary is None or scan is None:
+            return
+        with self.lock:
+            self.summary, self.scan, self.devices = summary, scan, devices
+            self.received = self.clock()
+            self.updated_at = utc_now()
+
+    def snapshot(self):
+        now = self.clock()
+        with self.lock:
+            age = None if self.received is None else max(0, now - self.received)
+            fresh = age is not None and age < STALE_AFTER
+            summary, scan, devices, updated_at = (deepcopy(self.summary), deepcopy(self.scan),
+                                                   deepcopy(self.devices), self.updated_at)
+        if not fresh:
+            if not summary:
+                summary = {'state': 'stale', 'message': 'Oczekiwanie na diagnostykę CAN',
+                           'values': {'interface': self.interface}}
+            else:
+                summary['state'] = 'stale'
+            if not scan:
+                scan = {'state': 'stale', 'message': 'Brak aktualnych danych', 'values': {}}
+        return {'schema_version': 1, 'updated_at': updated_at, 'age_seconds': age,
+                'fresh': fresh, 'interface': self.interface, 'summary': summary,
+                'scan': scan, 'devices': [devices[key] for key in sorted(devices)]}

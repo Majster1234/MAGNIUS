@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import threading
+import time
 
 from ament_index_python.packages import get_package_share_directory
 from diagnostic_msgs.msg import DiagnosticArray
@@ -15,6 +16,8 @@ import uvicorn
 from .app import create_app
 from .network import lan_address
 from .status import StatusStore
+from .status import CanStatusStore
+from std_srvs.srv import Trigger
 
 
 def main(args=None):
@@ -44,8 +47,28 @@ def main(args=None):
         # ament_python --symlink-install tworzy linki do plików z web/dist.
         static_dir = (Path(static_dir) / 'index.html').resolve().parent
         store = StatusStore(address, port, interface, subnet)
+        can_store = CanStatusStore(node.declare_parameter('can_interface', 'can0').value)
         node.create_subscription(DiagnosticArray, '/robot/system_status', store.update,
                                  QoSProfile(depth=1))
+        node.create_subscription(DiagnosticArray, '/robot/can/diagnostics', can_store.update,
+                                 QoSProfile(depth=1))
+        scan_client = node.create_client(Trigger, '/robot/can/scan')
+        reset_client = node.create_client(Trigger, '/robot/can/reset')
+
+        def can_action(action):
+            client = scan_client if action == 'scan' else reset_client
+            if not client.service_is_ready():
+                return False, 'Usługa diagnostyki CAN nie jest dostępna'
+            future = client.call_async(Trigger.Request())
+            done = threading.Event()
+            future.add_done_callback(lambda _: done.set())
+            if not done.wait(0.35):
+                return True, 'Operacja przyjęta przez diagnostykę CAN'
+            try:
+                result = future.result()
+                return bool(result.success), result.message
+            except Exception:
+                return False, 'Nie udało się przekazać operacji do diagnostyki CAN'
         executor.add_node(node)
 
         def spin():
@@ -57,7 +80,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

@@ -1,8 +1,8 @@
 # robot_bringup
 
 Pliki launch i konfiguracja całego robota.
-`web_status.launch.py` uruchamia monitor i backend panelu, bez kontrolerów
-i bez napędów. Szczegóły: [panel diagnostyczny](../../../docs/web_status.md).
+`web_status.launch.py` uruchamia monitor, diagnostykę CAN i backend panelu,
+bez kontrolerów oraz poleceń ruchu. Szczegóły: [panel diagnostyczny](../../../docs/web_status.md).
 Nie ma jeszcze programu wczytującego szablony CAN i osi do sterowania robotem.
 
 ## Szablony konfiguracji

@@ -54,7 +54,7 @@ source ros2_ws/install/local_setup.bash
 ros2 launch robot_bringup web_status.launch.py
 ```
 
-Launch uruchamia monitor i backend jako osobne procesy, ustawia
+Launch uruchamia monitor, diagnostykę CAN i backend jako osobne procesy, ustawia
 `ROS_LOCALHOST_ONLY=1` i wypisuje URL. `Ctrl+C` zamyka oba procesy.
 Wyjście backendu zamyka też monitor. Utrata monitora pozostawia panel dostępny,
 ale jego dane stają się nieaktualne. Monitor można wtedy uruchomić ponownie
@@ -84,9 +84,13 @@ przy następnym uruchomieniu. Stały adres można zapewnić rezerwacją w router
 | Backend API | Przeglądarka otrzymuje odpowiedź backendu |
 | ROS 2 | Backend odbiera wiadomości od osobnego węzła monitora |
 | Komputer | Rzeczywiste CPU, RAM i czas pracy systemu |
-| CAN | Stan interfejsu i magistrali, bitrate, liczniki ramek i błędów |
+| CAN | Podsumowanie interfejsu; osobny ekran pokazuje skan i statusy urządzeń |
 | Kontrolery | Odpowiedź `ListControllers`; przy braku usługi: nieuruchomione |
 | Napędy | Brak integracji do czasu dodania rzeczywistego sterownika |
+
+Ekran **Magistrala CAN** prowadzi automatyczny skan po starcie i pokazuje
+wykryte adresy, ENABLE, stan pracy, RTT oraz szczegóły po rozwinięciu wiersza.
+Opis protokołu, Reset CAN i ograniczenia są w [diagnostyce CAN](can_diagnostics.md).
 
 `ERROR-ACTIVE` to normalny stan CAN, a nie zgłoszenie awarii.
 Aktywny CAN ani licznik RX nie potwierdzają gotowości konkretnej osi.
@@ -125,7 +129,7 @@ Testy automatyczne nie zastępują sprawdzenia na drugim fizycznym urządzeniu.
 
 ## Potwierdzona weryfikacja — 18.10.2026
 
-- Zbudowano sześć pakietów w ROS 2 Humble i produkcyjny panel; typy TypeScript
+- Wcześniej zbudowano sześć pakietów w ROS 2 Humble i produkcyjny panel; typy TypeScript
   sprawdzone. Testy: 38 Python i 3 frontend, bez błędów.
 - Chromium: pulpit 1440 px i ekran mobilny 390 px, bez poziomego przepełnienia,
   błędów JavaScript i żądań do zewnętrznych serwerów.

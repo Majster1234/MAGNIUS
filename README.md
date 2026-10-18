@@ -4,11 +4,11 @@ Projekt sześcioosiowego robota dla Ubuntu 22.04 i ROS 2 Humble.
 Docelowa komunikacja: Linux SocketCAN → BIGTREETECH U2C v2.1 → napędy
 MKS SERVO42D w wersji CAN.
 
-Repozytorium zawiera cztery bazowe pakiety `ament_cmake`, dwa pakiety
-diagnostyczne `ament_python` oraz panel React/TypeScript. Monitor i backend
-udostępniają rzeczywiste statusy ROS i systemowego CAN w sieci LAN.
-Nie ma jeszcze modelu robota, bibliotek sterujących ani pluginu sprzętowego.
-Panel nie wysyła ramek CAN i nie uruchamia napędów.
+Repozytorium zawiera pakiety ROS 2, panel React/TypeScript oraz odczytową
+diagnostykę CAN. Monitor i backend udostępniają rzeczywiste statusy ROS i
+systemu w sieci LAN. `robot_can_diagnostics` wysyła wyłącznie zapytania
+diagnostyczne MKS, nigdy polecenia ruchu ani zmiany parametrów napędów.
+Nie ma jeszcze modelu robota, sterownika ruchu ani pluginu sprzętowego.
 
 ## Panel diagnostyczny
 
@@ -41,7 +41,8 @@ napędów. Jest dostępny bez logowania, tylko do odczytu. `Ctrl+C` zamyka sesj�
 │   └── cad/                      # Modele mechaniczne i pliki źródłowe CAD
 └── ros2_ws/src/
     ├── robot_description/        # Przyszły URDF/Xacro, meshes, RViz
-    ├── mks_servo_can/            # Przyszła biblioteka C++: SocketCAN i protokół MKS
+    ├── mks_servo_can/            # Biblioteka C++: SocketCAN i odczytowy protokół MKS
+    ├── robot_can_diagnostics/    # Skaner MKS i diagnostyka CAN 5 Hz
     ├── robot_hardware/           # Przyszły adapter sześciu osi do ros2_control
     ├── robot_bringup/            # Launch panelu i szablony konfiguracji
     ├── robot_system_monitor/     # Pomiary systemowe i diagnostyka ROS

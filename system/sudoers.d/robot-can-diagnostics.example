@@ -1,0 +1,2 @@
+# Zastąp robot-app kontem uruchamiającym panel. Instalator tworzy finalny plik.
+robot-app ALL=(root) NOPASSWD: /usr/bin/systemctl restart robot-can@can0.service

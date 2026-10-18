@@ -1,4 +1,6 @@
 import { createRoot } from "react-dom/client";
+import { useEffect, useState } from "react";
+import { useCanStatus, type CanDevice } from "./canStatus";
 import { dataIsStale, numeric, type Component, type State } from "./status";
 import { useStatus } from "./useStatus";
 import "./style.css";
@@ -84,7 +86,46 @@ function Card({
         </article>
     );
 }
+function CanPage({ onClose }: { onClose: () => void }) {
+    const { snapshot, connection } = useCanStatus(true);
+    const [page, setPage] = useState(0);
+    const [action, setAction] = useState<string | null>(null);
+    const devices = snapshot?.devices ?? [];
+    const totalPages = Math.max(1, Math.ceil(devices.length / 25));
+    const visible = devices.slice(page * 25, page * 25 + 25);
+    const summary = snapshot?.summary.values;
+    const scan = snapshot?.scan.values;
+    const stale = connection !== "online" || !snapshot?.fresh;
+    useEffect(() => setPage((old) => Math.min(old, totalPages - 1)), [totalPages]);
+    async function request(actionName: "scan" | "reset") {
+        setAction(actionName);
+        try {
+            const response = await fetch(`/api/v1/can/${actionName}`, { method: "POST" });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.detail ?? "Operacja odrzucona");
+        } catch (error) {
+            window.alert(error instanceof Error ? error.message : "Błąd operacji CAN");
+        } finally { setAction(null); }
+    }
+    const value = (name: string) => summary?.[name];
+    return <section className="can-screen" aria-label="Magistrala CAN">
+        <header className="topbar"><span>Stanowisko robota <span className="divider">/</span> Magistrala CAN</span><button className="link-button" onClick={onClose}>← Przegląd systemu</button></header>
+        <div className="page-title"><div><div className="eyebrow">DIAGNOSTYKA SOCKETCAN</div><h1>Magistrala CAN</h1><p>Odczyt identyfikacji i statusów MKS SERVO42D CAN. Bez poleceń ruchu.</p></div><div className="can-actions"><button className="secondary-button" disabled={action !== null} onClick={() => request("reset")}>{action === "reset" ? "Resetowanie…" : "Reset CAN"}</button><button className="primary-button" disabled={action !== null || Boolean(scan?.scanning)} onClick={() => request("scan")}>{action === "scan" ? "Uruchamianie…" : "SCAN"}</button></div></div>
+        <section className={`can-progress ${stale ? "waiting" : ""}`}><Badge state={stale ? "stale" : snapshot?.summary.state ?? "stale"} text={snapshot?.scan.message ?? "Oczekiwanie na diagnostykę CAN"}/><span>{Boolean(scan?.scanning) ? `Adres ${String(scan?.checked ?? 0)} / ${String(scan?.total ?? 2047)}` : String(scan?.state ?? "—")}</span><span className="progress-error">{scan?.error ? String(scan.error) : ""}</span></section>
+        <section className="can-strip" aria-label="Podsumowanie magistrali"><div className="strip-state"><strong>{String(value("bus_state") ?? "—")}</strong><small>{String(value("interface") ?? "can0")}</small></div><Metric label="Bitrate" value={value("bitrate")} unit=" bit/s"/><Metric label="Urządzenia" value={value("device_count")}/><Metric label="Obieg odczytu" value={value("full_round_ms")} unit=" ms"/><Metric label="Błędy" value={value("errors")}/></section>
+        <section className="can-table-card"><div className="table-heading"><div><h2>Urządzenia bieżącej sesji</h2><p>Wykryte i utracone adresy. Puste adresy nie są pokazywane.</p></div><span>{devices.length} rekordów</span></div>{devices.length === 0 ? <div className="can-empty"><span>⇄</span><strong>Tabela jest pusta</strong><p>Wyniki będą pojawiać się w trakcie automatycznego skanowania.</p></div> : <><div className="table-scroll"><table><thead><tr><th>CAN ID</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th>RTT [ms]</th></tr></thead><tbody>{visible.map((device) => <DeviceRow key={device.id} device={device}/>)}</tbody></table></div>{totalPages > 1 && <div className="pagination"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Poprzednie</button><span>{page + 1} / {totalPages}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>Następne</button></div>}</>}</section>
+        <p className="can-note">Odczyty są ograniczone do 200 zapytań/s. Aktualizacja widoku: 5 Hz. Reset wykonuje tylko restart usługi interfejsu `can0` i rozpoczyna nowy skan.</p>
+    </section>;
+}
+function DeviceRow({ device }: { device: CanDevice }) {
+    const [open, setOpen] = useState(false);
+    const v = device.values;
+    const enable = v.enable === true ? "Włączony" : v.enable === false ? "Wyłączony" : "—";
+    return <><tr className="device-row" onClick={() => setOpen(!open)}><td><code>{device.id}</code></td><td>{String(v.model ?? "—")}</td><td><Badge state={device.state} text={device.message}/></td><td>{String(v.motor_state ?? "Niedostępny")}</td><td>{enable}</td><td>{numeric(v.rtt_ms)?.toLocaleString("pl-PL", { maximumFractionDigits: 2 }) ?? "—"}</td></tr>{open && <tr className="device-details"><td colSpan={6}><div><span>Tryb: <b>{String(v.mode ?? "—")}</b></span><span>Stall: <b>{v.stall === true ? "Tak" : v.stall === false ? "Nie" : "—"}</b></span><span>RTT min / śr. / max: <b>{numeric(v.rtt_min_ms)?.toFixed(2) ?? "—"} / {numeric(v.rtt_mean_ms)?.toFixed(2) ?? "—"} / {numeric(v.rtt_max_ms)?.toFixed(2) ?? "—"} ms</b></span><span>Timeouty / błędne: <b>{String(v.timeouts ?? 0)} / {String(v.invalid_responses ?? 0)}</b></span><span>Ostatni poprawny odczyt: <b>{numeric(v.last_ok_age_seconds)?.toFixed(1) ?? "—"} s temu</b></span></div></td></tr>}</>;
+}
 function App() {
+    const [canView, setCanView] = useState(location.hash === "#can");
+    useEffect(() => { const update = () => setCanView(location.hash === "#can"); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
     const { snapshot, connection, receivedAt, now } = useStatus();
     const stale =
         connection !== "online" || dataIsStale(snapshot, receivedAt, now);
@@ -109,10 +150,10 @@ function App() {
                 </a>
                 <div className="nav-label">PRZESTRZEŃ ROBOCZA</div>
                 <nav aria-label="Sekcje panelu">
-                    <a className="selected" href="#overview">
+                    <a className={canView ? "" : "selected"} href="#overview">
                         <span>◫</span>Przegląd systemu
                     </a>
-                    <a href="#can">
+                    <a className={canView ? "selected" : ""} href="#can">
                         <span>⇄</span>Magistrala CAN
                     </a>
                     <a href="#architecture">
@@ -125,6 +166,7 @@ function App() {
                 </div>
             </aside>
             <main id="overview">
+                {canView ? <CanPage onClose={() => { location.hash = "overview"; }} /> : <>
                 <header className="topbar">
                     <span>
                         Stanowisko robota <span className="divider">/</span>{" "}
@@ -379,6 +421,7 @@ function App() {
                         napędami
                     </span>
                 </footer>
+                </>}
             </main>
         </div>
     );

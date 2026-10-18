@@ -11,7 +11,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from robot_web_bridge.app import create_app
 from robot_web_bridge.network import lan_address
-from robot_web_bridge.status import StatusStore
+from robot_web_bridge.status import CanStatusStore, StatusStore
 
 
 @pytest.fixture
@@ -116,6 +116,30 @@ def test_snapshot_does_not_mutate_shared_values(store):
     store.update(message())
     store.snapshot()['components']['can']['values']['tx_packets'] = 100
     assert store.snapshot()['components']['can']['values']['tx_packets'] == 0
+
+
+def test_can_snapshot_keeps_only_detected_devices_and_stales_independently():
+    can_store = CanStatusStore('can0')
+    data = DiagnosticArray(status=[
+        DiagnosticStatus(name='can', level=bytes([0]), message='AKTYWNA', values=[
+            KeyValue(key='bitrate', value='500000'), KeyValue(key='device_count', value='1')]),
+        DiagnosticStatus(name='scan', level=bytes([0]), message='Skanowanie', values=[
+            KeyValue(key='scanning', value='true'), KeyValue(key='checked', value='3')]),
+        DiagnosticStatus(name='device/3', level=bytes([0]), message='Odpowiada', values=[
+            KeyValue(key='address', value='3'), KeyValue(key='enable', value='true'),
+            KeyValue(key='model', value='"MKS SERVO42D CAN"')]),
+    ])
+    can_store.update(data)
+    snapshot = can_store.snapshot()
+    assert snapshot['fresh'] and snapshot['devices'][0]['id'] == 3
+    assert snapshot['devices'][0]['values']['enable'] is True
+    can_store.received -= 3
+    assert can_store.snapshot()['summary']['state'] == 'stale'
+
+
+def test_can_routes_are_lan_protected(app):
+    assert asyncio.run(http(app, '/api/v1/can/status'))[0] == 503
+    assert asyncio.run(http(app, '/api/v1/can/status', '100.64.0.10'))[0] == 403
 
 
 @pytest.mark.parametrize('client,headers', [

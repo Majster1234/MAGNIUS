@@ -7,7 +7,8 @@
 - Mostek USB–CAN: BIGTREETECH U2C v2.1, docelowo udostępniony przez SocketCAN.
 - Napędy: MKS SERVO42D CAN; rewizje płytek i firmware wymagają zapisania.
 - C++ dla przyszłej biblioteki komunikacji i adaptera sprzętowego.
-- Cztery pakiety `ament_cmake` zawierają zasoby i szablony, bez kodu sterowania.
+- Biblioteka `mks_servo_can` zapewnia transport SocketCAN i walidację odczytowych
+  ramek protokołu MKS; `robot_can_diagnostics` jest węzłem C++ diagnostyki.
 - Dwa pakiety `ament_python` dostarczają monitor systemu i backend FastAPI.
 - Frontend React/TypeScript jest dostępny w fizycznej sieci LAN.
 
@@ -22,11 +23,14 @@ flowchart TD
     MOVE[Docelowo: C++ / obsługa ruchu / MoveIt]
     CTRL[Docelowo: ros2_control / kontroler trajektorii]
     HW[Docelowo: robot_hardware / C++]
-    CAN[Docelowo: mks_servo_can / C++ / SocketCAN / U2C]
+    DIAG[robot_can_diagnostics / C++ / 5 Hz]
+    CAN[mks_servo_can / C++ / SocketCAN / U2C]
     DRIVES[Napędy MKS / sześć osi]
     UI <-->|HTTP + WebSocket / port 8080| API
     LINUX --> MON
     MON -->|DiagnosticArray / 1 Hz| API
+    CAN --> DIAG
+    DIAG -->|DiagnosticArray / 5 Hz| API
     API -. przyszłe polecenia operatora .-> MOVE
     MOVE --> CTRL
     CTRL <--> HW
@@ -37,7 +41,8 @@ flowchart TD
 Monitor i backend są osobnymi procesami. Backend ma jeden executor ROS
 w osobnym wątku i współdzielony snapshot. HTTP i WebSocket odczytują pamięć;
 liczba klientów nie wpływa na liczbę pomiarów ani węzłów ROS.
-Panel nie udostępnia poleceń ruchu i nie wysyła ramek CAN.
+Panel nie udostępnia poleceń ruchu. Diagnostyka CAN wysyła tylko udokumentowane
+zapytania odczytowe: identyfikację, ENABLE, stan pracy, stall i tryb pracy.
 
 Python obsługuje diagnostykę i interfejs webowy. Przyszła pętla sterowania,
 adapter sprzętowy i protokół MKS pozostają w C++. Trajektorie będą wykonywane
@@ -70,6 +75,7 @@ uruchamiania. Diagram opisuje docelową architekturę, nie istniejącą implemen
 | --- | --- | --- |
 | `robot_description` | URDF/Xacro, geometria i ustawienia RViz | Katalogi `urdf`, `meshes`, `rviz` |
 | `mks_servo_can` | Transport SocketCAN, kodowanie i dekodowanie protokołu producenta | Katalogi `include`, `src`, `test` |
+| `robot_can_diagnostics` | Skan adresów, odczyty statusu i metryki CAN | Węzeł C++, usługi SCAN i Reset CAN |
 | `robot_hardware` | Jeden komponent `hardware_interface::SystemInterface` dla sześciu osi | Katalogi `include`, `src`, `test` |
 | `robot_bringup` | Pliki launch i konfiguracja całego robota | Katalog `launch`, trzy szablony YAML |
 | `robot_system_monitor` | CPU, RAM, stan CAN i kontrolerów | Węzeł `monitor`, testy |
@@ -84,7 +90,8 @@ Manifesty pakietów sprzętowych deklarują tylko używany system budowania `ame
 Zależności od `hardware_interface`, `pluginlib`, `rclcpp`, biblioteki CAN,
 kontrolerów i narzędzi wizualizacji należy dodać wraz z korzystającym z nich
 kodem. Nie ma jeszcze bibliotek ani pluginów sprzętowych. Diagnostyka używa
-tematu `/robot/system_status` i opcjonalnie odczytuje usługę kontrolerów.
+tematów `/robot/system_status` i `/robot/can/diagnostics`; skaner nie mapuje
+wykrytych adresów na osie `joint_1`–`joint_6`.
 
 Przyszły adapter należy oprzeć na API Humble, opisanym w
 [instrukcji tworzenia komponentu sprzętowego ros2_control](https://control.ros.org/humble/doc/ros2_control/hardware_interface/doc/writing_new_hardware_component.html).
