@@ -4,6 +4,7 @@ import { useCanStatus, type CanDevice } from "./canStatus";
 import { dataIsStale, numeric, type Component, type State } from "./status";
 import { useStatus } from "./useStatus";
 import { ManualPage } from "./ManualPage";
+import { ConfigurationPage } from "./ConfigurationPage";
 import "./style.css";
 
 const labels: Record<State, string> = {
@@ -155,7 +156,7 @@ function DeviceRow({ device }: { device: CanDevice }) {
 }
 function App() {
     const [view, setView] = useState(location.hash);
-    const canView = view === "#can", manualView = view === "#manual";
+    const canView = view === "#can", manualView = view === "#manual", configurationView = view === "#configuration";
     useEffect(() => { const update = () => setView(location.hash); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
     const { snapshot, connection, receivedAt, now } = useStatus();
     const stale =
@@ -181,15 +182,16 @@ function App() {
                 </a>
                 <div className="nav-label">PRZESTRZEŃ ROBOCZA</div>
                 <nav aria-label="Sekcje panelu">
-                    <a className={canView || manualView ? "" : "selected"} href="#overview">
-                        <span>◫</span>Przegląd systemu
+                    <a className={canView || manualView || configurationView ? "" : "selected"} href="#overview">
+                        <span aria-hidden="true">◫</span>Przegląd systemu
                     </a>
                     <a className={canView ? "selected" : ""} href="#can">
-                        <span>⇄</span>Magistrala CAN
+                        <span aria-hidden="true">⇄</span>Magistrala CAN
                     </a>
-                    <a className={manualView ? "selected" : ""} href="#manual"><span>↔</span>Sterowanie ręczne</a>
+                    <a className={manualView ? "selected" : ""} href="#manual"><span aria-hidden="true">↔</span>Sterowanie ręczne</a>
+                    <a className={configurationView ? "selected" : ""} aria-current={configurationView ? "page" : undefined} href="#configuration"><span aria-hidden="true">⚙</span>Konfiguracja</a>
                     <a href="#architecture">
-                        <span>⌘</span>Architektura
+                        <span aria-hidden="true">⌘</span>Architektura
                     </a>
                 </nav>
                 <div className="sidebar-bottom">
@@ -198,7 +200,7 @@ function App() {
                 </div>
             </aside>
             <main id="overview">
-                {manualView ? <ManualPage /> : canView ? <CanPage onClose={() => { location.hash = "overview"; }} /> : <>
+                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage /> : canView ? <CanPage onClose={() => { location.hash = "overview"; }} /> : <>
                 <header className="topbar">
                     <span>
                         Stanowisko robota <span className="divider">/</span>{" "}

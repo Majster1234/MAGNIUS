@@ -57,6 +57,7 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
   Wyjątek: w obecnej rozmowie 2026-10-18 użytkownik zezwolił na testy sesji,
   w tym dostępne osie po 15 s w obu kierunkach; nie pytaj ponownie. Wyjątek nie przechodzi do nowej sesji.
 - Rozmawiaj i pisz dokumentację po polsku; zachowuj istniejące nazwy pakietów i API.
+- Zakładkę „Ustawienia systemowe” uzupełniaj tylko na konkretne polecenie użytkownika.
 - Najpierw sprawdź odpowiedni kod i dokumentację. Wyszukuj przez `rg`; nie czytaj
   całego repozytorium, jeśli zadanie dotyczy małego fragmentu.
 - Wykonuj zlecone zadanie do końca. Rutynowe, odwracalne decyzje podejmuj samodzielnie;
@@ -102,19 +103,20 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 - [docs/can_diagnostics.md](docs/can_diagnostics.md) — skan, Reset CAN i ograniczenia odczytów.
 - [docs/can_strategy.md](docs/can_strategy.md) — harmonogram, ruch, watchdog i konfiguracja.
 - [docs/manual_control.md](docs/manual_control.md) — ENABLE, zero, JOG i interfejsy ROS/API.
+- [docs/configuration.md](docs/configuration.md) — szkielet ustawień systemu i parametrów robota.
 - [docs/can_recording.md](docs/can_recording.md) — zapis/analiza incydentów; wyniki w can_recording_results.md.
 - [docs/socketcan.md](docs/socketcan.md) — instalacja i diagnostyka systemowego CAN.
 - [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko i GitHub.
 
 ## Bieżący kontekst
 
-- Aktualizacja: 2026-10-18, Europe/Prague. Zmniejszono panel ręczny i zastosowano ciemny motyw całego GUI.
-- Tytuł, połączenie i nagrywanie u góry; wynik operacji poniżej. Panel 279,5 px, wiersze 29 px; reszta miejsca wolna.
-- TypeScript/build, 12 Vitest i Chromium OK: cztery rozdzielczości 1280×800–1920×1080, bez przepełnienia.
-- Testy atrap obejmują nadal ENABLE, przytrzymanie/puszczenie, dwóch klientów, zanik danych i brak auto wznowienia.
-- Działający LAN sprawdzony tylko odczytem: nowe pliki statyczne, statusy 20 Hz, ciemny przegląd i CAN, brak błędów JS.
-- Bez restartu backendu i prób ruchu; nie powtarzano ROS/C++ ani API. Dokumentacja: docs/manual_control.md.
-- Poprzednio JOG: F1=1, 60 ms, ±1° od stałego punktu; zero/ENABLE nadal 100 ms / ±3 impulsy. 50 GTest i J1/J2 sprzętowo OK.
-- Nagrywanie: log/manual-can, do 96 MiB; analiza wcześniejszego WS: docs/can_incident_2026-10-18.md. Ostatnio dostępne 1/2/4, brak 3/5/6.
-- Dalej: odbiór limitów/USB/BUS-OFF/watchdog, sześciu osi, modelu/parametrów i zapory. Licencja TODO, sudoers bez zmian.
-- Git feature/web-status, bez commit/push. Panel 192.168.1.69:8080/#manual; odświeżyć stronę dla nowego wyglądu.
+- Aktualizacja: 2026-10-18, Europe/Prague. Usunięto pola systemowe; parametry robota zmieniono w tabelę.
+- Wiersze: parametry; kolumny J1–J6. Suwak: geometria / przełożenia i ograniczenia. SI, nieznane dane puste.
+- Tabela z suwakiem: 259 / 287 px, maks. połowa wolnej wysokości. Dane ogólne i narzędzie są zwinięte poniżej.
+- Szkic sessionStorage zgodny z wcześniejszymi danymi osi; klucze systemowe usuwane. Bez API zapisu/zastosowania.
+- TypeScript/build, 12 Vitest, Chromium konfiguracji i JOG OK; 1280×800–1920×1080, sprawdzony budżet miejsca.
+- Działający LAN: pusta zakładka systemu, oba widoki i wysokości OK. Bez restartu, ruchu ani nowych testów ROS/API.
+- JOG nadal ciemny i kompaktowy; postój ±1° / 60 ms / F1=1, zero/ENABLE ±3 impulsy / 100 ms. Patrz docs/manual_control.md.
+- Nagrywanie log/manual-can do 96 MiB; wcześniejszy WS: docs/can_incident_2026-10-18.md. Ostatnio 1/2/4 obecne, brak 3/5/6.
+- Dalej: zapis/walidacja konfiguracji, model/parametry, odbiór limitów/USB/BUS-OFF/watchdog, sześciu osi i zapory. Licencja TODO.
+- Git feature/web-status, bez commit/push; sudoers bez zmian. Panel 192.168.1.69:8080/#configuration; odświeżyć stronę.

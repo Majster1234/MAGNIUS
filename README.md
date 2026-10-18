@@ -26,7 +26,9 @@ Po przygotowaniu zależności i zbudowaniu panelu oraz workspace według
 Otwórz URL wypisany w terminalu, obecnie **http://192.168.1.69:8080**,
 na komputerze robota lub innym urządzeniu w `192.168.1.0/24`.
 Panel pokazuje API, łączność ROS, CPU/RAM, CAN, kontrolery i stan integracji
-napędów. Ekran [Sterowanie ręczne](docs/manual_control.md) obsługuje ENABLE,
+napędów. Strona [Konfiguracja](docs/configuration.md) oddziela ustawienia systemu
+od danych robota i udostępnia lokalny szkic przegubów, przekładni i narzędzia.
+Ekran [Sterowanie ręczne](docs/manual_control.md) obsługuje ENABLE,
 zero i JOG wałów J1–J6 (CAN 1–6), bez modelu robota. Panel jest dostępny
 bez logowania w LAN. `Ctrl+C` zamyka sesję.
 

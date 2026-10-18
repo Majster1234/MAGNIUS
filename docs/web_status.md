@@ -4,6 +4,10 @@ Panel tylko odczytuje stan systemu. Backend i monitor działają na komputerze
 robota, a inne urządzenia w tej samej podsieci otwierają stronę w przeglądarce.
 Nie wymaga modelu robota, CAN ID ani konfiguracji limitów osi.
 
+Strona **Konfiguracja** ma pustą zakładkę ustawień systemowych i tabelę parametrów robota.
+Na tym etapie udostępnia lokalny szkic danych; zakres i ograniczenia opisuje
+[instrukcja konfiguracji](configuration.md).
+
 ## Przygotowanie
 
 Na Ubuntu 22.04 z ROS 2 Humble, z katalogu głównego repozytorium:
