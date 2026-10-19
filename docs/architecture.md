@@ -11,6 +11,8 @@
   ramek protokołu MKS; `robot_can_diagnostics` jest węzłem C++ diagnostyki.
 - Dwa pakiety `ament_python` dostarczają monitor systemu i backend FastAPI.
 - Frontend React/TypeScript jest dostępny w fizycznej sieci LAN.
+- `robot_kinematics` (KDL/Eigen) i `robot_motion_planner` (TOTG) obliczają
+  [IK i drogę TCP](cartesian_planning.md), bez otwierania CAN i wykonywania planu.
 
 ## Diagnostyka i sterowanie
 
@@ -29,7 +31,7 @@ flowchart TD
     API[robot_web_bridge / Python + FastAPI + rclpy]
     MON[robot_system_monitor / Python + rclpy]
     LINUX[Linux / CPU / RAM / Netlink CAN]
-    MOVE[Docelowo: C++ / obsługa ruchu / MoveIt]
+    MOVE[C++ / IK / droga TCP / TOTG]
     GATE[robot_motion_gate / trajektoria albo jog]
     CTRL[ros2_control / kontroler trajektorii]
     HW[robot_hardware / C++]
@@ -41,8 +43,9 @@ flowchart TD
     MON -->|DiagnosticArray / 1 Hz| API
     CAN --> DIAG
     DIAG -->|DiagnosticArray / 5 Hz| API
-    API -. przyszłe polecenia operatora .-> MOVE
-    MOVE --> GATE --> CTRL
+    API <-->|Obliczenia i podgląd planu| MOVE
+    MOVE -. przyszły executor zatwierdzonych planów .-> GATE
+    GATE --> CTRL
     CTRL <--> HW
     HW <--> CAN
     CAN <--> DRIVES
@@ -51,7 +54,8 @@ flowchart TD
 Monitor i backend są osobnymi procesami. Backend ma jeden executor ROS
 w osobnym wątku i współdzielony snapshot. HTTP i WebSocket odczytują pamięć;
 liczba klientów nie wpływa na liczbę pomiarów ani węzłów ROS.
-Panel nie udostępnia poleceń ruchu. Diagnostyka CAN wysyła tylko udokumentowane
+Obliczanie planu nie wykonuje ruchu; ręczne ENABLE/zero/JOG mają oddzielne API.
+Odczytowa diagnostyka CAN wysyła udokumentowane
 zapytania odczytowe: identyfikację, ENABLE, stan pracy, stall i tryb pracy.
 
 Python obsługuje monitor systemu, interfejs webowy i arbitraż źródeł. Adapter

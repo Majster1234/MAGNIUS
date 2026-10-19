@@ -9,6 +9,7 @@
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>robot_control_interfaces</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend><exec_depend>rosidl_runtime_py</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>python3-psutil</exec_depend>
@@ -17,5 +18,6 @@
   <!-- python3-uvicorn w Ubuntu 22.04 zależy od wsproto; wybieramy ten transport. -->
   <exec_depend>python3-aiofiles</exec_depend>
   <test_depend>python3-pytest</test_depend>
+  <test_depend>robot_motion_planner</test_depend>
   <export><build_type>ament_python</build_type></export>
 </package>

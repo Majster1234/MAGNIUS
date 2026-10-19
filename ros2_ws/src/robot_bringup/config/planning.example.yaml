@@ -1,0 +1,6 @@
+# Parametry obliczeń; nie uruchamiają CAN ani wykonania planu.
+robot_motion_planner:
+  ros__parameters:
+    # -1 = niepotwierdzony profil MKS; nie jest kodem przyspieszenia napędu.
+    # Dopiero po odbiorze wpisz sześć potwierdzonych kodów 1..255.
+    mks_acceleration_codes: [-1, -1, -1, -1, -1, -1]

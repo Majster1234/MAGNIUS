@@ -20,6 +20,7 @@ from .status import CanStatusStore
 from .manual import ManualStore, ManualRosClient
 from .description import DescriptionStore
 from .configuration import ConfigurationClient
+from .planning import PlanningClient
 from .trace import trace, recording
 from robot_control_interfaces.msg import ManualState
 from std_srvs.srv import Trigger
@@ -59,7 +60,11 @@ def main(args=None):
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         manual_action = ManualRosClient(node)
         configuration_action = ConfigurationClient(node)
-        node.create_subscription(ManualState, '/robot/manual/state', manual_store.update, QoSProfile(depth=1))
+        planning_client = PlanningClient(node, description_store, manual_store, configuration_action)
+        def manual_update(message):
+            manual_store.update(message)
+            planning_client.remember_positions()
+        node.create_subscription(ManualState, '/robot/manual/state', manual_update, QoSProfile(depth=1))
         def system_update(message):
             store.update(message)
             if recording():
@@ -104,7 +109,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

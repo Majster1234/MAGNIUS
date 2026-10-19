@@ -68,6 +68,10 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
             if state['operation']['phase']=='idle':break
             time.sleep(.1)
         assert state['operation']['phase']=='idle',state
+        assert command('system_get')[1]['ignore_missing_drivers'] is False
+        assert command('system_set',ignore_missing_drivers=True)[0] == 200
+        assert command('system_get')[1]['ignore_missing_drivers'] is True
+        assert command('status')[1]['active']['revision'] == 'initial'
         document=empty_document();document['name']='ROS integracja'
         for key,value in dict(gear_ratio=50,direction=-1,zero_offset=10,lower=-180,upper=180,velocity=30,acceleration=60).items():
             document['values'][f'joint.1.{key}']=value

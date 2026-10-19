@@ -78,6 +78,13 @@ odpowiedzi `F5 05 CRC` pozwala wysłać broadcast `4B 4B`. Brak ACK lub przeterm
 próbka blokują SYNC i wywołują stop. SYNC nie ma potwierdzenia odbioru; zgodność
 ruchu trzeba nadzorować pozycjami.
 
+Próbka z `CanSystem` może zawierać pozycje i prędkości JTC. Wspólny kompilator
+F5 wyznacza RPM z profilu próbki zamiast zawsze używać maksimum osi; kod `acc`
+pozostaje osobnym parametrem napędu. Podgląd przyszłych zestawów 50 Hz oblicza
+[planner kartezjański](cartesian_planning.md), który nie wysyła niczego do CAN.
+Przygotowanie przed planowanym SYNC i odbiór śledzenia pozostają wymaganiami
+późniejszego executora; zgodność ramek nie gwarantuje wspólnego czasu dojazdu.
+
 Startowe progi oprogramowania: 60 ms dla pozycji i nowych zapisów kontrolera,
 300 ms dla ENABLE/stall, 200 ms dla lease źródła. Nie wyznaczają one dopuszczalnej
 drogi zatrzymania robota i wymagają odbioru na sprzęcie.

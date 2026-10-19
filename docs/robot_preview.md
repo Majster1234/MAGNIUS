@@ -87,6 +87,39 @@ niekompletnych danych jest częściowa. Początkowe dopasowanie kamery uwzględn
 pierwszą otrzymaną pozę. Dalsze dopasowanie następuje na żądanie operatora.
 Błąd URDF/WebGL trafia do konsoli i pozostawia tabelę pozycji oraz sterowanie dostępne.
 
+## Planowanie lokalne
+
+Przycisk **Planowanie** jest dostępny przy wczytanym modelu, aktualnych danych,
+braku aktywnej operacji fizycznego JOG oraz co najmniej jednej dostępnej osi.
+Tworzy on drugi, półprzezroczysty niebieski model z pozycji enkoderów. Robot
+rzeczywisty nadal śledzi enkodery, a bliźniak zachowuje pozycje planu wyłącznie
+w pamięci otwartej karty. Legenda odróżnia oba modele.
+
+W tym trybie strzałki JOG w tabeli poruszają tylko bliźniakiem; żadne polecenie
+nie jest wysyłane przez WebSocket, HTTP, ROS ani CAN. **Załącz**, **Wyłącz** i
+zerowanie są zablokowane. Dostępna oś musi mieć świeże połączenie i pozycję
+enkodera; skonfigurowany przegub wymaga również poprawnej pozycji przegubu.
+ENABLE, przygotowanie oraz `can_jog` nie są wymagane. Domyślnie brak sterownika lub pomiaru
+blokuje daną oś i zatrzymuje jej lokalny ruch. Powrót danych nie wznawia go.
+Wiek pozycji obejmuje wiek podany przez backend i czas od odebrania wiadomości:
+po 250 ms oś jest blokowana; po 500 ms nieaktualny jest cały stan sterowania.
+Brak kalibracji lub nieprawidłowe limity skonfigurowanego przegubu również blokują oś.
+
+Plan używa tych samych jednostek, prędkości i limitów co widok ręczny: °/s dla
+skonfigurowanego przegubu, dla wału RPM przeliczone na °/s w odwzorowaniu 1:1,
+a bez profilu zakres −3600°…+3600°. Ruch zatrzymuje się na limicie; nie symuluje
+dynamiki ani kolizji. Panel [PTP/LIN](cartesian_planning.md) udostępnia automatyczne
+obliczenie i zapętlenie ruchu na trzecim, pomarańczowym modelu; nie zmienia niebieskiego celu.
+Wspólny suwak w ustawieniach systemowych odblokowuje JOG wszystkich osi bez napędów,
+z aktywnymi limitami profilu. Start bez pomiaru jest jawnie oznaczony jako symulowany.
+Poza zakresem możliwy jest tylko
+stopniowy ruch do jego wnętrza. Prędkość jest ograniczana maksimum profilu lub
+`max_rpm`; opóźnienie timera ponad 100 ms zatrzymuje lokalny JOG bez nadrabiania.
+**Od pozycji robota** ponownie
+kopiuje dostępne enkodery, a **Zakończ planowanie** usuwa bliźniaka. Zmiana
+rewizji konfiguracji unieważnia plan do jawnej synchronizacji. Odświeżenie strony
+lub opuszczenie ekranu usuwa plan.
+
 ## Uruchamianie i dalszy model
 
 Standardowo `./scripts/start_web_status.sh` uruchamia też publisher modelu.
@@ -97,6 +130,21 @@ oraz zastosowanie rzeczywistych przełożeń, geometrii i bazowania są kolejnym
 Przykładowy URDF nie spełnia warunków uruchomienia sterowania automatycznego.
 
 ## Sprawdzenia — 2026-10-19
+
+Planowanie lokalne:
+
+- TypeScript/Vite i 39 testów Vitest OK, w tym 8 testów kontrolera planu.
+- Cztery scenariusze Chromium na atrapach HTTP/WS OK. Osobny test planowania
+  sprawdza dwa modele WebGL, brak ENABLE, brak komend sprzętowych, utratę osi,
+  wiek pomiarów, rozłączenie, zmianę rewizji i synchronizację zgodnego URDF.
+  Wiersze pozostają na poziomie 29 px, podgląd 50dvh w trzech rozdzielczościach desktop.
+- Przebudowano `robot_web_bridge` przez `colcon build --symlink-install --packages-select robot_web_bridge`.
+- Chromium w działającym panelu LAN potwierdził zgodność serwowanego buildu,
+  wejście/wyjście z planowania i lokalny JOG J1. Dodatkowa blokada zapisów HTTP
+  i komend sterujących WS nie zarejestrowała żadnej próby ich wysłania.
+  Bez błędów JS, zmian ENABLE/zera, restartu ROS i fizycznego testu ruchu.
+- Node.js 22.14.0 użyty tymczasowo po weryfikacji SHA-256 oficjalnego archiwum;
+  nie instalowano go systemowo. W buildzie pozostaje ostrzeżenie o wielkości modułu Three.js.
 
 Poświaty limitów:
 

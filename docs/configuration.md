@@ -1,7 +1,9 @@
 # Konfiguracja robota i snapshoty
 
-Otwórz **Konfiguracja → Parametry robota** (`/#configuration`). Ustawienia systemowe
-pozostają puste. Kolumny J1–J6 odpowiadają CAN 1–6. Suwak przełącza geometrię
+Otwórz **Konfiguracja → Parametry robota** (`/#configuration`). W ustawieniach systemowych
+jest wspólny suwak **Ignoruj brak sterowników — tylko planowanie**, opisany w
+[instrukcji PTP/LIN](cartesian_planning.md#brak-sterowników-i-pozycja-bazowa).
+Kolumny J1–J6 odpowiadają CAN 1–6. Suwak widoku tabeli przełącza geometrię
 oraz przełożenia i ograniczenia. Jednostki panelu i JSON: mm, °, °/s, °/s², kg.
 Puste pole oznacza brak danych; zero jest wartością.
 

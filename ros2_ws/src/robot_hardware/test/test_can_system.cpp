@@ -38,3 +38,10 @@ TEST(CanSystem, RejectsDuplicatesAndUnknownParametersInsteadOfGuessing) {
   info = example_info(); info.joints[0].parameters["gear_ratio"] = "null";
   EXPECT_EQ(plugin.on_init(info), hardware_interface::CallbackReturn::ERROR);
 }
+TEST(CanSystem, PositionVelocityCommandsAreExportedWithoutCan) {
+  auto info=example_info();
+  for(auto &joint:info.joints) { hardware_interface::InterfaceInfo velocity;velocity.name="velocity";joint.command_interfaces.push_back(velocity); }
+  robot_hardware::CanSystem plugin;ASSERT_EQ(plugin.on_init(info),hardware_interface::CallbackReturn::SUCCESS);
+  const auto commands=plugin.export_command_interfaces();ASSERT_EQ(commands.size(),12u);
+  EXPECT_EQ(commands[1].get_name(),"joint_1/velocity");EXPECT_EQ(commands[11].get_name(),"joint_6/velocity");
+}

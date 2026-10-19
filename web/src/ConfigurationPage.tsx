@@ -3,6 +3,7 @@ import { EventConsole, useEventConsole } from "./EventConsole";
 import { ConfigurationPreview } from "./ConfigurationPreview";
 import { dirtyKeys, fieldErrors } from "./configurationData";
 import { useConfiguration } from "./useConfiguration";
+import { useSystemSettings } from "./planningContext";
 
 type Field = {
     key: string; label: string; unit?: string; placeholder?: string; min?: number;
@@ -69,6 +70,7 @@ function SettingsCard({ title, description, children }: { title: string; descrip
 }
 
 export function ConfigurationPage() {
+    const system = useSystemSettings();
     const [section, setSection] = useState<"system" | "robot">("system");
     const [tableView, setTableView] = useState<"geometry" | "limits">("geometry");
     const [draft, setDraft] = useState(readDraft);
@@ -123,7 +125,7 @@ export function ConfigurationPage() {
             setSection(next); document.getElementById(`config-${next}-tab`)?.focus();
         }}>
             <button id="config-system-tab" role="tab" tabIndex={section === "system" ? 0 : -1} aria-selected={section === "system"} aria-controls="config-system-panel" onClick={() => setSection("system")}>
-                Ustawienia systemowe<small>Miejsce na przyszłe ustawienia</small>
+                Ustawienia systemowe<small>Ustawienia wspólne aplikacji</small>
             </button>
             <button id="config-robot-tab" role="tab" tabIndex={section === "robot" ? 0 : -1} aria-selected={section === "robot"} aria-controls="config-robot-panel" onClick={() => setSection("robot")}>
                 Parametry robota<small>Dane maszynowe J1–J6</small>
@@ -133,7 +135,11 @@ export function ConfigurationPage() {
             ? "Szkic i model aktualizują się lokalnie. Bursztynowe pola różnią się od konfiguracji ROS; snapshot nie stosuje zmian w sterowaniu."
             : "Przeglądarka blokuje zapis szkicu. Wpisy pozostaną tylko do odświeżenia lub opuszczenia strony."}</p>}
         {section === "system" ? <div id="config-system-panel" role="tabpanel" aria-labelledby="config-system-tab" className="settings-system-empty">
-            <p>Ustawienia będą dodawane wraz z rozwojem projektu.</p>
+            <label className="system-planning-switch"><span>Ignoruj brak sterowników — tylko planowanie</span>
+                <input type="checkbox" role="switch" checked={system.settings?.ignore_missing_drivers ?? false} disabled={!system.settings || system.saving}
+                    onChange={event => void system.save(event.target.checked)} /></label>
+            <p>Odblokowuje JOG wszystkich osi bliźniaka. Ustawienie jest wspólne dla klientów i nie zmienia sterowania sprzętem.</p>
+            {system.error && <p role="status">{system.error}</p>}
         </div> : <div id="config-robot-panel" role="tabpanel" aria-labelledby="config-robot-tab" className="robot-settings">
             <div className="snapshot-toolbar" aria-label="Snapshoty konfiguracji">
                 <input aria-label="Nazwa snapshotu" placeholder="Nazwa snapshotu" maxLength={80} value={configuration.name} onChange={event => configuration.setName(event.target.value)}/>

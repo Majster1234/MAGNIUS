@@ -48,6 +48,9 @@ def generate_launch_description():
     configuration = Node(package='robot_configuration', executable='configuration', output='screen',
                          condition=IfCondition(LaunchConfiguration('configuration_enabled')),
                          parameters=[{'configuration_dir': LaunchConfiguration('configuration_dir')}])
+    planner = Node(package='robot_motion_planner', executable='planner', output='screen',
+                   condition=IfCondition(LaunchConfiguration('planning_enabled')),
+                   parameters=[LaunchConfiguration('planning_parameters')])
     return LaunchDescription([
         DeclareLaunchArgument('lan_interface', default_value='enp2s0'),
         DeclareLaunchArgument('lan_subnet', default_value='192.168.1.0/24'),
@@ -57,6 +60,8 @@ def generate_launch_description():
         DeclareLaunchArgument('can_timeout_ms', default_value='20'),
         DeclareLaunchArgument('manual_max_rpm', default_value='30'),
         DeclareLaunchArgument('preview_enabled', default_value='true'),
+        DeclareLaunchArgument('planning_enabled', default_value='true'),
+        DeclareLaunchArgument('planning_parameters', default_value=str(Path(get_package_share_directory('robot_bringup')) / 'config/planning.example.yaml')),
         DeclareLaunchArgument('configuration_dir', default_value=str(Path.home() / '.local/state/robot/configuration')),
         DeclareLaunchArgument('configuration_enabled', default_value='true'),
         DeclareLaunchArgument('preview_urdf', default_value=str(Path(get_package_share_directory('robot_description')) / 'urdf/preview_6dof.example.urdf')),
@@ -67,6 +72,6 @@ def generate_launch_description():
         RegisterEventHandler(OnProcessExit(
             target_action=bridge,
             on_exit=[EmitEvent(event=Shutdown(reason='Backend zakończył działanie'))])),
-        monitor, can_diagnostics, bridge, configuration,
+        monitor, can_diagnostics, bridge, configuration, planner,
         OpaqueFunction(function=preview, condition=IfCondition(LaunchConfiguration('preview_enabled'))),
     ])

@@ -1,21 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { JogControl, MANUAL_STATE_TIMEOUT_MS } from "./manualControl";
 import { RobotPreview } from "./RobotPreview";
+import { PlanningJog } from "./planningJog";
+import { CartesianPlanning } from "./CartesianPlanning";
+import { usePlanningContext } from "./planningContext";
 import { EventConsole, useEventConsole } from "./EventConsole";
 import type { Axis, ManualState } from "./manualTypes";
 
-export function MotorPosition({ axis, position, stale = false, lower = -3600, upper = 3600 }: { axis: number; position: number | null; stale?: boolean; lower?: number; upper?: number }) {
+export function MotorPosition({ axis, position, plannedPosition, stale = false, lower = -3600, upper = 3600 }: { axis: number; position: number | null; plannedPosition?: number | null; stale?: boolean; lower?: number; upper?: number }) {
     const known = position !== null && Number.isFinite(position);
     const bounded = known ? Math.max(lower, Math.min(upper, position)) : 0;
+    const plannedKnown = plannedPosition !== null && plannedPosition !== undefined && Number.isFinite(plannedPosition);
+    const plannedLabel = plannedKnown ? `Bliźniak J${axis}: ${plannedPosition.toFixed(1)}°` : "";
     return <div className={`motor-position ${stale ? "measurement-stale" : ""}`}>
         <span className="position-value"><span>{known ? `${position.toFixed(1)}°` : "—"}</span>{known && stale && <em>ostatni pomiar</em>}</span>
         <div className={`position-track ${known ? "" : "unknown"}`} role={known ? "meter" : "img"}
             aria-label={`Pozycja J${axis} względem limitów${known ? "" : ": brak danych"}`}
             aria-valuemin={known ? lower : undefined} aria-valuemax={known ? upper : undefined}
-            data-stale={stale} aria-valuenow={known ? bounded : undefined} aria-valuetext={known ? `${stale ? "Ostatni pomiar: " : ""}${position.toFixed(1)}°` : undefined}>
+            data-stale={stale} aria-valuenow={known ? bounded : undefined} aria-valuetext={known ? `${stale ? "Ostatni pomiar: " : ""}${position.toFixed(1)}°${plannedKnown ? `; ${plannedLabel}` : ""}` : undefined}>
             {lower <= 0 && upper >= 0 && <span className="position-zero" style={{left:`${-lower / (upper-lower)*100}%`}}/>}
             {known && <span className="position-thumb" style={{ left: `${(bounded - lower) / (upper - lower) * 100}%` }} />}
-        </div><div className="position-limits"><span>{lower}°</span><span>{upper > 0 ? "+" : ""}{upper}°</span></div>
+            {plannedKnown && <span className="position-planned-thumb" title={plannedLabel} aria-hidden="true" data-position={plannedPosition}
+                style={{ left: `${(Math.max(lower, Math.min(upper, plannedPosition)) - lower) / (upper - lower) * 100}%` }} />}
+        </div><div className="position-limits"><span>{Number(lower.toFixed(2))}°</span><span>{upper > 0 ? "+" : ""}{Number(upper.toFixed(2))}°</span></div>
     </div>;
 }
 
@@ -27,13 +34,34 @@ export function ManualPage() {
     const { entries, notice } = useEventConsole();
     const [pending, setPending] = useState(false);
     const [held, setHeld] = useState<{ axis: number; direction: number } | null>(null);
+    const [planning, setPlanning] = useState(false);
+    const [simulationPositions, setSimulationPositions] = useState<number[] | null>(null);
+    const context = usePlanningContext();
+    const simulationAllowed = !!context?.ignore_missing_drivers && connected;
+    const [plan, setPlan] = useState(() => new PlanningJog().snapshot(performance.now()));
+    const [previewModel, setPreviewModel] = useState<{ ready: boolean; revision?: string }>({ ready: false });
     const [speeds, setSpeeds] = useState<number[]>(Array(6).fill(30));
     const control = useRef<JogControl | null>(null);
+    const planningControl = useRef(new PlanningJog());
+    const planningMode = useRef(false);
+    const latestState = useRef<ManualState | null>(null);
+    const modelStatus = useRef(previewModel); modelStatus.current = previewModel;
+    const expectedRevision = context?.configuration_revision ?? state?.configuration_revision;
+    const expectedModelRevision = useRef(expectedRevision); expectedModelRevision.current = expectedRevision;
+    const modelReady = previewModel.ready && previewModel.revision === expectedRevision;
+    const applyMotionPreview = useCallback((positions: number[] | null) => {
+        setSimulationPositions(planningMode.current ? positions : null);
+    }, []);
+    useEffect(() => {
+        planningControl.current.configure(context, performance.now());
+        setPlan(planningControl.current.snapshot(performance.now()));
+    }, [context]);
     const speedProfile = state?.axes.map(axis => `${axis.joint_configured}/${axis.jog_min_velocity_degrees_s}/${axis.jog_max_velocity_degrees_s}`).join(";");
     useEffect(() => {
         setSpeeds(previous => previous.map((value, i) => {
             const axis = state?.axes[i], step = axis?.jog_min_velocity_degrees_s ?? 0, max = axis?.jog_max_velocity_degrees_s ?? 0;
-            if (!axis?.joint_configured || step <= 0 || max < step) return value;
+            if (!axis?.joint_configured || max <= 0) return value;
+            if (step <= 0 || max < step) return Math.min(value, max);
             return Number((Math.max(step, Math.floor(Math.min(value, max) / step + 1e-9) * step)).toPrecision(12));
         }));
     }, [speedProfile]);
@@ -80,39 +108,62 @@ export function ManualPage() {
                             report(gap >= 100 && Number.isFinite(gap) ? "state_gap" : "state_received", 0, 0, gap);
                             lastReported = now; signature = nextSignature;
                         }
-                        received = now; setState(data.state); setFresh(data.state.fresh);
-                        jog.stateReceived(data.state.fresh);
+                        received = now; latestState.current = data.state;
+                        if (planningControl.current.receive(data.state, now)) notice({ source: "planning", severity: "warning", message: "Plan unieważniony przez zmianę konfiguracji. Skopiuj ponownie pozycję robota." });
+                        setPlan(planningControl.current.snapshot(now)); setState(data.state); setFresh(data.state.fresh);
+                        if (!planningMode.current) jog.stateReceived(data.state.fresh);
                     } else if (data.type === "ack") {
                         jog.ack(data.sequence, data.accepted);
                         if (!data.accepted) notice({ source: "jog", severity: "warning", message: data.message || "Komenda JOG odrzucona." });
                     }
-                } catch { jog.stop(); setFresh(false); }
+                } catch { if (!planningMode.current) jog.stop(); planningControl.current.disconnect(); setPlan(planningControl.current.snapshot(performance.now())); setFresh(false); }
             };
             socket.onclose = () => {
-                jog.stop();
+                if (!planningMode.current) jog.stop();
+                planningControl.current.disconnect(); setPlan(planningControl.current.snapshot(performance.now()));
                 if (!closed) { setConnected(false); setFresh(false); reconnect = setTimeout(connect, 1000); }
             };
             socket.onerror = () => socket?.close();
         }
-        const stop = () => { control.current?.stop(); setHeld(null); };
+        const stop = () => { if (!planningMode.current) control.current?.stop(); planningControl.current.stop(); setPlan(planningControl.current.snapshot(performance.now())); setHeld(null); };
         const visibility = () => { report("visibility", 0, document.hidden ? 1 : 0); if (document.hidden) stop(); };
         window.addEventListener("blur", stop); window.addEventListener("pagehide", stop);
         window.addEventListener("pointerup", stop); window.addEventListener("pointercancel", stop);
         document.addEventListener("visibilitychange", visibility);
         const timer = setInterval(() => {
-            control.current?.pulse();
-            if (!control.current?.holding) setHeld(null);
-            if (performance.now() - received >= MANUAL_STATE_TIMEOUT_MS) { control.current?.stop("state_timeout"); setFresh(false); }
+            const now = performance.now();
+            if (!planningMode.current) control.current?.pulse();
+            if (document.hidden || !modelStatus.current.ready || modelStatus.current.revision !== expectedModelRevision.current) planningControl.current.stop();
+            planningControl.current.tick(now); setPlan(planningControl.current.snapshot(now));
+            if (!control.current?.holding && planningControl.current.activeAxis === 0) setHeld(null);
+            if (now - received >= MANUAL_STATE_TIMEOUT_MS) { if (!planningMode.current) control.current?.stop("state_timeout"); setFresh(false); }
         }, 50);
         connect();
         return () => {
-            closed = true; clearInterval(timer); clearTimeout(reconnect); stop(); socket?.close(); control.current = null;
+            closed = true; clearInterval(timer); clearTimeout(reconnect); stop(); planningControl.current.end(); socket?.close(); control.current = null;
             window.removeEventListener("blur", stop); window.removeEventListener("pagehide", stop);
             window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop);
             document.removeEventListener("visibilitychange", visibility);
         };
     }, [notice]);
+    function beginPlanning() {
+        if (planningMode.current || !modelReady || !connected || (!simulationAllowed && (!latestState.current || !fresh)) || latestState.current?.busy || pending || control.current?.holding) return;
+        if (!planningControl.current.begin(performance.now())) return;
+        planningMode.current = true; setPlan(planningControl.current.snapshot(performance.now())); setPlanning(true); setHeld(null);
+        notice({ source: "planning", severity: "info", message: "Włączono planowanie lokalne. JOG porusza wyłącznie bliźniakiem 3D." });
+    }
+    function syncPlanning() {
+        if (!planningMode.current || !modelReady || !connected || (!simulationAllowed && (!latestState.current || !fresh)) || latestState.current?.busy || pending) return;
+        if (!planningControl.current.begin(performance.now())) return;
+        setPlan(planningControl.current.snapshot(performance.now())); setHeld(null);
+        notice({ source: "planning", severity: "info", message: "Bliźniak skopiował aktualne pozycje enkoderów." });
+    }
+    function endPlanning() {
+        planningControl.current.end(); planningMode.current = false; setPlan(planningControl.current.snapshot(performance.now())); setPlanning(false); setHeld(null); setSimulationPositions(null);
+        notice({ source: "planning", severity: "info", message: "Zakończono planowanie lokalne. Fizyczny JOG pozostaje zatrzymany." });
+    }
     async function operation(axis: number, name: "enable" | "zero", enabled?: boolean) {
+        if (planningMode.current) return;
         control.current?.stop(); setPending(true);
         try {
             const result = await fetch(`/api/v1/manual/axes/${axis}/${name}`, {
@@ -126,17 +177,38 @@ export function ManualPage() {
         finally { setPending(false); }
     }
     function arrow(axis: Axis, direction: number) {
+        const locallyHeld = held?.axis === axis.axis && held.direction === direction;
+        const disabled = planning ? !modelReady || !plan.ready || !plan.available[axis.axis - 1] || pending ||
+            (locallyHeld ? plan.activeAxis !== axis.axis : !planningControl.current.canStart(axis.axis, direction, speeds[axis.axis - 1], performance.now())) :
+            !locallyHeld && (!fresh || !connected || !axis.can_jog || pending);
+        const stopJog = () => { if (planningMode.current) planningControl.current.stop(); else control.current?.stop(); setPlan(planningControl.current.snapshot(performance.now())); setHeld(null); };
         return <button className="jog-arrow" aria-label={`JOG J${axis.axis} ${direction > 0 ? "prawo" : "lewo"}`}
-            disabled={!(held?.axis === axis.axis && held.direction === direction) && (!fresh || !connected || !axis.can_jog || pending)}
+            disabled={disabled}
             onPointerDown={(event) => {
                 if (event.button !== 0) return;
                 event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
-                if (axis.joint_configured && !state?.configuration_revision) return;
-                if (control.current?.start(axis.axis, direction, speeds[axis.axis - 1], axis.joint_configured ? state?.configuration_revision : undefined)) setHeld({axis: axis.axis, direction});
+                if (planningMode.current) {
+                    if (modelReady && planningControl.current.start(axis.axis, direction, speeds[axis.axis - 1], performance.now())) {
+                        setPlan(planningControl.current.snapshot(performance.now())); setHeld({axis: axis.axis, direction});
+                    }
+                } else {
+                    if (axis.joint_configured && !state?.configuration_revision) return;
+                    if (control.current?.start(axis.axis, direction, speeds[axis.axis - 1], axis.joint_configured ? state?.configuration_revision : undefined)) setHeld({axis: axis.axis, direction});
+                }
             }}
-            onPointerUp={() => control.current?.stop()} onPointerCancel={() => control.current?.stop()}
-            onLostPointerCapture={() => control.current?.stop()}
+            onPointerUp={stopJog} onPointerCancel={stopJog} onLostPointerCapture={stopJog}
             onContextMenu={(event) => event.preventDefault()}>{direction > 0 ? "→" : "←"}</button>;
+    }
+    function jogSpeed(axis: Axis) {
+        const profile = planning ? planningControl.current.controlProfile(axis.axis) ?? axis : axis;
+        const maximum = profile.joint_configured ? profile.jog_max_velocity_degrees_s || undefined : state?.max_rpm ?? 30;
+        return <label className="jog-speed"><input aria-label={`Prędkość J${axis.axis}`} type="number"
+            min={profile.joint_configured ? planning ? 0 : profile.jog_min_velocity_degrees_s || undefined : 1}
+            max={maximum} step={profile.joint_configured ? "any" : 1} value={speeds[axis.axis - 1]} disabled={(planning ? plan.activeAxis !== 0 : state?.busy) || pending}
+            onChange={event => { const number = Number(event.target.value);
+                const next = profile.joint_configured ? Math.max(0, Math.min(maximum ?? 0, Number.isFinite(number) ? number : 0)) : Math.max(1, Math.min(maximum ?? 30, Math.round(number || 1)));
+                setSpeeds(old => old.map((value, i) => i === axis.axis - 1 ? next : value)); }} />
+            <span>{profile.joint_configured ? "°/s przeg." : "obr./min wału"}</span></label>;
     }
     const usable = fresh && connected;
     const axes = state?.axes ?? Array.from({ length: 6 }, (_, index) => ({ axis: index + 1 } as Axis));
@@ -147,23 +219,28 @@ export function ManualPage() {
             <a href="#overview">← Przegląd systemu</a>
         </header>
         <EventConsole entries={entries} />
-        <RobotPreview state={state} usable={usable} onNotice={notice} />
-        <div className="manual-table"><table><thead><tr><th>Oś / CAN</th><th>Połączenie</th><th>Pozycja osi / wału</th><th>ENABLE</th><th>Napęd</th><th>Zero wału</th><th>JOG</th><th>Prędkość</th></tr></thead><tbody>
-            {axes.map((axis) => <tr key={axis.axis} className={state?.active_axis === axis.axis ? "manual-active" : ""}>
+        <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
+            simulationPositions={simulationPositions} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id}
+            planningTools={planning && <CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} />} />
+        <div className="manual-table"><table><colgroup>
+            <col className="manual-col-jog"/><col className="manual-col-axis"/><col className="manual-col-connection"/><col/>
+            <col className="manual-col-enable"/><col className="manual-col-drive"/><col className="manual-col-zero"/><col className="manual-col-speed"/>
+        </colgroup><thead><tr><th>JOG</th><th>Oś / CAN</th><th>Połączenie</th><th>Pozycja osi / wału</th><th>ENABLE</th><th>Napęd</th><th>Zero wału</th><th>Prędkość</th></tr></thead><tbody>
+            {axes.map((axis) => <tr key={axis.axis} className={planning ? plan.activeAxis === axis.axis ? "manual-active manual-planned-active" : "" : state?.active_axis === axis.axis ? "manual-active" : ""}>
+                <td><div className="jog-controls">{arrow(axis, -1)}<span className={`motion-indicator ${planning && plan.activeAxis === axis.axis ? "moving" : !planning && usable && axis.motion === "w prędkości" ? "moving" : ""}`} aria-live="polite"><strong className="jog-axis-id">J{axis.axis}</strong><span>{planning ? plan.activeAxis === axis.axis ? "bliźniak" : "plan" : usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span></span>{arrow(axis, 1)}</div></td>
                 <td><strong>J{axis.axis}</strong><small>CAN {axis.axis}</small></td>
                 <td><span className={`badge ${usable && axis.available ? "ok" : "stale"}`}>{!usable ? "Dane nieaktualne" : axis.available ? "Połączony" : "Niedostępny"}</span></td>
-                <td title={axis.joint_configured ? `Przegub; wał: ${axis.position_known ? axis.position_degrees.toFixed(1)+"°" : "brak danych"}` : "Wał silnika — brak pełnego profilu przegubu"}><MotorPosition axis={axis.axis}
+                <td title={axis.joint_configured ? `Przegub; wał: ${axis.position_known ? axis.position_degrees.toFixed(1)+"°" : "brak danych"}` : "Wał silnika — brak pełnego profilu przegubu"}><div className="manual-position-reading"><MotorPosition axis={axis.axis}
                     position={axis.joint_configured ? axis.joint_position_known ? axis.joint_position_degrees! : null : axis.position_known ? axis.position_degrees : null}
-                    lower={axis.joint_configured ? axis.joint_lower_degrees : -3600} upper={axis.joint_configured ? axis.joint_upper_degrees : 3600} stale={!usable}/></td>
+                    lower={axis.joint_configured ? axis.joint_lower_degrees : -3600} upper={axis.joint_configured ? axis.joint_upper_degrees : 3600} stale={!usable}
+                    plannedPosition={planning ? plan.positions[axis.axis - 1] : undefined}/>{planning && <small className={`planned-position ${plan.available[axis.axis - 1] ? "" : "plan-unavailable"}`}>Plan: {plan.positions[axis.axis - 1] === null ? "—" : `${plan.positions[axis.axis - 1]!.toFixed(1)}°`}</small>}</div></td>
                 <td><span className={`badge ${usable && axis.enable_known ? axis.enabled ? "ok" : "warn" : "stale"}`}>{usable && axis.enable_known ? axis.enabled ? "Włączony" : "Wyłączony" : "Nieznany"}</span></td>
-                <td><div className="manual-enable"><button className="secondary-button" disabled={!usable || !axis.available || state?.busy || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
-                    <button className="secondary-button" disabled={!usable || !axis.available || pending || (state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
-                <td><button className="link-button" title="Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu" disabled={!usable || !axis.can_zero || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
-                <td><div className="jog-controls">{arrow(axis, -1)}<span className={`motion-indicator ${usable && axis.motion === "w prędkości" ? "moving" : ""}`} aria-live="polite">{usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span>{arrow(axis, 1)}</div></td>
-                <td><label className="jog-speed"><input aria-label={`Prędkość J${axis.axis}`} type="number" min={axis.joint_configured ? axis.jog_min_velocity_degrees_s || undefined : 1} max={axis.joint_configured ? axis.jog_max_velocity_degrees_s || undefined : state?.max_rpm ?? 30} step={axis.joint_configured ? "any" : 1} value={speeds[axis.axis - 1]} disabled={state?.busy || pending}
-                    onChange={(event) => { const number=Number(event.target.value);const next=axis.joint_configured ? Math.max(0,Math.min(axis.jog_max_velocity_degrees_s ?? 0,Number.isFinite(number)?number:0)) : Math.max(1, Math.min(state?.max_rpm ?? 30, Math.round(number || 1))); setSpeeds((old) => old.map((value, i) => i === axis.axis - 1 ? next : value)); }}/><span>{axis.joint_configured ? "°/s przeg." : "obr./min wału"}</span></label></td>
+                <td><div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
+                    <button className="secondary-button" disabled={planning || !usable || !axis.available || pending || (state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
+                <td><button className="link-button" title="Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu" disabled={planning || !usable || !axis.can_zero || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
+                <td>{jogSpeed(axis)}</td>
             </tr>)}
         </tbody></table></div>
-        <p className="can-note">Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz.</p>
+        <p className="can-note">{planning ? "Plan lokalny: JOG porusza wyłącznie bliźniakiem. Polecenia napędów i zerowania są zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p>
     </section>;
 }

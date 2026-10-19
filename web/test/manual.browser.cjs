@@ -11,7 +11,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const commands = [], traces = [], errors = [], sockets = new Set();
   const state = {fresh:true, busy:false, fault:false, recording:true, state_monotonic_ns:'123456', active_axis:0, max_rpm:30, operation:'idle', message:'Stan testowy',
     axes: Array.from({length:6}, (_,i) => ({axis:i+1, available:[1,2,4].includes(i+1), prepared:false,
-      enable_known:[1,2,4].includes(i+1), enabled:false, position_known:[1,2,4].includes(i+1), position_degrees:123.4, speed_known:true, speed_rpm:0,
+      enable_known:[1,2,4].includes(i+1), enabled:false, position_known:[1,2,4].includes(i+1), position_degrees:123.4, position_age_seconds:0, speed_known:true, speed_rpm:0,
       can_jog:false, can_zero:false, motion:'zatrzymany'}))};
   let owner = null, pauseStates = false, modelRequests = 0, descriptionRevision = '';
   function update() {
@@ -22,6 +22,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
   await context.route('http://robot.test/**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname.startsWith('/api/v1/planning/')) return route.fulfill({status:503,contentType:'application/json',body:'{"detail":"Planner wyłączony w teście fizycznego JOG"}'});
     if (url.pathname === '/api/v1/robot/description') {
       modelRequests++;
       if (modelRequests === 1) return route.fulfill({status:503,body:'Oczekiwanie na ROS'});
@@ -78,7 +79,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     state.axes[0].position_degrees=-450;update();
     await page.waitForFunction(()=>Math.abs(JSON.parse(document.querySelector('.preview-canvas canvas').dataset.jointAngles)[0]+2.5*Math.PI)<.001);
     assert(!beforePose.equals(await canvas.screenshot()),'Zmiana enkodera ma zmienić obraz modelu');
-    assert.equal(await preview.getByRole('button').count(),1,'Pozostaje wyłącznie domek dopasowania kamery');
+    assert.equal(await preview.getByRole('button').count(),2,'Pozostają domek i wejście do planowania');
     assert.equal(await preview.locator('.preview-readings').count(),0,'Pozycje nie mogą być zdublowane przy modelu');
     const home=preview.getByRole('button',{name:'Dopasuj widok',exact:true});
     assert.equal(await home.locator('svg').count(),1);
@@ -93,6 +94,23 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.equal(commands.length,commandCount,'Dopasowanie kamery nie wysyła komend do silników');
     const row = axis => page.locator('tbody tr').nth(axis-1);
     assert.equal(await page.locator('tbody tr').count(),6);
+    // Planowanie jest w pełni lokalne: nie wymaga ENABLE i nie wysyła komend CAN.
+    const planning=preview.getByRole('button',{name:'Planowanie',exact:true});
+    await planning.click(); await preview.getByText('Planowanie — JOG bliźniaka',{exact:true}).waitFor();
+    await page.waitForFunction(()=>!!document.querySelector('.preview-canvas canvas')?.dataset.plannedJointAngles);
+    assert(await row(1).getByRole('button',{name:'Załącz',exact:true}).isDisabled());
+    assert(await row(1).getByRole('button',{name:'Ustaw zero'}).isDisabled());
+    const planArrow=page.getByRole('button',{name:'JOG J1 prawo'}), beforePlanCommands=commands.length;
+    const planBox=await planArrow.boundingBox(); await page.mouse.move(planBox.x+14,planBox.y+14); await page.mouse.down(); await delay(160); await page.mouse.up();
+    await page.waitForFunction(()=>document.querySelector('.planned-position')?.textContent !== 'Plan: -450.0°');
+    assert.equal(commands.length,beforePlanCommands,'JOG bliźniaka nie używa WebSocketu sterowania');
+    assert(await row(3).getByRole('button',{name:'JOG J3 prawo'}).isDisabled(),'Niedostępna oś nie steruje bliźniakiem');
+    state.axes[0].position_degrees=-600;update();await delay(80);
+    assert.notEqual(await row(1).locator('.planned-position').textContent(),'Plan: -600.0°','Enkoder nie nadpisuje planu');
+    await preview.getByRole('button',{name:'Od pozycji robota',exact:true}).click();
+    await page.getByText('Plan: -600.0°',{exact:true}).waitFor();
+    await preview.getByRole('button',{name:'Zakończ planowanie',exact:true}).click();
+    await planning.waitFor();
     const layouts = [];
     for (const viewport of [{width:1280,height:800},{width:1366,height:768},{width:1920,height:1080},{width:1600,height:1000}]) {
       await page.setViewportSize(viewport);
@@ -208,8 +226,12 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.screenshot({path: process.env.ROBOT_SCREENSHOT || '/tmp/robot-manual-desktop.png',fullPage:true});
     assert.equal(sockets.size,2,'Każdy panel współdzieli swój istniejący strumień pozycji z podglądem');
     // Nowa rewizja nie może wyrenderować opisu modelu z innej transakcji.
+    await planning.click(); await preview.getByText('Planowanie — JOG bliźniaka',{exact:true}).waitFor();
     descriptionRevision='ahead-of-runtime';state.configuration_revision='profile-test';
     Object.assign(state.axes[0],{joint_configured:true,calibration_valid:true,joint_position_known:true,joint_position_degrees:45,joint_lower_degrees:-90,joint_upper_degrees:90,jog_min_velocity_degrees_s:.12,jog_max_velocity_degrees_s:3.6});update();
+    await page.getByRole('log').getByText('Plan unieważniony przez zmianę konfiguracji. Skopiuj ponownie pozycję robota.',{exact:true}).waitFor();
+    assert(await page.getByRole('button',{name:'JOG J1 prawo'}).isDisabled(),'Zmiana rewizji blokuje JOG bliźniaka do synchronizacji');
+    await preview.getByRole('button',{name:'Zakończ planowanie',exact:true}).click(); await planning.waitFor();
     await page.getByRole('log').getByText('Oczekiwanie na model zgodny z rewizją sterowania ROS…',{exact:true}).waitFor();
     assert(await arrow.isEnabled(),'Synchronizacja modelu nie blokuje niezależnego sterowania');
     descriptionRevision='profile-test';

@@ -1,0 +1,13 @@
+robot_control_interfaces/PlanningContext context
+geometry_msgs/Pose[] targets
+float64 blend_position_tolerance
+float64 blend_orientation_tolerance
+float64 velocity_scaling
+float64 acceleration_scaling
+---
+bool success
+string message
+robot_control_interfaces/CartesianPlan plan
+---
+float32 progress
+string phase

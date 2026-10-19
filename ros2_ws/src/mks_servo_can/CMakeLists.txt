@@ -10,6 +10,7 @@ add_library(${PROJECT_NAME} SHARED
   src/trace.cpp
   src/bus_manager.cpp
   src/configuration.cpp
+  src/motion_sample.cpp
   src/manual_motor_controller.cpp
   src/bus_runtime.cpp)
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
@@ -39,6 +40,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_manual_motor_controller ${PROJECT_NAME})
   ament_add_gtest(test_trace test/test_trace.cpp)
   target_link_libraries(test_trace ${PROJECT_NAME})
+  ament_add_gtest(test_motion_sample test/test_motion_sample.cpp)
+  target_link_libraries(test_motion_sample ${PROJECT_NAME})
 endif()
 
 install(FILES README.md DESTINATION share/${PROJECT_NAME})

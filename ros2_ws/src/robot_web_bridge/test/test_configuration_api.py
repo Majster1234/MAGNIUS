@@ -35,6 +35,8 @@ def test_configuration_endpoints_forward_to_one_ros_owner_and_preserve_policy(tm
         ('POST', '/api/v1/configuration/validate', {'document': {'test': 1}}, 'validate'),
         ('POST', '/api/v1/configuration/apply', {'document': {'test': 1}, 'expected_revision': 'revision-1'}, 'apply'),
         ('POST', '/api/v1/configuration/reconcile', {}, 'reconcile')]
+    endpoints += [('GET', '/api/v1/configuration/system', None, 'system_get'),
+                  ('PUT', '/api/v1/configuration/system', {'ignore_missing_drivers': True}, 'system_set')]
     for method, path, body, operation in endpoints:
         code, response = asyncio.run(request(app, method, path, body))
         assert code in (200, 202) and response['operation'] == operation

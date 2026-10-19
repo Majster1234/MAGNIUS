@@ -42,6 +42,10 @@ cd ..
 
 Frontend jest budowany przed workspace, ponieważ `robot_web_bridge` instaluje
 zasoby z `web/dist`. Po zmianie frontendu ponów build frontendu i `colcon build`.
+
+Launch uruchamia również obliczeniowy `robot_motion_planner` (`planning_enabled`,
+`planning_parameters`). Nowe trasy `/api/v1/planning/…` obliczają i zwracają
+plany bez wykonania na sprzęcie. Obsługa i kontrakt: [IK i droga TCP](cartesian_planning.md).
 Brak `web/dist/index.html` daje przy uruchomieniu backendu czytelny błąd.
 
 ## Uruchomienie
@@ -80,6 +84,60 @@ Zmiana parametrów, np. na innym komputerze:
 Brak jednoznacznego adresu w podanej podsieci zatrzymuje serwer; aplikacja
 nie przełącza się na nasłuch na wszystkich adresach. DHCP może zmienić URL
 przy następnym uruchomieniu. Stały adres można zapewnić rezerwacją w routerze.
+
+## Autostart systemd
+
+Po przygotowaniu zależności, frontendu i workspace zainstaluj autostart:
+
+```bash
+./scripts/install_app_autostart.sh --dry-run
+sudo ./scripts/install_app_autostart.sh
+```
+
+Instalator zapisuje `/etc/systemd/system/robot-web-status.service` i włącza ją
+na następny rozruch. Nie uruchamia ani nie restartuje bieżącej aplikacji.
+Przy ponownej instalacji zachowuje kopię dotychczasowego pliku `.bak-*`.
+Usługa działa jako użytkownik wywołujący `sudo`, z jego katalogiem domowym
+i zapisanymi konfiguracjami robota. Z konta root wskaż zwykłe konto opcją
+`--user NAZWA`. Nie są potrzebne sesja graficzna ani logowanie użytkownika.
+
+Usługa wywołuje istniejący `scripts/start_web_status.sh`, używając domyślnych
+parametrów LAN/CAN opisanych wyżej. Uruchamia się po `network-online.target`
+i, jeśli jest włączona, usłudze `robot-can@can0.service`. Sam autostart panelu
+nie konfiguruje CAN; przygotuj go według [socketcan.md](socketcan.md).
+Gdy backend zakończy działanie, np. zanim DHCP przydzieli adres LAN,
+systemd ponawia start po 5 s, także przy kodzie wyjścia 0 z launch.
+Polecenie zatrzymania usługi wyłącza te ponowienia do kolejnego startu.
+Start panelu wykonuje odczyty; ENABLE, zero i JOG nadal wymagają operatora.
+
+Po instalacji można uruchomić usługę od razu. Najpierw zamknij aplikację
+uruchomioną ręcznie przez `Ctrl+C`, aby nie uruchamiać dwóch właścicieli CAN:
+
+```bash
+sudo systemctl start robot-web-status.service
+systemctl status robot-web-status.service
+journalctl -u robot-web-status.service -b -n 100 --no-pager
+```
+
+Zatrzymanie, ponowne uruchomienie oraz wyłączenie autostartu:
+
+```bash
+sudo systemctl stop robot-web-status.service
+sudo systemctl restart robot-web-status.service
+sudo systemctl disable --now robot-web-status.service
+```
+
+Podczas pracy usługi nie uruchamiaj równolegle `start_web_status.sh`.
+Konflikt dwóch instancji może powodować naprzemienne alarmy sterowania,
+znikanie dostępnych osi i oczekiwanie na model zgodny z rewizją ROS.
+W logu usługi pojawiają się wtedy `address already in use` oraz komunikat
+o innym właścicielu katalogu konfiguracji. Zamknij ręczną instancję przez
+`Ctrl+C`; usługa ponowi start. Sprawdź, czy jej stan to `active (running)`
+i licznik `systemctl show robot-web-status.service -p NRestarts` przestał rosnąć.
+Po zmianie kodu zbuduj wymagane składniki i zrestartuj usługę; po przeniesieniu
+repozytorium uruchom instalator ponownie, ponieważ zapisuje ścieżkę bezwzględną.
+Autostart uruchamia serwer panelu; stronę otwierasz w przeglądarce samodzielnie.
+Instalator nie buduje projektu ani nie instaluje zależności.
 
 ## Interpretacja
 

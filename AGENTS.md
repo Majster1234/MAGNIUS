@@ -42,11 +42,13 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 | `ros2_ws/src/mks_servo_can` | Protokół, transport, manager i ManualMotorController |
 | `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN i usługi ręczne w C++ |
 | `ros2_ws/src/robot_hardware` | Plugin CanSystem dla sześciu osi, Humble |
+| `ros2_ws/src/robot_kinematics`, `robot_motion_planner` | FK/IK KDL, droga TCP/TOTG i podgląd MKS bez wykonania |
 | `ros2_ws/src/robot_bringup` | Launch diagnostyki i konfiguracje przykładowe |
 | `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN |
 | `ros2_ws/src/robot_configuration` | Snapshoty JSON i zapis do ROS |
 | `ros2_ws/src/robot_web_bridge`, `web/` | API FastAPI, WebSocket i panel React/TypeScript |
 | `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale aplikacji, diagnostyki i workspace |
+| `scripts/install_app_autostart.sh`, `system/application/` | Instalator autostartu panelu przez systemd |
 | `hardware/`, `docs/` | Materiały sprzętowe i dokumentacja projektu |
 | `system/can/`, `scripts/install_socketcan.sh` | Systemowa konfiguracja SocketCAN przez systemd |
 | `.github/workflows/ci.yml` | Sprawdzenie składni i budowanie w ROS 2 Humble |
@@ -68,6 +70,8 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 - Nie wymyślaj geometrii, CAN ID, bitrate, przełożeń, limitów ani wersji firmware.
   `null` w `.example.yaml` oznacza brak danych, a nie zero lub wartość domyślną.
   Wyjątek: zatwierdzony przykładowy URDF podglądu 1:1, oddzielony od fizycznego robota.
+  W symulacji PTP/LIN dopuszczono ostatnią pozycję lub jawnie oznaczone 0° bez pomiaru;
+  nie są to odczyty sprzętu, a limity profilu nadal obowiązują.
 - Dopasuj sprawdzenia do zmiany: build nie jest testem sterowania, a atrapa terminala testem GUI.
 - Zachowuj zmiany użytkownika. Sprawdzaj stan Git przed operacjami na repozytorium;
   nie wnioskuj o publikacji na podstawie samej obecności lokalnego commitu.
@@ -102,19 +106,14 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 - [docs/web_status.md](docs/web_status.md) — LAN/API; [docs/can_diagnostics.md](docs/can_diagnostics.md) — skan CAN.
 - [docs/can_strategy.md](docs/can_strategy.md) — harmonogram; [docs/manual_control.md](docs/manual_control.md) — JOG/ENABLE/zero.
 - [docs/configuration.md](docs/configuration.md) — snapshoty i parametry; [docs/robot_preview.md](docs/robot_preview.md) — podgląd URDF.
+- [docs/cartesian_planning.md](docs/cartesian_planning.md) — IK, droga TCP, API i granice pierwszego etapu.
 - [docs/can_recording.md](docs/can_recording.md) — nagrywanie; wyniki w docs/can_recording_results.md.
 - [docs/socketcan.md](docs/socketcan.md) — SocketCAN; [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko/Git.
 
 ## Bieżący kontekst
 
-- Aktualizacja: 2026-10-19, Europe/Prague. Ostatnio: analiza możliwego przeregulowania; kod JOG i instrukcja MKS 1.0.9 §5.3/9.1.
-- SR_vFOC ma nastawy Kp/Ki/Kd/Kv (96H), CLOSE osobne (97H). Bez odczytu nastaw z napędów, zmian i ruchu.
-- JOG zadaje prędkość F6 i hamuje do zera acc=1. Przy 1:1 i 30°/s samo hamowanie daje ok. 64 ms/0,96° plus opóźnienia; oscylacje wymagają osobnej diagnozy.
-- Dalej: odróżnić dojazd od oscylacji; porównać STOP/ACK/pozycję/postój przed strojeniem.
-- Poświaty manualne: >15° brak, (5,15]° żółta, [0,5]° czerwona (mocniej ≤1°), poza limitem puls 1 Hz; granice −/+ wg URDF. docs/robot_preview.md.
-- Wcześniej 19.10: TS/Vite, 31 Vitest i 3 Chromium OK; pasywny LAN bez błędów JS/poleceń sterujących. Teraz bez powtarzania testów.
-- Wcześniej zatwierdzono 500 °/s² J1/J2/J4, reszta 100; acc=1 przy 1:1 daje 470,6 °/s². Bez rampy programowej.
-- Snapshoty JSON/edytor 3D/ROS/C++: docs/configuration.md; rewizje/rollback, zapis przy postoju/ENABLE=0 zmienianych osi.
-- JOG °/s przegubu lub RPM wału, 30 RPM, jedna oś; zero unieważnia kalibrację trwale. Podgląd 50dvh, 2 próbki/osi, konsola 100, logi 96 MiB.
-- Pozostają fizyczne przekładnie/geometria/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog i drugi klient LAN.
-- Git feature/web-status bez commit/push; licencja TODO. Panel 192.168.1.69:8080.
+- 2026-10-20: dodano niebieski znacznik celu na skalach limitów, niezależny od pomiaru robota. JOG jest pierwszą kolumną z numerem osi między strzałkami; lokalnie sterowany wiersz jest niebieski. Stałe kolumny i miejsce na Plan zapobiegają przesuwaniu tabeli; wiersze 29 px. docs/manual_control.md.
+- TS/Vite, 42 Vitest i 5 Chromium OK; końcowy test układu obejmuje 1280/1366/1920 px, brak przepełnień także dla RPM, niezależność znacznika od enkoderów i brak komend sprzętowych. Przebudowano zasoby robot_web_bridge. Backend/ROS bez zmian, bez ich ponownego testowania.
+- Chromium LAN: 6 niebieskich wskazówek, stałe kolumny/skale przy przełączaniu, brak błędów JS/zapisów HTTP/komend. Frontend podmieniony bez restartu usługi; użytkownik odświeża Ctrl+F5. Aplikację prowadzi robot-web-status.service.
+- LIN: TCP mm/s i mm/s², osobny obrót °/s (50/100/10). PTP: °/s złączy. J4/J6 do maks. 5°/s przy osobliwości; execution_ready=false. API i interfejsy: docs/cartesian_planning.md. Wcześniej 19.10: 13 C++ + ROS, backend 62 OK.
+- Otwarte: adaptacja próbek IK i dobór J4/J6, geometria/przekładnie/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog, drugi klient LAN, oscylacje. Ignorowanie sterowników włączone. Node 22 tymczasowo; licencja TODO; feature/web-status bez commit/push.

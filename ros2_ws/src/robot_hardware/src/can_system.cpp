@@ -40,7 +40,9 @@ hardware_interface::CallbackReturn CanSystem::on_init(const hardware_interface::
     config_.response_timeout = std::chrono::milliseconds(integer(p, "response_timeout_ms", 1000));
     for (std::size_t i = 0; i < mks_servo_can::kAxes; ++i) {
       const auto &joint = info_.joints[i]; const auto &a = joint.parameters;
-      if (joint.name != "joint_" + std::to_string(i + 1) || joint.command_interfaces.size() != 1 ||
+      if (i==0) velocity_commands_=joint.command_interfaces.size()==2;
+      if (joint.name != "joint_" + std::to_string(i + 1) || joint.command_interfaces.size() != (velocity_commands_ ? 2u : 1u) ||
+          (velocity_commands_ && joint.command_interfaces[1].name!="velocity") ||
           joint.command_interfaces[0].name != "position" || joint.state_interfaces.size() != 1 ||
           joint.state_interfaces[0].name != "position") throw std::invalid_argument("Wymagane interfejsy position i nazwy joint_1–joint_6");
       config_.axes[i] = {static_cast<std::uint16_t>(integer(a, "can_id", 2047)), required(a, "gear_ratio"), required(a, "direction"),
@@ -82,7 +84,7 @@ hardware_interface::CallbackReturn CanSystem::on_activate(const rclcpp_lifecycle
   }
   if (!state_.active) { runtime_->stop("Nie udało się pobrać stanu aktywacji"); return hardware_interface::CallbackReturn::ERROR; }
   for (std::size_t i = 0; i < mks_servo_can::kAxes; ++i) positions_[i] = state_.positions[i].value;
-  commands_ = positions_; active_ = true; sequence_ = 0; return hardware_interface::CallbackReturn::SUCCESS;
+  commands_ = positions_; velocities_.fill(0); active_ = true; sequence_ = 0; return hardware_interface::CallbackReturn::SUCCESS;
 }
 hardware_interface::CallbackReturn CanSystem::on_deactivate(const rclcpp_lifecycle::State &) {
   active_ = false; runtime_->stop("Dezaktywacja kontrolera — wymagany reset przed wznowieniem");
@@ -105,7 +107,10 @@ std::vector<hardware_interface::StateInterface> CanSystem::export_state_interfac
 }
 std::vector<hardware_interface::CommandInterface> CanSystem::export_command_interfaces() {
   std::vector<hardware_interface::CommandInterface> result;
-  for (std::size_t i = 0; i < commands_.size(); ++i) result.emplace_back(info_.joints[i].name, "position", &commands_[i]);
+  for (std::size_t i = 0; i < commands_.size(); ++i) {
+    result.emplace_back(info_.joints[i].name, "position", &commands_[i]);
+    if(velocity_commands_) result.emplace_back(info_.joints[i].name,"velocity",&velocities_[i]);
+  }
   return result;
 }
 hardware_interface::return_type CanSystem::read(const rclcpp::Time &, const rclcpp::Duration &) {
@@ -123,6 +128,7 @@ hardware_interface::return_type CanSystem::write(const rclcpp::Time &, const rcl
   if (!active_) return hardware_interface::return_type::OK;
   if (state_.fault) return hardware_interface::return_type::ERROR;
   mks_servo_can::CommandBatch batch; batch.positions = commands_; batch.sequence = ++sequence_;
+  batch.velocities=velocities_; batch.velocities_valid=velocity_commands_;
   batch.created = mks_servo_can::Clock::now(); batch.expires = batch.created + config_.cycle;
   batch.source = state_.source;
   // Przy zajętym mutexie pomijamy próbkę; watchdog działa w niezależnym wątku IO.

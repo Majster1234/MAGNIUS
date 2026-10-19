@@ -20,6 +20,7 @@ class Emulator final : public Transport {
   Time now{};
   std::array<std::uint64_t, 256> counts{};
   std::array<std::int64_t, 7> positions{}, prepared{};
+  std::map<std::uint16_t, std::vector<std::uint8_t>> prepared_payloads;
   std::deque<Frame> responses;
   std::vector<std::pair<std::uint16_t, std::uint8_t>> trace;
   void open(const std::string &) override { opened = true; }
@@ -49,6 +50,7 @@ class Emulator final : public Transport {
         break;
       }
       case 0xf5: {
+        prepared_payloads[address]=data;
         const auto raw = (std::int32_t(data[4]) << 16) | (std::int32_t(data[5]) << 8) | data[6];
         prepared[address] = raw & 0x800000 ? raw - 0x1000000 : raw;
         if (missing_ack == address) return;
@@ -107,6 +109,19 @@ TEST(BusManager, AllSixAcknowledgementsRequiredForSync) {
   EXPECT_EQ(h.bus->counts[0xf5], 6u); EXPECT_EQ(h.bus->counts[0x4b], 1u);
   EXPECT_EQ(h.manager->snapshot().statistics.committed, 1u);
   EXPECT_FALSE(h.manager->start_scan()); EXPECT_FALSE(h.manager->service_allowed());
+}
+TEST(BusManager, ProfileVelocityReachesAllDrivesAndInvalidVelocityBlocksSync) {
+  Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory,h.now));
+  auto command=h.batch(1); command.velocities_valid=true; command.velocities.fill(.15);
+  ASSERT_TRUE(h.manager->submit(command)); h.run(10);
+  ASSERT_EQ(h.bus->counts[0x4b],1u);
+  for(unsigned i=1;i<=6;++i) {
+    const auto &frame=h.bus->prepared_payloads.at(i);
+    EXPECT_EQ((frame[1]<<8)|frame[2],1);  // 0,15 rad/s = 1,43 RPM, zamiast maksimum osi.
+  }
+  command=h.batch(2); command.velocities_valid=true; command.velocities.fill(100);
+  ASSERT_TRUE(h.manager->submit(command)); h.run(20);
+  EXPECT_TRUE(h.manager->snapshot().fault); EXPECT_EQ(h.bus->counts[0x4b],1u);
 }
 TEST(BusManager, MissingAckStopsWithoutPartialSyncOrAutomaticRecovery) {
   Harness h; h.ready(); h.bus->missing_ack = 2;

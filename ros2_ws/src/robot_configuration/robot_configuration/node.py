@@ -90,6 +90,7 @@ class ConfigurationNode(Node):
         self.create_subscription(ManualState, '/robot/manual/state', self.calibration_update, 1, callback_group=self.group)
         self.service = self.create_service(ConfigurationCommand, '/robot/configuration/command', self.command, callback_group=self.group)
         self.publisher = self.create_publisher(String, '/robot/configuration/state', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.active_publisher = self.create_publisher(RobotConfiguration, '/robot/configuration/active', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.timer = self.create_timer(.5, self.publish)
         self.worker = None
         self.startup = self.create_timer(.2, self.bootstrap)
@@ -120,7 +121,13 @@ class ConfigurationNode(Node):
         return result
 
     def publish(self):
-        self.publisher.publish(String(data=json.dumps(self.coordinator.snapshot(), ensure_ascii=False, allow_nan=False)))
+        snapshot = self.coordinator.snapshot()
+        self.publisher.publish(String(data=json.dumps(snapshot, ensure_ascii=False, allow_nan=False)))
+        # Również przy braku CAN: opis aktywnego profilu jest źródłem symulacji.
+        if snapshot['operation']['phase'] in ('idle', 'done', 'uncertain', 'failed'):
+            active = snapshot['active']
+            self.active_publisher.publish(RobotConfiguration(revision=active['revision'],
+                axes=[JointConfiguration(**profile) for profile in profiles(active['document'])]))
 
     def command(self, request, response):
         try:
@@ -130,6 +137,10 @@ class ConfigurationNode(Node):
             operation = request.operation
             if operation == 'status':
                 result = self.coordinator.snapshot(); code = 200
+            elif operation == 'system_get':
+                result = self.storage.system_settings(); code = 200
+            elif operation == 'system_set':
+                result = self.storage.set_system_settings(data.get('ignore_missing_drivers')); code = 200
             elif operation == 'list':
                 result = self.storage.list(data.get('cursor', '')); code = 200
             elif operation == 'get':

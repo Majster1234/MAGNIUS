@@ -50,6 +50,26 @@ class Storage:
             raise ValueError('Nieprawidłowy plik aktywnej konfiguracji; wymagane przywrócenie kopii')
         return {'revision': saved['revision'], 'document': validate(saved['document'])}
 
+    def system_settings(self):
+        with self.lock:
+            path = self.root / 'system_settings.json'
+            value = decode(path.read_text(encoding='utf-8')) if path.exists() else {'revision': 'initial', 'ignore_missing_drivers': False}
+            if (not isinstance(value, dict) or type(value.get('ignore_missing_drivers')) is not bool or
+                    not isinstance(value.get('revision'), str) or not 1 <= len(value['revision']) <= 64):
+                raise ValueError('Nieprawidłowe ustawienia systemowe')
+            return value
+
+    def set_system_settings(self, enabled):
+        if type(enabled) is not bool:
+            raise ValueError('ignore_missing_drivers wymaga wartości logicznej')
+        with self.lock:
+            current = self.system_settings()
+            if current['ignore_missing_drivers'] == enabled:
+                return current
+            result = {'revision': uuid.uuid4().hex, 'ignore_missing_drivers': enabled}
+            self.atomic('system_settings.json', result)
+            return result
+
     def create(self, document):
         document = validate(document)
         document['created_at'] = now_iso()

@@ -17,6 +17,21 @@ def configured(axis=1):
     return document
 
 
+def test_system_setting_is_atomic_shared_and_independent_of_robot(tmp_path):
+    first = Storage(tmp_path)
+    revision = first.active()['revision']
+    assert first.system_settings() == {'revision': 'initial', 'ignore_missing_drivers': False}
+    saved = first.set_system_settings(True)
+    assert Storage(tmp_path).system_settings() == saved and saved['ignore_missing_drivers']
+    assert first.active()['revision'] == revision and not list(tmp_path.glob('.*.tmp'))
+    assert first.set_system_settings(True) == saved
+    with pytest.raises(ValueError):
+        first.set_system_settings(1)
+    first.atomic('system_settings.json', {'revision': 'bad', 'ignore_missing_drivers': 'false'})
+    with pytest.raises(ValueError):
+        first.system_settings()
+
+
 def test_schema_roundtrip_units_partial_axes_and_zero():
     document = configured()
     assert validate(json.loads(json.dumps(document))) == document

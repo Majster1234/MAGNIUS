@@ -13,6 +13,10 @@ statusu. Tabela sześciu osi znajduje się pod modelem i nadal zajmuje około 20
 wiersz ma 29 px. Pozycje nie są powtarzane w bocznym panelu podglądu 3D.
 Pole prędkości, przyciski i wskaźniki pozostają dostępne
 bez rozwijania sekcji.
+Pierwsza kolumna zawiera strzałki JOG z numerem osi między nimi; aktywna oś
+planowania jest podświetlona na niebiesko. Kolumny mają stały układ, a miejsce
+na wartość planowaną jest zarezerwowane także poza planowaniem, więc przełączenie
+trybu nie przesuwa kolumn ani skal.
 Do analizy zaniku danych służy [nagrywanie CAN/ROS/API/panelu](can_recording.md).
 Po zastosowaniu kompletnego profilu w [konfiguracji](configuration.md) wiersz osi
 przechodzi na pozycję przegubu i JOG w °/s z przełożeniem, kierunkiem, offsetem
@@ -22,8 +26,25 @@ Kompaktowe wiersze zawierają wskaźnik pozycji wału między −3600° i +3600�
 z zaznaczonym zerem. Wskaźnik służy wyłącznie do odczytu; nie zadaje ruchu.
 Przy braku pomiaru nie pokazuje punktu pozycji. Poza limitem punkt pozostaje
 na końcu skali, a wartość liczbowa nadal pokazuje rzeczywistą pozycję.
+W planowaniu niebieski trójkąt nad tą samą skalą wskazuje pozycję bliźniaka celu.
+Rzeczywisty pomiar pozostaje zaznaczony okrągłym punktem. Znaczniki są niezależne;
+cel może być widoczny także bez pomiaru napędu, jeśli symulacja zna jego pozycję.
 Przykładowa konfiguracja przegubów zawiera już te adresy, ale pozostałe nieznane
 parametry robota pozostają `null`.
+
+Przycisk **Planowanie** na wizualizacji uruchamia lokalny, przezroczysty bliźniak
+z bieżącej pozycji enkoderów. W tym trybie JOG działa wyłącznie na bliźniaku,
+bez komend CAN, ROS, WebSocketu sterowania ani HTTP. Nie wymaga ENABLE, lecz
+domyślnie nie pozwala używać osi bez świeżego połączenia i pozycji; dla skonfigurowanego
+przegubu wymaga także poprawnej pozycji przegubu. Przyciski ENABLE i zero są
+zablokowane. Opis synchronizacji, limitów oraz zakończenia planu znajduje się w
+[podglądzie robota](robot_preview.md#planowanie-lokalne).
+
+Wybór **PTP/LIN** oblicza pojedynczy ruch od zapisanego startu do celu ustawionego
+JOG i odtwarza go w pętli na trzecim modelu. Kolejny JOG zatrzymuje podgląd,
+a puszczenie strzałki przelicza ruch. W ustawieniach systemowych można odblokować
+lokalny JOG wszystkich osi bez napędów. Fizyczne sterowanie pozostaje bez zmian.
+Szczegóły: [symulacja PTP/LIN](cartesian_planning.md).
 
 ## Uruchomienie i obsługa
 

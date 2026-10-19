@@ -1,4 +1,5 @@
 #include "mks_servo_can/bus_manager.hpp"
+#include "mks_servo_can/motion_sample.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
 #include "mks_servo_can/trace.hpp"
 
@@ -198,8 +199,9 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
   if (kind == Kind::mode) data = mode_request(address);
   else if (kind == Kind::stage) {
     const auto i = axis_index(address); const auto &axis = config_.axes[i];
-    const auto rpm = static_cast<std::uint16_t>(std::floor(axis.max_velocity * axis.gear_ratio * 60 / (2 * kPi)));
-    data = absolute_position_request(address, joint_to_position(axis, inflight_->positions[i]), rpm, axis.acceleration_code);
+    const auto velocity=inflight_->velocities_valid ? inflight_->velocities[i] : 0.;
+    data=compile_motor_sample(axis,inflight_->positions[i],velocity,committed_positions_[i],
+        std::chrono::duration<double>(config_.cycle).count(),inflight_->velocities_valid).payload;
   } else data = request(address, command);
   if (!reserve(data.size(), length, critical)) return false;
   transport_->send(address, data); ++stats_.tx;

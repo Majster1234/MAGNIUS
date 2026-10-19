@@ -23,6 +23,11 @@ Po przygotowaniu zależności i zbudowaniu panelu oraz workspace według
 ./scripts/start_web_status.sh
 ```
 
+Jeżeli panel działa już przez autostart, przeładuj istniejącą usługę:
+`sudo systemctl restart robot-web-status.service`.
+Jej stan sprawdzisz przez `systemctl status robot-web-status.service`.
+Równoczesne uruchomienie skryptu i usługi powoduje konflikt publikacji ROS oraz portu API.
+
 Otwórz URL wypisany w terminalu, obecnie **http://192.168.1.69:8080**,
 na komputerze robota lub innym urządzeniu w `192.168.1.0/24`.
 Panel pokazuje API, łączność ROS, CPU/RAM, CAN, kontrolery i stan integracji
@@ -36,6 +41,37 @@ Ekran [Sterowanie ręczne](docs/manual_control.md) obsługuje ENABLE,
 zero i JOG wałów J1–J6 (CAN 1–6), bez modelu robota. Panel jest dostępny
 bez logowania w LAN. `Ctrl+C` zamyka sesję.
 
+Przycisk **Planowanie** na wizualizacji 3D przełącza JOG na półprzezroczystego
+bliźniaka, rozpoczynającego od pozycji enkoderów. Domyślnie dostępne są osie z aktualnymi
+pomiarami; ENABLE może być wyłączony. Plan jest lokalny, bez wykonania na robocie.
+Obsługa: [planowanie lokalne](docs/robot_preview.md#planowanie-lokalne).
+
+Wybór **PTP/LIN** automatycznie oblicza ruch od zapisanego startu do celu ustawionego
+JOG i odtwarza go w pętli na trzecim, pomarańczowym modelu. Nowy JOG przelicza ruch
+po puszczeniu strzałki. W **Konfiguracja → Ustawienia systemowe** wspólny suwak
+pozwala symulować wszystkie osie bez napędów. C++ używa KDL/Eigen i TOTG;
+wykonanie na robocie pozostaje zablokowane. [Instrukcja PTP/LIN i API](docs/cartesian_planning.md).
+Przy osobliwości nadgarstka trajektoria płynnie ogranicza J4/J6 do maks. 5°/s;
+po oddaleniu dopuszczalna prędkość wraca do wartości zadanej.
+W LIN ustawiasz prędkość przesuwu TCP w mm/s, a obrót TCP ma osobny limit w °/s.
+W PTP pozostaje prędkość złączy w °/s.
+
+## Autostart po włączeniu komputera
+
+Po przygotowaniu aplikacji według [instrukcji panelu](docs/web_status.md)
+zainstaluj usługę systemd:
+
+```bash
+./scripts/install_app_autostart.sh --dry-run
+sudo ./scripts/install_app_autostart.sh
+```
+
+Panel uruchomi się przy następnym rozruchu komputera, bez logowania do pulpitu.
+Działa na koncie użytkownika wywołującego `sudo`; instalacja nie przerywa
+obecnej sesji aplikacji. Otwórz panel w przeglądarce pod jego adresem LAN.
+Stan, logi i wyłączenie autostartu opisuje
+[instrukcja autostartu](docs/web_status.md#autostart-systemd).
+
 ## Układ projektu
 
 ```text
@@ -47,6 +83,7 @@ bez logowania w LAN. `Ctrl+C` zamyka sesję.
 ├── scripts/                      # Inicjalizacja środowiska terminali
 ├── web/                          # Panel React/TypeScript, budowany przez Vite
 ├── system/can/                   # Usługa systemd i wzór konfiguracji SocketCAN
+├── system/application/           # Szablon usługi autostartu panelu
 ├── hardware/
 │   ├── wiring/                   # Schematy połączeń
 │   ├── datasheets/               # Dokumentacja posiadanych urządzeń

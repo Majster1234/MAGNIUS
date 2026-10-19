@@ -53,6 +53,8 @@ struct AxisConfig {
 enum class Source { none, trajectory, jog };
 struct CommandBatch {
   std::array<double, kAxes> positions{};
+  std::array<double, kAxes> velocities{};
+  bool velocities_valid{false};
   Time created{}, expires{};
   std::uint64_t sequence{};
   Source source{Source::none};

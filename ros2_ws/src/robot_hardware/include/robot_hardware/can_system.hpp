@@ -28,6 +28,8 @@ class CanSystem : public hardware_interface::SystemInterface {
   std::thread ros_thread_;
   mks_servo_can::ControlState state_;
   std::array<double, mks_servo_can::kAxes> positions_{}, commands_{};
+  std::array<double, mks_servo_can::kAxes> velocities_{};
+  bool velocity_commands_{false};
   std::uint64_t sequence_{};
   bool active_{false};
 };
