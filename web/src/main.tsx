@@ -5,6 +5,9 @@ import { dataIsStale, numeric, type Component, type State } from "./status";
 import { useStatus } from "./useStatus";
 import { ManualPage } from "./ManualPage";
 import { ConfigurationPage } from "./ConfigurationPage";
+import { AppShell, emptyManualHeader, pageFromHash } from "./AppShell";
+import { ArchitecturePage } from "./ArchitecturePage";
+import { axisPresence, busStateLabel } from "./dashboardData";
 import "./style.css";
 
 const labels: Record<State, string> = {
@@ -52,12 +55,14 @@ function Card({
     component,
     stale,
     children,
+    statusText,
 }: {
     title: string;
     index: string;
     component?: Component;
     stale: boolean;
     children?: React.ReactNode;
+    statusText?: string;
 }) {
     const state = stale || !component ? "stale" : component.state;
     return (
@@ -67,11 +72,11 @@ function Card({
                 <h3>{title}</h3>
                 <Badge
                     state={state}
-                    text={
+                    text={statusText ?? (
                         component?.id === "controllers" &&
                         state === "not_configured"
                             ? "Nieuruchomione"
-                            : undefined
+                            : undefined)
                     }
                 />
             </div>
@@ -88,7 +93,7 @@ function Card({
         </article>
     );
 }
-function CanPage({ onClose }: { onClose: () => void }) {
+function CanPage() {
     const { snapshot, connection } = useCanStatus(true);
     const [page, setPage] = useState(0);
     const [action, setAction] = useState<string | null>(null);
@@ -111,11 +116,10 @@ function CanPage({ onClose }: { onClose: () => void }) {
     }
     const value = (name: string) => summary?.[name];
     return <section className="can-screen" aria-label="Magistrala CAN">
-        <header className="topbar"><span>Stanowisko robota <span className="divider">/</span> Magistrala CAN</span><button className="link-button" onClick={onClose}>← Przegląd systemu</button></header>
         <div className="page-title"><div><div className="eyebrow">DIAGNOSTYKA SOCKETCAN</div><h1>Magistrala CAN</h1><p>Odczyt identyfikacji i statusów MKS SERVO42D CAN. Bez poleceń ruchu.</p></div><div className="can-actions"><button className="secondary-button" disabled={action !== null} onClick={() => request("reset")}>{action === "reset" ? "Resetowanie…" : "Reset CAN"}</button><button className="primary-button" disabled={action !== null || Boolean(scan?.scanning)} onClick={() => request("scan")}>{action === "scan" ? "Uruchamianie…" : "SCAN"}</button></div></div>
         <section className={`can-progress ${stale ? "waiting" : ""}`}><Badge state={stale ? "stale" : snapshot?.summary.state ?? "stale"} text={snapshot?.scan.message ?? "Oczekiwanie na diagnostykę CAN"}/><span>{Boolean(scan?.scanning) ? `Adres ${String(scan?.checked ?? 0)} / ${String(scan?.total ?? 2047)}` : String(scan?.state ?? "—")}</span><span className="progress-error">{scan?.error ? String(scan.error) : ""}</span></section>
         <section className="can-strip" aria-label="Podsumowanie magistrali"><div className="strip-state"><strong>{String(value("bus_state") ?? "—")}</strong><small>{String(value("interface") ?? "can0")}</small></div><Metric label="Bitrate" value={value("bitrate")} unit=" bit/s"/><Metric label="Urządzenia" value={value("device_count")}/><Metric label="Obieg odczytu" value={value("full_round_ms")} unit=" ms"/><Metric label="Błędy" value={value("errors")}/></section>
-        <section className="can-table-card"><div className="table-heading"><div><h2>Urządzenia bieżącej sesji</h2><p>Wykryte i utracone adresy. Puste adresy nie są pokazywane.</p></div><span>{devices.length} rekordów</span></div>{devices.length === 0 ? <div className="can-empty"><span>⇄</span><strong>Tabela jest pusta</strong><p>Wyniki będą pojawiać się w trakcie automatycznego skanowania.</p></div> : <><div className="table-scroll"><table><thead><tr><th>CAN ID</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th>RTT [ms]</th></tr></thead><tbody>{visible.map((device) => <DeviceRow key={device.id} device={device}/>)}</tbody></table></div>{totalPages > 1 && <div className="pagination"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Poprzednie</button><span>{page + 1} / {totalPages}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>Następne</button></div>}</>}</section>
+        <section className="can-table-card"><div className="table-heading"><div><h2>Urządzenia bieżącej sesji</h2><p>Wykryte i utracone adresy. Puste adresy nie są pokazywane.</p></div><span>{devices.length} rekordów</span></div>{devices.length === 0 ? <div className="can-empty"><span>⇄</span><strong>Tabela jest pusta</strong><p>Wyniki będą pojawiać się w trakcie automatycznego skanowania.</p></div> : <><div className="table-scroll"><table><thead><tr><th>CAN ID</th><th>Oś robota</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th>RTT [ms]</th></tr></thead><tbody>{visible.map((device) => <DeviceRow key={device.id} device={device}/>)}</tbody></table></div>{totalPages > 1 && <div className="pagination"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Poprzednie</button><span>{page + 1} / {totalPages}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>Następne</button></div>}</>}</section>
         <details className="card can-bus-details"><summary>Szczegóły komunikacji</summary>
             <div className="metrics compact">
                 <Metric label="Planowane obciążenie" value={value("scheduled_utilization_percent")} unit="%" />
@@ -136,13 +140,14 @@ function DeviceRow({ device }: { device: CanDevice }) {
     return <>
         <tr className="device-row">
             <td><button className="link-button" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "▾" : "▸"} {device.id}</button></td>
+            <td>{device.id >= 1 && device.id <= 6 ? `J${device.id}` : "—"}</td>
             <td>{String(v.model ?? "—")}</td>
             <td><Badge state={device.state} text={device.message} /></td>
             <td>{String(v.motor_state ?? "Niedostępny")}</td>
             <td>{enable}</td>
             <td>{numeric(v.rtt_ms)?.toLocaleString("pl-PL", { maximumFractionDigits: 2 }) ?? "—"}</td>
         </tr>
-        {open && <tr className="device-details"><td colSpan={6}><div>
+        {open && <tr className="device-details"><td colSpan={7}><div>
             <span>Tryb: <b>{String(v.mode ?? "—")}</b></span>
             <span>Pozycja enkodera: <b>{numeric(v.position_ticks)?.toLocaleString("pl-PL") ?? "—"} impulsów</b></span>
             <span>Wiek pozycji: <b>{numeric(v.position_age_seconds) === null ? "—" : `${(Number(v.position_age_seconds) * 1000).toFixed(1)} ms`}</b></span>
@@ -156,8 +161,11 @@ function DeviceRow({ device }: { device: CanDevice }) {
 }
 function App() {
     const [view, setView] = useState(location.hash);
-    const canView = view === "#can", manualView = view === "#manual", configurationView = view === "#configuration";
-    useEffect(() => { const update = () => setView(location.hash); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
+    const pageId = pageFromHash(view);
+    const canView = pageId === "can", manualView = pageId === "manual", configurationView = pageId === "config";
+    const [manualHeader, setManualHeader] = useState(emptyManualHeader);
+    const canStatus = useCanStatus(pageId === "overview");
+    useEffect(() => { const update = () => { setManualHeader(emptyManualHeader); setView(location.hash); }; window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
     const { snapshot, connection, receivedAt, now } = useStatus();
     const stale =
         connection !== "online" || dataIsStale(snapshot, receivedAt, now);
@@ -170,69 +178,22 @@ function App() {
         snapshot?.age_seconds == null
             ? null
             : snapshot.age_seconds + Math.max(0, now - receivedAt) / 1000;
+    const presence = axisPresence(canStatus.snapshot, canStatus.connection === "online", canStatus.receivedAt, now);
+    const drivesFresh = presence.every(value => value !== null), driveCount = presence.filter(Boolean).length;
+    const driveComponent: Component = { id: "drives", state: !drivesFresh ? "stale" : driveCount === 6 ? "ok" : "warn",
+        message: drivesFresh ? "Dostępność z diagnostyki CAN; potwierdzenie ENABLE i konfiguracji odbywa się oddzielnie." : "Oczekiwanie na aktualną diagnostykę CAN.",
+        sampled_at: canStatus.snapshot?.updated_at ?? null, values: {} };
     return (
-        <div className="shell">
-            <aside className="sidebar">
-                <a className="brand" href="#overview">
-                    <img src="/robot.svg" alt="" />
-                    <span>
-                        ROBOT
-                        <span className="brand-detail">6-DOF / STANOWISKO</span>
-                    </span>
-                </a>
-                <div className="nav-label">PRZESTRZEŃ ROBOCZA</div>
-                <nav aria-label="Sekcje panelu">
-                    <a className={canView || manualView || configurationView ? "" : "selected"} href="#overview">
-                        <span aria-hidden="true">◫</span>Przegląd systemu
-                    </a>
-                    <a className={canView ? "selected" : ""} href="#can">
-                        <span aria-hidden="true">⇄</span>Magistrala CAN
-                    </a>
-                    <a className={manualView ? "selected" : ""} href="#manual"><span aria-hidden="true">↔</span>Sterowanie ręczne</a>
-                    <a className={configurationView ? "selected" : ""} aria-current={configurationView ? "page" : undefined} href="#configuration"><span aria-hidden="true">⚙</span>Konfiguracja</a>
-                    <a href="#architecture">
-                        <span aria-hidden="true">⌘</span>Architektura
-                    </a>
-                </nav>
-                <div className="sidebar-bottom">
-                    <span className="dot" />
-                    PANEL ROBOTA<p>Dostęp lokalny · CAN</p>
-                </div>
-            </aside>
-            <main id="overview">
-                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage /> : canView ? <CanPage onClose={() => { location.hash = "overview"; }} /> : <>
-                <header className="topbar">
-                    <span>
-                        Stanowisko robota <span className="divider">/</span>{" "}
-                        Diagnostyka
-                    </span>
-                    <span className="local-tag">SIEĆ LOKALNA</span>
-                </header>
+        <AppShell view={pageId} manual={manualHeader} online={online} connecting={connection === "connecting"}>
+                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : canView ? <CanPage /> : pageId === "architecture" ? <ArchitecturePage /> : <>
                 <div className="page-title">
                     <div>
                         <div className="eyebrow">MONITOROWANIE SYSTEMU</div>
                         <h1>Przegląd systemu</h1>
                         <p>Stan połączeń i podzespołów w jednym miejscu.</p>
                     </div>
-                    <div
-                        className="connection"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        <Badge
-                            state={online ? "ok" : "stale"}
-                            text={
-                                online
-                                    ? "Połączono z backendem"
-                                    : connection === "connecting"
-                                      ? "Łączenie z backendem"
-                                      : "Backend niedostępny"
-                            }
-                        />
-                        <span>Odświeżanie co 1 s</span>
-                    </div>
+                    <a className="primary-button page-action" href="#manual">Sterowanie ręczne →</a>
                 </div>
-                <a className="manual-tile" href="#manual"><span>↔</span><div><strong>Sterowanie ręczne</strong><p>ENABLE, zero i JOG pojedynczych silników J1–J6</p></div><span>→</span></a>
                 <section
                     className={`summary ${stale ? "waiting" : ""}`}
                     aria-label="Świeżość danych"
@@ -320,7 +281,7 @@ function App() {
                             </span>
                         </div>
                     </Card>
-                    <div id="can" className="card-anchor">
+                    <div className="card-anchor">
                         <Card
                             title="Magistrala CAN"
                             index="04"
@@ -330,8 +291,7 @@ function App() {
                             <div className="detail-row">
                                 <span>Interfejs / stan</span>
                                 <code>
-                                    {String(can?.interface ?? "—")} /{" "}
-                                    {String(can?.bus_state ?? "—")}
+                                    {String(can?.interface ?? "—")} · {busStateLabel(can?.bus_state)}
                                 </code>
                             </div>
                             <div className="detail-row">
@@ -392,15 +352,16 @@ function App() {
                     <Card
                         title="Napędy · 6 osi"
                         index="06"
-                        component={c?.drives}
-                        stale={stale}
+                        component={driveComponent}
+                        stale={!drivesFresh}
+                        statusText={drivesFresh ? `${driveCount}/6 dostępnych` : undefined}
                     >
                         <div
                             className="joints"
                             aria-label="Sześć osi robota"
                         >
                             {[1, 2, 3, 4, 5, 6].map((n) => (
-                                <span key={n}>
+                                <span key={n} data-present={presence[n - 1] === null ? "unknown" : String(presence[n - 1])} title={presence[n - 1] === null ? "Brak aktualnych danych" : presence[n - 1] ? "Napęd odpowiada" : "Napęd niedostępny"}>
                                     J{n}
                                     <i />
                                 </span>
@@ -411,7 +372,7 @@ function App() {
                         </p>
                     </Card>
                 </section>
-                <section id="architecture" className="architecture">
+                <section className="architecture">
                     <div className="section-title">
                         <h2>Przepływ diagnostyki</h2>
                         <span>02 — ARCHITEKTURA</span>
@@ -457,8 +418,7 @@ function App() {
                     </span>
                 </footer>
                 </>}
-            </main>
-        </div>
+        </AppShell>
     );
 }
 

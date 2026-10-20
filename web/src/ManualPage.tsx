@@ -11,6 +11,7 @@ import { PlanningTcpStep } from "./planningTcpStep";
 import type { MotionTrace } from "./previewMotionTrail";
 import { EventConsole, useEventConsole } from "./EventConsole";
 import type { Axis, ManualState } from "./manualTypes";
+import type { ManualHeaderState } from "./AppShell";
 
 export function MotorPosition({ axis, position, plannedPosition, stale = false, lower = -3600, upper = 3600 }: { axis: number; position: number | null; plannedPosition?: number | null; stale?: boolean; lower?: number; upper?: number }) {
     const known = position !== null && Number.isFinite(position);
@@ -32,7 +33,7 @@ export function MotorPosition({ axis, position, plannedPosition, stale = false, 
 }
 
 
-export function ManualPage() {
+export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: ManualHeaderState) => void } = {}) {
     const [state, setState] = useState<ManualState | null>(null);
     const [connected, setConnected] = useState(false);
     const [fresh, setFresh] = useState(false);
@@ -40,6 +41,8 @@ export function ManualPage() {
     const [pending, setPending] = useState(false);
     const [held, setHeld] = useState<{ axis: number; direction: number } | null>(null);
     const [planning, setPlanning] = useState(false);
+    const [showMotionFrames, setShowMotionFrames] = useState(true);
+    useEffect(() => { onHeaderStatus?.({ connected, fresh, planning, recording: !!state?.recording }); }, [onHeaderStatus, connected, fresh, planning, state?.recording]);
     const [simulationPositions, setSimulationPositions] = useState<number[] | null>(null);
     const [motionTrace, setMotionTrace] = useState<MotionTrace | null>(null);
     const context = usePlanningContext();
@@ -274,38 +277,39 @@ export function ManualPage() {
     }
     const usable = fresh && connected;
     const axes = state?.axes ?? Array.from({ length: 6 }, (_, index) => ({ axis: index + 1 } as Axis));
-    return <section className="manual-screen" aria-label="Sterowanie ręczne">
+    return <section className={`manual-screen ${planning ? "mode-planning" : "mode-live"}`} data-usable={usable} aria-label="Sterowanie ręczne">
         <header className="manual-header">
             <h1>Sterowanie ręczne</h1>
-            <div className="manual-statuses">{state?.recording && <span className="badge warn">Nagrywanie diagnostyki</span>}<span className={`badge ${usable ? "ok" : "stale"}`}>{!connected ? "Brak połączenia" : fresh ? "Połączono · 20 Hz" : "Połączono · dane nieaktualne"}</span></div>
-            <a href="#overview">← Przegląd systemu</a>
+            <span className="manual-mode"><span aria-hidden="true" />{planning ? "PLANOWANIE · bliźniak" : "LIVE · robot fizyczny"}</span>
         </header>
-        <EventConsole entries={entries} />
+        <div className="manual-workspace"><div className="manual-observation">
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
-            simulationPositions={simulationPositions} motionTrace={motionTrace} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id}
-            planningTools={planning && <CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning} />} />
-        <div className="manual-controls-row"><div className="manual-table"><table><colgroup>
-            <col className="manual-col-jog"/><col className="manual-col-axis"/><col className="manual-col-connection"/><col/>
-            <col className="manual-col-enable"/><col className="manual-col-drive"/><col className="manual-col-zero"/><col className="manual-col-speed"/>
-        </colgroup><thead><tr><th>JOG</th><th>Oś / CAN</th><th>Połączenie</th><th title="Pozycja osi / wału">Pozycja</th><th>ENABLE</th><th>Napęd</th><th>Zero wału</th><th>Prędkość</th></tr></thead><tbody>
+            simulationPositions={simulationPositions} motionTrace={motionTrace} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} />
+        <div className="manual-console-dock"><h2>Zdarzenia <span>Historia sterowania</span></h2><EventConsole entries={entries} /></div>
+        </div><div className="manual-controls-row"><div className="manual-table"><table><colgroup>
+            <col className="manual-col-jog"/><col className="manual-col-axis"/><col/>
+            <col className="manual-col-drive"/><col className="manual-col-zero"/><col className="manual-col-speed"/>
+        </colgroup><thead><tr><th>JOG</th><th>Oś / CAN</th><th title="Pozycja osi / wału">Pozycja</th><th>Napęd / ENABLE</th><th>Zero wału</th><th>Prędkość</th></tr></thead><tbody>
             {axes.map((axis) => <tr key={axis.axis} className={planning ? plan.activeAxis === axis.axis ? "manual-active manual-planned-active" : "" : state?.active_axis === axis.axis ? "manual-active" : ""}>
-                <td><div className="jog-controls">{arrow(axis, -1)}<span className={`motion-indicator ${planning && plan.activeAxis === axis.axis ? "moving" : !planning && usable && axis.motion === "w prędkości" ? "moving" : ""}`} aria-live="polite"><strong className="jog-axis-id">J{axis.axis}</strong><span>{planning ? plan.activeAxis === axis.axis ? "bliźniak" : "plan" : usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span></span>{arrow(axis, 1)}</div></td>
-                <td><strong>J{axis.axis}</strong><small>CAN {axis.axis}</small></td>
-                <td><span className={`badge ${usable && axis.available ? "ok" : "stale"}`}>{!usable ? "Dane nieaktualne" : axis.available ? "Połączony" : "Niedostępny"}</span></td>
+                <td><div className={`jog-controls ${planning ? "jog-planning" : ""}`}>{arrow(axis, -1)}{!planning && <span className={`motion-indicator ${usable && axis.motion === "w prędkości" ? "moving" : ""}`} aria-live="polite"><span>{usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span></span>}{arrow(axis, 1)}</div></td>
+                <td className="manual-axis"><strong>J{axis.axis}</strong><small>CAN {axis.axis}</small>
+                    <span className={`badge ${usable && axis.available ? "ok" : "stale"}`}>{!usable ? "Dane nieaktualne" : axis.available ? "Połączony" : "Niedostępny"}</span></td>
                 <td title={axis.joint_configured ? `Przegub; wał: ${axis.position_known ? axis.position_degrees.toFixed(1)+"°" : "brak danych"}` : "Wał silnika — brak pełnego profilu przegubu"}><div className="manual-position-reading"><MotorPosition axis={axis.axis}
                     position={axis.joint_configured ? axis.joint_position_known ? axis.joint_position_degrees! : null : axis.position_known ? axis.position_degrees : null}
                     lower={axis.joint_configured ? axis.joint_lower_degrees : -3600} upper={axis.joint_configured ? axis.joint_upper_degrees : 3600} stale={!usable}
                     plannedPosition={planning ? plan.positions[axis.axis - 1] : undefined}/>{planning && <small className={`planned-position ${plan.available[axis.axis - 1] ? "" : "plan-unavailable"}`}>Plan: {plan.positions[axis.axis - 1] === null ? "—" : `${plan.positions[axis.axis - 1]!.toFixed(1)}°`}</small>}</div></td>
-                <td><span className={`badge ${usable && axis.enable_known ? axis.enabled ? "ok" : "warn" : "stale"}`}>{usable && axis.enable_known ? axis.enabled ? "Włączony" : "Wyłączony" : "Nieznany"}</span></td>
-                <td><div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
+                <td className="manual-drive"><span className={`badge ${usable && axis.enable_known ? axis.enabled ? "ok" : "warn" : "stale"}`}>{usable && axis.enable_known ? axis.enabled ? "Włączony" : "Wyłączony" : "Nieznany"}</span>
+                    <div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
                     <button className="secondary-button" disabled={planning || !usable || !axis.available || pending || (state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
                 <td><button className="link-button" title="Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu" disabled={planning || !usable || !axis.can_zero || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
                 <td>{jogSpeed(axis)}</td>
             </tr>)}
         </tbody></table></div>
-        <TcpControls allowed={tcpAllowed && plan.activeAxis === 0} planning={planning} held={tcpHeld} stepAvailable={!!context?.tcp_step_available}
+        <div className="manual-tools"><TcpControls allowed={tcpAllowed && plan.activeAxis === 0} planning={planning} held={tcpHeld} stepAvailable={!!context?.tcp_step_available}
             missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} />
-        </div>
-        <p className="can-note">{planning ? "Plan lokalny: JOG i TCP poruszają wyłącznie bliźniakiem. Polecenia napędów i zerowania są zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p>
+        {planning && <div className="manual-simulation"><CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}
+            showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} /></div>}
+        <aside className="can-note"><span className="manual-info-icon" aria-hidden="true">i</span><div><h2>{planning ? "Plan lokalny" : "Obsługa JOG"}</h2><p>{planning ? "Plan lokalny: JOG i TCP poruszają wyłącznie bliźniakiem. Polecenia napędów i zerowania są zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p></div></aside>
+        </div></div></div>
     </section>;
 }

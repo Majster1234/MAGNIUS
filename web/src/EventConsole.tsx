@@ -24,7 +24,7 @@ export function EventConsole({ entries }: { entries: ConsoleEntry[] }) {
         }}>
         {entries.map(entry => <div key={entry.id} className={`console-entry console-${entry.severity}`}>
             <time dateTime={new Date(entry.timestamp).toISOString()}>{new Date(entry.timestamp).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, fractionalSecondDigits: 3 })}</time>
-            <span className="console-level">{labels[entry.severity]}</span><span>{entry.message}</span>
+            <span className="console-level">{labels[entry.severity]}</span><span>{entry.message}{entry.repetitions && <span className="console-repeat" title="Kolejne zmiany świeżości danych w odstępach poniżej 500 ms">×{entry.repetitions}</span>}</span>
         </div>)}
     </div>;
 }

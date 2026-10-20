@@ -7,7 +7,7 @@ import { createMotionTrail, type MotionTrace } from "./previewMotionTrail";
 import { robotSingularity, type Singularity } from "./previewSingularity";
 
 export type CameraView = "iso" | "front" | "side" | "top" | "fit";
-export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null };
+export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null; showMotionFrames?: boolean };
 export function createPreviewScene(host: HTMLElement, xml: string, frame: () => PoseFrame) {
     const document = new DOMParser().parseFromString(xml, "application/xml");
     if (document.querySelector("parsererror, mesh, texture") || document.documentElement.tagName !== "robot")
@@ -39,7 +39,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
             ancestor = ancestor.parent;
         }
         const material = new THREE.MeshStandardMaterial({ color: playback ? 0xf3a347 : planning ? 0x4a92bc : axis ? 0x8096a3 : 0x4b616c, roughness: .8,
-            transparent: planning, opacity: playback ? .55 : planning ? .3 : 1, depthWrite: !planning,
+            transparent: planning, opacity: playback ? .22 : planning ? .3 : 1, depthWrite: !planning,
             polygonOffset: planning, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
         const old = Array.isArray(object.material) ? object.material : [object.material]; old.forEach(m => m.dispose());
         object.material = material; entries.push({ axis, material }); if (!planning) materials.push({ axis, material, mesh: object });
@@ -113,7 +113,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
                 twin.setJointValue(`joint_${i + 1}`, value); twinAngles[i] = value; dirty = true;
             }
         });
-        const visibleMotion = state.planning && !!state.motionAngles;
+        const visibleMotion = state.planning && !!state.motionAngles && state.showMotionFrames !== false;
         if (motion.visible !== visibleMotion) { motion.visible = visibleMotion; dirty = true; }
         if (visibleMotion) state.motionAngles!.forEach((value, i) => {
             if (Number.isFinite(value) && value !== motionAngles[i]) {
@@ -183,7 +183,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
         renderer.domElement.dataset.plannedJointAngles = state.planning ? JSON.stringify(twinAngles) : "";
         renderer.domElement.dataset.planningOpacity = twin.visible ? ".3" : "";
         renderer.domElement.dataset.motionJointAngles = motion.visible ? JSON.stringify(motionAngles) : "";
-        renderer.domElement.dataset.motionOpacity = motion.visible ? ".55" : "";
+        renderer.domElement.dataset.motionOpacity = motion.visible ? ".22" : "";
         renderer.domElement.dataset.tcpFrames = JSON.stringify(tcpFrames.filter(tcp => tcp.visible).map(tcp => ({
             subject: tcp.subject === twin ? "target" : "motion", position: tcp.axes.getWorldPosition(new THREE.Vector3()).toArray(),
             quaternion: tcp.axes.getWorldQuaternion(new THREE.Quaternion()).toArray(),

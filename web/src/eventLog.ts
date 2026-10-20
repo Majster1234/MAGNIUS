@@ -1,5 +1,5 @@
 export type Notice = { source: string; severity: "info" | "warning" | "error"; message: string };
-export type ConsoleEntry = Notice & { id: number; timestamp: number };
+export type ConsoleEntry = Notice & { id: number; timestamp: number; repetitions?: number };
 
 // Historia wyłącznie w pamięci otwartego modułu. Powtarzane snapshoty nie są zdarzeniami.
 export class EventLog {
@@ -16,6 +16,13 @@ export class EventLog {
         this.previous.delete(notice.source);
         this.previous.set(notice.source, signature);
         if (this.previous.size > 32) this.previous.delete(this.previous.keys().next().value!);
+        const last = this.entries.at(-1);
+        // Wyłącznie prezentacja wahań świeżości; awarie i blokady sterowania nie są opóźniane.
+        if (notice.source === "freshness" && notice.severity !== "error" && last?.source === "freshness" &&
+            last.severity !== "error" && timestamp >= last.timestamp && timestamp - last.timestamp < 500) {
+            this.entries[this.entries.length - 1] = { ...notice, message, timestamp, id: last.id, repetitions: (last.repetitions ?? 1) + 1 };
+            return true;
+        }
         this.entries.push({ ...notice, message, timestamp, id: ++this.sequence });
         if (this.entries.length > EventLog.limit) this.entries.shift();
         return true;

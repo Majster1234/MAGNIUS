@@ -110,10 +110,9 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Bieżący kontekst
 
-- 2026-10-20: tryb impulsowy TCP, wspólny suwak 0.1/1/5/10/20 mm i °. Jedno naciśnięcie uruchamia jeden LIN; puszczenie nie przerywa. STOP, blur i utrata kontekstu anulują; brak kolejki. docs/manual_control.md.
-- POST /planning/tcp-step (pod /api/v1), FK/IK i istniejący planner LIN, animacja JTC 60 Hz. Fizyczne TCP nadal zablokowane. tcp_step_available w GET context odblokowuje impulsy.
-- C++ near_path: czysty obrót oceniany z orientacji, jeśli translacja mieści się w tolerancji. Naprawia fałszywe odrzucanie małych obrotów, bez rozluźnienia limitów. docs/cartesian_planning.md.
-- 20.10: TS/Vite, 71 Vitest, 108 backend/ROS, 15 planera i 6 Chromium OK; wszystkie wartości mm/°, pojedynczy klik, STOP, układ 1280/1366/1920. Build planera i bridge OK. Bez ruchów sprzętu.
-- Odczyt LAN 20.10: backend impulsów nieaktywny. Wymagane sudo systemctl restart robot-web-status.service i Ctrl+F5; wcześniejsze sudo wymagało hasła.
-- TCP ciągłe zoptymalizowane; panel 176–480 px, krótsze skale JOG. Osie, ślad i osobliwości: docs/robot_preview.md.
-- Otwarte: adaptacja IK/J4/J6, geometria/przekładnie/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog, drugi klient LAN, oscylacje. Node 22 w /tmp; licencja TODO; feature/web-status bez commit/push.
+- 2026-10-20: wspólny AppShell, 5 tras (#config i alias #configuration), menu 68/224 px i topbar. CAN→J1–J6 i obecność osi z diagnostyki; docs/web_status.md.
+- Manual: osobne Z/Rz, PTP/LIN poza sceną, model ruchu 22% z checkboxem; dziennik grupuje świeżość <500 ms. JOG/TCP/WS/watchdog bez zmian. docs/manual_control.md, docs/robot_preview.md.
+- 20.10: TS/Vite, 75 Vitest, pełne 7 zestawów Chromium OK. Układ 1280–2560; impulsy w SW WebGL 1366. Bez sprzętu/ROS/backendu. Ostrzeżenie rozmiaru Three.js.
+- TCP: 0.1/1/5/10/20 mm i °, LIN na klik, bez kolejki; STOP/blur/kontekst anulują. Fizyczne TCP zablokowane; docs/cartesian_planning.md.
+- Wcześniej 20.10 LAN: backend impulsów nieaktywny. Nadal potrzebny sudo systemctl restart robot-web-status.service; nie restartowano. Następnie Ctrl+F5 i odbiór UI.
+- Otwarte: IK/J4/J6, geometria/przekładnie/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog, drugi klient LAN, oscylacje. Licencja TODO; feature/web-status bez commit/push.

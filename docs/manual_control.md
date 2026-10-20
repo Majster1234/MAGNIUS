@@ -1,26 +1,40 @@
 # Sterowanie ręczne silnikami
 
-Ekran **Sterowanie ręczne** i kafelek przeglądu są przeznaczone dla stanowiska
+Ekran **Sterowanie ręczne** jest przeznaczony dla stanowiska
 desktop. Rozwój widoku mobilnego został zakończony. J1–J6 odpowiadają kolejno
 adresom CAN 1–6; brak napędu nie oznacza zmiany numeracji pozostałych osi.
-Nad tabelą jest [podgląd URDF 3D](robot_preview.md) o wysokości połowy okna,
-wykorzystujący te same pomiary i połączenie WebSocket co panel ręczny.
-Panel ma ciemne tło wspólne z przeglądem i diagnostyką CAN. Tytuł, stan połączenia
-i nagrywania mieszczą się w pasku u góry; pod nim jest przewijana konsola zdarzeń.
-Ostrzeżenia mają żółte tło, awarie czerwone, informacje pozostają bez tła.
-Historia jest ograniczona do 100 wpisów; nie zapisuje kolejnych kopii tego samego
-statusu. Tabela sześciu osi znajduje się po lewej pod modelem, a panel TCP po prawej.
-Wszystkie osiem kolumn pozostaje dostępnych; skrócone skale i wartości celu pod
-pomiarem zwalniają miejsce na TCP. Skale zajmują około połowy wcześniejszej
-długości; panel TCP rozszerza się wraz z oknem (176–480 px), z większymi krzyżakami.
-Tabela nadal zajmuje około 200 px;
-wiersz ma 29 px. Pozycje nie są powtarzane w bocznym panelu podglądu 3D.
-Pole prędkości, przyciski i wskaźniki pozostają dostępne
-bez rozwijania sekcji.
-Pierwsza kolumna zawiera strzałki JOG z numerem osi między nimi; aktywna oś
-planowania jest podświetlona na niebiesko. Kolumny mają stały układ, a miejsce
-na wartość planowaną jest zarezerwowane także poza planowaniem, więc przełączenie
-trybu nie przesuwa kolumn ani skal.
+Stałe menu boczne zwija się automatycznie do 68 px, pozostawiając dostęp do
+wszystkich stron; przycisk w stopce rozwija menu. Wspólny pasek górny 48 px
+pokazuje ścieżkę, połączenie 20 Hz, nagrywanie, planowanie i sieć lokalną.
+Rozwijanie menu wywołuje przeliczenie rozmiaru sceny, bez zmiany połączenia JOG.
+Przy co najmniej 1180 px dostępnej szerokości obszaru strony panel używa kokpitu:
+[podgląd URDF 3D](robot_preview.md) i konsola po lewej, tabela osi po prawej,
+a pod tabelą TCP oraz panel „Ruch do celu TCP”. Ten ostatni nie zasłania sceny.
+Informacja o planowaniu znajduje się w krótkim pasku pod kontrolkami.
+Ramka podglądu preferuje 4:3; węższy obszar (np. po rozwinięciu menu) układa
+podgląd nad sterowaniem. W niskim oknie prawa kolumna przewija się niezależnie.
+Grafitowe panele i typografia są wspólne dla pięciu stron; zielone akcenty
+wyróżniają LIVE, niebieskie — planowanie. Kolor nie zastępuje blokad przycisków.
+
+Tabela ma sześć kolumn: JOG, oś/CAN wraz z połączeniem, pozycja, napęd/ENABLE,
+zero wału i prędkość. Zachowuje wszystkie dotychczasowe statusy i operacje.
+Przyciski JOG mają co najmniej 36×36 px. W LIVE pomiędzy nimi jest stan ruchu;
+w planowaniu strzałki leżą bliżej siebie, bez powtarzania napisu „plan”.
+Wartość pozycji i mniejszy cel planowany znajdują się na lewo od skali 8 px.
+Biały punkt z zielonym obrysem oznacza pomiar, niebieski trójkąt — cel.
+Miejsce na cel pozostaje zarezerwowane także poza planowaniem, więc przełączenie
+trybu nie przesuwa kolumn ani skal. Wartości używają cyfr o stałej szerokości.
+Przyciski Załącz/Wyłącz tworzą wspólną grupę; jednostka prędkości jest wewnątrz
+obrysu pola. Krzyżaki TCP X/Y oraz Rx/Ry mają klawisze 44×44 px;
+Z+/Z− i Rz+/Rz− tworzą oddzielne pionowe kolumny po prawej stronie krzyżaków,
+także w trybie impulsowym.
+
+Konsola ma ciemne tło i do 84 px wysokości. Kolorowa lewa krawędź i plakietka
+wyróżniają informacje, ostrzeżenia i awarie, bez barwienia całych wierszy.
+Historia jest ograniczona do 100 wpisów i nie powiela tego samego statusu.
+Kolejne zmiany świeżości danych w odstępach poniżej 500 ms są grupowane
+w jednym wpisie z ostatnim stanem i licznikiem ×N. Awarie są osobnymi wpisami;
+logowanie nie opóźnia blokad JOG ani zatrzymań.
 Do analizy zaniku danych służy [nagrywanie CAN/ROS/API/panelu](can_recording.md).
 Po zastosowaniu kompletnego profilu w [konfiguracji](configuration.md) wiersz osi
 przechodzi na pozycję przegubu i JOG w °/s z przełożeniem, kierunkiem, offsetem
@@ -218,6 +232,19 @@ podtrzymania 200 ms pozostają bez zmian. Brak ACK w 100 ms nadal wywołuje STOP
 Pozostają ograniczenia LAN, Host i Origin.
 
 ## Sprawdzenie
+
+Weryfikacja wspólnego szablonu i kokpitu 2026-10-20: TypeScript/build,
+75 Vitest i pełne siedem zestawów Chromium na atrapach HTTP/WS przeszły.
+Sprawdzono pięć tras bez przeładowania, mini-rail bez restartu WS/3D,
+mapowanie i wygaszanie obecności CAN, krzyżaki TCP, panel symulacji poza sceną,
+checkbox modelu ruchu oraz dotychczasowe zatrzymania i operacje konfiguracji.
+Układ sprawdzono przy 1280×800, 1366×768, 1600×1000, 1920×1080 i 2560×1440;
+wiersze mają 46 px. Interakcje impulsowe używają bazowego okna 1366×768
+w programowym WebGL; końcowa pozycja jest odczytywana po publikacji w scenie.
+Test STOP używa dłuższej trajektorii atrapy, aby nie kończyła się przed kliknięciem.
+Potwierdzono zachowanie kodu JOG, efektu WS/timerów/zatrzymań i istniejących
+handlerów/blokad/ref. Nie wykonywano prób sprzętowych ani testów ROS/backendu.
+
 
 `colcon test` obejmuje protokół, emulator adresów 1/2/4, pojedynczego właściciela,
 hamowanie, limity, zanik lease, błędy, USB i BUS-OFF. `npm test` sprawdza logikę

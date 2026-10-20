@@ -4,11 +4,12 @@ import { contextKey, planningRequest, type PreviewContext } from "./planningCont
 import type { MotionTrace } from "./previewMotionTrail";
 
 type Start = { values: number[]; simulated: boolean[] };
-export function CartesianPlanning({ positions, context, editing, usable, onMotion, onEditingReady, beforePlanning }: {
+export function CartesianPlanning({ positions, context, editing, usable, onMotion, onEditingReady, beforePlanning, showMotionFrames = true, onShowMotionFrames }: {
     positions: (number | null)[]; context: PreviewContext | null; editing: boolean; usable: boolean;
     onMotion: (positions: number[] | null, trace?: MotionTrace | null) => void;
     onEditingReady?: (ready: boolean) => void;
     beforePlanning?: () => Promise<void>;
+    showMotionFrames?: boolean; onShowMotionFrames?: (show: boolean) => void;
 }) {
     const [choice, setChoice] = useState<"PTP" | "LIN" | null>(null), [start, setStart] = useState<Start | null>(null);
     const [message, setMessage] = useState("Ustaw cel przez JOG lub TCP, następnie wybierz PTP lub LIN.");
@@ -142,7 +143,8 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                 <button disabled={!busy && !playing} onClick={stop}>Zatrzymaj podgląd</button>
             </div>
             <p className="cartesian-message" role="status">{message}</p>
-            <small>Przy osobliwości nadgarstka J4/J6 zwalniają do maks. 5°/s.</small>
+            <label className="motion-frames-toggle"><input type="checkbox" checked={showMotionFrames} onChange={event => onShowMotionFrames?.(event.target.checked)} />Pokaż klatki pośrednie</label>
+            <small>Przy osobliwości nadgarstka J4/J6 zwalniają do maks. 5°/s.</small>{" "}
             {start && <small>Stały start · symulowane odniesienie: {start.simulated.map((value, i) => value ? `J${i + 1}` : "").filter(Boolean).join(", ") || "brak"}</small>}
             <details open={invalidStart || undefined}><summary>Start symulacji</summary>
                 <p>Pomiar → ostatni pomiar → 0° tylko w symulacji. Korekta obowiązuje przy następnym wyborze ruchu.</p>

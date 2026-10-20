@@ -6,7 +6,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const browser = await chromium.launch({ headless:true, args:['--use-angle=swiftshader','--enable-unsafe-swiftshader'] });
   const context = await browser.newContext({ viewport:{width:1366,height:768} });
   const dist = path.resolve(__dirname,'../dist'), sockets = new Set(), commands=[], writes=[], errors=[], requests=[], stepRequests=[], events=[], jobs=new Map(), plans=new Map();
-  let settings={revision:'s0',ignore_missing_drivers:false}, slow=false, delayed=false, fail=false, cancelling=false;
+  let settings={revision:'s0',ignore_missing_drivers:false}, slow=false, delayed=false, fail=false, cancelling=false, stepDurationMs=600;
   const state={fresh:true,busy:false,fault:false,active_axis:0,max_rpm:30,operation:'idle',message:'Test TCP',configuration_revision:'initial',
     axes:Array.from({length:6},(_,i)=>({axis:i+1,available:i<2,position_known:i<2,position_age_seconds:0,position_degrees:i+5,
       prepared:true,enable_known:true,enabled:true,can_jog:i<2,can_zero:false,speed_known:true,speed_rpm:0,motion:'zatrzymany'}))};
@@ -38,7 +38,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       target[['x','y','z','rx','ry','rz'].indexOf(data.axis)]+=data.step*data.direction*Math.PI/180;
       plans.set(id,{id,model_id:'m',configuration_revision:'initial',settings_revision:data.settings_revision,simulation_only:true,execution_ready:false,
         motion_type:'LIN',start_positions:q,trajectory:{joint_names:Array.from({length:6},(_,i)=>`joint_${i+1}`),
-        points:[q,target].map((positions,i)=>({positions,velocities:Array(6).fill(0),accelerations:Array(6).fill(0),time_from_start:{sec:0,nanosec:i*600000000}}))}});
+        points:[q,target].map((positions,i)=>({positions,velocities:Array(6).fill(0),accelerations:Array(6).fill(0),time_from_start:{sec:Math.floor(i*stepDurationMs/1000),nanosec:(i*stepDurationMs%1000)*1000000}}))}});
       jobs.set(id,{status:'succeeded',progress:1,phase:'LIN',plan_id:id});if(delayed)await delay(600);return json({id,status:'running'});
     }
     if(url.pathname==='/api/v1/planning/moves'){
@@ -121,21 +121,26 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.waitForFunction(()=>!document.querySelector('[aria-label="TCP X plus"]').disabled);
     fail=true;count=requests.length;await hold();await waitRequests(count+1);await page.getByRole('log').getByText('Brak rozwiązania IK',{exact:true}).waitFor();await page.mouse.up();
     const rejected=await target();await delay(150);assert.equal(await target(),rejected);fail=false;
-    // Komplet kolumn i niezależne wskazówki mieszczą się obok TCP.
+    // Kokpit: tabela obok modelu, TCP pod tabelą; zachowane wszystkie statusy.
     for(const size of [{width:1280,height:800},{width:1366,height:768},{width:1920,height:1080}]){
       await page.setViewportSize(size);
       const table=await page.locator('.manual-table').boundingBox(),panel=await tcp.boundingBox(),model=await preview.boundingBox();
       await page.screenshot({path:`/tmp/robot-tcp-${size.width}.png`,fullPage:true});
-      assert.equal(await page.locator('.manual-table th').count(),8);assert(panel.x>=table.x+table.width);assert(table.y>=model.y+model.height);
+      assert.equal(await page.locator('.manual-table th').count(),6);assert(table.x>=model.x+model.width);assert(panel.y>=table.y+table.height);
+      assert(panel.y+panel.height<=size.height);
+      for(const direction of await tcp.locator('.tcp-direction').all()){const box=await direction.boundingBox();assert.equal(box.width,44);assert.equal(box.height,44);}
       const overflow=await page.locator('.manual-table td,.manual-table th').evaluateAll(cells=>cells.filter(c=>c.scrollWidth>c.clientWidth+1).map(c=>({text:c.innerText,width:c.clientWidth,scroll:c.scrollWidth})));
       assert.deepEqual(overflow,[],JSON.stringify(overflow));assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-      assert((await page.locator('.manual-table tbody tr').first().boundingBox()).height<=30);
+      assert((await page.locator('.manual-table tbody tr').first().boundingBox()).height<=50);
       assert.equal(await page.locator('.position-planned-thumb').count(),6);
       const geometry=()=>page.locator('.manual-table th,.position-track').evaluateAll(elements=>elements.map(e=>{const r=e.getBoundingClientRect();return [r.x,r.width];}));
       const before=await geometry();await preview.getByRole('button',{name:'Zakończ planowanie',exact:true}).click();assert.deepEqual(await geometry(),before);assert(await button().isDisabled());
       await preview.getByRole('button',{name:'Planowanie',exact:true}).click();assert.deepEqual(await geometry(),before);
       await page.screenshot({path:`/tmp/robot-tcp-${size.width}.png`,fullPage:true});
     }
+    // Geometria desktop została sprawdzona powyżej. Interakcje wykonujemy w bazowym
+    // oknie testu, aby programowy WebGL nie wprowadzał przerw zegara watchdog.
+    await page.setViewportSize({width:1366,height:768});await delay(200);
     await tcp.getByLabel('Tryb TCP',{exact:true}).selectOption('step');
     const slider=tcp.getByRole('slider',{name:'Wielkość impulsu TCP',exact:true}),stop=tcp.getByRole('button',{name:'Zatrzymaj impuls',exact:true});
     assert.equal(await slider.getAttribute('max'),'4');assert.equal(await slider.getAttribute('step'),'1');
@@ -146,20 +151,29 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       await button(axis).click();await page.waitForFunction(()=>!document.querySelector('.tcp-step-stop').disabled);
       assert(await page.getByRole('button',{name:'JOG J1 prawo',exact:true}).isDisabled());
       await page.waitForFunction(()=>document.querySelector('.tcp-step-stop').disabled);
-      await delay(80); // Scena 30 Hz publikuje ostatnią klatkę animacji 60 Hz.
-      const after=JSON.parse(await target()),joint=axis==='X'?0:5;
+      // Oczekujemy publikacji końcowej pozy w scenie, zamiast zakładać czas renderu WebGL.
+      const joint=axis==='X'?0:5;
+      await page.waitForFunction(({joint,expected})=>{
+        const angles=JSON.parse(document.querySelector('.robot-preview canvas').dataset.plannedJointAngles);
+        return Math.abs(angles[joint]-expected)<1e-12;
+      },{joint,expected:before[joint]+amount*Math.PI/180},{timeout:3000});
+      const after=JSON.parse(await target());
       assert.equal(stepRequests.length,count+1);assert.equal(stepRequests.at(-1).step,amount);assert.equal(stepRequests.at(-1).axis,axis.toLowerCase());
-      assert(Math.abs(after[joint]-before[joint]-amount*Math.PI/180)<1e-6,'Jeden klik dochodzi do celu po puszczeniu');
+      assert(Math.abs(after[joint]-before[joint]-amount*Math.PI/180)<1e-6,`Jeden klik dochodzi do celu po puszczeniu: ${axis}, ${amount}`);
       await delay(120);assert.equal(await target(),JSON.stringify(after),'Brak zapętlenia impulsu');
     }
     const heldStepCount=stepRequests.length;await hold();await delay(1100);await page.mouse.up();
     assert.equal(stepRequests.length,heldStepCount+1,'Przytrzymanie nie powtarza impulsu');
-    await button().click();await delay(150);await stop.click();await delay(80);const stopped=await target();await delay(250);assert.equal(await target(),stopped);
+    // Dłuższa trajektoria atrapy pozwala kliknąć STOP przed końcem także w programowym WebGL.
+    stepDurationMs=2000;
+    await button().click();await page.waitForFunction(()=>!document.querySelector('.tcp-step-stop').disabled);
+    await delay(150);await stop.click();await delay(80);const stopped=await target();await delay(250);assert.equal(await target(),stopped);
     delayed=true;const late=stepRequests.length;await button().click();
     for(let i=0;i<100&&stepRequests.length===late;i++)await delay(20);
     await stop.click();const beforeLate=await target();await delay(850);assert.equal(await target(),beforeLate,'Stop odrzuca spóźnione zadanie');delayed=false;
     for(const size of [{width:1280,height:800},{width:1366,height:768},{width:1920,height:1080}]){
       await page.setViewportSize(size);assert((await page.locator('.manual-screen').boundingBox()).height<=size.height,'Tryb impulsowy mieści się na desktop');
+      assert(await page.locator('.manual-controls-row').evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Impuls nie wymaga przewijania sterowania');
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       await page.screenshot({path:`/tmp/robot-tcp-step-${size.width}.png`,fullPage:true});
     }

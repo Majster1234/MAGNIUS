@@ -1,6 +1,6 @@
 # Konfiguracja robota i snapshoty
 
-Otwórz **Konfiguracja → Parametry robota** (`/#configuration`). W ustawieniach systemowych
+Otwórz **Konfiguracja → Parametry robota** (`/#config`; dotychczasowy `/#configuration` jest aliasem). W ustawieniach systemowych
 jest wspólny suwak **Ignoruj brak sterowników — tylko planowanie**, opisany w
 [instrukcji PTP/LIN](cartesian_planning.md#brak-sterowników-i-pozycja-bazowa).
 Kolumny J1–J6 odpowiadają CAN 1–6. Suwak widoku tabeli przełącza geometrię

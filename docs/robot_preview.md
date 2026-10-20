@@ -1,8 +1,12 @@
 # Podgląd robota 3D
 
-W ekranie **Sterowanie ręczne** nad tabelą JOG znajduje się panel o wysokości
-połowy okna przeglądarki (50dvh). Scena 3D wykorzystuje całą szerokość panelu;
-pozycje liczbowe pozostają wyłącznie w tabeli sterowania poniżej. Nagłówek
+W ekranie **Sterowanie ręczne**, przy dostępnej szerokości strony od 1180 px, panel 3D zajmuje lewą
+kolumnę kokpitu, obok tabeli JOG i TCP. Ramka ma preferowaną proporcję 4:3;
+przy niższym oknie może się skrócić. Pod nią znajduje się konsola zdarzeń.
+Przy węższym obszarze, także po rozwinięciu menu, podgląd o wysokości 48dvh
+przechodzi nad sterowanie. Menu pozostaje dostępne jako pasek 68 px lub pełne 224 px.
+Scena 3D wykorzystuje całą szerokość swojego panelu;
+pozycje liczbowe pozostają wyłącznie w tabeli sterowania. Nagłówek
 podglądu pokazuje oznaczenie modelu przykładowego i kompletność pomiarów X/6.
 Mysz obraca, przesuwa i przybliża widok. Ikona domku w prawym górnym rogu
 sceny dopasowuje kamerę do bieżącej pozy modelu. Nie ma przycisków widoków
@@ -57,15 +61,23 @@ Poświaty korzystają z obecnego WebSocketu i nie zmieniają blokad JOG ani limi
 Zasoby tworzymy raz dla sześciu osi i zwalniamy po opuszczeniu modułu;
 pulsowanie korzysta z istniejącego limitu 30 FPS i zatrzymania przy ukrytej stronie.
 
-Bezpośrednio pod nazwą strony znajduje się przewijana konsola zdarzeń:
-informacje bez tła, ostrzeżenia na przygaszonym żółtym tle, awarie i błędy
-na czerwonym. Obejmuje połączenie, świeżość danych, dostępność napędów,
+Pod podglądem znajduje się przewijana konsola zdarzeń (do 84 px wysokości).
+Wiersze mają wspólne ciemne tło; kolorowe lewe krawędzie i plakietki oznaczają
+informacje, ostrzeżenia i awarie. Obejmuje połączenie, świeżość danych, dostępność napędów,
 komunikaty sterownika, wynik przyjęcia operacji i błędy modelu. Czas HH:mm:ss.SSS
 jest czasem zaobserwowania zdarzenia przez przeglądarkę; dokładny zapis komunikacji
 CAN nadal zapewnia osobny moduł nagrywania. Konsola zachowuje najwyżej 100 wpisów
 po 800 znaków, wyłącznie w pamięci otwartego modułu. Powtarzane statusy 20 Hz nie
 tworzą nowych wpisów. Automatycznie śledzi koniec, dopóki użytkownik nie przewinie
 historii w górę; przewinięcie na dół przywraca śledzenie.
+
+W trybie planowania ramka podglądu jest niebieska. Panel „Ruch do celu TCP”
+znajduje się obok przycisków TCP po prawej stronie, poza sceną. Legenda
+bliźniaków pozostaje w pigułce w lewym dolnym rogu sceny.
+Pomarańczowy model ruchu ma krycie 22%. Checkbox **Pokaż klatki pośrednie**
+w panelu symulacji ukrywa ten model wraz z jego osiami i wskaźnikiem osobliwości;
+krzywa trajektorii TCP i niebieski cel pozostają widoczne. Przełącznik nie
+anuluje ani nie przelicza planu i nie zmienia pozycji fizycznego robota.
 
 ## Model demonstracyjny i pomiary
 

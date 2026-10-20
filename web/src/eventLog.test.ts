@@ -1,6 +1,22 @@
 import { expect, it } from "vitest";
 import { EventLog } from "./eventLog";
 
+it("grupuje szybkie zmiany świeżości, zachowując ostatni stan i natychmiastowe awarie", () => {
+    const log = new EventLog();
+    const fresh = {source:"freshness", severity:"info", message:"Aktualne"} as const;
+    const stale = {...fresh, severity:"warning", message:"Nieaktualne"} as const;
+    log.append(fresh, 1000); log.append(stale, 1300); log.append(fresh, 1600);
+    expect(log.entries).toHaveLength(1);
+    expect(log.entries[0]).toMatchObject({message:"Aktualne", repetitions:3, timestamp:1600});
+    log.append(stale, 2100);
+    expect(log.entries).toHaveLength(2);
+    log.append({...stale, severity:"error", message:"Awaria"}, 2110);
+    expect(log.entries).toHaveLength(3);
+    log.append(fresh, 2120);
+    expect(log.entries).toHaveLength(4);
+    expect(log.entries[2].severity).toBe("error");
+});
+
 it("zapisuje zmiany stanu, awarię i powrót zamiast powtarzanych snapshotów", () => {
     const log = new EventLog();
     const online = { source: "connection", severity: "info", message: "Połączenie działa" } as const;

@@ -4,14 +4,13 @@ import { PreviewPose } from "./previewPose";
 import { previewLimits } from "./previewLimits";
 import type { createPreviewScene } from "./robotPreviewScene";
 import type { Notice } from "./eventLog";
-import type { ReactNode } from "react";
 import type { MotionTrace } from "./previewMotionTrail";
 
-export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, planningTools, simulationPositions = null, motionTrace = null, simulationAllowed = false, expectedRevision, modelId }: {
+export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, simulationPositions = null, motionTrace = null, simulationAllowed = false, expectedRevision, modelId, showMotionFrames = true }: {
     state: ManualState | null; usable: boolean; onNotice: (notice: Notice) => void; planning: boolean;
     pending: boolean; physicalJogActive: boolean; plannedPositions: (number | null)[]; planningReady: boolean; onPlanningStart: () => void; onPlanningSync: () => void; onPlanningEnd: () => void;
     onModelStatus: (status: { ready: boolean; revision?: string }) => void;
-    planningTools?: ReactNode;
+    showMotionFrames?: boolean;
     simulationPositions?: number[] | null; simulationAllowed?: boolean; expectedRevision?: string; modelId?: string;
     motionTrace?: MotionTrace | null;
 }) {
@@ -19,7 +18,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     const scene = useRef<ReturnType<typeof createPreviewScene> | null>(null);
     const pose = useRef(new PreviewPose());
     const poseRevision = useRef(state?.configuration_revision);
-    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision }); input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision };
+    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision, showMotionFrames }); input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision, showMotionFrames };
     const [message, setMessage] = useState("Wczytywanie modelu z ROS…");
     const [modelKind, setModelKind] = useState("partial-demo");
     const [, refresh] = useState(0);
@@ -56,7 +55,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                             limits: valid.map((ok, i) => previewLimits(current?.axes[i], pose.current.degrees(i), ok)), planning: activePlanning,
                             plannedAngles: planned.map(position => position === null ? null : position * Math.PI / 180),
                             motionAngles: input.current.simulationPositions?.map(value => value * Math.PI / 180) ?? null,
-                            motionTrace: input.current.motionTrace };
+                            motionTrace: input.current.motionTrace, showMotionFrames: input.current.showMotionFrames };
                     });
                     setMessage("");
                     onModelStatus({ ready: true, revision: revisionToLoad });
@@ -94,7 +93,6 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
             {!planning ? <button className="preview-planning" type="button" onClick={onPlanningStart} disabled={!canStartPlanning} title="Lokalny JOG bez komend do robota">Planowanie</button> :
                 <div className="preview-planning-controls"><button type="button" onClick={onPlanningSync} disabled={!canStartPlanning}>Od pozycji robota</button><button type="button" onClick={onPlanningEnd}>Zakończ planowanie</button></div>}
             {planning && <div className="preview-planning-legend"><span className="real">Robot: enkodery</span><span className="twin">Cel</span><span className="motion">Symulacja ruchu</span>{!planningReady && <span>Plan wymaga ponownej synchronizacji</span>}</div>}
-            {planning && planningTools}
         </div></div>
     </section>;
 }

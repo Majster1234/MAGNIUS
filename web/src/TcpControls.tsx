@@ -34,15 +34,15 @@ export function TcpControls({ allowed, planning, missing, held, stepAvailable, s
                 <option value="base">Baza</option><option value="tool">Narzędzie</option></select></label></header>
         <div className="tcp-joysticks">{([false, true] as const).map(rotation => <div key={String(rotation)} className="tcp-joystick-group">
             <span>{rotation ? "Obrót" : "Przesuw"}</span>
-            <div className="tcp-cross">
+            <div className="tcp-pad"><div className="tcp-cross">
                 {button(rotation ? "ry" : "y", 1, rotation ? "Ry+" : "Y+", "up")}
                 {button(rotation ? "rx" : "x", -1, rotation ? "Rx−" : "X−", "left")}
                 <span className="tcp-center" aria-hidden="true">●</span>
                 {button(rotation ? "rx" : "x", 1, rotation ? "Rx+" : "X+", "right")}
                 {button(rotation ? "ry" : "y", -1, rotation ? "Ry−" : "Y−", "down")}
             </div>
-            <div className="tcp-extra">{button(rotation ? "rz" : "z", -1, rotation ? "Rz−" : "Z−", "extra")}
-                {button(rotation ? "rz" : "z", 1, rotation ? "Rz+" : "Z+", "extra")}</div>
+            <div className="tcp-depth">{button(rotation ? "rz" : "z", 1, rotation ? "Rz+" : "Z+", "depth-plus")}
+                {button(rotation ? "rz" : "z", -1, rotation ? "Rz−" : "Z−", "depth-minus")}</div></div>
             {!impulse && <label className="tcp-speed"><input type="number" aria-label={rotation ? "Prędkość obrotu TCP" : "Prędkość przesuwu TCP"}
                 min="0.01" max={rotation ? 30 : 100} step="any" value={rotation ? angular : linear} disabled={!!held}
                 onChange={e => (rotation ? setAngular : setLinear)(Math.max(.01, Math.min(rotation ? 30 : 100, Number(e.target.value) || .01)))} />{rotation ? "°/s" : "mm/s"}</label>}

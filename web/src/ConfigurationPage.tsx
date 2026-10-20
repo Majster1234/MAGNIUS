@@ -116,7 +116,8 @@ export function ConfigurationPage() {
         })}</div>;
     }
     return <section className="configuration-screen" aria-label="Konfiguracja">
-        <header className="configuration-header"><h1>Konfiguracja</h1><span className={`badge ${dirty.size ? "warn" : "ok"}`}>{dirty.size ? `Szkic · ${dirty.size} zmian` : "Bez zmian w szkicu"}</span>{conflict && <span className="badge error">Konflikt rewizji</span>}<a href="#overview">← Przegląd systemu</a></header>
+        <header className="page-title configuration-header"><div><div className="eyebrow">PARAMETRY KINEMATYKI I NAPĘDÓW</div><h1>Konfiguracja</h1><p>Geometria, przełożenia i ograniczenia sześciu osi. Snapshoty i zastosowanie do ROS.</p></div>
+            <div className="page-header-status"><span className={`badge ${dirty.size ? "warn" : "ok"}`}>{dirty.size ? `Szkic · ${dirty.size} zmian` : "Bez zmian w szkicu"}</span>{conflict && <span className="badge error">Konflikt rewizji</span>}</div></header>
         {section === "robot" && <EventConsole entries={entries}/>}
         <div className="configuration-tabs" role="tablist" aria-label="Obszar konfiguracji" onKeyDown={event => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

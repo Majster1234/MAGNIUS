@@ -1,12 +1,29 @@
 # Panel diagnostyczny w sieci LAN
 
-Panel tylko odczytuje stan systemu. Backend i monitor działają na komputerze
+Przegląd systemu i diagnostyka CAN prezentują odczyty; sterowanie ręczne
+i konfiguracja mają osobne operacje. Backend i monitor działają na komputerze
 robota, a inne urządzenia w tej samej podsieci otwierają stronę w przeglądarce.
-Nie wymaga modelu robota, CAN ID ani konfiguracji limitów osi.
+Sam przegląd nie wymaga modelu robota ani konfiguracji limitów osi.
 
-Strona **Konfiguracja** ma pustą zakładkę ustawień systemowych i tabelę parametrów robota.
-Na tym etapie udostępnia lokalny szkic danych; zakres i ograniczenia opisuje
-[instrukcja konfiguracji](configuration.md).
+Wszystkie widoki używają wspólnego menu i górnego paska z nazwą strony,
+stanem połączenia oraz oznaczeniem sieci lokalnej. Nawigacja zmienia hash bez
+przeładowania dokumentu: `#overview` (domyślny), `#can`, `#manual`, `#config`
+i `#architecture`. Dotychczasowy `#configuration` pozostaje aliasem konfiguracji.
+W sterowaniu ręcznym menu automatycznie zwija się do 68 px; przycisk w stopce
+rozwija je do 224 px. Wszystkie pięć ikon nadal prowadzi do stron, a zmiana
+szerokości odświeża rozmiar kanwy bez ponownego otwierania strumienia sterowania.
+
+Karta napędów przeglądu korzysta z istniejącego odczytowego WebSocketu CAN.
+Zlicza wyłącznie świeże rekordy `online=true` dla adresów 1–6; inne adresy
+nie zmieniają liczby osi. Utrata połączenia albo dane starsze niż 3 s wygaszają
+wskaźniki. Obecność napędu nie oznacza ENABLE ani gotowości do ruchu.
+Stan `ERROR-ACTIVE` jest opisany jako `OK (ERROR-ACTIVE)`; pozostałe stany
+zachowują nazwy diagnostyczne. Tabela CAN pokazuje przypisanie CAN ID → J1–J6.
+
+**Konfiguracja** zachowuje istniejący szkic, snapshoty, import/eksport i zastosowanie
+parametrów do ROS; zakres opisuje [instrukcja konfiguracji](configuration.md).
+**Architektura** przedstawia sześć kart topologii oraz rozdzielenie monitorowania,
+planowania i wykonania opisane w [architekturze projektu](architecture.md).
 
 ## Przygotowanie
 
