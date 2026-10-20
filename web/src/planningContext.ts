@@ -5,6 +5,8 @@ export type PreviewContext = {
     planner_available: boolean; ignore_missing_drivers: boolean; available: boolean[];
     preview_seed_degrees: number[]; seed_sources: ("measured" | "last" | "zero")[];
     profiles: { configured: boolean; lower: number; upper: number; velocity: number }[];
+    tcp_jog_segmented?: boolean;
+    tcp_step_available?: boolean;
 };
 export const contextKey = (context: PreviewContext | null) => context ? `${context.model_id}/${context.configuration_revision}/${context.settings_revision}` : "";
 export async function planningRequest(path: string, data?: unknown, method = "POST") {

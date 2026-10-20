@@ -8,21 +8,24 @@ Model demonstracyjny pozwala ocenić obliczenia, nie potwierdza geometrii robota
 ## Obsługa panelu
 
 1. W **Sterowanie ręczne** włącz **Planowanie**. Niebieski bliźniak (30%) wskazuje
-   cel. JOG J1–J6 zmienia wyłącznie jego pozycję. Sterowanie XYZ/orientacją można
-   później podłączyć przez oddzielny interfejs pozycji docelowej `PlanningJog.preview()`.
+   cel. JOG J1–J6 i krzyżaki **TCP** zmieniają wyłącznie jego pozycję. TCP korzysta
+   z FK/IK i wspólnego celu przez `PlanningJog.preview()`; obsługuje układ bazy
+   oraz narzędzia. Szczegóły: [sterowanie ręczne](manual_control.md#tcp-w-planowaniu).
 2. Wybierz **PTP** lub **LIN**. Kliknięcie zapisuje aktualny start, oblicza ruch
    i uruchamia pomarańczowego bliźniaka (55%). Nie ma listy celów ani przycisku obliczania.
 3. **PTP** synchronizuje ruch przegubów; TCP może zataczać łuk. **LIN** prowadzi TCP
    po prostej z interpolacją orientacji. Oba dochodzą do wskazanego ustawienia robota.
 4. Na celu animacja czeka 500 ms, wraca skokowo na start i ponownie odtwarza tę samą
-   trajektorię. Każda pętla nie uruchamia nowych obliczeń.
-5. Kolejny JOG zatrzymuje podgląd. Po puszczeniu strzałki system przelicza ruch do
+   trajektorię. Każda pętla nie uruchamia nowych obliczeń. Narastający ślad TCP
+   pozostaje widoczny po cyklu i zatrzymaniu; powrót na start nie tworzy linii.
+5. Kolejny JOG lub TCP zatrzymuje podgląd. Po puszczeniu kierunku system przelicza ruch do
    nowego celu, zachowując typ i zapisany start. Nowe zadanie czeka na anulowanie starego.
 6. **Zatrzymaj podgląd**, utrata fokusu, ukrycie karty lub utrata backendu zatrzymują
    obliczenia/animację. Kliknięcie PTP/LIN ponownie pobiera start i uruchamia podgląd.
 
 Rzeczywisty model nadal śledzi enkodery; nowe pomiary nie zmieniają zapisanego startu
 ani celu. Zmiana modelu, rewizji lub wspólnego ustawienia symulacji unieważnia podgląd.
+Osie TCP i sygnalizację osobliwości modeli opisuje [podgląd 3D](robot_preview.md#osie-tcp-ślad-ruchu-i-osobliwości).
 Zmiana dostępności napędów nie blokuje animacji sześciu osi. Wyjście z ekranu usuwa
 bliźniaki. Backend trzyma w pamięci 4 plany do 8 MiB każdy oraz 8 zadań, bez zapisu
 programów na dysk. Nie ma omijania przeszkód, symulacji dynamiki ani odbioru fizycznego.
@@ -33,6 +36,8 @@ programów na dysk. Nie ma omijania przeszkód, symulacji dynamiki ani odbioru f
 odblokowuje JOG sześciu osi i wejście w planowanie bez napędów. Domyślnie jest wyłączony.
 Po wyłączeniu ręczny JOG celu znów wymaga świeżych pomiarów. Bliźniak animacji zawsze
 symuluje wszystkie osie. Stan rzeczywistych napędów oraz fizyczne sterowanie nie zmieniają się.
+TCP podlega tej samej opcji; przy jej wyłączeniu wymaga sześciu aktualnych pozycji
+do obliczenia pełnej pozy TCP. Nie zamraża brakujących osi ani nie dopisuje im zera.
 
 Suwak jest wspólny dla klientów (odczyt co sekundę), zapisywany atomowo przez
 `robot_configuration` w `system_settings.json`, w katalogu `configuration_dir`.
@@ -117,6 +122,43 @@ interpolację JTC, limity osi oraz dokładność LIN. Zachowujemy sześć pozycj
 docelowych, pełną orientację i `execution_ready=false`.
 
 ## ROS i HTTP
+
+`POST /api/v1/planning/tcp-step` przyjmuje kontekst i seed jak `tcp-jog`,
+`axis`, `direction`, `frame`, `velocity` oraz `step` z listy `[0.1,1,5,10,20]`.
+Wartość `step` oznacza mm dla XYZ lub stopnie dla Rx/Ry/Rz. FK i dokładne IK
+wyznaczają cel; istniejący planer LIN sprawdza drogę, ciągłość, limity q/v/a
+i prędkość TCP. Odpowiedź 202 zawiera zadanie obsługiwane przez istniejące
+`jobs`, `plans` i anulowanie. Nie powstaje interfejs wykonania sprzętowego.
+`GET context` sygnalizuje dostępność przez `tcp_step_available`.
+Klient pobiera jedną trajektorię, odtwarza ją raz w 60 Hz bez kolejnych żądań IK
+w czasie animacji i nie przyjmuje następnego impulsu do zakończenia bieżącego.
+
+Przy czystym obrocie kontrola drogi wyznacza postęp z orientacji, gdy resztkowa
+translacja FK/IK mieści się w tolerancji pozycji. Unika to fałszywego odrzucenia
+obrotu na podstawie projekcji na mikrometrowy wektor; tolerancje TCP nie są zwiększane.
+
+`POST /api/v1/planning/tcp-jog` oblicza pojedynczy przyrost celu; nie wykonuje ruchu.
+Żądanie zawiera `model_id`, `configuration_revision`, `settings_revision`,
+`seed_degrees[6]`, `simulated_start[6]`, `frame` (`base`/`tool`), `axis`
+(`x/y/z/rx/ry/rz`), `direction` (−1/+1), `velocity` (mm/s lub °/s zgodnie z osią)
+i `duration_s` (0,01–0,1 s). Przyrost odpowiada prędkości i czasowi kroku;
+prędkość symulacji mieści się w 0,01–100 mm/s albo 0,01–30°/s.
+Klient wysyła najwyżej jeden krok naraz, zwykle dla 50 ms. Po wolniejszej odpowiedzi
+uwzględnia czas od poprzedniego wysłania, najwyżej 100 ms, bez kolejki zaległych ruchów.
+Zlecenie 100 mm/s daje więc 5 mm na 50 ms zamiast poprzedniego ograniczenia do 1 mm,
+które przy 20 Hz ograniczało posuw do 20 mm/s. FK wykonywane jest raz na żądanie;
+IK i kontrola limitów nadal dzielą przyrost na odcinki najwyżej 1 mm lub 1°.
+Cały przyrost oraz każdy odcinek muszą spełniać limity pozycji, prędkości i ciągłości.
+Odczyty ustawień i konfiguracji są równoległe, przed i po obliczeniach; nie ma cache
+osłabiającego kontrolę rewizji. `GET context` zwraca `tcp_jog_segmented=true`.
+Przed przeładowaniem starszego backendu klient zachowuje dotychczasowy mały krok.
+
+Backend używa istniejącego `SolveIK` do FK oraz IK z poprzednich kątów.
+Przesunięcie narzędzia jest obracane do bazy, a obroty składane kwaternionowo
+(z lewej dla bazy, z prawej dla narzędzia). Kontroluje rewizje, zasady brakujących
+napędów, limity q i prędkości oraz ciągłość do 0,25 rad na krok. Błąd nie zmienia celu.
+Odpowiedź zawiera `positions_degrees[6]`, `tcp` w mm/°, trzy identyfikatory kontekstu,
+`simulation_only=true` i `execution_ready=false`. Nie dodano interfejsu wykonania.
 
 | Nazwa ROS | Typ / zastosowanie |
 | --- | --- |

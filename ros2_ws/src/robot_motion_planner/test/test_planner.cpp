@@ -112,6 +112,25 @@ TEST(PreviewMotion, LinKeepsTcpOnLineAndRejectsDifferentFinalBranch) {
   EXPECT_THROW(compute_preview(c,target,1,codes),std::runtime_error);
   target[0]=30; EXPECT_THROW(compute_preview(c,target,0,codes),std::invalid_argument);
 }
+TEST(PreviewMotion, PureRotationIgnoresSubToleranceIkTranslationForProgress) {
+  auto c=context();c.simulation_only=true;c.seed={15*rad,20*rad,-35*rad,20*rad,45*rad,-10*rad};
+  robot_kinematics::Model model(c.urdf,c.lower,c.upper);const auto start=model.fk(c.seed);
+  std::array<int64_t,6> codes;codes.fill(-1);
+  for(double angle : {.1,1.,5.,10.,20.}) {
+    auto goal=start;goal.linear()=Eigen::AngleAxisd(angle*rad,Eigen::Vector3d::UnitZ()).toRotationMatrix()*start.rotation();
+    const auto target=model.solve(goal,c.seed,c.locked,1e-6,1e-5);ASSERT_TRUE(target.success)<<target.message;
+    const auto plan=compute_preview(c,target.positions,1,codes,{}, {},TcpLimits{.01,.1,10*rad});
+    EXPECT_FALSE(plan.execution_ready);
+    for(double t=0;t<=time_of(plan.trajectory.points.back());t+=.005) {
+      const auto pose=model.fk(position_at(plan,t));
+      EXPECT_LE((pose.translation()-start.translation()).norm(),1e-4);
+      const Eigen::AngleAxisd rotation(pose.rotation()*start.rotation().transpose());
+      const double u=std::clamp(rotation.axis().z()*rotation.angle()/(angle*rad),0.,1.);
+      const auto expected=robot_kinematics::interpolate(start,goal,u);
+      EXPECT_LE(Eigen::AngleAxisd(pose.rotation()*expected.rotation().transpose()).angle(),.1*rad);
+    }
+  }
+}
 TEST(WristSpeed, SmoothBandUsesActualAngularJacobian) {
   auto c=context(); robot_kinematics::Model model(c.urdf,c.lower,c.upper); auto q=c.seed;
   double previous=-1;

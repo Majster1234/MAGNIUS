@@ -57,8 +57,6 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 
 - Domyślnie przed każdym testem ruchu opisz oś, kierunek, prędkość, czas/zakres
   i zatrzymanie oraz uzyskaj zgodę użytkownika przed wykonaniem.
-  Wyjątek: w obecnej rozmowie 2026-10-18 użytkownik zezwolił na testy sesji,
-  w tym dostępne osie po 15 s w obu kierunkach; nie pytaj ponownie. Wyjątek nie przechodzi do nowej sesji.
 - Rozmawiaj i pisz dokumentację po polsku; zachowuj istniejące nazwy pakietów i API.
 - Zakładkę „Ustawienia systemowe” uzupełniaj tylko na konkretne polecenie użytkownika.
 - Najpierw sprawdź odpowiedni kod i dokumentację. Wyszukuj przez `rg`; nie czytaj
@@ -112,8 +110,10 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Bieżący kontekst
 
-- 2026-10-20: dodano niebieski znacznik celu na skalach limitów, niezależny od pomiaru robota. JOG jest pierwszą kolumną z numerem osi między strzałkami; lokalnie sterowany wiersz jest niebieski. Stałe kolumny i miejsce na Plan zapobiegają przesuwaniu tabeli; wiersze 29 px. docs/manual_control.md.
-- TS/Vite, 42 Vitest i 5 Chromium OK; końcowy test układu obejmuje 1280/1366/1920 px, brak przepełnień także dla RPM, niezależność znacznika od enkoderów i brak komend sprzętowych. Przebudowano zasoby robot_web_bridge. Backend/ROS bez zmian, bez ich ponownego testowania.
-- Chromium LAN: 6 niebieskich wskazówek, stałe kolumny/skale przy przełączaniu, brak błędów JS/zapisów HTTP/komend. Frontend podmieniony bez restartu usługi; użytkownik odświeża Ctrl+F5. Aplikację prowadzi robot-web-status.service.
-- LIN: TCP mm/s i mm/s², osobny obrót °/s (50/100/10). PTP: °/s złączy. J4/J6 do maks. 5°/s przy osobliwości; execution_ready=false. API i interfejsy: docs/cartesian_planning.md. Wcześniej 19.10: 13 C++ + ROS, backend 62 OK.
-- Otwarte: adaptacja próbek IK i dobór J4/J6, geometria/przekładnie/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog, drugi klient LAN, oscylacje. Ignorowanie sterowników włączone. Node 22 tymczasowo; licencja TODO; feature/web-status bez commit/push.
+- 2026-10-20: tryb impulsowy TCP, wspólny suwak 0.1/1/5/10/20 mm i °. Jedno naciśnięcie uruchamia jeden LIN; puszczenie nie przerywa. STOP, blur i utrata kontekstu anulują; brak kolejki. docs/manual_control.md.
+- POST /planning/tcp-step (pod /api/v1), FK/IK i istniejący planner LIN, animacja JTC 60 Hz. Fizyczne TCP nadal zablokowane. tcp_step_available w GET context odblokowuje impulsy.
+- C++ near_path: czysty obrót oceniany z orientacji, jeśli translacja mieści się w tolerancji. Naprawia fałszywe odrzucanie małych obrotów, bez rozluźnienia limitów. docs/cartesian_planning.md.
+- 20.10: TS/Vite, 71 Vitest, 108 backend/ROS, 15 planera i 6 Chromium OK; wszystkie wartości mm/°, pojedynczy klik, STOP, układ 1280/1366/1920. Build planera i bridge OK. Bez ruchów sprzętu.
+- Odczyt LAN 20.10: backend impulsów nieaktywny. Wymagane sudo systemctl restart robot-web-status.service i Ctrl+F5; wcześniejsze sudo wymagało hasła.
+- TCP ciągłe zoptymalizowane; panel 176–480 px, krótsze skale JOG. Osie, ślad i osobliwości: docs/robot_preview.md.
+- Otwarte: adaptacja IK/J4/J6, geometria/przekładnie/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog, drugi klient LAN, oscylacje. Node 22 w /tmp; licencja TODO; feature/web-status bez commit/push.

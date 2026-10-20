@@ -3,9 +3,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import URDFLoader from "urdf-loader";
 import { createLimitGlows } from "./previewLimitGlow";
 import type { LimitIndicator } from "./previewLimits";
+import { createMotionTrail, type MotionTrace } from "./previewMotionTrail";
+import { robotSingularity, type Singularity } from "./previewSingularity";
 
 export type CameraView = "iso" | "front" | "side" | "top" | "fit";
-export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null };
+export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null };
 export function createPreviewScene(host: HTMLElement, xml: string, frame: () => PoseFrame) {
     const document = new DOMParser().parseFromString(xml, "application/xml");
     if (document.querySelector("parsererror, mesh, texture") || document.documentElement.tagName !== "robot")
@@ -26,7 +28,10 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
     const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(1, -2, 3); scene.add(light);
     scene.add(robot, twin, motion); twin.visible = false; motion.visible = false;
     const materials: { axis: number; material: THREE.MeshStandardMaterial; mesh: THREE.Mesh }[] = [];
-    function replaceMaterials(subject: THREE.Object3D, planning = false, playback = false) { subject.traverse(object => {
+    const subjectMaterials = new Map<THREE.Object3D, { axis: number; material: THREE.MeshStandardMaterial }[]>();
+    function replaceMaterials(subject: THREE.Object3D, planning = false, playback = false) {
+        const entries: { axis: number; material: THREE.MeshStandardMaterial }[] = []; subjectMaterials.set(subject, entries);
+        subject.traverse(object => {
         if (!(object instanceof THREE.Mesh)) return;
         let ancestor: THREE.Object3D | null = object, axis = 0;
         while (ancestor && !axis) {
@@ -37,7 +42,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
             transparent: planning, opacity: playback ? .55 : planning ? .3 : 1, depthWrite: !planning,
             polygonOffset: planning, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
         const old = Array.isArray(object.material) ? object.material : [object.material]; old.forEach(m => m.dispose());
-        object.material = material; if (!planning) materials.push({ axis, material, mesh: object });
+        object.material = material; entries.push({ axis, material }); if (!planning) materials.push({ axis, material, mesh: object });
     }); }
     replaceMaterials(robot); replaceMaterials(twin, true); replaceMaterials(motion, true, true);
     twin.renderOrder = 1; motion.renderOrder = 2;
@@ -48,6 +53,27 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
         element.textContent = name; host.append(element); labels.push({ object, element, point: new THREE.Vector3() });
     }
     robot.joints.tool_fixed?.add(new THREE.AxesHelper(.06));
+    const tcpFrames = [twin, motion].map((subject, i) => {
+        const axes = new THREE.AxesHelper(.085); axes.renderOrder = 6; axes.visible = false;
+        const material = axes.material as THREE.LineBasicMaterial; material.depthTest = false; material.depthWrite = false;
+        subject.joints.tool_fixed?.add(axes);
+        const markers = (["X", "Y", "Z"] as const).map((text, axis) => {
+            const element = window.document.createElement("span"); element.className = `preview-tcp-axis preview-tcp-${text.toLowerCase()}`;
+            element.textContent = text; element.dataset.subject = i ? "motion" : "target"; element.hidden = true; host.append(element);
+            const point = new THREE.Vector3(); point.setComponent(axis, .095);
+            return { element, point };
+        });
+        return { subject, axes, markers, visible: false };
+    });
+    const trail = createMotionTrail(scene, robot);
+    const singularities = [robot, twin, motion].map((subject, i) => {
+        const element = window.document.createElement("span"); element.className = "preview-singularity"; element.hidden = true;
+        element.dataset.subject = ["robot", "target", "motion"][i]; element.setAttribute("role", "status"); host.append(element);
+        const marker = new THREE.Mesh(new THREE.SphereGeometry(.027, 12, 8), new THREE.MeshBasicMaterial({
+            color: 0xffc64d, wireframe: true, transparent: true, opacity: .8, depthWrite: false, depthTest: false,
+        })); marker.renderOrder = 5; marker.visible = false; subject.joints.tool_fixed?.add(marker);
+        return { subject, element, marker, name: ["Robot", "Cel", "Ruch"][i], key: "", result: null as Singularity | null, point: new THREE.Vector3() };
+    });
     const limitGlows = createLimitGlows(robot, host);
     let width = 1, height = 1, dirty = true, disposed = false, lastRender = -Infinity;
     const angles = Array(6).fill(NaN) as number[], twinAngles = Array(6).fill(NaN) as number[];
@@ -94,6 +120,36 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
                 motion.setJointValue(`joint_${i + 1}`, value); motionAngles[i] = value; dirty = true;
             }
         });
+        const completeTarget = state.planning && state.plannedAngles.length === 6 && state.plannedAngles.every(q => q !== null && Number.isFinite(q));
+        const completeMotion = visibleMotion && state.motionAngles!.length === 6 && state.motionAngles!.every(Number.isFinite);
+        for (const [i, tcp] of tcpFrames.entries()) {
+            const visible = i === 0 ? completeTarget : completeMotion;
+            if (visible !== tcp.visible) { tcp.visible = tcp.axes.visible = visible; dirty = true; }
+            if (!visible) tcp.markers.forEach(({ element }) => { element.hidden = true; });
+        }
+        if (trail.update(state.motionTrace, state.planning)) dirty = true;
+        scene.updateMatrixWorld(true);
+        for (const [i, indicator] of singularities.entries()) {
+            const complete = i === 0 ? state.valid.length === 6 && state.valid.every(Boolean) : i === 1 ? completeTarget : completeMotion;
+            const values = i === 0 ? angles : i === 1 ? twinAngles : motionAngles;
+            const next = complete ? values.join("/") : "unknown";
+            if (next === indicator.key) continue;
+            indicator.key = next; indicator.result = complete ? robotSingularity(indicator.subject) : null;
+            const warning = indicator.result && indicator.result.level !== "clear" ? indicator.result : null;
+            indicator.marker.visible = !!warning; indicator.element.hidden = !warning;
+            indicator.element.dataset.level = indicator.result?.level ?? "unknown";
+            if (warning) {
+                const color = warning.level === "critical" ? 0xff5265 : 0xffc64d;
+                indicator.marker.material.color.setHex(color);
+                indicator.element.textContent = `${indicator.name}: ${warning.level === "critical" ? "bardzo blisko osobliwości" : "blisko osobliwości"} · ${warning.source === "wrist" ? "nadgarstek" : "ramię"}`;
+                indicator.element.title = `Ocena modelu URDF; wskaźnik nadgarstka ${warning.wrist.toFixed(4)}, całego łańcucha ${warning.arm.toFixed(4)}`;
+            }
+            subjectMaterials.get(indicator.subject)?.forEach(({ axis, material }) => {
+                material.emissive.setHex(warning && axis && (warning.source === "arm" || axis >= 4) ? warning.level === "critical" ? 0xff334c : 0xffaf24 : 0);
+                material.emissiveIntensity = .3;
+            });
+            dirty = true;
+        }
         if (!initialPoseFit && (state.valid.some(Boolean) || state.planning)) { view("iso"); initialPoseFit = true; }
         const nextSignature = `${state.valid.join()}/${state.active}`;
         if (signature !== nextSignature) {
@@ -109,12 +165,31 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
             element.style.left = `${(point.x + 1) * width / 2}px`; element.style.top = `${(1 - point.y) * height / 2}px`;
             element.hidden = point.z < -1 || point.z > 1 || Math.abs(point.x) > 1 || Math.abs(point.y) > 1;
         });
+        for (const tcp of tcpFrames) if (tcp.visible) for (const { element, point } of tcp.markers) {
+            const projected = tcp.axes.localToWorld(point.clone()).project(camera);
+            element.style.left = `${(projected.x + 1) * width / 2}px`; element.style.top = `${(1 - projected.y) * height / 2}px`;
+            element.hidden = projected.z < -1 || projected.z > 1 || Math.abs(projected.x) > 1 || Math.abs(projected.y) > 1;
+        }
+        for (const [i, indicator] of singularities.entries()) {
+            if (!indicator.result || indicator.result.level === "clear") continue;
+            const joint = indicator.subject.joints[indicator.result.source === "wrist" ? "joint_5" : "joint_3"];
+            joint.getWorldPosition(indicator.point).project(camera);
+            indicator.element.style.left = `${(indicator.point.x + 1) * width / 2}px`;
+            indicator.element.style.top = `${(1 - indicator.point.y) * height / 2 + i * 19}px`;
+            indicator.element.hidden = indicator.point.z < -1 || indicator.point.z > 1 || Math.abs(indicator.point.x) > 1 || Math.abs(indicator.point.y) > 1;
+        }
         // Bieżący stan elementu, bez historii; używany także w teście zgodności renderowanej pozy.
         renderer.domElement.dataset.jointAngles = JSON.stringify(angles);
         renderer.domElement.dataset.plannedJointAngles = state.planning ? JSON.stringify(twinAngles) : "";
         renderer.domElement.dataset.planningOpacity = twin.visible ? ".3" : "";
         renderer.domElement.dataset.motionJointAngles = motion.visible ? JSON.stringify(motionAngles) : "";
         renderer.domElement.dataset.motionOpacity = motion.visible ? ".55" : "";
+        renderer.domElement.dataset.tcpFrames = JSON.stringify(tcpFrames.filter(tcp => tcp.visible).map(tcp => ({
+            subject: tcp.subject === twin ? "target" : "motion", position: tcp.axes.getWorldPosition(new THREE.Vector3()).toArray(),
+            quaternion: tcp.axes.getWorldQuaternion(new THREE.Quaternion()).toArray(),
+        })));
+        renderer.domElement.dataset.motionTrace = JSON.stringify(trail.snapshot());
+        renderer.domElement.dataset.singularities = JSON.stringify(singularities.map(indicator => ({ subject: indicator.element.dataset.subject, ...indicator.result })));
         dirty = false; lastRender = now;
     }
     const restore = (event: Event) => { event.preventDefault(); dirty = true; };

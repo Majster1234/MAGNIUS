@@ -96,7 +96,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.equal(await page.locator('tbody tr').count(),6);
     // Planowanie jest w pełni lokalne: nie wymaga ENABLE i nie wysyła komend CAN.
     const planning=preview.getByRole('button',{name:'Planowanie',exact:true});
-    await planning.click(); await preview.getByText('Planowanie — JOG bliźniaka',{exact:true}).waitFor();
+    await planning.click(); await preview.getByText('Planowanie — JOG / TCP',{exact:true}).waitFor();
     await page.waitForFunction(()=>!!document.querySelector('.preview-canvas canvas')?.dataset.plannedJointAngles);
     assert(await row(1).getByRole('button',{name:'Załącz',exact:true}).isDisabled());
     assert(await row(1).getByRole('button',{name:'Ustaw zero'}).isDisabled());
@@ -121,7 +121,8 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       const background = await page.evaluate(()=>getComputedStyle(document.documentElement).backgroundColor);
       const channels = background.match(/\d+/g).slice(0,3).map(Number);
       assert(channels.every(c=>c<45), 'Tło panelu ma być ciemne');
-      assert(panel.height <= viewport.height, 'Podgląd i sterowanie mają mieścić się w wysokości desktop');
+      await page.screenshot({path:`/tmp/robot-manual-layout-${viewport.width}.png`,fullPage:true});
+      assert(panel.height <= viewport.height, `Podgląd i sterowanie mają mieścić się w wysokości desktop: ${JSON.stringify({panel,viewport})}`);
       const previewBox=await preview.boundingBox(), tableBox=await page.locator('.manual-table').boundingBox();
       const consoleBox=await page.getByRole('log',{name:'Konsola zdarzeń'}).boundingBox();
       assert.equal(Math.round(previewBox.height),viewport.height/2,'Podgląd ma zajmować połowę wysokości ekranu');
@@ -226,7 +227,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.screenshot({path: process.env.ROBOT_SCREENSHOT || '/tmp/robot-manual-desktop.png',fullPage:true});
     assert.equal(sockets.size,2,'Każdy panel współdzieli swój istniejący strumień pozycji z podglądem');
     // Nowa rewizja nie może wyrenderować opisu modelu z innej transakcji.
-    await planning.click(); await preview.getByText('Planowanie — JOG bliźniaka',{exact:true}).waitFor();
+    await planning.click(); await preview.getByText('Planowanie — JOG / TCP',{exact:true}).waitFor();
     descriptionRevision='ahead-of-runtime';state.configuration_revision='profile-test';
     Object.assign(state.axes[0],{joint_configured:true,calibration_valid:true,joint_position_known:true,joint_position_degrees:45,joint_lower_degrees:-90,joint_upper_degrees:90,jog_min_velocity_degrees_s:.12,jog_max_velocity_degrees_s:3.6});update();
     await page.getByRole('log').getByText('Plan unieważniony przez zmianę konfiguracji. Skopiuj ponownie pozycję robota.',{exact:true}).waitFor();

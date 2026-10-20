@@ -145,7 +145,9 @@ bool near_path(const Pose &pose, const std::vector<Pose> &path, double p_tol, do
   for(size_t i=1;i<path.size();++i) {
     const auto d=path[i].translation()-path[i-1].translation();
     double t;
-    if(d.squaredNorm()>1e-16) t=std::clamp((pose.translation()-path[i-1].translation()).dot(d)/d.squaredNorm(),0.,1.);
+    // Resztkowy błąd FK/IK przy samym obrocie nie może wyznaczać postępu
+    // orientacji przez projekcję na mikrometrowy wektor translacji.
+    if(d.squaredNorm()>std::max(1e-16,p_tol*p_tol)) t=std::clamp((pose.translation()-path[i-1].translation()).dot(d)/d.squaredNorm(),0.,1.);
     else {
       const Eigen::AngleAxisd delta(path[i].rotation()*path[i-1].rotation().transpose());
       const Eigen::AngleAxisd actual(pose.rotation()*path[i-1].rotation().transpose());

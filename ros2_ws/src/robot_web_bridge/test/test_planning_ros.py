@@ -68,10 +68,27 @@ def test_http_cpp_plan_without_execution(monkeypatch, tmp_path):
         data = dict(model_id=identifier, configuration_revision='http-test', seed_degrees=[math.degrees(q) for q in [.2,.3,-.5,.2,.2,-.1]],
                     preview_velocity_degrees_s=10, preview_acceleration_degrees_s2=50, forward_only=True)
         code, status = await request('context')
-        assert code == 200 and status['planner_available']
+        assert code == 200 and status['planner_available'] and status['tcp_jog_segmented']
         shifted = {**data, 'seed_degrees': [data['seed_degrees'][0]+.5, *data['seed_degrees'][1:]]}
         code, fk = await request('ik', shifted)
         assert code == 200, fk
+        # Rzeczywisty FK/IK C++ dla przyrostów TCP; żadnego wykonawcy CAN.
+        tcp_data = {**data, 'settings_revision': 'settings', 'simulated_start': [True]*6,
+                    'duration_s': .05, 'velocity': 1}
+        for frame in ('base', 'tool'):
+            for axis in ('x', 'y', 'z', 'rx', 'ry', 'rz'):
+                for direction in (-1, 1):
+                    code, step = await request('tcp-jog', {**tcp_data, 'frame': frame, 'axis': axis, 'direction': direction})
+                    assert code == 200, (frame, axis, direction, step)
+                    assert step['simulation_only'] and not step['execution_ready']
+                    assert len(step['positions_degrees']) == 6
+                    assert any(abs(a-b) > 1e-6 for a, b in zip(step['positions_degrees'], data['seed_degrees']))
+        code, origin = await request('ik', data)
+        assert code == 200, origin
+        code, fast = await request('tcp-jog', {**tcp_data, 'frame': 'base', 'axis': 'x', 'direction': 1, 'velocity': 100})
+        assert code == 200, fast
+        assert fast['tcp'][0] - origin['tcp'][0] == pytest.approx(5, abs=.015)
+        assert fast['tcp'][1:3] == pytest.approx(origin['tcp'][1:3], abs=.015)
         code, job = await request('jobs', {**data, 'targets': [fk['tcp']], 'blend_position_mm': 2, 'blend_orientation_degrees': .5})
         assert code == 202 and job['status'] == 'running', job
         deadline = time.monotonic() + 15
@@ -87,6 +104,31 @@ def test_http_cpp_plan_without_execution(monkeypatch, tmp_path):
         assert len(points) > 2 and abs(points[-1]['positions'][0]-points[0]['positions'][0]) > .001
         assert plan['configuration_revision'] == 'http-test'
         assert (await request('execute', {}))[0] == 404
+        # Impulsy: rzeczywisty LIN C++, dokładny dystans także dla 0,1 mm/°.
+        impulse = {**tcp_data, 'seed_degrees': [15., 20., -35., 20., 45., -10.], 'velocity': 10, 'frame': 'base', 'direction': 1}
+        code, impulse_origin = await request('ik', {**data, 'seed_degrees': impulse['seed_degrees']})
+        assert code == 200, impulse_origin
+        for axis in ('x', 'rz'):
+            for amount in (.1, 1, 5, 10, 20):
+                code, step_job = await request('tcp-step', {**impulse, 'axis': axis, 'step': amount})
+                assert code == 202, step_job
+                for _ in range(500):
+                    _, step_job = await request('jobs/'+step_job['id'])
+                    if step_job['status'] != 'running':
+                        break
+                    await asyncio.sleep(.02)
+                assert step_job['status'] == 'succeeded', (axis, amount, step_job)
+                code, step_plan = await request('plans/'+step_job['plan_id'])
+                assert code == 200 and step_plan['simulation_only'] and not step_plan['execution_ready']
+                points = step_plan['trajectory']['points']
+                assert max(abs(v) for v in points[0]['velocities']+points[-1]['velocities']) < 1e-8
+                code, endpoint = await request('ik', {**data, 'seed_degrees': [math.degrees(q) for q in points[-1]['positions']]})
+                assert code == 200, endpoint
+                if axis == 'x':
+                    assert endpoint['tcp'][0]-impulse_origin['tcp'][0] == pytest.approx(amount, abs=.002)
+                    assert endpoint['tcp'][1:3] == pytest.approx(impulse_origin['tcp'][1:3], abs=.002)
+                else:
+                    assert endpoint['tcp'][-1]-impulse_origin['tcp'][-1] == pytest.approx(amount, abs=.002)
         manual_timer.cancel(); fresh[0] = False
         for axis in axes:
             axis['available'] = axis['position_known'] = False

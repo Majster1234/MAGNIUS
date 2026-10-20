@@ -9,7 +9,11 @@ Panel ma ciemne tło wspólne z przeglądem i diagnostyką CAN. Tytuł, stan po�
 i nagrywania mieszczą się w pasku u góry; pod nim jest przewijana konsola zdarzeń.
 Ostrzeżenia mają żółte tło, awarie czerwone, informacje pozostają bez tła.
 Historia jest ograniczona do 100 wpisów; nie zapisuje kolejnych kopii tego samego
-statusu. Tabela sześciu osi znajduje się pod modelem i nadal zajmuje około 200 px;
+statusu. Tabela sześciu osi znajduje się po lewej pod modelem, a panel TCP po prawej.
+Wszystkie osiem kolumn pozostaje dostępnych; skrócone skale i wartości celu pod
+pomiarem zwalniają miejsce na TCP. Skale zajmują około połowy wcześniejszej
+długości; panel TCP rozszerza się wraz z oknem (176–480 px), z większymi krzyżakami.
+Tabela nadal zajmuje około 200 px;
 wiersz ma 29 px. Pozycje nie są powtarzane w bocznym panelu podglądu 3D.
 Pole prędkości, przyciski i wskaźniki pozostają dostępne
 bez rozwijania sekcji.
@@ -45,6 +49,50 @@ JOG i odtwarza go w pętli na trzecim modelu. Kolejny JOG zatrzymuje podgląd,
 a puszczenie strzałki przelicza ruch. W ustawieniach systemowych można odblokować
 lokalny JOG wszystkich osi bez napędów. Fizyczne sterowanie pozostaje bez zmian.
 Szczegóły: [symulacja PTP/LIN](cartesian_planning.md).
+
+## TCP w planowaniu
+
+Panel **TCP** ma dwa krzyżaki: X/Y dla przesunięcia oraz Rx/Ry dla obrotu,
+z dodatkowymi przyciskami Z± i Rz±. Przytrzymanie przesuwa cel, puszczenie zatrzymuje
+edycję. Jednocześnie działa jeden kierunek TCP albo jedna oś JOG. Przełącznik
+**Baza / Narzędzie** wybiera osie odniesienia; domyślnie jest to baza. Obrót odbywa
+się wokół początku TCP, bez przesunięcia jego pozycji. Prędkości domyślne symulacji
+wynoszą 10 mm/s oraz 5°/s. Nie są parametrami potwierdzonymi dla sprzętu.
+Posuw nie jest już obcinany do 1 mm na publikację 20 Hz: zadane 100 mm/s oznacza
+przyrost 5 mm na 50 ms, z kontrolą IK w odcinkach do 1 mm. Limity przegubów nadal
+mogą uniemożliwić dany krok; brak rozwiązania zatrzymuje edycję zamiast wykonywać skok.
+
+TCP i JOG zmieniają ten sam niebieski cel i jego znaczniki w tabeli. Gdy wybrano
+PTP/LIN, rozpoczęcie edycji anuluje poprzednie obliczenia; TCP czeka na potwierdzenie
+anulowania. Po puszczeniu kierunku podgląd przelicza się ze stałego startu.
+Brak IK lub naruszenie limitów zatrzymuje TCP i zachowuje ostatni poprawny cel;
+przyczyna pojawia się w konsoli. Utrata fokusu, ukrycie karty, utrata połączenia lub
+zmiana kontekstu zatrzymują edycję; spóźnione wyniki nie zmieniają celu.
+
+Bez ignorowania brakujących napędów TCP wymaga aktualnych pozycji sześciu osi,
+w tym poprawnej kalibracji skonfigurowanych przegubów. Istniejąca opcja ignorowania
+braków w planowaniu pozwala używać pozycji symulacyjnych, tak jak dla JOG.
+Poza planowaniem **fizyczne TCP jest zawsze zablokowane**, także przy 6/6 napędów.
+Panel pokazuje brakujące osie i informację o niedostępnym wykonawcy wieloosiowym.
+Fizyczny JOG pojedynczych dostępnych osi zachowuje dotychczasowe zasady.
+
+### Tryb impulsowy TCP
+
+Przełącz **Tryb TCP** z **Ciągły** na **Impulsowy**. Wspólny pięciopozycyjny suwak
+wybiera **0.1, 1, 5, 10 lub 20**: dla X/Y/Z są to mm, dla Rx/Ry/Rz stopnie.
+Jedno naciśnięcie kierunku uruchamia jeden impuls; puszczenie go nie przerywa,
+a przytrzymywanie nie powtarza ruchu. Domyślnie wybrane jest 1 mm / 1°.
+Suwak zachowuje wybór przy zmianie kierunku i rodzaju ruchu.
+
+Impuls przesuwa wyłącznie niebieski cel planowania. Najpierw oblicza pełną drogę LIN,
+następnie odtwarza ją raz z interpolacją JTC w 60 Hz, z rozpędzaniem i hamowaniem.
+Prędkości wybiera się w trybie ciągłym; impulsy korzystają z zapamiętanych wartości
+oraz limitów profili. W trakcie obliczeń i animacji inne kierunki, JOG, tryb i suwak
+są zablokowane; nie ma kolejki kliknięć. **Zatrzymaj impuls** przerywa obliczenia
+lub animację, zachowując ostatnią pokazaną pozycję celu. Utrata fokusu, ukrycie
+karty, rozłączenie lub zmiana kontekstu również przerywa impuls bez wznowienia.
+Błąd planowania pozostawia cel bez zmian. PTP/LIN czeka na zakończenie lub
+potwierdzone anulowanie impulsu. Fizyczne TCP pozostaje zablokowane.
 
 ## Uruchomienie i obsługa
 

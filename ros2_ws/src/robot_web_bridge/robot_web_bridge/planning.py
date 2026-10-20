@@ -5,6 +5,7 @@ import json
 import math
 import uuid
 import threading
+from copy import deepcopy
 import xml.etree.ElementTree as ET
 
 
@@ -92,10 +93,10 @@ class PlanningClient:
         if model and state.get('configuration_revision'):
             self.reference(model[1], state['configuration_revision'], state)
 
-    async def context(self, data, preview=False):
+    async def context(self, data, preview=False, configuration_snapshot=None):
         from robot_control_interfaces.msg import PlanningContext, JointConfiguration
         (xml, identifier), state = self.current(preview)
-        code, snapshot = await self.configuration('status')
+        code, snapshot = configuration_snapshot if configuration_snapshot is not None else await self.configuration('status')
         phases = ('idle', 'done', 'uncertain', 'failed') if preview else ('idle',)
         if code != 200 or snapshot.get('operation', {}).get('phase') not in phases:
             raise RuntimeError('Konfiguracja ROS jest niedostępna lub nieuzgodniona')
@@ -166,6 +167,8 @@ class PlanningClient:
                          'upper': values[prefix+'upper'] if configured else 3600,
                          'velocity': values[prefix+'velocity'] if configured else 180})
         return {'model_id': identifier, 'configuration_revision': active['revision'],
+                'tcp_jog_segmented': True,
+                'tcp_step_available': True,
                 'planner_available': self.preview.server_is_ready(), 'profiles': axes,
                 'settings_revision': settings.get('revision'), 'ignore_missing_drivers': settings.get('ignore_missing_drivers', False),
                 'preview_seed_degrees': seed, 'seed_sources': sources,
@@ -190,6 +193,115 @@ class PlanningClient:
                     'position_error_mm': answer.position_error * 1000, 'orientation_error_degrees': math.degrees(answer.orientation_error)}
         finally:
             self.ik.remove_pending_request(future)
+
+    async def tcp_step(self, data):
+        from .tcp_jog import increment_pose
+        axis, frame = data.get('axis'), data.get('frame')
+        if axis not in ('x', 'y', 'z', 'rx', 'ry', 'rz') or frame not in ('base', 'tool'):
+            raise ValueError('Wymagany kierunek TCP i układ base/tool')
+        amount = number(data.get('step'), 'Impuls TCP')
+        if amount not in (.1, 1, 5, 10, 20):
+            raise ValueError('Impuls TCP: wybierz 0.1, 1, 5, 10 lub 20')
+        direction = number(data.get('direction'), 'Kierunek')
+        if direction not in (-1, 1):
+            raise ValueError('Kierunek musi wynosić −1 lub 1')
+        linear = axis in ('x', 'y', 'z')
+        velocity = number(data.get('velocity'), 'Prędkość TCP', .01, 100 if linear else 30)
+        settings, configuration = await asyncio.gather(self.configuration('system_get'), self.configuration('status'))
+        await self.tcp_settings_guard(data, settings)
+        parameters = {**data, 'motion_type': 'LIN', 'tcp_velocity_mm_s': velocity if linear else 10,
+                      'tcp_angular_velocity_degrees_s': 5 if linear else velocity, 'tcp_acceleration_mm_s2': 100}
+        context = await self.context(parameters, True, configuration)
+        if not self.ik.service_is_ready():
+            raise RuntimeError('Solver IK jest niedostępny')
+        async def compute(request):
+            future = self.ik.call_async(request)
+            try:
+                answer = await ros_result(future)
+                if not answer.success:
+                    raise ValueError(answer.message)
+                return answer
+            finally:
+                self.ik.remove_pending_request(future)
+        fk = await compute(self.ik_type.Request(context=context, forward_only=True))
+        target = increment_pose(fk.tcp, frame, axis, direction*(amount/1000 if linear else math.radians(amount)))
+        answer = await compute(self.ik_type.Request(context=context, target=target,
+                               position_tolerance=1e-6, orientation_tolerance=1e-5))
+        await self.tcp_settings_guard(data, await self.configuration('system_get'))
+        # LIN sprawdza całą drogę, gałąź IK, q/v/a i posuw. Wynik nie jest wykonywany.
+        return await self.move({**parameters, 'target_degrees': [math.degrees(q) for q in answer.positions]})
+
+    async def tcp_settings_guard(self, data, settings_snapshot):
+        code, settings = settings_snapshot
+        if code != 200 or settings.get('revision') != data.get('settings_revision'):
+            raise ValueError('Ustawienia symulacji zmieniły się; ponów planowanie TCP')
+        if not settings.get('ignore_missing_drivers', False):
+            state = self.manual.snapshot()
+            if not state.get('fresh') or state.get('configuration_revision') != data.get('configuration_revision') or len(state['axes']) != 6:
+                raise ValueError('TCP wymaga aktualnych pozycji sześciu osi')
+            for i, item in enumerate(state['axes']):
+                age = item.get('position_age_seconds')
+                if (item.get('axis') != i+1 or not item.get('available') or not item.get('position_known') or
+                        type(age) not in (int, float) or not 0 <= age < .25 or
+                        (item.get('joint_configured') and not (item.get('joint_position_known') and item.get('calibration_valid')))):
+                    raise ValueError(f'TCP wymaga aktualnej pozycji J{i+1}')
+
+    async def tcp_jog(self, data):
+        from .tcp_jog import increment_pose
+        frame, axis = data.get('frame'), data.get('axis')
+        if frame not in ('base', 'tool') or axis not in ('x', 'y', 'z', 'rx', 'ry', 'rz'):
+            raise ValueError('Wymagany układ base/tool i kierunek x/y/z/rx/ry/rz')
+        direction = number(data.get('direction'), 'Kierunek')
+        if direction not in (-1, 1):
+            raise ValueError('Kierunek musi wynosić −1 lub 1')
+        duration = number(data.get('duration_s'), 'Czas kroku', .01, .1)
+        linear = axis in ('x', 'y', 'z')
+        speed = number(data.get('velocity'), 'Prędkość TCP', .01, 100 if linear else 30)
+        distance = speed*duration/1000 if linear else math.radians(speed*duration)
+        # Niezależne odczyty równolegle; rewizje nadal sprawdzane przed i po IK.
+        settings, configuration = await asyncio.gather(self.configuration('system_get'), self.configuration('status'))
+        await self.tcp_settings_guard(data, settings)
+        context_data = {**data, 'preview_velocity_degrees_s': 180, 'preview_acceleration_degrees_s2': 100}
+        context = await self.context(context_data, True, configuration)
+        if not self.ik.service_is_ready():
+            raise RuntimeError('Solver IK jest niedostępny')
+
+        async def compute(request):
+            future = self.ik.call_async(request)
+            try:
+                answer = await ros_result(future)
+                if not answer.success:
+                    raise ValueError(answer.message)
+                return answer
+            finally:
+                self.ik.remove_pending_request(future)
+
+        fk = await compute(self.ik_type.Request(context=context, forward_only=True))
+        # Pełny posuw przy 20 Hz, ale IK i kontrola limitów co najwyżej 1 mm / 1°.
+        steps = max(1, math.ceil(abs(distance)/(.001 if linear else math.radians(1)) - 1e-12))
+        previous = list(context.seed)
+        for step in range(1, steps+1):
+            segment = deepcopy(context)
+            segment.seed = previous
+            target = increment_pose(fk.tcp, frame, axis, direction*distance*step/steps)
+            answer = await compute(self.ik_type.Request(context=segment, target=target,
+                                   position_tolerance=1e-5, orientation_tolerance=1e-4))
+            for i, (q, start, lower, upper, velocity) in enumerate(zip(answer.positions, previous,
+                    context.lower, context.upper, context.max_velocity)):
+                if not math.isfinite(q) or q < lower or q > upper or abs(q-start) > min(.25, velocity*duration/steps) + 1e-9:
+                    raise ValueError(f'Krok TCP przekracza limit pozycji/prędkości lub ciągłości J{i+1}')
+            previous = list(answer.positions)
+        for i, (q, start, lower, upper, velocity) in enumerate(zip(answer.positions, context.seed,
+                context.lower, context.upper, context.max_velocity)):
+            if not math.isfinite(q) or q < lower or q > upper or abs(q-start) > min(.25, velocity*duration) + 1e-9:
+                raise ValueError(f'Krok TCP przekracza limit pozycji/prędkości lub ciągłości J{i+1}')
+        settings, configuration = await asyncio.gather(self.configuration('system_get'), self.configuration('status'))
+        await self.tcp_settings_guard(data, settings)
+        # Ponowna kontrola rewizji przed przekazaniem wyniku klientowi.
+        await self.context(context_data, True, configuration)
+        return {'positions_degrees': [math.degrees(q) for q in answer.positions], 'tcp': self.pose_json(answer.tcp),
+                'model_id': data['model_id'], 'configuration_revision': data['configuration_revision'],
+                'settings_revision': data['settings_revision'], 'simulation_only': True, 'execution_ready': False}
 
     @staticmethod
     def pose_json(pose):
@@ -368,6 +480,12 @@ def add_planning_routes(app, client):
     @app.post('/api/v1/planning/ik')
     async def ik(request: Request):
         return await call(client.solve if client else None, await body(request))
+    @app.post('/api/v1/planning/tcp-jog')
+    async def tcp_jog(request: Request):
+        return await call(client.tcp_jog if client else None, await body(request))
+    @app.post('/api/v1/planning/tcp-step', status_code=202)
+    async def tcp_step(request: Request):
+        result = await call(client.tcp_step if client else None, await body(request)); result.status_code = 202; return result
     @app.post('/api/v1/planning/jobs', status_code=202)
     async def start(request: Request):
         result = await call(client.start if client else None, await body(request)); result.status_code = 202; return result

@@ -59,18 +59,30 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(await panel.getByRole('button',{name:/Oblicz|Odtwórz/}).count(),0);
   assert.equal(await canvas.getAttribute('data-motion-joint-angles'),'');
   async function jog(axis){const b=page.getByRole('button',{name:`JOG J${axis} prawo`,exact:true});await b.hover();await page.mouse.down();await delay(180);await page.mouse.up();await delay(100);}
-  await jog(6);const target=await canvas.getAttribute('data-planned-joint-angles');assert(JSON.parse(target)[5]>.1);
+  await jog(6);await jog(1);const target=await canvas.getAttribute('data-planned-joint-angles');assert(JSON.parse(target)[5]>.1);
+  await page.waitForFunction(()=>JSON.parse(document.querySelector('.robot-preview canvas').dataset.tcpFrames).some(frame=>frame.subject==='target'));
+  const tcpFrames=JSON.parse(await canvas.getAttribute('data-tcp-frames')),tcp=tcpFrames.find(frame=>frame.subject==='target'),q=JSON.parse(target);
+  assert(Math.abs(tcp.position[0]-.44*Math.cos(q[0]))<1e-5);assert(Math.abs(tcp.position[1]-.44*Math.sin(q[0]))<1e-5);assert(Math.abs(tcp.position[2]-.45)<1e-5);
+  assert(Math.abs(tcp.quaternion[0]-Math.cos(q[0]/2)*Math.sin(q[5]/2))<1e-5,'Układ TCP obraca się razem z narzędziem');
+  assert.equal(await page.locator('.preview-tcp-axis[data-subject="target"]').count(),3);
+  assert.equal(await page.locator('.preview-singularity[data-subject="target"]').getAttribute('data-level'),'critical');
+  assert(await page.locator('.preview-singularity[data-subject="robot"]').isHidden(),'Brak pomiarów nie tworzy ostrzeżenia rzeczywistego robota');
   await panel.getByRole('button',{name:'PTP',exact:true}).click();await panel.getByText(/PTP · 0.60 s · pętla/).waitFor();
   await page.waitForFunction(()=>document.querySelector('.robot-preview canvas').dataset.motionOpacity==='.55');
   assert.equal(await canvas.getAttribute('data-planning-opacity'),'.3');assert.equal(await canvas.getAttribute('data-planned-joint-angles'),target);
-  const samples=[];for(let i=0;i<16;i++){samples.push(JSON.parse(await canvas.getAttribute('data-motion-joint-angles'))[5]);await delay(100);}
+  const samples=[],traceSizes=[];for(let i=0;i<16;i++){samples.push(JSON.parse(await canvas.getAttribute('data-motion-joint-angles'))[5]);traceSizes.push(JSON.parse(await canvas.getAttribute('data-motion-trace')).points);await delay(100);}
   const end=JSON.parse(target)[5];assert(samples.some(v=>Math.abs(v-end)<.015),'Pauza na celu');assert(samples.some(v=>v<end*.25),'Reset na start');
+  assert(traceSizes.every((count,i)=>i===0||count>=traceSizes[i-1]),'Ślad nie znika przy powrocie animacji na start');
+  const trace=JSON.parse(await canvas.getAttribute('data-motion-trace'));assert(trace.visible&&trace.points===trace.capacity);assert.equal(trace.capacity,37);
+  assert.equal(JSON.parse(await canvas.getAttribute('data-tcp-frames')).length,2);
+  assert.equal(await page.locator('.preview-singularity[data-subject="motion"]').getAttribute('data-level'),'critical');
   await page.screenshot({path:'/tmp/robot-ptp-lin-playing.png',fullPage:true});
   assert.equal(requests.length,1,'Pętla nie powtarza obliczeń');
   seed=[25,0,0,0,0,0];state.axes[0].available=state.axes[0].position_known=true;state.axes[0].position_degrees=25;await delay(1200);
   await jog(2);await panel.getByText(/PTP · 0.60 s · pętla/).waitFor();assert.equal(requests.length,2);assert.deepEqual(requests[1].seed_degrees,Array(6).fill(0));
   assert.equal(requests[1].motion_type,'PTP');
   await panel.getByRole('button',{name:'LIN',exact:true}).click();await panel.getByText(/LIN · 0.60 s · pętla/).waitFor();assert.equal(requests.at(-1).seed_degrees[0],25);
+  await page.waitForFunction(old=>JSON.parse(document.querySelector('.robot-preview canvas').dataset.motionTrace).id!==old,trace.id);
   assert.equal(requests.at(-1).tcp_velocity_mm_s,50);assert.equal(requests.at(-1).tcp_acceleration_mm_s2,100);
   assert.equal(requests.at(-1).tcp_angular_velocity_degrees_s,10);assert(!('preview_velocity_degrees_s' in requests.at(-1)));
   await panel.getByText('Prędkość podglądu',{exact:true}).click();
@@ -85,6 +97,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   await panel.getByRole('button',{name:'PTP',exact:true}).click();await panel.getByText(/PTP · 0.60 s · pętla/).waitFor();
   await page.evaluate(()=>window.dispatchEvent(new Event('blur')));await delay(100);
   const frozen=await canvas.getAttribute('data-motion-joint-angles');await delay(300);assert.equal(await canvas.getAttribute('data-motion-joint-angles'),frozen);
+  const stoppedTrace=await canvas.getAttribute('data-motion-trace');await delay(200);assert.equal(await canvas.getAttribute('data-motion-trace'),stoppedTrace,'Zatrzymanie pozostawia ślad');
   delayedPlan=true;const pendingPlan=page.waitForRequest(request=>request.url().includes('/planning/plans/'));
   await panel.getByRole('button',{name:'PTP',exact:true}).click();await pendingPlan;await jog(4);delayedPlan=false;
   for(let i=0;i<15;i++){const pose=JSON.parse(await canvas.getAttribute('data-motion-joint-angles'));assert(pose.every(q=>Math.abs(q)<1.2),'Spóźniony wynik nie może uruchomić animacji');await delay(100);}
@@ -93,8 +106,9 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert(await page.getByRole('button',{name:'JOG J6 prawo',exact:true}).isDisabled());
   assert(!await page.getByRole('button',{name:'JOG J1 prawo',exact:true}).isDisabled());
   assert.equal(await panel.getByRole('button',{name:'PTP',exact:true}).getAttribute('aria-pressed'),'false');
+  assert(!JSON.parse(await canvas.getAttribute('data-motion-trace')).visible,'Zmiana kontekstu usuwa nieaktualny ślad');
   await page.screenshot({path:'/tmp/robot-ptp-lin.png',fullPage:true});
   assert.deepEqual(commands,[]);assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({result:'OK',checks:['wspólny suwak dwóch klientów','JOG bez sześciu napędów','trzy modele WebGL','stały cel','PTP i LIN','pętla z pauzą i resetem','start niezależny od enkoderów','automatyczne przeliczenie po JOG','oczekiwanie na anulowanie','blur','przywrócenie ograniczeń osi','brak komend sprzętowych']}));
+  console.log(JSON.stringify({result:'OK',checks:['wspólny suwak dwóch klientów','JOG bez sześciu napędów','trzy modele WebGL','osie TCP z FK i orientacją','trwały ślad przez pętlę i stop','osobliwość celu/ruchu bez fikcyjnych pomiarów robota','stały cel','PTP i LIN','pętla z pauzą i resetem','start niezależny od enkoderów','automatyczne przeliczenie po JOG','oczekiwanie na anulowanie','blur','przywrócenie ograniczeń osi','brak komend sprzętowych']}));
  }finally{clearInterval(timer);await context.close();await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

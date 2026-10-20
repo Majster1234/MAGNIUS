@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { pointTime, trajectoryPosition, validateCartesianPlan } from "./cartesianTrajectory";
 import { contextKey, planningRequest, type PreviewContext } from "./planningContext";
+import type { MotionTrace } from "./previewMotionTrail";
 
 type Start = { values: number[]; simulated: boolean[] };
-export function CartesianPlanning({ positions, context, editing, usable, onMotion }: {
+export function CartesianPlanning({ positions, context, editing, usable, onMotion, onEditingReady, beforePlanning }: {
     positions: (number | null)[]; context: PreviewContext | null; editing: boolean; usable: boolean;
-    onMotion: (positions: number[] | null) => void;
+    onMotion: (positions: number[] | null, trace?: MotionTrace | null) => void;
+    onEditingReady?: (ready: boolean) => void;
+    beforePlanning?: () => Promise<void>;
 }) {
     const [choice, setChoice] = useState<"PTP" | "LIN" | null>(null), [start, setStart] = useState<Start | null>(null);
-    const [message, setMessage] = useState("Ustaw cel przez JOG, następnie wybierz PTP lub LIN.");
+    const [message, setMessage] = useState("Ustaw cel przez JOG lub TCP, następnie wybierz PTP lub LIN.");
     const [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false), [serial, setSerial] = useState(0);
     const [overrides, setOverrides] = useState<string[]>(Array(6).fill(""));
     const [velocity, setVelocity] = useState("10"), [acceleration, setAcceleration] = useState("50");
@@ -17,6 +20,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     const job = useRef<string | null>(null), cancellation = useRef<Promise<unknown>>(Promise.resolve());
     const work = useRef<Promise<unknown>>(Promise.resolve()), previousContext = useRef(contextKey(context));
     const key = contextKey(context), targetKey = positions.join("/");
+    const editingContext = useRef<string | null>(null);
     function cancelJob() {
         if (!job.current) return cancellation.current;
         const identifier = job.current; job.current = null;
@@ -45,7 +49,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     }, [onMotion]);
     useEffect(() => {
         if (previousContext.current !== key || !usable) {
-            armed.current = false; interrupt(); onMotion(null);
+            armed.current = false; interrupt(); onMotion(null, null);
             if (previousContext.current !== key) {
                 setChoice(null); setStart(null); setOverrides(Array(6).fill(""));
                 setMessage("Kontekst planowania zmienił się. Ustaw cel i wybierz PTP lub LIN.");
@@ -64,7 +68,18 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         setSerial(old => old + 1);
     }
     useEffect(() => {
-        if (editing) { interrupt(); if (choice && start) armed.current = true; return; }
+        if (editing) {
+            if (editingContext.current === key && usable) return;
+            editingContext.current = key;
+            interrupt(); if (choice && start) armed.current = true;
+            const current = generation.current;
+            onMotion(null); onEditingReady?.(false);
+            void work.current.catch(() => {}).then(() => cancellation.current).then(() => {
+                if (mounted.current && generation.current === current) onEditingReady?.(true);
+            }).catch(() => { if (mounted.current && generation.current === current) setMessage("Nie potwierdzono anulowania podglądu — TCP zablokowane."); });
+            return;
+        }
+        editingContext.current = null;
         if (!choice || !start || !usable || !context || !armed.current) return;
         interrupt(); const current = generation.current;
         const payload = { model_id: context.model_id, configuration_revision: context.configuration_revision,
@@ -78,6 +93,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         work.current = work.current.catch(() => {}).then(async () => {
             try {
                 await cancellation.current;
+                await beforePlanning?.();
                 if (!valid()) return;
                 const started = await planningRequest("planning/moves", payload);
                 job.current = started.id;
@@ -101,9 +117,9 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                             if (document.hidden || now - previous > 500) { armed.current = false; setPlaying(false); return; }
                             previous = now;
                             const elapsed = (now - epoch) / 1000, t = Math.min(total, elapsed % (total + .5));
-                            onMotion(trajectoryPosition(plan, t)); animation.current = requestAnimationFrame(frame);
+                            onMotion(trajectoryPosition(plan, t), { plan, seconds: t }); animation.current = requestAnimationFrame(frame);
                         }
-                        onMotion(trajectoryPosition(plan, 0)); animation.current = requestAnimationFrame(frame); return;
+                        onMotion(trajectoryPosition(plan, 0), { plan, seconds: 0 }); animation.current = requestAnimationFrame(frame); return;
                     }
                     if (status.status !== "running") { job.current = null; throw Error(status.message || "Obliczenia anulowane"); }
                     await new Promise(resolve => setTimeout(resolve, 100));
@@ -115,7 +131,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                 if (mounted.current && current === generation.current) setBusy(false);
             }
         });
-    }, [choice, start, serial, targetKey, editing, usable, key, velocity, acceleration, tcpVelocity, tcpAcceleration, tcpAngularVelocity, onMotion]);
+    }, [choice, start, serial, targetKey, editing, usable, key, velocity, acceleration, tcpVelocity, tcpAcceleration, tcpAngularVelocity, onMotion, onEditingReady, beforePlanning]);
     const invalidStart = context?.preview_seed_degrees.some((q, i) => q < context.profiles[i].lower || q > context.profiles[i].upper);
     return <div className="cartesian-planning motion-selection" aria-label="Podgląd ruchu PTP/LIN">
         <div className="cartesian-card">

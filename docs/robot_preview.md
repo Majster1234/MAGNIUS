@@ -8,6 +8,37 @@ Mysz obraca, przesuwa i przybliża widok. Ikona domku w prawym górnym rogu
 sceny dopasowuje kamerę do bieżącej pozy modelu. Nie ma przycisków widoków
 Izometria / Przód / Bok / Góra. Model nie wysyła poleceń do napędów.
 
+## Osie TCP, ślad ruchu i osobliwości
+
+Niebieski bliźniak celu oraz pomarańczowy bliźniak ruchu mają w TCP układ osi
+**X — czerwona, Y — zielona, Z — niebieska**. Osie i etykiety obracają się wraz
+z narzędziem według aktualnego URDF. Dla niepełnej pozycji celu układ jest ukryty.
+
+Pomarańczowa linia pokazuje tor TCP pomarańczowego bliźniaka PTP/LIN. Narasta
+podczas pierwszego przejazdu i pozostaje widoczna w kolejnych cyklach oraz po
+zatrzymaniu podglądu. Skok z końca na start nie dorysowuje odcinka powrotnego.
+Nowy poprawny plan zastępuje poprzedni ślad; zakończenie planowania, zmiana
+kontekstu lub opuszczenie ekranu usuwa go. Samo edytowanie celu zachowuje stary
+ślad do otrzymania nowego planu. FK linii korzysta z tej samej interpolacji JTC
+co animacja, próbkowanej co najwyżej co 1/60 s (maks. 12001 punktów dla 200 s).
+Powtarzanie pętli nie powiększa bufora. Ślad nie jest nagraniem fizycznego TCP.
+
+Blisko konfiguracji osobliwej odpowiedni model otrzymuje żółte podświetlenie,
+przy większej bliskości czerwone, siatkową kulę przy TCP i etykietę **Robot**,
+**Cel** albo **Ruch** z nazwą obszaru. Nadgarstek podświetla J4–J6, a ostrzeżenie
+całego łańcucha wszystkie człony. Rzeczywisty robot wymaga sześciu aktualnych
+pomiarów; brakujące lub nieaktualne pozycje nie tworzą ostrzeżenia. Cel i ruch
+są oceniane niezależnie na podstawie pełnych pozycji symulowanych.
+
+Kierunki i początki osi pochodzą z aktualnych transformacji URDF. Wskaźnik
+nadgarstka to stosunek najmniejszej do największej wartości singularnej części
+kątowej Jacobianu J4–J6, zgodny z plannerem C++: żółty do `tan(15°)`, czerwony
+do `tan(2,5°)`. Pełny Jacobian uwzględnia także utratę rzędu ramienia: część
+liniową dzielimy przez największą odległość TCP od początku przegubu; stosunek
+wartości singularnych do 0,02 daje żółty, do 0,005 czerwony. Są to progi
+wizualizacji modelu, bez zmiany solvera, limitów prędkości lub sterowania sprzętem.
+Ocena nie ogranicza się do kąta J5 i uwzględnia niestandardowe osie oraz RPY.
+
 Przy każdym przegubie poświata wskazuje odpowiednią granicę „− LIMIT” lub
 „+ LIMIT”. Kolor wynika z najnowszego pomiaru, bez czekania na interpolację modelu:
 

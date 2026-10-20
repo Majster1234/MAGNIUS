@@ -5,19 +5,21 @@ import { previewLimits } from "./previewLimits";
 import type { createPreviewScene } from "./robotPreviewScene";
 import type { Notice } from "./eventLog";
 import type { ReactNode } from "react";
+import type { MotionTrace } from "./previewMotionTrail";
 
-export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, planningTools, simulationPositions = null, simulationAllowed = false, expectedRevision, modelId }: {
+export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, planningTools, simulationPositions = null, motionTrace = null, simulationAllowed = false, expectedRevision, modelId }: {
     state: ManualState | null; usable: boolean; onNotice: (notice: Notice) => void; planning: boolean;
     pending: boolean; physicalJogActive: boolean; plannedPositions: (number | null)[]; planningReady: boolean; onPlanningStart: () => void; onPlanningSync: () => void; onPlanningEnd: () => void;
     onModelStatus: (status: { ready: boolean; revision?: string }) => void;
     planningTools?: ReactNode;
     simulationPositions?: number[] | null; simulationAllowed?: boolean; expectedRevision?: string; modelId?: string;
+    motionTrace?: MotionTrace | null;
 }) {
     const host = useRef<HTMLDivElement>(null);
     const scene = useRef<ReturnType<typeof createPreviewScene> | null>(null);
     const pose = useRef(new PreviewPose());
     const poseRevision = useRef(state?.configuration_revision);
-    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, expectedRevision }); input.current = { state, usable, planning, plannedPositions, simulationPositions, expectedRevision };
+    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision }); input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision };
     const [message, setMessage] = useState("Wczytywanie modelu z ROS…");
     const [modelKind, setModelKind] = useState("partial-demo");
     const [, refresh] = useState(0);
@@ -53,7 +55,8 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                         return { angles: valid.map((ok, i) => pose.current.angle(i, now, ok)), valid, active: current?.active_axis ?? 0,
                             limits: valid.map((ok, i) => previewLimits(current?.axes[i], pose.current.degrees(i), ok)), planning: activePlanning,
                             plannedAngles: planned.map(position => position === null ? null : position * Math.PI / 180),
-                            motionAngles: input.current.simulationPositions?.map(value => value * Math.PI / 180) ?? null };
+                            motionAngles: input.current.simulationPositions?.map(value => value * Math.PI / 180) ?? null,
+                            motionTrace: input.current.motionTrace };
                     });
                     setMessage("");
                     onModelStatus({ ready: true, revision: revisionToLoad });
@@ -80,7 +83,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     const canStartPlanning = !message && (usable && count > 0 || simulationAllowed) && !pending && !physicalJogActive && !state?.busy;
     return <section className="robot-preview" aria-label="Wizualizacja robota">
         <header><h2>Wizualizacja robota</h2><span className="badge warn">{modelKind === "configured" ? "Geometria konfiguracji" : "Geometria demonstracyjna"} · {state?.axes.some(axis => axis.joint_configured) ? "przełożenia osi" : "wały 1:1"}</span>
-            {planning && <span className="badge planning-badge">Planowanie — JOG bliźniaka</span>}
+            {planning && <span className="badge planning-badge">Planowanie — JOG / TCP</span>}
             <span className={`preview-completeness ${count === 6 ? "complete" : "partial"}`}>{count === 6 ? "Pozycja kompletna — 6/6 osi" : `Pozycja częściowa — ${count}/6 osi`}</span>
         </header>
         <div className="preview-body"><div className="preview-viewport" aria-label="Model 3D robota">

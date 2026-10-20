@@ -11,7 +11,7 @@
         "typecheck": "tsc --noEmit",
         "build": "npm run typecheck && vite build",
         "test": "vitest run",
-        "test:browser": "node test/manual.browser.cjs && node test/planning.browser.cjs && node test/cartesian.browser.cjs && node test/configuration.browser.cjs && node test/configuration-snapshots.browser.cjs"
+        "test:browser": "node test/manual.browser.cjs && node test/planning.browser.cjs && node test/cartesian.browser.cjs && node test/tcp.browser.cjs && node test/configuration.browser.cjs && node test/configuration-snapshots.browser.cjs"
     },
     "dependencies": {
         "react": "^19.2.0",
