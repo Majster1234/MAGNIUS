@@ -1,8 +1,8 @@
 # Symulacja pojedynczego ruchu PTP/LIN i API kinematyki
 
 Panel oblicza pojedynczy ruch i odtwarza go na dodatkowym bliźniaku. Każdy wynik
-ma `execution_ready=false`, także przy poprawnych ramkach MKS. Nie ma endpointu
-wykonania. Planner nie otwiera SocketCAN ani nie wysyła ENABLE, zero lub JOG.
+podglądu ma `execution_ready=false`, także przy poprawnych ramkach MKS. Fizyczny
+PTP ma odrębny interfejs opisany w [motion_execution.md](motion_execution.md). Planner nie otwiera SocketCAN ani nie wysyła ENABLE, zero lub JOG.
 Model demonstracyjny pozwala ocenić obliczenia, nie potwierdza geometrii robota.
 
 ## Obsługa panelu
@@ -128,7 +128,7 @@ docelowych, pełną orientację i `execution_ready=false`.
 Wartość `step` oznacza mm dla XYZ lub stopnie dla Rx/Ry/Rz. FK i dokładne IK
 wyznaczają cel; istniejący planer LIN sprawdza drogę, ciągłość, limity q/v/a
 i prędkość TCP. Odpowiedź 202 zawiera zadanie obsługiwane przez istniejące
-`jobs`, `plans` i anulowanie. Nie powstaje interfejs wykonania sprzętowego.
+`jobs`, `plans` i anulowanie. Ten interfejs podglądu nie wykonuje sprzętu; fizyczny PTP ma odrębny wykonawca.
 `GET context` sygnalizuje dostępność przez `tcp_step_available`.
 Klient pobiera jedną trajektorię, odtwarza ją raz w 60 Hz bez kolejnych żądań IK
 w czasie animacji i nie przyjmuje następnego impulsu do zakończenia bieżącego.
@@ -158,7 +158,7 @@ Przesunięcie narzędzia jest obracane do bazy, a obroty składane kwaternionowo
 (z lewej dla bazy, z prawej dla narzędzia). Kontroluje rewizje, zasady brakujących
 napędów, limity q i prędkości oraz ciągłość do 0,25 rad na krok. Błąd nie zmienia celu.
 Odpowiedź zawiera `positions_degrees[6]`, `tcp` w mm/°, trzy identyfikatory kontekstu,
-`simulation_only=true` i `execution_ready=false`. Nie dodano interfejsu wykonania.
+`simulation_only=true` i `execution_ready=false`. Ten endpoint nadal służy tylko podglądowi.
 
 | Nazwa ROS | Typ / zastosowanie |
 | --- | --- |
@@ -245,3 +245,11 @@ Testy bez sprzętu obejmują FK/IK, synchronizację PTP, prostoliniowość LIN, 
 konfigurację, limity, anulowanie i zgodność HTTP→C++. Chromium sprawdza trzy modele,
 stały start/cel, automatyczne przeliczanie, pętlę, opóźnione wyniki oraz globalny suwak
 dwóch klientów. Osobne testy CAN używają emulatora sześciu napędów.
+
+## Fizyczny PTP i niepełny zestaw napędów
+
+Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
+Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
+nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
+Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
+Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.

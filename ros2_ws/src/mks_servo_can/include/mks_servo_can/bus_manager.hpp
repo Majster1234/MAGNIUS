@@ -9,6 +9,7 @@
 #include "mks_servo_can/protocol.hpp"
 #include "mks_servo_can/socketcan.hpp"
 #include "mks_servo_can/configuration.hpp"
+#include "mks_servo_can/motion_executor.hpp"
 
 namespace mks_servo_can {
 class ManualMotorController;
@@ -50,7 +51,7 @@ struct AxisConfig {
   double gear_ratio{}, direction{}, offset{}, lower{}, upper{}, max_velocity{}, max_acceleration{}, tracking_error{};
   std::uint8_t acceleration_code{};
 };
-enum class Source { none, trajectory, jog };
+enum class Source { none, trajectory, jog, program };
 struct CommandBatch {
   std::array<double, kAxes> positions{};
   std::array<double, kAxes> velocities{};
@@ -72,6 +73,9 @@ struct BusConfig {
   std::chrono::milliseconds source_lease_timeout{200};
   std::array<AxisConfig, kAxes> axes{};
   unsigned manual_max_rpm{30};
+  bool program_enabled{}, program_stop_verified{}, program_sync_verified{}, program_staged_reset_verified{};
+  std::string program_revision;
+
 };
 struct BusStatistics {
   std::uint64_t tx{}, rx{}, invalid{}, late{}, timeouts{}, errors{}, deferred{}, missed_cycles{}, committed{}, dropped_commands{};
@@ -88,7 +92,7 @@ struct BusSnapshot {
 };
 struct ControlState {
   std::array<Sample<double>, kAxes> positions{};
-  bool active{}, fault{};
+  bool active{}, fault{}, program_owned{};
   Source source{Source::none};
 };
 
@@ -115,13 +119,19 @@ class CanBusManager {
   const BusConfig &config() const { return config_; }
   static double position_to_joint(const AxisConfig &axis, std::int64_t ticks);
   static std::int32_t joint_to_position(const AxisConfig &axis, double position);
+  void configure_program_authorization(const BusConfig &authorization);
+  void update_motion_model(const std::string &model);
+  void update_motion_settings(const std::string &revision, bool allow_missing, Time now);
+  MotionProgramStatus prepare_program(PreparedMotionProgram program, Time now);
+  bool execute_program(const std::string &id, const std::string &key, Time now);
+  MotionProgramStatus program_status() const { return executor_.status; }
   void require_configuration();
   ConfigurationResult configure(ConfigurationPhase phase, const std::string &operation,
       const std::string &expected, const RobotProfile &profile, Time now);
 
  private:
   friend class ManualMotorController;
-  enum class Kind { identity, mode, position, enable, stall, motor, speed, stage, manual };
+  enum class Kind { identity, mode, position, enable, stall, motor, speed, stage, manual, program_setup };
   struct Pending {
     bool used{false};
     std::uint16_t address{};
@@ -146,8 +156,19 @@ class CanBusManager {
   void schedule_feedback(Time now);
   void schedule_background(Time now);
   void schedule_motion(Time now);
+  void schedule_program(Time now);
+  bool program_feedback_good(Time now) const;
+  void program_setup_reply(const Frame &frame, Time now);
+
   void start_cycle(Time now);
   std::size_t axis_index(std::uint16_t address) const;
+  MotionExecutor executor_;
+  std::string motion_settings_revision_, motion_model_;
+  bool allow_missing_motion_{}, program_owned_{};
+  Time motion_settings_stamp_{};
+  std::uint64_t program_generation_{};
+  std::array<std::string,64> execution_keys_{};
+  std::size_t execution_key_cursor_{};
   BusConfig config_;
   std::unique_ptr<Transport> transport_;
   std::unique_ptr<ManualMotorController> manual_;

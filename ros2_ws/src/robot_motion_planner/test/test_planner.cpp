@@ -244,3 +244,16 @@ TEST(TcpFeed, PureOrientationUsesSeparateAngularVelocity) {
   EXPECT_THROW(compute_preview(c,target,1,codes,{}, {},TcpLimits{.1,0,.1}),std::invalid_argument);
   EXPECT_THROW(compute_preview(c,target,0,codes,{}, {},limits),std::invalid_argument);
 }
+TEST(PhysicalPtp, ReplansPhysicalContextAndMarksMissingReferencesExplicitly) {
+  auto c=context();std::array<int64_t,6> codes;codes.fill(-1);
+  for(unsigned j=0;j<6;++j) c.profiles[j].configured=true;
+  auto target=c.seed;target[0]+=.05;
+  const auto p=compute_physical_ptp(c,target,codes);
+  EXPECT_FALSE(p.simulation_only);EXPECT_FALSE(p.execution_ready);EXPECT_EQ(p.motion_type,"PTP");
+  EXPECT_NEAR(p.trajectory.points.back().positions[0],target[0],1e-9);
+  c.simulated_start[5]=true;
+  EXPECT_THROW(compute_physical_ptp(c,target,codes),std::invalid_argument);
+  c.allow_missing_execution=true;
+  const auto partial=compute_physical_ptp(c,target,codes);EXPECT_TRUE(partial.simulated_start[5]);
+  c.simulation_only=true;EXPECT_THROW(compute_physical_ptp(c,target,codes),std::invalid_argument);
+}

@@ -29,6 +29,12 @@ class BusRuntime {
                   const std::string &session, std::uint64_t sequence, Time issued);
   bool joint_jog(JogAction action, unsigned axis, int direction, double velocity,
       const std::string &revision, const std::string &session, std::uint64_t sequence, Time issued);
+  void configure_program_authorization(const BusConfig &authorization);
+  void update_motion_model(const std::string &model);
+  void update_motion_settings(const std::string &revision, bool allow_missing);
+  MotionProgramStatus prepare_program(PreparedMotionProgram program);
+  bool execute_program(const std::string &id, const std::string &key);
+  MotionProgramStatus program_status();
   void require_configuration();
   ConfigurationResult configure(ConfigurationPhase phase, const std::string &operation,
       const std::string &expected, const RobotProfile &profile);

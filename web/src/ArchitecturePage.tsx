@@ -2,7 +2,7 @@ const stages = [
     ["Przeglądarka UI", "React · TypeScript", "Widoki operatora, WebSocket i podgląd cyfrowego bliźniaka."],
     ["Backend API", "FastAPI · :8080", "Wspólny snapshot ROS, odczyt REST i strumienie WebSocket."],
     ["ROS 2 Humble", "/robot/system_status", "Monitor systemu, diagnostyka CAN i osobne usługi ręcznego sterowania."],
-    ["Planowanie i sterowanie", "KDL · TOTG · ros2_control", "Planowanie PTP/LIN służy podglądowi. Fizyczne wykonanie TCP pozostaje zablokowane."],
+    ["Planowanie i sterowanie", "KDL · TOTG · ros2_control", "PTP ma lokalny wykonawca C++ i osobne zatwierdzenie. LIN oraz ciągłe TCP pozostają podglądem."],
     ["SocketCAN", "can0 · 500 kbit/s", "Linux → BIGTREETECH U2C v2.1 → protokół producenta MKS."],
     ["Napędy MKS SERVO42D CAN", "CAN ID 1–6 ↔ J1–J6", "Stałe przypisanie osi. Dostępność napędów pokazuje diagnostyka bieżącej sesji."],
 ];

@@ -57,6 +57,7 @@ std::string timestamp(mks_servo_can::Time stamp, mks_servo_can::Time monotonic_n
 DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runtime,
                                const mks_servo_can::BusConfig &config)
     : Node("robot_can_diagnostics"), runtime_(std::move(runtime)), config_(config) {
+  program_api_=std::make_shared<ProgramApi>(this,runtime_);
   runtime_->require_configuration();
   using Configure = robot_control_interfaces::srv::ConfigureRobot;
   configuration_ = create_service<Configure>("/robot/configuration/control",

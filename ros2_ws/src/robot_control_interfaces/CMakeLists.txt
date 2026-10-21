@@ -12,6 +12,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SolveIK.srv" "action/ComputeCartesianPath.action"
   "action/ComputePreviewMotion.action"
   "srv/JogJoint.srv" "srv/ConfigureRobot.srv" "srv/ConfigurationCommand.srv"
+  "msg/MotionSettings.msg" "msg/MotionProgramStatus.msg"
+  "srv/PrepareMotionProgram.srv" "srv/GetMotionProgram.srv" "action/ExecuteMotionProgram.action" "action/ComputePhysicalPtp.action"
   DEPENDENCIES geometry_msgs trajectory_msgs)
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

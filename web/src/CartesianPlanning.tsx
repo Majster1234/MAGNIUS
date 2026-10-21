@@ -1,16 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { pointTime, trajectoryPosition, validateCartesianPlan } from "./cartesianTrajectory";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { pointTime, trajectoryPosition, validateCartesianPlan, type CartesianPlan } from "./cartesianTrajectory";
 import { contextKey, planningRequest, type PreviewContext } from "./planningContext";
 import type { MotionTrace } from "./previewMotionTrail";
 
 type Start = { values: number[]; simulated: boolean[] };
-export function CartesianPlanning({ positions, context, editing, usable, onMotion, onEditingReady, beforePlanning, showMotionFrames = true, onShowMotionFrames }: {
+export function CartesianPlanning({ positions, context, editing, usable, onMotion, onEditingReady, beforePlanning, showMotionFrames = true, onShowMotionFrames, onPlanReady, onPreparedPreview }: {
     positions: (number | null)[]; context: PreviewContext | null; editing: boolean; usable: boolean;
     onMotion: (positions: number[] | null, trace?: MotionTrace | null) => void;
     onEditingReady?: (ready: boolean) => void;
     beforePlanning?: () => Promise<void>;
     showMotionFrames?: boolean; onShowMotionFrames?: (show: boolean) => void;
+    onPlanReady?: (id: string | null) => void;
+    onPreparedPreview?: (callback: ((plan: CartesianPlan) => void) | null) => void;
 }) {
+    const [planId, setPlanId] = useState<string | null>(null);
     const [choice, setChoice] = useState<"PTP" | "LIN" | null>(null), [start, setStart] = useState<Start | null>(null);
     const [message, setMessage] = useState("Ustaw cel przez JOG lub TCP, następnie wybierz PTP lub LIN.");
     const [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false), [serial, setSerial] = useState(0);
@@ -64,7 +67,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         if (!values.every((q, i) => Number.isFinite(q) && q >= context.profiles[i].lower && q <= context.profiles[i].upper)) {
             setMessage("Start poza limitami. Popraw pozycje w edytorze Start symulacji."); return;
         }
-        interrupt(); armed.current = true; setChoice(type);
+        setPlanId(null); interrupt(); armed.current = true; setChoice(type);
         setStart({ values, simulated: context.seed_sources.map((source, i) => source !== "measured" || !!overrides[i].trim()) });
         setSerial(old => old + 1);
     }
@@ -90,7 +93,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                 tcp_angular_velocity_degrees_s: Number(tcpAngularVelocity) } : {
                 preview_velocity_degrees_s: Number(velocity), preview_acceleration_degrees_s2: Number(acceleration) }) };
         const valid = () => mounted.current && current === generation.current && armed.current;
-        setBusy(true); setMessage(`Obliczanie ${choice}…`); onMotion(start.values);
+        setPlanId(null); setBusy(true); setMessage(`Obliczanie ${choice}…`); onMotion(start.values);
         work.current = work.current.catch(() => {}).then(async () => {
             try {
                 await cancellation.current;
@@ -110,6 +113,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                         if (plan.model_id !== payload.model_id || plan.configuration_revision !== payload.configuration_revision ||
                             plan.settings_revision !== payload.settings_revision || plan.motion_type !== choice || !plan.simulation_only || plan.execution_ready)
                             throw Error("Wynik dotyczy innego kontekstu symulacji; wybierz ruch ponownie.");
+                        setPlanId(plan.id);
                         const total = pointTime(plan.trajectory.points.at(-1)!);
                         const epoch = performance.now(); let previous = epoch;
                         setBusy(false); setPlaying(true); setMessage(`${choice} · ${total.toFixed(2)} s · pętla · tylko symulacja`);
@@ -133,6 +137,21 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
             }
         });
     }, [choice, start, serial, targetKey, editing, usable, key, velocity, acceleration, tcpVelocity, tcpAcceleration, tcpAngularVelocity, onMotion, onEditingReady, beforePlanning]);
+    const showPrepared = useCallback((plan: CartesianPlan) => {
+        armed.current = false;generation.current++;cancelAnimationFrame(animation.current);
+        setBusy(false);setPlaying(true);
+        const current = generation.current, epoch = performance.now(), total = pointTime(plan.trajectory.points.at(-1)!);
+        setMessage(`Podgląd przygotowanego PTP · ${total.toFixed(2)} s · fizyczne wykonanie wymaga zatwierdzenia`);
+        function frame(now: number) {
+            if (!mounted.current || generation.current !== current) return;
+            const seconds = Math.min(total, (now - epoch) / 1000);
+            onMotion(trajectoryPosition(plan, seconds), { plan, seconds });
+            if (seconds < total) animation.current = requestAnimationFrame(frame);else setPlaying(false);
+        }
+        animation.current = requestAnimationFrame(frame);
+    }, [onMotion]);
+    useEffect(() => { onPlanReady?.(choice === "PTP" ? planId : null);return () => onPlanReady?.(null); }, [choice, planId, onPlanReady]);
+    useEffect(() => { onPreparedPreview?.(showPrepared);return () => onPreparedPreview?.(null); }, [showPrepared, onPreparedPreview]);
     const invalidStart = context?.preview_seed_degrees.some((q, i) => q < context.profiles[i].lower || q > context.profiles[i].upper);
     return <div className="cartesian-planning motion-selection" aria-label="Podgląd ruchu PTP/LIN">
         <div className="cartesian-card">

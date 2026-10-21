@@ -324,3 +324,11 @@ i 1920×1080; testy przytrzymania, puszczenia i utraty danych nadal przechodzą.
 Osobno otwarto działający panel LAN: nowy układ sterowania, statusy 20 Hz,
 ciemny przegląd i ekran CAN, bez błędów JavaScript. Zmiana plików statycznych
 nie wymagała restartu backendu. Nie wykonywano nowych prób ruchu ani testów ROS/C++.
+
+## Fizyczny PTP i niepełny zestaw napędów
+
+Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
+Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
+nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
+Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
+Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.

@@ -14,7 +14,7 @@ from rclpy.qos import QoSProfile, DurabilityPolicy
 from rcl_interfaces.srv import SetParametersAtomically
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 from std_msgs.msg import String
-from robot_control_interfaces.msg import JointConfiguration, RobotConfiguration, ManualState
+from robot_control_interfaces.msg import JointConfiguration, RobotConfiguration, ManualState, MotionSettings
 from robot_control_interfaces.srv import ConfigurationCommand, ConfigureRobot
 from .schema import profiles, validate
 from .storage import Storage, decode
@@ -91,6 +91,7 @@ class ConfigurationNode(Node):
         self.service = self.create_service(ConfigurationCommand, '/robot/configuration/command', self.command, callback_group=self.group)
         self.publisher = self.create_publisher(String, '/robot/configuration/state', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.active_publisher = self.create_publisher(RobotConfiguration, '/robot/configuration/active', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.motion_settings_publisher = self.create_publisher(MotionSettings, '/robot/motion/settings', QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.timer = self.create_timer(.5, self.publish)
         self.worker = None
         self.startup = self.create_timer(.2, self.bootstrap)
@@ -121,6 +122,8 @@ class ConfigurationNode(Node):
         return result
 
     def publish(self):
+        settings = self.storage.system_settings()
+        self.motion_settings_publisher.publish(MotionSettings(revision=settings['revision'], allow_missing_motion=settings['allow_missing_motion']))
         snapshot = self.coordinator.snapshot()
         self.publisher.publish(String(data=json.dumps(snapshot, ensure_ascii=False, allow_nan=False)))
         # Również przy braku CAN: opis aktywnego profilu jest źródłem symulacji.
@@ -140,7 +143,10 @@ class ConfigurationNode(Node):
             elif operation == 'system_get':
                 result = self.storage.system_settings(); code = 200
             elif operation == 'system_set':
-                result = self.storage.set_system_settings(data.get('ignore_missing_drivers')); code = 200
+                if any(type(value) is not bool for key, value in data.items() if key in ('ignore_missing_drivers', 'allow_missing_motion')):
+                    raise ValueError('Ustawienia wymagają wartości logicznych')
+                result = self.storage.set_system_settings(data.get('ignore_missing_drivers'), allow_missing_motion=data.get('allow_missing_motion')); code = 200
+                self.motion_settings_publisher.publish(MotionSettings(revision=result['revision'], allow_missing_motion=result['allow_missing_motion']))
             elif operation == 'list':
                 result = self.storage.list(data.get('cursor', '')); code = 200
             elif operation == 'get':

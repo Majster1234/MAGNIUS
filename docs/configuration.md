@@ -1,7 +1,8 @@
 # Konfiguracja robota i snapshoty
 
 Otwórz **Konfiguracja → Parametry robota** (`/#config`; dotychczasowy `/#configuration` jest aliasem). W ustawieniach systemowych
-jest wspólny suwak **Ignoruj brak sterowników — tylko planowanie**, opisany w
+są niezależne suwaki: **Zezwalaj na ruch bez wszystkich silników**
+([wykonanie PTP](motion_execution.md)) oraz **Ignoruj brak sterowników — tylko planowanie**, opisany w
 [instrukcji PTP/LIN](cartesian_planning.md#brak-sterowników-i-pozycja-bazowa).
 Kolumny J1–J6 odpowiadają CAN 1–6. Suwak widoku tabeli przełącza geometrię
 oraz przełożenia i ograniczenia. Jednostki panelu i JSON: mm, °, °/s, °/s², kg.
@@ -156,3 +157,11 @@ z ostatnim stanem, typowane `/robot/configuration/control` dla C++.
 Testy obejmują schema/storage/transakcje, prawdziwy ROS/RSP/TF na atrapie sterowania,
 emulator C++ i Chromium z WebGL. Bieżące wyniki i ograniczenia odbioru: `AGENTS.md`.
 Testy sprzętowe raportujemy osobno. Przełożenia w testach nie są danymi fizycznego robota.
+
+## Fizyczny PTP i niepełny zestaw napędów
+
+Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
+Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
+nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
+Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
+Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.

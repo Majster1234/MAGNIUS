@@ -82,15 +82,18 @@ bool CanBusManager::start_scan() {
 }
 void CanBusManager::clear_fault() {
   if (!service_allowed()) return;
+  program_owned_=false;
   fault_ = false; stop_sent_ = false; latest_.reset(); last_sequence_ = 0;
   source_ = Source::none; lease_stamp_ = {};
   manual_ = std::make_unique<ManualMotorController>(*this);
   std::array<bool, kAxes> changed; changed.fill(true); manual_->configuration_changed(changed);
   for (auto &p : pending_) p.used = false;
+  config_.program_staged_reset_verified=false; // Ponowny odbiór po niepewnym stanie napędów.
   message_ = "Błąd skasowany — wymagana ponowna aktywacja";
 }
 void CanBusManager::reset_session() {
   if (active_ || transport_->is_open()) throw std::logic_error("Reset sesji wymaga zamkniętego transportu");
+  executor_={};program_owned_=false;
   devices_ = {}; pending_ = {}; quarantine_ = {};
   next_position_ = {}; next_enable_ = {}; next_stall_ = {}; next_motor_ = {}; next_mode_ = {}; next_speed_ = {};
   manual_ = std::make_unique<ManualMotorController>(*this);
@@ -118,6 +121,7 @@ bool CanBusManager::activate(Source source, Time now) {
     if (source_ == Source::none || now < lease_stamp_ || now - lease_stamp_ >= config_.source_lease_timeout) return false;
     source = source_;
   }
+  if (program_owned_ || executor_.status.busy || source == Source::program) return false;
   if (active_ || manual_->busy() || scanning_ || fault_ || source == Source::none || !config_.motion_enabled ||
       !config_.commissioning_verified || !config_.synchronization_verified || !config_.stop_verified ||
       !transport_->is_open() || !feedback_good(now)) return false;
@@ -129,12 +133,13 @@ bool CanBusManager::activate(Source source, Time now) {
   previous_velocity_.fill(0); last_sequence_ = 0; message_ = "Sterowanie aktywne"; return true;
 }
 bool CanBusManager::submit(const CommandBatch &batch) {
+  if (executor_.status.busy || batch.source == Source::program) return false;
   if (!active_ || fault_ || batch.source != source_ || batch.sequence <= last_sequence_) return false;
   if (latest_) ++stats_.dropped_commands;
   latest_ = batch; last_sequence_ = batch.sequence; return true;
 }
 void CanBusManager::renew_source_lease(Source source, Time now) {
-  if (fault_) return;
+  if (fault_ || program_owned_ || executor_.status.busy) return;
   if (!active_) { source_ = source; lease_stamp_ = now; return; }
   if (source == Source::none) { fault("Źródło sterowania zwolniło uprawnienie ruchu"); return; }
   if (source != source_) {
@@ -148,6 +153,9 @@ void CanBusManager::fault(const std::string &message) {
   trace_note("bus_fault", message);
   trace_freeze_after(std::chrono::seconds(5));
   const bool was_active = active_;
+  if(executor_.status.busy || executor_.status.state=="ready") {
+    executor_.status.busy=false;executor_.status.state="failed";executor_.status.message=message;
+  }
   fault_ = true; active_ = false; scanning_ = false; message_ = message;
   manual_->transport_fault();
   latest_.reset(); inflight_.reset(); source_ = Source::none; ++stats_.errors;
@@ -159,7 +167,7 @@ void CanBusManager::stop(const std::string &reason) {
   else fault(reason);
 }
 void CanBusManager::emergency_stop() {
-  if (stop_sent_ || !config_.stop_verified) return;
+  if (stop_sent_ || (!config_.stop_verified && !config_.program_stop_verified)) return;
   stop_sent_ = true;
   // Bez broadcastu: zatrzymujemy tylko jawnie skonfigurowane osie. Nie wyłączamy momentu.
   for (const auto &axis : config_.axes) {
@@ -194,7 +202,7 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
     case Kind::motor: command = 0xf1; break;
     case Kind::speed: command = 0x32; length = 4; break;
     case Kind::stage: command = 0xf5; break;
-    case Kind::manual: return false;
+    case Kind::manual: case Kind::program_setup: return false;
   }
   if (kind == Kind::mode) data = mode_request(address);
   else if (kind == Kind::stage) {
@@ -258,6 +266,7 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
     case Kind::motor: { const auto v = parse_motor_state(p.address, frame.data); if (!v) return false; d.motor_state.set(*v, stamp); break; }
     case Kind::speed: { const auto v = parse_speed(p.address, frame.data); if (!v) return false; d.speed.set(*v, stamp); break; }
     case Kind::manual: manual_->reply(frame.data, stamp); break;
+    case Kind::program_setup: program_setup_reply(frame, stamp); break;
     case Kind::stage:
       if (frame.data[1] != 5) { fault("Napęd nie potwierdził przygotowania synchronicznej komendy"); return true; }
       staged_[axis_index(p.address)] = true; break;
@@ -287,6 +296,12 @@ void CanBusManager::receive(Time now) {
       e.deadline_ns = trace_ns(p.deadline); e.duration_ns = trace_ns(stamp) - trace_ns(p.sent);
       e.kernel_utc_ns = frame->kernel_utc_ns;
       if (stamp < p.sent || stamp >= p.deadline) { e.event = "reply_late"; trace(e); ++stats_.late; break; }
+      // F5 completion poprzedniego celu może nadejść podczas oczekiwania na
+      // ACK=5 następnego zestawu. Nie potwierdza przygotowania i nie zużywa slotu.
+      if (p.kind==Kind::stage && frame->data.size()==3 && frame->data[1]==2 &&
+          validate_response(p.address,frame->data,p.command,p.length).valid) {
+        ++stats_.late;trace_note("previous_move_complete","",p.address,0xf5);break;
+      }
       if (!validate_response(p.address, frame->data, p.command, p.length).valid || !decode(p, *frame, stamp)) {
         e.event = "reply_invalid"; trace(e);
         ++stats_.invalid; ++devices_[frame->address].invalid; break;
@@ -312,6 +327,7 @@ void CanBusManager::expire(Time now) {
         d.mode.valid = d.enable.valid = d.stall.valid = d.motor_state.valid = false;
       }
     }
+    if (p.kind == Kind::program_setup) { fault("Brak potwierdzenia uzbrojenia programu"); break; }
     if (p.kind == Kind::stage) { fault("Brak potwierdzenia wszystkich osi — synchronizacja zablokowana"); break; }
     if (p.kind == Kind::manual) { manual_->timeout(); break; }
   }
@@ -335,7 +351,7 @@ void CanBusManager::schedule_feedback(Time now) {
     cursor_ = cursor_ == kMaximumAddress ? 1 : cursor_ + 1;
     const auto &d = devices_[address];
     if (!d.detected || d.identity.model != Model::kServo42D || now < next_position_[address]) continue;
-    if (active_ && axis_index(address) == kAxes) continue;
+    if (active_ && (axis_index(address) == kAxes || (source_==Source::program && !executor_.status.participating[axis_index(address)]))) continue;
     if (send_query(address, Kind::position, now, true)) next_position_[address] =
         d.consecutive_timeouts >= 3 ? now + std::chrono::milliseconds(1000) : next_cycle_;
   }
@@ -345,6 +361,7 @@ void CanBusManager::schedule_background(Time now) {
     const auto address = static_cast<std::uint16_t>(1 + (cursor_ - 1 + offset) % kMaximumAddress);
     auto &d = devices_[address];
     if (!d.detected || d.identity.model != Model::kServo42D || !can_send(address, now)) continue;
+    if (source_==Source::program && (axis_index(address)==kAxes || !executor_.status.participating[axis_index(address)])) continue;
     const auto offline = d.consecutive_timeouts >= 3;
     if (offline) continue;  // Jedno zapytanie pozycji / sekundę przywraca łączność.
     auto try_read = [&](Kind kind, Time &next, std::chrono::milliseconds period) {
@@ -355,8 +372,8 @@ void CanBusManager::schedule_background(Time now) {
         try_read(Kind::mode, next_mode_[address], std::chrono::milliseconds(5000))) continue;
     if (try_read(Kind::enable, next_enable_[address], std::chrono::milliseconds(100))) continue;
     if (try_read(Kind::stall, next_stall_[address], std::chrono::milliseconds(100))) continue;
-    const auto period = manual_->fast_feedback(address) ? std::chrono::milliseconds(50) : std::chrono::milliseconds(500);
-    if (manual_->fast_feedback(address) && try_read(Kind::speed, next_speed_[address], period)) continue;
+    const auto period = (source_==Source::program || manual_->fast_feedback(address)) ? std::chrono::milliseconds(50) : std::chrono::milliseconds(500);
+    if ((source_==Source::program || manual_->fast_feedback(address)) && try_read(Kind::speed, next_speed_[address], period)) continue;
     if (d.mode.valid && supports_motor_state(d.mode.value)) try_read(Kind::motor, next_motor_[address], period);
   }
   if (scanning_ && can_send(scan_address_, now)) {
@@ -412,8 +429,10 @@ void CanBusManager::tick(Time now) {
     manual_->tick(now);
     if (fault_) return;
     if (active_) {
-      schedule_motion(now); if (fault_) return;
+      if(source_==Source::program) schedule_program(now); else schedule_motion(now);
+      if (fault_) return;
       for (std::size_t i = 0; i < kAxes; ++i) {
+        if(source_==Source::program) continue; // Wykonawca porównuje z czasową referencją.
         const auto &axis = config_.axes[i];
         const auto actual = position_to_joint(axis, devices_[axis.address].position.value);
         if (std::abs(actual - committed_positions_[i]) > axis.tracking_error) { fault("Przekroczony błąd śledzenia osi"); return; }
@@ -424,7 +443,7 @@ void CanBusManager::tick(Time now) {
       Time first = now, last{}; bool complete = true; unsigned participants = 0;
       for (std::size_t address = 1; address < devices_.size(); ++address) {
         const auto &d = devices_[address];
-        if (active_ ? axis_index(address) == kAxes : !d.detected || d.identity.model != Model::kServo42D) continue;
+        if (active_ ? (axis_index(address) == kAxes || (source_==Source::program && !executor_.status.participating[axis_index(address)])) : !d.detected || d.identity.model != Model::kServo42D) continue;
         ++participants;
         const auto &sample = d.position;
         if (!sample.valid || sample.stamp < cycle_start_ || d.position_sent < cycle_start_) { complete = false; break; }
@@ -443,7 +462,7 @@ BusSnapshot CanBusManager::snapshot() const {
   return {devices_, stats_, transport_->is_open(), scanning_, active_ || manual_->busy(), fault_, checked_, source_, message_};
 }
 ControlState CanBusManager::control_state() const {
-  ControlState state; state.active = active_; state.fault = fault_; state.source = source_;
+  ControlState state; state.active = active_; state.fault = fault_; state.source = source_;state.program_owned=program_owned_;
   for (std::size_t i = 0; i < kAxes; ++i) {
     const auto &axis = config_.axes[i]; const auto &p = devices_[axis.address].position;
     state.positions[i] = {axis.address ? position_to_joint(axis, p.value) : 0, p.stamp, p.valid};

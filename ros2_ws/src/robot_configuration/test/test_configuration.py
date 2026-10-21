@@ -20,7 +20,7 @@ def configured(axis=1):
 def test_system_setting_is_atomic_shared_and_independent_of_robot(tmp_path):
     first = Storage(tmp_path)
     revision = first.active()['revision']
-    assert first.system_settings() == {'revision': 'initial', 'ignore_missing_drivers': False}
+    assert first.system_settings() == {'revision': 'initial', 'ignore_missing_drivers': False, 'allow_missing_motion': False}
     saved = first.set_system_settings(True)
     assert Storage(tmp_path).system_settings() == saved and saved['ignore_missing_drivers']
     assert first.active()['revision'] == revision and not list(tmp_path.glob('.*.tmp'))
@@ -254,3 +254,15 @@ def test_reconcile_rolled_back_runtime_overrides_candidate_file(tmp_path):
     assert coordinator.operation['phase'] == 'idle' and not transport.locked
     assert storage.active()['revision'] == coordinator.active['revision'] == transport.revision == 'initial'
     assert storage.calibration('initial')[0]
+
+
+def test_partial_motion_settings_are_separate_durable_and_migrate(tmp_path):
+    store = Storage(tmp_path)
+    store.atomic('system_settings.json', {'revision': 'old', 'ignore_missing_drivers': True})
+    assert store.system_settings()['allow_missing_motion'] is False
+    saved = store.set_system_settings(allow_missing_motion=True)
+    assert saved['ignore_missing_drivers'] and saved['allow_missing_motion']
+    assert Storage(tmp_path).system_settings() == saved
+    assert store.set_system_settings(False)['allow_missing_motion'] is True
+    with pytest.raises(ValueError):
+        store.set_system_settings(allow_missing_motion='true')

@@ -32,6 +32,7 @@ flowchart TD
     MON[robot_system_monitor / Python + rclpy]
     LINUX[Linux / CPU / RAM / Netlink CAN]
     MOVE[C++ / IK / droga TCP / TOTG]
+    EXEC[MotionExecutor C++ / zatwierdzony PTP]
     GATE[robot_motion_gate / trajektoria albo jog]
     CTRL[ros2_control / kontroler trajektorii]
     HW[robot_hardware / C++]
@@ -44,7 +45,9 @@ flowchart TD
     CAN --> DIAG
     DIAG -->|DiagnosticArray / 5 Hz| API
     API <-->|Obliczenia i podgląd planu| MOVE
-    MOVE -. przyszły executor zatwierdzonych planów .-> GATE
+    MOVE -->|Odrębny fizyczny plan PTP| EXEC
+    API -->|Przygotowanie i zatwierdzenie| EXEC
+    EXEC -->|Wspólny właściciel magistrali| CAN
     GATE --> CTRL
     CTRL <--> HW
     HW <--> CAN
@@ -131,3 +134,5 @@ CAN 1–6 odpowiadają osiom J1–J6. Panel desktop udostępnia osobny
 Backend przekazuje żądania przez typowane interfejsy ROS; moduł używa wspólnego
 managera i jednego transportu CAN. Bez modelu robota, pojedynczo, w jednostkach
 wału silnika. Szczegóły: [sterowanie ręczne](manual_control.md).
+
+Fizyczny PTP, wyłączność programu, niepełny zestaw napędów i odbiór: [motion_execution.md](motion_execution.md).

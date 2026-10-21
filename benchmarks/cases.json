@@ -1,0 +1,81 @@
+{
+  "technical.python": {
+    "language": "python",
+    "module": "benchmarks.examples.python_cycle",
+    "adapter_sources": [
+      "benchmarks/examples/python_cycle.py"
+    ],
+    "sources": [
+      {
+        "path": "benchmarks/examples/python_cycle.py",
+        "symbols": [
+          "Cycle.cycle"
+        ]
+      }
+    ],
+    "workload": "Suma kolejnych liczb modulo 2^32; stan odtwarzany przed ka\u017cd\u0105 seri\u0105.",
+    "technical_only": true
+  },
+  "technical.cpp": {
+    "language": "cpp",
+    "target": "technical_cpp",
+    "adapter_sources": [
+      "benchmarks/examples/cpp_cycle.cpp"
+    ],
+    "sources": [
+      {
+        "path": "benchmarks/examples/cpp_cycle.cpp",
+        "symbols": [
+          "Cycle::cycle"
+        ]
+      }
+    ],
+    "workload": "Suma kolejnych liczb modulo 2^32; stan odtwarzany przed ka\u017cd\u0105 seri\u0105.",
+    "technical_only": true
+  },
+  "motion.bus": {
+    "language": "cpp",
+    "target": "motion_bus",
+    "adapter_sources": [
+      "benchmarks/motion_bus.cpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_manager.cpp",
+        "symbols": [
+          "CanBusManager::tick",
+          "schedule_motion",
+          "feedback_good",
+          "submit",
+          "renew_source_lease"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_runtime.cpp",
+        "symbols": [
+          "BusRuntime::start"
+        ]
+      }
+    ],
+    "workload": "Atrapa sze\u015bciu nap\u0119d\u00f3w, zerowe nastawy 50 Hz; cykl = submit + 20 tick\u00f3w 1 ms. Profil syntetyczny testu, bez CAN.",
+    "technical_only": false
+  },
+  "motion.settings": {
+    "language": "python",
+    "module": "benchmarks.motion_settings",
+    "adapter_sources": [
+      "benchmarks/motion_settings.py"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/robot_configuration/robot_configuration/storage.py",
+        "symbols": [
+          "Storage.system_settings",
+          "Storage.set_system_settings"
+        ]
+      }
+    ],
+    "workload": "Odczyt i zapis bez zmiany ustawie\u0144 w prywatnym katalogu tymczasowym; dwa wywo\u0142ania / cykl.",
+    "technical_only": false
+  }
+}

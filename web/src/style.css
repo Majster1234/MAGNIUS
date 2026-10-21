@@ -1087,3 +1087,5 @@ footer {
 .app-shell .badge.warn { color:#f6bf5b; background:#32281b; border-color:#735324; }
 .app-shell .badge.stale { color:#a1b1c1; background:#1b2531; border-color:#344252; }
 .app-shell .badge.error { color:#ff9292; background:#3c222b; border-color:#8c414d; }
+
+.physical-motion{display:grid;gap:8px;border-top:1px solid var(--border,#405066);padding-top:12px;margin-top:12px}.physical-motion p{margin:0}.motion-warning{color:#ffca70}.physical-motion label{font-size:12px}

@@ -346,7 +346,7 @@ class PlanningClient:
             goal.tcp_velocity = number(data['tcp_velocity_mm_s'], 'Prędkość TCP mm/s', .01, 10000) / 1000
             goal.tcp_acceleration = number(data.get('tcp_acceleration_mm_s2', 100), 'Przyspieszenie TCP mm/s²', .01, 100000) / 1000
             goal.tcp_angular_velocity = math.radians(number(data.get('tcp_angular_velocity_degrees_s', 10), 'Obrót TCP °/s', .01, 360))
-        return await self.submit(goal, self.preview, {'settings_revision': settings['revision']})
+        return await self.submit(goal, self.preview, {'settings_revision': settings['revision'], 'execution_limits': {key: data[key] for key in ('preview_velocity_degrees_s', 'preview_acceleration_degrees_s2') if key in data}})
 
     async def submit(self, goal, action, metadata=None):
         if any(job['status'] == 'running' for job in self.jobs.values()):
@@ -398,6 +398,7 @@ class PlanningClient:
             plan = message_to_ordereddict(result.plan)
             if plan.get('simulation_only'):
                 plan['settings_revision'] = job['settings_revision']
+                plan['execution_limits'] = job.get('execution_limits', {})
             if len(json.dumps(plan)) > 8 * 1024 * 1024:
                 raise ValueError('Plan przekracza limit podglądu 8 MiB')
             while len(self.plans) >= 4:

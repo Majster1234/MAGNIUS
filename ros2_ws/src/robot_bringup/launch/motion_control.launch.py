@@ -24,7 +24,7 @@ def start(context):
     if not systems:
         raise RuntimeError('URDF nie zawiera komponentu ros2_control.')
     manager = Node(package='controller_manager', executable='ros2_control_node', output='screen',
-                   parameters=[str(controllers_file), {'robot_description': model,
+                   parameters=[str(controllers_file), LaunchConfiguration('execution_parameters'), {'robot_description': model,
                                 'hardware_components_initial_state.inactive': systems}])
     gate = Node(package='robot_bringup', executable='motion_gate.py', output='screen')
     preview = Node(package='robot_state_publisher', executable='robot_state_publisher',
@@ -49,6 +49,7 @@ def start(context):
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('robot_description_file'), DeclareLaunchArgument('controllers_file'),
+        DeclareLaunchArgument('execution_parameters', default_value=str(Path(get_package_share_directory('robot_bringup')) / 'config/execution.example.yaml')),
         DeclareLaunchArgument('configuration_enabled', default_value='true'),
         DeclareLaunchArgument('configuration_dir', default_value=str(Path.home() / '.local/state/robot/configuration')),
         DeclareLaunchArgument('preview_urdf', default_value=str(Path(get_package_share_directory('robot_description'))/'urdf/preview_6dof.example.urdf')),

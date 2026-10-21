@@ -1,30 +1,20 @@
 # AGENTS.md — wskazówki i kontekst dla AI
 
-Zakres: całe repozytorium, z uwzględnieniem instrukcji właściwych dla podkatalogów.
-Stosuj ten plik wraz z instrukcjami systemowymi i bieżącymi poleceniami użytkownika.
-Dokument opisuje zasady pracy oraz ostatni potwierdzony stan; kod i wyniki narzędzi
-są źródłem prawdy o implementacji.
+Zakres: całe repozytorium; uwzględniaj instrukcje podkatalogów, systemu i użytkownika.
+Zasady i ostatni kontekst poniżej; kod i wyniki narzędzi są źródłem prawdy.
 
 ## Utrzymanie kontekstu po każdym prompcie
 
-1. Na początku każdego zadania przeczytaj ten plik i sprawdź fakty istotne dla
-   zadania. Nie zakładaj, że zapisany stan Git, środowiska lub testów jest aktualny.
-2. Po każdym obsłużonym prompcie użytkownika, przed odpowiedzią końcową, zapisz
-   nową wersję tego pliku — także po odpowiedzi niewymagającej zmian kodu.
-3. Nadpisuj w całości sekcję **Bieżący kontekst** aktualnym podsumowaniem. Zachowuj
-   nadal obowiązujące zasady; zmieniaj je, gdy zmieniły się ustalenia projektu.
-   Nie dopisuj dziennika kolejnych promptów ani kopii rozmowy.
-4. Zapisuj: ostatnie zadanie i rezultat, stan implementacji, istotne decyzje,
-   wykonane sprawdzenia i ich ograniczenia, otwarte sprawy oraz następny krok.
-   Zachowuj niezakończone zobowiązania, dopóki nie zostały wykonane lub odwołane.
-5. Oddzielaj fakty potwierdzone narzędziami od założeń i planów. Podawaj datę
-   sprawdzeń. Nie przedstawiaj wcześniejszych testów jako wykonanych ponownie.
-6. Usuwaj nieaktualne informacje i odsyłaj do dokumentacji zamiast ją kopiować.
-   Utrzymuj cały plik w granicach około 120 linii i 8 KiB, a kontekst do 30 linii.
-7. Nie zapisuj haseł, tokenów, prywatnych danych kont, pełnych logów ani wewnętrznego
-   toku rozumowania. Używaj ścieżek względnych do repozytorium.
-8. Jeżeli tryb pracy lub uprawnienia zabraniają zapisu, nie omijaj ograniczeń.
-   Poinformuj w odpowiedzi, że aktualizacja kontekstu nie została zapisana.
+1. Na początku zadania czytaj ten plik; sprawdzaj istotne fakty, aktualny Git, środowisko i testy.
+2. Po każdym prompcie, także bez zmian kodu, przed odpowiedzią zapisz nową wersję pliku.
+3. Nadpisuj **Bieżący kontekst** aktualnym podsumowaniem, bez dziennika i kopii rozmowy.
+   Zachowuj obowiązujące zasady; aktualizuj je po zmianie ustaleń projektu.
+4. Zapisuj zadanie/rezultat, implementację, decyzje, sprawdzenia/ograniczenia,
+   otwarte zobowiązania i następny krok; nie usuwaj niewykonanych zobowiązań.
+5. Oddzielaj fakty od założeń/planów; datuj sprawdzenia. Nie przypisuj dawnych testów nowej sesji.
+6. Usuwaj stare dane, odsyłaj do docs. Limit: około 120 linii/8 KiB, kontekst 30 linii; ścieżki względne.
+7. Nie zapisuj haseł, tokenów, prywatnych danych kont, pełnych logów ani toku rozumowania.
+8. Gdy tryb lub uprawnienia zabraniają zapisu, nie omijaj ograniczeń; zgłoś brak aktualizacji.
 
 Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zleć jego odczytanie.
 
@@ -38,20 +28,20 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 
 | Miejsce | Odpowiedzialność |
 | --- | --- |
-| `ros2_ws/src/robot_description` | Model URDF/Xacro, geometria i konfiguracja RViz |
-| `ros2_ws/src/mks_servo_can` | Protokół, transport, manager i ManualMotorController |
-| `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN i usługi ręczne w C++ |
-| `ros2_ws/src/robot_hardware` | Plugin CanSystem dla sześciu osi, Humble |
-| `ros2_ws/src/robot_kinematics`, `robot_motion_planner` | FK/IK KDL, droga TCP/TOTG i podgląd MKS bez wykonania |
+| `ros2_ws/src/robot_description` | URDF/Xacro, geometria, RViz |
+| `ros2_ws/src/mks_servo_can` | Protokół, transport, manager, ManualMotorController |
+| `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN, usługi ręczne C++ |
+| `ros2_ws/src/robot_hardware` | CanSystem, sześć osi, Humble |
+| `ros2_ws/src/robot_kinematics`, `robot_motion_planner` | FK/IK KDL, TCP/TOTG, podgląd MKS |
 | `ros2_ws/src/robot_bringup` | Launch diagnostyki i konfiguracje przykładowe |
 | `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN |
-| `ros2_ws/src/robot_configuration` | Snapshoty JSON i zapis do ROS |
-| `ros2_ws/src/robot_web_bridge`, `web/` | API FastAPI, WebSocket i panel React/TypeScript |
-| `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale aplikacji, diagnostyki i workspace |
-| `scripts/install_app_autostart.sh`, `system/application/` | Instalator autostartu panelu przez systemd |
-| `hardware/`, `docs/` | Materiały sprzętowe i dokumentacja projektu |
-| `system/can/`, `scripts/install_socketcan.sh` | Systemowa konfiguracja SocketCAN przez systemd |
-| `.github/workflows/ci.yml` | Sprawdzenie składni i budowanie w ROS 2 Humble |
+| `ros2_ws/src/robot_configuration` | Snapshoty JSON, zapis do ROS |
+| `ros2_ws/src/robot_web_bridge`, `web/` | FastAPI, WebSocket, React/TypeScript |
+| `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale aplikacji/diagnostyki/workspace |
+| `scripts/install_app_autostart.sh`, `system/application/` | Autostart panelu, systemd |
+| `hardware/`, `docs/` | Sprzęt i dokumentacja |
+| `system/can/`, `scripts/install_socketcan.sh` | SocketCAN przez systemd |
+| `.github/workflows/ci.yml` | Składnia i build Humble |
 
 ## Zasady pracy
 
@@ -77,6 +67,13 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
   `TODO` w metadanych, dopóki użytkownik nie ustali właściwych danych.
 - Nie dodawaj do historii katalogów `build/`, `install/`, `log/`, lokalnych ustawień,
   danych uwierzytelniających ani nagrań ROS pomijanych przez `.gitignore`.
+- Przed zmianą logiki ROS/backendu ustal listę podprogramów z bieżącego promptu;
+  dodaj brakujące scenariusze i zmierz je przed/po, na tych samych danych i cyklach.
+  Badaj tylko zmienione podprogramy/cykle, bez całej kolekcji i wcześniejszych zmian.
+- Po każdej optymalizacji uzupełniaj `docs/benchmark_results.md`: lista podprogramów,
+  cel, przed/po, procent, rozrzut, metadane i wniosek, także pogorszenie/brak poprawy.
+  Dla zmienionego cyklu procesu dodaj odczyt CPU przy porównywalnym obciążeniu;
+  brak pomiaru/bazy opisz jawnie. Procedura i narzędzie: ten sam dokument; bez GUI/CI.
 
 ## Polecenia sprawdzające
 
@@ -107,12 +104,12 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 - [docs/cartesian_planning.md](docs/cartesian_planning.md) — IK, droga TCP, API i granice pierwszego etapu.
 - [docs/can_recording.md](docs/can_recording.md) — nagrywanie; wyniki w docs/can_recording_results.md.
 - [docs/socketcan.md](docs/socketcan.md) — SocketCAN; [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko/Git.
+- [docs/motion_execution.md](docs/motion_execution.md) — fizyczny PTP, niepełny zestaw i odbiór.
+- [docs/benchmark_results.md](docs/benchmark_results.md) — benchmarki, pomiary CPU i historia optymalizacji.
 
 ## Bieżący kontekst
 
-- 2026-10-20: wspólny AppShell, 5 tras (#config i alias #configuration), menu 68/224 px i topbar. CAN→J1–J6 i obecność osi z diagnostyki; docs/web_status.md.
-- Manual: osobne Z/Rz, PTP/LIN poza sceną, model ruchu 22% z checkboxem; dziennik grupuje świeżość <500 ms. JOG/TCP/WS/watchdog bez zmian. docs/manual_control.md, docs/robot_preview.md.
-- 20.10: TS/Vite, 75 Vitest, pełne 7 zestawów Chromium OK. Układ 1280–2560; impulsy w SW WebGL 1366. Bez sprzętu/ROS/backendu. Ostrzeżenie rozmiaru Three.js.
-- TCP: 0.1/1/5/10/20 mm i °, LIN na klik, bez kolejki; STOP/blur/kontekst anulują. Fizyczne TCP zablokowane; docs/cartesian_planning.md.
-- Wcześniej 20.10 LAN: backend impulsów nieaktywny. Nadal potrzebny sudo systemctl restart robot-web-status.service; nie restartowano. Następnie Ctrl+F5 i odbiór UI.
-- Otwarte: IK/J4/J6, geometria/przekładnie/bazowanie, odbiór JOG/limitów, USB/BUS-OFF/watchdog, drugi klient LAN, oscylacje. Licencja TODO; feature/web-status bez commit/push.
+- 2026-10-21: zgoda na rozsprzęglone 1→2→4, +5°/powrót ≤1 RPM. CAN 1,2,3,5 obecne. Test CAN 1: F5 czeka, lecz F7 ACK=1 nie kasuje celu przed SYNC; przerwano przy 0,154°. Etapy 2/4 niewykonane. docs/motion_hardware_results.md, scripts/test_ptp_hardware.py.
+- ENABLE=0 wszystkich, parametry odtworzone, usługa przywrócona, bez nowych błędów CAN/zmiany profilu. Execution nadal false. Następnie odbiór kasowania bufora/STOP na 1, dopiero 2/4; nie ustawiać flag bez pomiaru.
+- PTP C++/panel i allow_missing_motion wdrożone; LIN/blending przyszłe. Wcześniejsze build/testy i regresje benchmarków: docs/motion_execution.md, docs/benchmark_results.md; dziś tylko test stanowiskowy i narzędzia, bez ponowienia całej kolekcji.
+- Otwarte: Ctrl+F5/odbiór UI, JOG TCP zablokowany, IK/J4/J6, geometria/przekładnie/bazowanie, JOG/limity, USB/BUS-OFF/watchdog, drugi LAN, oscylacje, odbiór PTP. Three.js: rozmiar. Licencja TODO; feature/web-status, bez commit/push.

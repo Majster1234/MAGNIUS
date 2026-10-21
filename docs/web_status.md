@@ -231,3 +231,10 @@ Testy automatyczne nie zastępują sprawdzenia na drugim fizycznym urządzeniu.
   wykonania skryptu instalacji zależności. Node.js był narzędziem tymczasowym.
 - Nie sprawdzono drugiego fizycznego urządzenia LAN, zapory wymagającej hasła,
   zdalnego GitHub Actions ani działania napędów. Procesy testowe zakończono.
+
+## Zatwierdzony program PTP
+
+Status i STOP lokalnego wykonawcy są dostępne w widoku ręcznym także po ponownym
+otwarciu panelu. Bridge w launch ma respawn; jego awaria nie zamyka właściciela CAN.
+Domyślne parametry wykonawcy są wyłączone. Flaga niepełnego zestawu i odbiór:
+[motion_execution.md](motion_execution.md). Restart całej usługi/launch nadal zatrzymuje stos.

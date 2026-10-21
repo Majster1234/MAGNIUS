@@ -1,0 +1,13 @@
+string program_id
+string state
+string mode
+string message
+string execution_key
+bool[6] participating
+bool tcp_verified
+bool busy
+float64 progress
+float64 elapsed
+float64 duration
+float64[6] start_positions
+float64[6] target_positions

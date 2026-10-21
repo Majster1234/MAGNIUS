@@ -116,16 +116,16 @@ std::vector<hardware_interface::CommandInterface> CanSystem::export_command_inte
 hardware_interface::return_type CanSystem::read(const rclcpp::Time &, const rclcpp::Duration &) {
   runtime_->try_read(state_);
   const auto now = mks_servo_can::Clock::now();
-  if (active_ && (state_.fault || !state_.active)) return hardware_interface::return_type::ERROR;
+  if (active_ && (state_.fault || (!state_.active && !state_.program_owned))) return hardware_interface::return_type::ERROR;
   for (std::size_t i = 0; i < positions_.size(); ++i) {
     if (!state_.positions[i].fresh(now, config_.feedback_timeout)) {
-      if (active_) return hardware_interface::return_type::ERROR;
+      if (active_ && !state_.program_owned) return hardware_interface::return_type::ERROR;
     } else positions_[i] = state_.positions[i].value;
   }
   return hardware_interface::return_type::OK;
 }
 hardware_interface::return_type CanSystem::write(const rclcpp::Time &, const rclcpp::Duration &) {
-  if (!active_) return hardware_interface::return_type::OK;
+  if (!active_ || state_.program_owned) return hardware_interface::return_type::OK;
   if (state_.fault) return hardware_interface::return_type::ERROR;
   mks_servo_can::CommandBatch batch; batch.positions = commands_; batch.sequence = ++sequence_;
   batch.velocities=velocities_; batch.velocities_valid=velocity_commands_;

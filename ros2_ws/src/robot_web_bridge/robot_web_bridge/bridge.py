@@ -21,6 +21,7 @@ from .manual import ManualStore, ManualRosClient
 from .description import DescriptionStore
 from .configuration import ConfigurationClient
 from .planning import PlanningClient
+from .motion import MotionClient
 from .trace import trace, recording
 from robot_control_interfaces.msg import ManualState
 from std_srvs.srv import Trigger
@@ -61,6 +62,7 @@ def main(args=None):
         manual_action = ManualRosClient(node)
         configuration_action = ConfigurationClient(node)
         planning_client = PlanningClient(node, description_store, manual_store, configuration_action)
+        motion_client = MotionClient(node, planning_client, configuration_action)
         def manual_update(message):
             manual_store.update(message)
             planning_client.remember_positions()
@@ -109,7 +111,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

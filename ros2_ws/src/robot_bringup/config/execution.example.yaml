@@ -1,0 +1,12 @@
+# Wspólne parametry procesu posiadającego CAN: diagnostyka albo CanSystem.
+# Ten szablon NIE zezwala na wykonanie. -1 = brak potwierdzonej wartości,
+# nie jest fizyczną tolerancją ani kodem acc. Nie uzupełniaj przez zgadywanie.
+/**:
+  ros__parameters:
+    execution_enabled: false
+    execution_configuration_revision: ""
+    execution_stop_verified: false
+    execution_sync_verified: false
+    execution_staged_reset_verified: false
+    execution_tracking_error_rad: [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0]
+    execution_acceleration_codes: [-1, -1, -1, -1, -1, -1]

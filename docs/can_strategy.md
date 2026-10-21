@@ -153,3 +153,11 @@ monotonicznym przy odczycie socketu w userspace; obejmuje USB i pobudkę IO
 (docelowo 1 ms), nie jest czasem samego przewodu. Odbiór musi potwierdzić F7,
 synchronizację i watchdog. Jeśli terminy nie są dotrzymane, cykl wykonawczy
 należy przenieść do odpowiedniego lokalnego kontrolera.
+
+## Fizyczny PTP i niepełny zestaw napędów
+
+Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
+Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
+nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
+Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
+Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.

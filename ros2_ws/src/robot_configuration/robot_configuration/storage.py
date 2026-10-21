@@ -57,16 +57,25 @@ class Storage:
             if (not isinstance(value, dict) or type(value.get('ignore_missing_drivers')) is not bool or
                     not isinstance(value.get('revision'), str) or not 1 <= len(value['revision']) <= 64):
                 raise ValueError('Nieprawidłowe ustawienia systemowe')
+            value.setdefault('allow_missing_motion', False)
+            if type(value['allow_missing_motion']) is not bool:
+                raise ValueError('Nieprawidłowy tryb ruchu z niepełnym zestawem napędów')
             return value
 
-    def set_system_settings(self, enabled):
-        if type(enabled) is not bool:
-            raise ValueError('ignore_missing_drivers wymaga wartości logicznej')
+    def set_system_settings(self, enabled=None, *, allow_missing_motion=None):
+        updates = {}
+        for key, value in (('ignore_missing_drivers', enabled), ('allow_missing_motion', allow_missing_motion)):
+            if value is not None:
+                if type(value) is not bool:
+                    raise ValueError(f'{key} wymaga wartości logicznej')
+                updates[key] = value
+        if not updates:
+            raise ValueError('Wymagane ustawienie logiczne')
         with self.lock:
             current = self.system_settings()
-            if current['ignore_missing_drivers'] == enabled:
+            if all(current[key] == value for key, value in updates.items()):
                 return current
-            result = {'revision': uuid.uuid4().hex, 'ignore_missing_drivers': enabled}
+            result = {**current, **updates, 'revision': uuid.uuid4().hex}
             self.atomic('system_settings.json', result)
             return result
 

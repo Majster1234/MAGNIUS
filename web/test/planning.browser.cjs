@@ -20,6 +20,7 @@ const dist = path.resolve(__dirname, '../dist');
   context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
   await context.route('http://robot.test/**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname.startsWith('/api/v1/motion/')) return route.fulfill({status:503,contentType:'application/json',body:'{\"detail\":\"Wykonawca wyłączony w atrapie\"}'});
     if (url.pathname.startsWith('/api/v1/planning/')) return route.fulfill({status:503,contentType:'application/json',body:'{"detail":"Planner wyłączony w teście lokalnego JOG"}'});
     if (url.pathname.startsWith('/api/v1/manual/axes/')) {
       writes.push(url.pathname);

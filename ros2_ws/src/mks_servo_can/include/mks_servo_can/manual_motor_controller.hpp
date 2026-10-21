@@ -40,6 +40,9 @@ class ManualMotorController {
   void timeout();
   void transport_fault();
   void abort(const std::string &reason) { fail(reason); }
+  std::uint16_t microstep(unsigned axis) const { return microstep_.at(axis-1); }
+  bool prepared(unsigned axis) const { return prepared_.at(axis-1); }
+  void invalidate_program_handover() { prepared_.fill(false); profile_verified_.fill(false); }
   bool busy() const { return phase_ != Phase::idle; }
   unsigned axis() const { return axis_; }
   bool fast_feedback(unsigned axis) const { return axis <= kAxes && axis && prepared_[axis - 1]; }

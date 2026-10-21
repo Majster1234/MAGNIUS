@@ -15,6 +15,7 @@ from ament_index_python.packages import get_package_prefix
 from sensor_msgs.msg import JointState
 from tf2_msgs.msg import TFMessage
 from robot_control_interfaces.srv import ConfigureRobot, ConfigurationCommand
+from robot_control_interfaces.msg import MotionSettings
 from robot_configuration.node import ConfigurationNode
 from robot_configuration.schema import empty_document, build_urdf
 
@@ -49,6 +50,8 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
     server.create_service(ConfigureRobot,'/robot/configuration/control',control)
     node = ConfigurationNode()
     client = probe.create_client(ConfigurationCommand,'/robot/configuration/command')
+    motion_settings = []
+    probe.create_subscription(MotionSettings, '/robot/motion/settings', lambda value: motion_settings.append(value), 10)
     transforms = {}
     probe.create_subscription(TFMessage,'/robot/preview/tf',lambda message:transforms.update({item.child_frame_id:item for item in message.transforms}),10)
     publisher = probe.create_publisher(JointState,'/robot/preview/joint_states',10)
@@ -71,6 +74,14 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
         assert command('system_get')[1]['ignore_missing_drivers'] is False
         assert command('system_set',ignore_missing_drivers=True)[0] == 200
         assert command('system_get')[1]['ignore_missing_drivers'] is True
+        assert command('system_get')[1]['allow_missing_motion'] is False
+        code, saved = command('system_set', allow_missing_motion=True)
+        assert code == 200 and saved['ignore_missing_drivers'] and saved['allow_missing_motion']
+        deadline = time.monotonic()+3
+        while time.monotonic()<deadline and not any(value.revision==saved['revision'] and value.allow_missing_motion for value in motion_settings):
+            time.sleep(.02)
+        assert any(value.revision==saved['revision'] and value.allow_missing_motion for value in motion_settings)
+        assert command('system_set', ignore_missing_drivers=False)[1]['allow_missing_motion'] is True
         assert command('status')[1]['active']['revision'] == 'initial'
         document=empty_document();document['name']='ROS integracja'
         for key,value in dict(gear_ratio=50,direction=-1,zero_offset=10,lower=-180,upper=180,velocity=30,acceleration=60).items():

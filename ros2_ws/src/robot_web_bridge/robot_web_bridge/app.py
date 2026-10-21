@@ -95,12 +95,14 @@ class JogRateLimit:
         return True
 
 
-def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None):
+def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(LanOnly, subnet=store.network['subnet'],
                        authority=f"{store.network['address']}:{store.network['port']}")
     from .planning import add_planning_routes
     add_planning_routes(app, planning_client)
+    from .motion import add_motion_routes
+    add_motion_routes(app, motion_client)
 
     @app.get('/healthz')
     async def health():
@@ -142,7 +144,7 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     @app.put('/api/v1/configuration/system')
     async def set_system_settings(request: Request):
         data = await configuration_body(request)
-        return await configuration_call('system_set', ignore_missing_drivers=data.get('ignore_missing_drivers'))
+        return await configuration_call('system_set', **{key: data[key] for key in ('ignore_missing_drivers', 'allow_missing_motion') if key in data})
 
     @app.get('/api/v1/configuration/snapshots')
     async def configuration_list(cursor: str = ''):

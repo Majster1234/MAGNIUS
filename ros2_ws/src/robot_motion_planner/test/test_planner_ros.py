@@ -15,7 +15,7 @@ from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String
 from robot_control_interfaces.msg import ManualState, ManualAxisState, PlanningContext, RobotConfiguration
 from robot_control_interfaces.srv import SolveIK
-from robot_control_interfaces.action import ComputeCartesianPath, ComputePreviewMotion
+from robot_control_interfaces.action import ComputeCartesianPath, ComputePreviewMotion, ComputePhysicalPtp
 
 
 def wait(future, seconds=15):
@@ -39,10 +39,10 @@ def test_ik_path_and_stale_revision(monkeypatch):
     context = PlanningContext(model_id=sha256(xml.encode()).hexdigest(), configuration_revision='test-plan', urdf=xml,
                               seed=[.2,.3,-.5,.2,.2,-.1], known=[True]*6, locked=[False]*6, lower=[-3.]*6, upper=[3.]*6,
                               max_velocity=[1.]*6, max_acceleration=[2.]*6)
-    revision = ['test-plan']
+    revision = ['test-plan']; missing = [False]*6
     def publish():
         publisher.publish(ManualState(monotonic_ns=time.monotonic_ns(), configuration_revision=revision[0],
-                          axes=[ManualAxisState(axis=i+1, available=True, position_known=True, position_age_seconds=.001) for i in range(6)]))
+                          axes=[ManualAxisState(axis=i+1, available=not missing[i], position_known=not missing[i], position_age_seconds=.001) for i in range(6)]))
     node.create_timer(.02, publish)
     executor = SingleThreadedExecutor(); executor.add_node(node)
     thread = threading.Thread(target=executor.spin, daemon=True); thread.start()
@@ -99,6 +99,23 @@ def test_ik_path_and_stale_revision(monkeypatch):
             assert abs(point.velocities[3]) <= 5 * 3.141592653589793 / 180 + 1e-6
             assert abs(point.velocities[5]) <= 5 * 3.141592653589793 / 180 + 1e-6
         context.simulation_only = False
+        physical = ActionClient(node, ComputePhysicalPtp, '/robot/planning/compute_physical_ptp')
+        assert physical.wait_for_server(timeout_sec=5)
+        for profile in context.profiles:
+            profile.configured = True
+        target = list(context.seed); target[0] += .05
+        handle = wait(physical.send_goal_async(ComputePhysicalPtp.Goal(context=context, target_positions=target)))
+        assert handle.accepted
+        result = wait(handle.get_result_async()).result
+        assert result.success and not result.plan.simulation_only, result.message
+        missing[5] = True; context.allow_missing_execution = True
+        context.simulated_start = [False]*5+[True]
+        time.sleep(.1)
+        handle = wait(physical.send_goal_async(ComputePhysicalPtp.Goal(context=context, target_positions=target)))
+        assert handle.accepted
+        result = wait(handle.get_result_async()).result
+        assert result.success and result.plan.simulated_start[5], result.message
+        missing[5] = False
         revision[0] = 'changed'; time.sleep(.1)
         stale = wait(client.call_async(SolveIK.Request(context=context, forward_only=True)))
         assert not stale.success

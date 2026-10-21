@@ -1,5 +1,6 @@
 #pragma once
 #include <future>
+#include "robot_can_diagnostics/program_api.hpp"
 #include "mks_servo_can/bus_runtime.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
@@ -23,6 +24,7 @@ class DiagnosticsNode : public rclcpp::Node {
   void publish_manual();
   std::shared_ptr<mks_servo_can::BusRuntime> runtime_;
   mks_servo_can::BusConfig config_;
+  std::shared_ptr<ProgramApi> program_api_;
   bool resetting_{false};
   mks_servo_can::Time last_manual_publish_{};
   std::string reset_error_;

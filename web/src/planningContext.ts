@@ -37,7 +37,7 @@ export function usePlanningContext() {
 }
 
 export function useSystemSettings() {
-    const [settings, setSettings] = useState<{ revision: string; ignore_missing_drivers: boolean } | null>(null);
+    const [settings, setSettings] = useState<{ revision: string; ignore_missing_drivers: boolean; allow_missing_motion?: boolean } | null>(null);
     const [error, setError] = useState(""), [saving, setSaving] = useState(false);
     useEffect(() => {
         let closed = false, running = false;
@@ -53,9 +53,9 @@ export function useSystemSettings() {
         void update(); const timer = setInterval(() => void update(), 1000);
         return () => { closed = true; clearInterval(timer); };
     }, [saving]);
-    async function save(enabled: boolean) {
+    async function save(enabled: boolean, key: "ignore_missing_drivers" | "allow_missing_motion" = "ignore_missing_drivers") {
         setSaving(true); setError("");
-        try { setSettings(await planningRequest("configuration/system", { ignore_missing_drivers: enabled }, "PUT")); }
+        try { setSettings(await planningRequest("configuration/system", { [key]: enabled }, "PUT")); }
         catch (failure) { setError((failure as Error).message); }
         finally { setSaving(false); }
     }

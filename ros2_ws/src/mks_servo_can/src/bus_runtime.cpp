@@ -11,7 +11,7 @@ void BusRuntime::start(bool scan_on_start) {
   { std::lock_guard<std::mutex> guard(mutex_); manager_.open(Clock::now()); if (scan_on_start) manager_.start_scan(); }
   running_ = true;
   worker_ = std::thread([this] {
-    Time previous{};
+    Time previous{};auto deadline=Clock::now();
     while (running_) {
       const auto wake = Clock::now();
       { std::lock_guard<std::mutex> guard(mutex_);
@@ -25,7 +25,10 @@ void BusRuntime::start(bool scan_on_start) {
         }
         previous = begin;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      deadline+=std::chrono::milliseconds(1);
+      const auto current=Clock::now();
+      if(deadline<current) deadline=current;
+      std::this_thread::sleep_until(deadline);
     }
   });
 }
@@ -75,6 +78,12 @@ bool BusRuntime::joint_jog(JogAction action, unsigned axis, int direction, doubl
   std::lock_guard<std::mutex> guard(mutex_);
   return manager_.manual().jog_joint(action, axis, direction, velocity, revision, session, sequence, issued, Clock::now());
 }
+void BusRuntime::configure_program_authorization(const BusConfig &a) { std::lock_guard<std::mutex> guard(mutex_);manager_.configure_program_authorization(a); }
+void BusRuntime::update_motion_model(const std::string &model) { std::lock_guard<std::mutex> guard(mutex_);manager_.update_motion_model(model); }
+void BusRuntime::update_motion_settings(const std::string &revision,bool allow_missing) { std::lock_guard<std::mutex> guard(mutex_);manager_.update_motion_settings(revision,allow_missing,Clock::now()); }
+MotionProgramStatus BusRuntime::prepare_program(PreparedMotionProgram program) { std::lock_guard<std::mutex> guard(mutex_);return manager_.prepare_program(std::move(program),Clock::now()); }
+bool BusRuntime::execute_program(const std::string &id,const std::string &key) { std::lock_guard<std::mutex> guard(mutex_);return manager_.execute_program(id,key,Clock::now()); }
+MotionProgramStatus BusRuntime::program_status() { std::lock_guard<std::mutex> guard(mutex_);return manager_.program_status(); }
 void BusRuntime::require_configuration() {
   std::lock_guard<std::mutex> guard(mutex_); manager_.require_configuration();
 }

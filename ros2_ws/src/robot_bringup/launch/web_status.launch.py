@@ -3,9 +3,7 @@
 from launch import LaunchDescription
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler, SetEnvironmentVariable, OpaqueFunction, LogInfo
-from launch.event_handlers import OnProcessExit
-from launch.events import Shutdown
+from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable, OpaqueFunction, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -31,14 +29,14 @@ def generate_launch_description():
     can_diagnostics = Node(
         package='robot_can_diagnostics', executable='can_diagnostics', output='screen',
         condition=IfCondition(LaunchConfiguration('standalone_can')),
-        parameters=[{
+        parameters=[LaunchConfiguration('execution_parameters'), {
             'can_interface': LaunchConfiguration('can_interface'),
             'bitrate': ParameterValue(LaunchConfiguration('can_bitrate'), value_type=int),
             'response_timeout_ms': ParameterValue(LaunchConfiguration('can_timeout_ms'), value_type=int),
             'manual_max_rpm': ParameterValue(LaunchConfiguration('manual_max_rpm'), value_type=int),
         }])
     bridge = Node(
-        package='robot_web_bridge', executable='bridge', output='screen',
+        package='robot_web_bridge', executable='bridge', output='screen', respawn=True, respawn_delay=2.0,
         parameters=[{
             'lan_interface': LaunchConfiguration('lan_interface'),
             'lan_subnet': LaunchConfiguration('lan_subnet'),
@@ -61,6 +59,7 @@ def generate_launch_description():
         DeclareLaunchArgument('manual_max_rpm', default_value='30'),
         DeclareLaunchArgument('preview_enabled', default_value='true'),
         DeclareLaunchArgument('planning_enabled', default_value='true'),
+        DeclareLaunchArgument('execution_parameters', default_value=str(Path(get_package_share_directory('robot_bringup')) / 'config/execution.example.yaml')),
         DeclareLaunchArgument('planning_parameters', default_value=str(Path(get_package_share_directory('robot_bringup')) / 'config/planning.example.yaml')),
         DeclareLaunchArgument('configuration_dir', default_value=str(Path.home() / '.local/state/robot/configuration')),
         DeclareLaunchArgument('configuration_enabled', default_value='true'),
@@ -68,10 +67,8 @@ def generate_launch_description():
         DeclareLaunchArgument('standalone_can', default_value='true',
                               description='false, gdy właścicielem CAN jest plugin robot_hardware'),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '1'),
-        # Błąd serwera nie może pozostawić osieroconego monitora.
-        RegisterEventHandler(OnProcessExit(
-            target_action=bridge,
-            on_exit=[EmitEvent(event=Shutdown(reason='Backend zakończył działanie'))])),
+        # Bridge może wrócić po awarii bez przerywania lokalnego programu.
+        # Zamknięcie launch przez operatora nadal zatrzymuje wszystkie procesy.
         monitor, can_diagnostics, bridge, configuration, planner,
         OpaqueFunction(function=preview, condition=IfCondition(LaunchConfiguration('preview_enabled'))),
     ])

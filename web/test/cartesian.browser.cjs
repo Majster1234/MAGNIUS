@@ -15,6 +15,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
  await context.routeWebSocket('ws://robot.test/**',socket=>{if(!socket.url().endsWith('/manual/ws'))return;sockets.add(socket);socket.onClose(()=>sockets.delete(socket));socket.onMessage(raw=>{const v=JSON.parse(raw);if(v.type!=='trace')commands.push(v);});});
  await context.route('http://robot.test/**',async route=>{
   const request=route.request(),url=new URL(request.url()),json=(data,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(data)});
+  if(url.pathname.startsWith('/api/v1/motion/'))return json({detail:'Wykonawca wyłączony w atrapie'},503);
   if(url.pathname.startsWith('/api/v1/manual/axes')){writes.push(url.pathname);return route.abort();}
   if(url.pathname==='/api/v1/configuration/system'){
    if(request.method()==='PUT'){settings={revision:String(Number(settings.revision)||0)+requests.length+'changed',ignore_missing_drivers:request.postDataJSON().ignore_missing_drivers};}

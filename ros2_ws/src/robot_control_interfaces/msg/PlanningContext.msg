@@ -13,3 +13,6 @@ robot_control_interfaces/JointConfiguration[6] profiles
 # Wyłącznie obliczenia; dostępność CAN nie jest warunkiem tej symulacji.
 bool simulation_only
 bool[6] simulated_start
+
+# Jawne założenia dla nieobecnych osi fizycznego PTP; TCP niepotwierdzone.
+bool allow_missing_execution

@@ -22,6 +22,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
   await context.route('http://robot.test/**', async route => {
     const url = new URL(route.request().url());
+    if (url.pathname.startsWith('/api/v1/motion/')) return route.fulfill({status:503,contentType:'application/json',body:'{\"detail\":\"Wykonawca wyłączony w atrapie\"}'});
     if (url.pathname.startsWith('/api/v1/planning/')) return route.fulfill({status:503,contentType:'application/json',body:'{"detail":"Planner wyłączony w teście fizycznego JOG"}'});
     if (url.pathname === '/api/v1/robot/description') {
       modelRequests++;

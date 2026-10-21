@@ -140,6 +140,10 @@ export function ConfigurationPage() {
                 <input type="checkbox" role="switch" checked={system.settings?.ignore_missing_drivers ?? false} disabled={!system.settings || system.saving}
                     onChange={event => void system.save(event.target.checked)} /></label>
             <p>Odblokowuje JOG wszystkich osi bliźniaka. Ustawienie jest wspólne dla klientów i nie zmienia sterowania sprzętem.</p>
+            <label className="system-planning-switch"><span>Zezwalaj na ruch bez wszystkich silników</span>
+                <input type="checkbox" role="switch" aria-label="Zezwalaj na ruch bez wszystkich silników" checked={system.settings?.allow_missing_motion ?? false}
+                    disabled={!system.settings || system.saving} onChange={event => void system.save(event.target.checked, "allow_missing_motion")} /></label>
+            <p>Włączony: PTP porusza tylko napędami obecnymi przy przygotowaniu programu. Brakujące osie są pomijane; pozycja TCP i osiągnięcie celu TCP nie są potwierdzone. Utrata uczestniczącego napędu zatrzymuje ruch.</p>
             {system.error && <p role="status">{system.error}</p>}
         </div> : <div id="config-robot-panel" role="tabpanel" aria-labelledby="config-robot-tab" className="robot-settings">
             <div className="snapshot-toolbar" aria-label="Snapshoty konfiguracji">
