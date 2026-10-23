@@ -13,7 +13,7 @@ class BusRuntime {
   ~BusRuntime();
   void start(bool scan = true);
   void shutdown();
-  void reset_session();
+  void reset_session(ResetMode mode = ResetMode::clear_discovery);
   bool scan();
   bool reset_allowed();
   bool activate(Source source);
@@ -23,6 +23,8 @@ class BusRuntime {
   bool try_read(ControlState &state);
   BusSnapshot snapshot();
   ManualState manual_snapshot();
+  std::size_t drain_shaft_trace(ShaftPositionSample *out,std::size_t maximum) { return manager_.drain_shaft_trace(out,maximum); }
+  std::uint64_t shaft_trace_dropped() const { return manager_.shaft_trace_dropped(); }
   bool manual_enable(unsigned axis, bool enabled);
   bool manual_zero(unsigned axis);
   bool manual_jog(JogAction action, unsigned axis, int direction, unsigned rpm,

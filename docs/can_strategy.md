@@ -40,24 +40,44 @@ SocketCAN ani innych kont. Magistrala musi mieć jednego nadawcę poleceń ruchu
 | --- | --- | --- |
 | Stop i błędy | Przy wykryciu | Przerwanie pracy, zatrzask błędu |
 | Zestaw pozycji sześciu osi | 50 Hz | Najnowsza próbka, bez historii poleceń |
-| Pozycje rzeczywiste `0x31` | 50 Hz | Zarezerwowany budżet, osobna świeżość |
+| Pozycje rzeczywiste `0x31` | 25 Hz / oś | Dwie naprzemienne grupy, osobna świeżość |
 | ENABLE i stall | 10 Hz | Osobne znaczniki czasu |
-| Szczegółowy stan pracy | 2 Hz | Ustępuje komendom i pozycjom |
+| Prędkość / stan pracy | 20 Hz w PTP i dla przygotowanych osi; stan 2 Hz poza nimi | Terminy rozłożone, ustępują komendom |
 | Tryb pracy | Przy wykryciu / co 5 s w postoju | W ruchu bez zmian konfiguracji |
 | Publikacja do panelu | 5 Hz | Korzysta z cache |
 | SCAN, reset | Bez aktywnego sterowania | Brak automatycznego wznowienia |
 
-Oczekują maksymalnie cztery zapytania i jedno na adres. Koszt jest rezerwowany
-dla zapytania i odpowiedzi: konserwatywnie `55 + 10 * DLC` bitów na standardową
-ramkę CAN wraz ze stuffingiem i odstępem. Limit to 50% przepustowości 500000 bit/s;
-stop omija limit. „Planowane obciążenie” nie obejmuje retransmisji i nie jest
-fizycznym pomiarem wykorzystania magistrali.
+Zwykłe transakcje mają cztery sloty i najwyżej jedno zapytanie na adres.
+Koszt rezerwujemy wspólnie dla żądania i odpowiedzi: konserwatywnie
+`55 + 10 * DLC` bitów na standardową ramkę wraz ze stuffingiem i odstępem.
+Cel planowania to najwyżej 40% przy 500000 bit/s; limit konfiguracji pozostaje
+najwyżej 50%, STOP omija budżet. Obciążenie planowane nie jest fizycznym
+pomiarem magistrali i nie obejmuje retransmisji.
 
-Sześć F5, sześć ACK, SYNC i sześć odczytów pozycji kosztują w tym oszacowaniu
-2655 bitów. Przy 50 Hz pozostaje miejsce na diagnostykę. Przy 100 Hz przekraczają
-budżet 2500 bitów/cykl, więc obecny profil odrzuca taką konfigurację. Samo
-`cycle_ms=10` nie zapewni szybszego sterowania; potrzebna jest zweryfikowana zmiana
-budżetu, protokołu lub transportu. Program nie zmienia bitrate.
+W strumieniowanym PTP wspólny okres planera, kompilatora i IO wynosi 20 ms:
+
+| Faza cyklu | Praca |
+| --- | --- |
+| 0–8 ms | F5 kolejnego zestawu i komplet ACK |
+| 8–14 ms | Enkodery jednej z dwóch grup |
+| 14–18 ms | Diagnostyka; najwyżej osiem transakcji |
+| 18–20 ms | Rezerwa, bez nowych zapytań |
+| Granica cyklu | SYNC, wyłącznie po komplecie ACK |
+
+Ostatnie 2 ms okna odczytu są zarezerwowane dla odpowiedzi; nowego zapytania
+nie rozpoczynamy w tej końcówce. Timeout odpowiedzi jest ograniczony końcem
+okna. Przed wejściem w harmonogram odświeżamy wszystkie pozycje i opróżniamy
+zwykłe sloty; pierwszy zestaw jest przygotowany przed pierwszym SYNC.
+Uczestnicy są rozdzielani naprzemiennie według kolejności CAN ID,
+również dla niepełnego zestawu. W ruchu pozostałe adresy nie zajmują budżetu.
+
+Dla sześciu osi F5 + ACK + dodatkowe raporty + SYNC zajmują 1905 bitów/cykl,
+trzy odczyty enkoderów 630 bitów/cykl. ENABLE/stall 10 Hz i prędkość/stan
+20 Hz dodają średnio 1176 bitów/cykl. Łącznie to 3711 bitów, **37,11%**;
+górna granica ośmiu odczytów diagnostycznych to 3895 bitów, **38,95%**.
+Rezerwacja diagnostyki nie może zużyć kredytów komend ani pozycji.
+Terminy diagnostyki przesuwamy o okres, unikając dryfu zależnego od pobudek IO.
+Profil 10 ms jest odrzucany; program nie zmienia bitrate ani nie pomija próbek.
 
 Odpowiedzi dopasowuje się do adresu, komendy, DLC, sumy i terminu. Błędna ramka
 nie usuwa oczekującego zapytania. Po timeoutcie obowiązuje dodatkowa kwarantanna
@@ -67,7 +87,9 @@ wykryta utrata terminów powoduje błąd sterowania.
 
 ## Wykonanie i zatrzymanie
 
-JTC lokalnie interpoluje trajektorię. `read()` i `write()` adaptera używają prób
+JTC lokalnie interpoluje trajektorię. W IO używamy listy wykrytych adresów
+i przygotowanych zapytań; walidacja CRC nie kopiuje payloadu do nowego wektora.
+`read()` i `write()` adaptera używają prób
 blokady (`try_lock`), tablic sześciu osi i ostatnich wartości; nie wywołują CAN
 i nie czekają na odpowiedzi. Wątek IO jest niezależny od executorów ROS.
 Nie stanowi to potwierdzenia twardych gwarancji czasu rzeczywistego.
@@ -82,16 +104,23 @@ Próbka z `CanSystem` może zawierać pozycje i prędkości JTC. Wspólny kompil
 F5 wyznacza RPM z profilu próbki zamiast zawsze używać maksimum osi; kod `acc`
 pozostaje osobnym parametrem napędu. Podgląd przyszłych zestawów 50 Hz oblicza
 [planner kartezjański](cartesian_planning.md), który nie wysyła niczego do CAN.
-Przygotowanie przed planowanym SYNC i odbiór śledzenia pozostają wymaganiami
-późniejszego executora; zgodność ramek nie gwarantuje wspólnego czasu dojazdu.
+Lokalny wykonawca PTP przygotowuje zestawy przed planowanym SYNC i nadzoruje
+śledzenie względem czasu pomiaru. Zgodność ramek nie gwarantuje wspólnego czasu
+dojazdu; wymagany odbiór sprzętowy opisuje [wykonanie PTP](motion_execution.md).
 
 Startowe progi oprogramowania: 60 ms dla pozycji i nowych zapisów kontrolera,
 300 ms dla ENABLE/stall, 200 ms dla lease źródła. Nie wyznaczają one dopuszczalnej
 drogi zatrzymania robota i wymagają odbioru na sprzęcie.
 
-Przy fault manager jednorazowo próbuje wysłać `F7` do skonfigurowanych osi, bez
-wyłączania momentu. Potem przestaje wysyłać wszystkie zapytania i komendy, żeby
-diagnostyka nie podtrzymywała firmware watchdog. Ta polityka wymaga wcześniejszej
+Przy fault aktywnego sterowania manager zatrzaskuje błąd i blokuje SYNC.
+Wysyła F7 do wszystkich skonfigurowanych osi, następnie F6 RPM=0 do tych samych
+osi (dla PTP CAN 1–6). Po ACK F7 obecnych napędów lub timeoutcie rozpoczyna
+F6; cała procedura ma najwyżej dwa timeouty, domyślnie 40 ms. Osobne maski
+ACK, odrzucenia i braków są publikowane w diagnostyce. Potem kończy wszelkie
+nadawanie, aby nie podtrzymywać firmware watchdog. Zamknięcie transportu
+wykonuje pozostałą próbę F6 bez czekania i raportuje niepotwierdzone odpowiedzi.
+Nie wysyła SYNC ani nie załącza ENABLE. ACK F7/F6 nie jest dowodem skasowania
+przygotowanego celu i nie ustawia flag odbioru. Ta polityka wymaga wcześniejszej
 weryfikacji z obciążeniem i hamulcami (`stop_verified`). Sprzętowy obwód awaryjny
 pozostaje niezależny. Reset lub rekonfiguracja kasują zatrzask, lecz nie aktywują
 ruchu. Program nie ustawia automatycznie trybu, ENABLE, synchronizacji ani watchdog.

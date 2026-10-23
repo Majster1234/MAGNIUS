@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 export const pages = [
     { id: "overview", label: "Przegląd systemu", icon: "◫" },
     { id: "can", label: "Magistrala CAN", icon: "⇄" },
+    { id: "diagnostics", label: "Diagnostyka", icon: "∿" },
     { id: "manual", label: "Sterowanie ręczne", icon: "↔" },
     { id: "config", label: "Konfiguracja", icon: "⚙" },
     { id: "architecture", label: "Architektura", icon: "⌘" },

@@ -1,0 +1,31 @@
+# Lokalne stanowisko CAN 1/2/3/5; akceptacja do testów 2026-10-22.
+# Śledzenie +/-0,5 stopnia od 500 ms po SYNC; cel +/-0,2 stopnia.
+/**:
+  ros__parameters:
+    execution_enabled: true
+    execution_configuration_revision: bb3a2d31cd16469a989482e9104aa250
+    execution_stop_verified: true
+    execution_sync_verified: true
+    execution_staged_reset_verified: true
+    execution_tracking_error_rad:
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    execution_acceleration_codes:
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    - 1
+    execution_goal_tolerance_rad:
+    - 0.003490658503988659
+    - 0.003490658503988659
+    - 0.003490658503988659
+    - 0.003490658503988659
+    - 0.003490658503988659
+    - 0.003490658503988659
+    execution_tracking_delay_ms: 500

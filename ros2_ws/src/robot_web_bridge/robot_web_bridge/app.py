@@ -95,7 +95,7 @@ class JogRateLimit:
         return True
 
 
-def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None):
+def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(LanOnly, subnet=store.network['subnet'],
                        authority=f"{store.network['address']}:{store.network['port']}")
@@ -103,6 +103,8 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     add_planning_routes(app, planning_client)
     from .motion import add_motion_routes
     add_motion_routes(app, motion_client)
+    from .shaft_trace_api import add_shaft_trace_routes
+    add_shaft_trace_routes(app, shaft_trace)
 
     @app.get('/healthz')
     async def health():

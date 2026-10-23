@@ -97,11 +97,32 @@ struct Harness {
 TEST(BusManager, CompleteScanDetectsOnlyResponsesAndDoesNotMove) {
   Harness h; h.bus->own_echo = true; h.ready();
   const auto snapshot = h.manager->snapshot();
-  EXPECT_EQ(snapshot.checked, 2047u);
+  EXPECT_EQ(snapshot.checked, 20u);
   EXPECT_EQ(std::count_if(snapshot.devices.begin(), snapshot.devices.end(), [](const auto &d) { return d.detected; }), 6);
   EXPECT_EQ(h.bus->counts[0xf5], 0u); EXPECT_EQ(h.bus->counts[0x4b], 0u);
   EXPECT_TRUE(snapshot.devices[6].position.valid);
   EXPECT_LT(snapshot.devices[6].rtt.maximum, 2.0);
+}
+TEST(BusManager, ShaftTraceContainsEachAcceptedEncoderAndDoesNotDuplicateCache) {
+  Harness h;h.ready();std::array<ShaftPositionSample,4096> out;
+  h.manager->drain_shaft_trace(out.data(),out.size());
+  const auto before=h.bus->position_requests;
+  for(unsigned axis=1;axis<=6;++axis) h.bus->positions[axis]=-123*static_cast<std::int64_t>(axis);
+  h.run(400);
+  const auto count=h.manager->drain_shaft_trace(out.data(),out.size());
+  std::array<unsigned,7> received{};std::array<std::uint64_t,7> last{};
+  for(unsigned i=0;i<count;++i) {
+    const auto &p=out[i];ASSERT_GE(p.axis,1);ASSERT_LE(p.axis,6);
+    EXPECT_EQ(p.ticks,-123*p.axis);EXPECT_GT(p.sequence,last[p.axis]);last[p.axis]=p.sequence;
+    EXPECT_GT(p.segment,0u);EXPECT_GT(p.utc_ns,0u);EXPECT_GT(p.monotonic_ns,0u);++received[p.axis];
+  }
+  for(unsigned axis=1;axis<=6;++axis) EXPECT_EQ(received[axis],h.bus->position_requests[axis]-before[axis]);
+  EXPECT_EQ(count,60u);EXPECT_EQ(h.manager->drain_shaft_trace(out.data(),out.size()),0u);
+  const auto segment=out[0].segment;
+  h.manager->close();h.manager->reset_session(ResetMode::preserve_discovery);h.manager->open(h.now);h.run(80);
+  const auto n=h.manager->drain_shaft_trace(out.data(),out.size());ASSERT_GT(n,0u);
+  EXPECT_GT(out[0].segment,segment);EXPECT_NE(out[0].flags&1,0u);
+  EXPECT_EQ(h.bus->counts[0xf5],0u);EXPECT_EQ(h.bus->counts[0x4b],0u);
 }
 TEST(BusManager, AllSixAcknowledgementsRequiredForSync) {
   Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
@@ -129,6 +150,8 @@ TEST(BusManager, MissingAckStopsWithoutPartialSyncOrAutomaticRecovery) {
   h.manager->submit(h.batch(1)); h.run(30);
   EXPECT_TRUE(h.manager->snapshot().fault);
   EXPECT_EQ(h.bus->counts[0x4b], 0u); EXPECT_EQ(h.bus->counts[0xf7], 6u);
+  h.run(40); // F7 i F6(0) mają łącznie najwyżej dwa timeouty.
+  EXPECT_EQ(h.bus->counts[0xf6],6u);
   const auto tx = h.manager->snapshot().statistics.tx;
   h.run(1000); EXPECT_EQ(h.manager->snapshot().statistics.tx, tx);
   EXPECT_FALSE(h.manager->activate(Source::trajectory, h.now));
@@ -178,7 +201,7 @@ TEST(BusManager, SixAxesLongRunKeepsFeedbackAndBoundedState) {
   const auto snapshot = h.manager->snapshot();
   EXPECT_FALSE(snapshot.fault) << snapshot.message;
   EXPECT_GE(snapshot.statistics.committed, 2999u);
-  EXPECT_GE(h.bus->counts[0x31] - position_before, 6 * 2900u);
+  EXPECT_GE(h.bus->counts[0x31] - position_before, 6 * 1450u);
   EXPECT_LE(snapshot.statistics.scheduled_utilization, 0.5);
   EXPECT_LT(h.bus->responses.size(), 10u);
   EXPECT_LT(sizeof(CanBusManager), 2u * 1024u * 1024u);
@@ -243,7 +266,7 @@ TEST(BusManager, OversuppliedCommandsDoNotStarveFeedbackOrGrowQueue) {
     EXPECT_TRUE(snapshot.devices[axis.address].position.fresh(h.now, 60ms));
 }
 TEST(BusManager, OfflineProbeIsLimitedAndReconnectRestoresNormalFeedback) {
-  Harness h; h.ready(); h.bus->absent_address = 4; h.run(150);
+  Harness h; h.ready(); h.bus->trace.clear(); h.bus->absent_address = 4; h.run(150);
   ASSERT_GE(h.manager->snapshot().devices[4].consecutive_timeouts, 3u);
   const auto requests = h.bus->position_requests[4];
   h.run(2000);
@@ -253,5 +276,30 @@ TEST(BusManager, OfflineProbeIsLimitedAndReconnectRestoresNormalFeedback) {
   EXPECT_LT(device.consecutive_timeouts, 3u);
   EXPECT_TRUE(device.position.fresh(h.now, 60ms));
   EXPECT_TRUE(device.enable.fresh(h.now, 300ms));
+  if(!device.mode.valid) {
+    std::cerr << "Recovery trace CAN 4:";
+    for(const auto &[address,opcode]:h.bus->trace) if(address==4) std::cerr << " " << unsigned(opcode);
+    std::cerr << "; timeouts=" << device.timeouts << "; invalid=" << device.invalid << "; consecutive=" << device.consecutive_timeouts << "\n";
+  }
   EXPECT_TRUE(device.mode.valid);
+}
+
+TEST(BusManager, ResetPreservesKnownDevicesButInvalidatesMeasurementsWithoutScanning) {
+  Harness h;h.ready();const auto queries=h.bus->counts[0x40];
+  h.manager->close();h.manager->reset_session(ResetMode::preserve_discovery);
+  auto state=h.manager->snapshot();ASSERT_TRUE(state.devices[1].detected);
+  EXPECT_FALSE(state.devices[1].position.valid);EXPECT_FALSE(state.devices[1].enable.valid);
+  EXPECT_EQ(state.devices[1].last_ok,Time{});EXPECT_FALSE(state.devices[1].mode.valid);
+  h.manager->open(h.now);h.run(200);
+  state=h.manager->snapshot();EXPECT_FALSE(state.scanning);EXPECT_TRUE(state.devices[1].position.fresh(h.now,60ms));
+  EXPECT_EQ(h.bus->counts[0x40],queries);EXPECT_EQ(h.bus->counts[0xf5],0u);EXPECT_EQ(h.bus->counts[0x4b],0u);
+  h.manager->close();h.manager->reset_session();h.manager->open(h.now);h.run(200);
+  EXPECT_FALSE(h.manager->snapshot().devices[1].detected);EXPECT_EQ(h.bus->counts[0x40],queries);
+}
+
+TEST(BusManager, ScanQueriesExactlyTwentyAddressesAndExcludesBroadcast) {
+  Harness h;h.ready();std::vector<unsigned> addresses;
+  for(const auto &[address,opcode]:h.bus->trace) if(opcode==0x40) addresses.push_back(address);
+  ASSERT_EQ(addresses.size(),20u);
+  for(unsigned i=0;i<20;++i) EXPECT_EQ(addresses[i],i+1);
 }

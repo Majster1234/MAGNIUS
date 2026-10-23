@@ -27,12 +27,24 @@ kontekstu lub opuszczenie ekranu usuwa go. Samo edytowanie celu zachowuje stary
 co animacja, próbkowanej co najwyżej co 1/60 s (maks. 12001 punktów dla 200 s).
 Powtarzanie pętli nie powiększa bufora. Ślad nie jest nagraniem fizycznego TCP.
 
-Blisko konfiguracji osobliwej odpowiedni model otrzymuje żółte podświetlenie,
-przy większej bliskości czerwone, siatkową kulę przy TCP i etykietę **Robot**,
-**Cel** albo **Ruch** z nazwą obszaru. Nadgarstek podświetla J4–J6, a ostrzeżenie
-całego łańcucha wszystkie człony. Rzeczywisty robot wymaga sześciu aktualnych
-pomiarów; brakujące lub nieaktualne pozycje nie tworzą ostrzeżenia. Cel i ruch
-są oceniane niezależnie na podstawie pełnych pozycji symulowanych.
+Blisko konfiguracji osobliwej odpowiedni model otrzymuje żółtą, pulsującą łunę;
+przy większej bliskości czerwoną, pulsującą szybciej. Łuna znajduje się w początku
+J5 dla ostrzeżenia nadgarstka J4–J6 albo J3 dla ostrzeżenia ramienia. Jej pozycja
+wynika z bieżących transformacji danego modelu URDF; nie jest przenoszona do TCP.
+Dymek **Robot**, **Cel** albo **Ruch** podaje rodzaj i obszar ostrzeżenia, a linia
+łączy go z punktem łuny. Przy pokrywających się modelach różne wysokości dymków
+zachowują wspólny punkt kotwiczenia. Zmiana kamery i pozy przemieszcza je razem.
+J3 jest umownym miejscem prezentacji ostrzeżenia całego łańcucha; pełny Jacobian
+nie wyznacza pojedynczego fizycznego punktu osobliwości.
+
+Łuna pulsuje także przy nieruchomej pozie (okres 1,6 s dla żółtej, 0,9 s dla
+czerwonej), w dotychczasowym limicie 30 klatek/s. Preferencja przeglądarki
+„ogranicz animacje” pozostawia stałą łunę i dymek. Wyjście ze strefy ostrzeżenia
+usuwa oba znaczniki; podświetlenia nie wpływają na dopasowanie kadru modelu.
+Nadgarstek dodatkowo podświetla człony J4–J6, a ostrzeżenie całego łańcucha
+wszystkie człony. Rzeczywisty robot wymaga sześciu aktualnych pomiarów; brakujące
+lub nieaktualne pozycje nie tworzą ostrzeżenia. Cel i ruch są oceniane niezależnie
+na podstawie pełnych pozycji symulowanych.
 
 Kierunki i początki osi pochodzą z aktualnych transformacji URDF. Wskaźnik
 nadgarstka to stosunek najmniejszej do największej wartości singularnej części
@@ -171,6 +183,16 @@ Argumenty launch: `preview_enabled:=false` wyłącza publisher;
 Pierwszy etap obsługuje bryły URDF i nazwy joint_1–joint_6. Obsługa siatek
 oraz zastosowanie rzeczywistych przełożeń, geometrii i bazowania są kolejnym etapem.
 Przykładowy URDF nie spełnia warunków uruchomienia sterowania automatycznego.
+
+## Sprawdzenia wizualizacji osobliwości — 2026-10-23
+
+Build TypeScript/Vite oraz `node web/test/singularity.browser.cjs` przeszły.
+Osobny scenariusz uruchamia tylko scenę podglądu z demonstracyjnym URDF w WebGL:
+sprawdza J5/J3 zamiast TCP, zgodność kotwiczenia dymka z osią po zmianie kamery,
+pulsowanie obrazu przy stałej pozie, żółty/czerwony stan, ukrycie poza strefą,
+niezależność celu/ruchu od brakujących pomiarów robota, ograniczenie animacji
+i usuwanie zasobów. Nie uruchamia pełnych testów JOG, planera, trace ani backendu;
+nie łączy się z ROS/CAN i nie wydaje poleceń sprzętowych.
 
 ## Sprawdzenia — 2026-10-19
 

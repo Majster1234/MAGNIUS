@@ -210,6 +210,9 @@ zachowując trajektorię symulacji. Utrzymanie celu używa RPM=1, nie `speed=0` 
 Sześć kodów `mks_acceleration_codes` wymaga potwierdzenia 1–255; przykład ma `-1`.
 Kod producenta nie jest rad/s². Bez pełnego profilu lub kodów `mks_compatible=false`.
 Podgląd zawiera co 20 ms pozycje, RPM, acc, operacje i 48 bajtów F5 z CRC.
+Znacznik podglądu opisuje punkt referencji q(t). Wykonawca fizyczny kompiluje
+odrębne zestawy: SYNC w t uruchamia cel q(t+20 ms). Podgląd referencji nie jest
+kolejką gotowych ramek wykonawcy ani potwierdzeniem wykonania na sprzęcie.
 F5 nie zadaje czasu dojazdu, ACK nie oznacza osiągnięcia celu. Przygotowanie sześciu
 komend i komplet ACK muszą poprzedzać SYNC, także pierwszy w chwili 0.
 Nie zakładamy kolejki przyszłych odcinków w napędzie.
@@ -217,9 +220,11 @@ Nie zakładamy kolejki przyszłych odcinków w napędzie.
 Istniejący manager odrzuca przeterminowane zestawy i wymaga kompletu ACK.
 `CanSystem`/przykład JTC obsługują position+velocity, starszy interfejs position nadal
 szacuje prędkość z różnic pozycji. Bramki `FollowJointTrajectory`, aktywacja, lease i stop
-pozostają obowiązujące. Przyszły executor wymaga osobnego wdrożenia: zatwierdzenia
-planu po id, zgodności startu/modelu/rewizji, sześciu odebranych osi, nadzoru terminów
-i błędu śledzenia oraz zatrzymania bez automatycznego wznowienia.
+pozostają obowiązujące. Lokalny wykonawca PTP wymaga zatwierdzenia programu po id,
+zgodności startu/modelu/rewizji, maski uczestników i odbioru sprzętowego.
+Nadzoruje terminy i błąd śledzenia oraz zatrzymuje bez automatycznego wznowienia;
+szczegóły opisuje [wykonanie PTP](motion_execution.md). Fizyczny LIN pozostaje
+kolejnym etapem.
 
 ## Uruchamianie i testy
 

@@ -9,7 +9,7 @@ from diagnostic_msgs.msg import DiagnosticArray
 import rclpy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, DurabilityPolicy
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from std_msgs.msg import String
 import uvicorn
 
@@ -24,6 +24,8 @@ from .planning import PlanningClient
 from .motion import MotionClient
 from .trace import trace, recording
 from robot_control_interfaces.msg import ManualState
+from robot_control_interfaces.msg import ShaftTraceBatch
+from .shaft_trace import ShaftTraceStore
 from std_srvs.srv import Trigger
 
 
@@ -36,6 +38,7 @@ def main(args=None):
     node = Node('robot_web_bridge')
     executor = SingleThreadedExecutor()
     thread = None
+    shaft_trace = None
     try:
         for name, default in (('lan_interface', 'enp2s0'), ('lan_subnet', '192.168.1.0/24'),
                               ('port', 8080), ('static_dir', '')):
@@ -56,6 +59,10 @@ def main(args=None):
         store = StatusStore(address, port, interface, subnet)
         can_store = CanStatusStore(node.declare_parameter('can_interface', 'can0').value)
         manual_store = ManualStore()
+        trace_directory = node.declare_parameter('shaft_trace_directory', '').value
+        shaft_trace = ShaftTraceStore(trace_directory or None)
+        node.create_subscription(ShaftTraceBatch, '/robot/diagnostics/shaft_trace', shaft_trace.ingest,
+                                 QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT))
         description_store = DescriptionStore()
         node.create_subscription(String, '/robot/preview/robot_description', description_store.update,
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
@@ -111,12 +118,14 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)
         if thread is not None:
             thread.join(timeout=2.0)
+        if shaft_trace is not None:
+            shaft_trace.close()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

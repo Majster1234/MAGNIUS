@@ -4,7 +4,7 @@
 
 namespace mks_servo_can {
 BusRuntime::BusRuntime(BusConfig config, std::unique_ptr<Transport> transport)
-    : manager_(std::move(config), std::move(transport)) {}
+    : manager_(std::move(config), std::move(transport), Clock::now) {}
 BusRuntime::~BusRuntime() { shutdown(); }
 void BusRuntime::start(bool scan_on_start) {
   if (running_) throw std::logic_error("Manager CAN już działa");
@@ -38,7 +38,7 @@ void BusRuntime::shutdown() {
   std::lock_guard<std::mutex> guard(mutex_); manager_.close();
 }
 bool BusRuntime::scan() { std::lock_guard<std::mutex> guard(mutex_); return manager_.start_scan(); }
-void BusRuntime::reset_session() { std::lock_guard<std::mutex> guard(mutex_); manager_.reset_session(); }
+void BusRuntime::reset_session(ResetMode mode) { std::lock_guard<std::mutex> guard(mutex_); manager_.reset_session(mode); }
 bool BusRuntime::reset_allowed() { std::lock_guard<std::mutex> guard(mutex_); return manager_.service_allowed(); }
 bool BusRuntime::activate(Source source) { std::lock_guard<std::mutex> guard(mutex_); return manager_.activate(source, Clock::now()); }
 void BusRuntime::stop(const std::string &reason) { std::lock_guard<std::mutex> guard(mutex_); manager_.stop(reason); }

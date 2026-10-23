@@ -10,7 +10,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     network:{address:'robot.test',port:8080,interface:'eth0',subnet:'LAN',url:'http://robot.test'},
     components:Object.fromEntries(['api','ros','host','can','controllers','drives'].map(id=>[id,component(id,id==='can'?{interface:'can0',bus_state:'ERROR-ACTIVE',bitrate:500000}:{})]))};
   const can={schema_version:1,updated_at:new Date().toISOString(),age_seconds:0,fresh:true,interface:'can0',
-    summary:{state:'ok',message:'CAN działa',values:{interface:'can0',bus_state:'ERROR-ACTIVE',bitrate:500000,device_count:4}},
+    summary:{state:'ok',message:'CAN działa',values:{interface:'can0',bus_state:'ERROR-ACTIVE',bitrate:500000,device_count:4,command_period_ms:20,encoder_period_ms:40,planned_utilization_limit_percent:40,stop_result:"ACK odebrane; kasowanie celu wymaga odbioru"}},
     scan:{state:'ok',message:'Skan zakończony',values:{state:'done'}},
     devices:[1,2,5,9].map(id=>({id,state:'ok',message:'Odpowiada',values:{online:true,model:'MKS SERVO42D',enable:false}}))};
   const manual={fresh:true,busy:false,fault:false,recording:false,active_axis:0,max_rpm:30,operation:'idle',message:'Test nawigacji',
@@ -42,7 +42,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     assert(await page.getByText('can0 · OK (ERROR-ACTIVE)',{exact:true}).isVisible());
     assert.equal(await page.locator('.manual-tile').count(),0);
     await page.evaluate(()=>{window.navigationSentinel='same-document';window.resizeEvents=0;window.addEventListener('resize',()=>window.resizeEvents++);});
-    for(const [id,label] of [['can','Magistrala CAN'],['manual','Sterowanie ręczne'],['config','Konfiguracja'],['architecture','Architektura'],['overview','Przegląd systemu']]){
+    for(const [id,label] of [['can','Magistrala CAN'],['diagnostics','Diagnostyka'],['manual','Sterowanie ręczne'],['config','Konfiguracja'],['architecture','Architektura'],['overview','Przegląd systemu']]){
       await nav.getByRole('link',{name:label,exact:true}).click();await page.getByRole('heading',{name:label,exact:true}).waitFor();
       assert.equal(new URL(page.url()).hash,`#${id}`);
       assert.equal(await nav.locator('a.active').count(),1);assert.equal(await nav.getByRole('link',{name:label,exact:true}).getAttribute('aria-current'),'page');
@@ -50,8 +50,14 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
       assert.equal(await page.evaluate(()=>window.navigationSentinel),'same-document');
       assert.equal(await page.locator('.breadcrumbs > span:last-child').textContent(),label);
       if(id==='can'){
+        can.scan.values.scanning=true;can.scan.values.checked=7;publish();
+        await page.getByText('Adres 7 / 20',{exact:true}).waitFor();
+        can.scan.values.scanning=false;publish();
         const details=page.locator('.can-bus-details');const closed=await details.boundingBox();assert(closed.height<70,'Zwinięte szczegóły nie tworzą pustej karty');
         await details.getByText('Szczegóły komunikacji',{exact:true}).click();assert((await details.boundingBox()).height>closed.height);
+        assert(await page.getByText('ACK odebrane; kasowanie celu wymaga odbioru',{exact:true}).isVisible());
+        assert((await details.locator('.metric').filter({has:page.getByText('Cykl komend',{exact:true})}).textContent()).includes('20'));
+        assert((await details.locator('.metric').filter({has:page.getByText('Okres enkoderów',{exact:true})}).textContent()).includes('40'));
         assert(await page.getByRole('columnheader',{name:'Oś robota',exact:true}).isVisible());
         assert(await page.locator('.device-row').filter({hasText:'MKS SERVO42D'}).nth(2).getByRole('cell',{name:'J5',exact:true}).isVisible());
         await page.screenshot({path:'/tmp/robot-shell-can.png',fullPage:true});

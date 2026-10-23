@@ -16,6 +16,7 @@ void CanBusManager::configure_program_authorization(const BusConfig &a) {
     if(std::isfinite(a.axes[j].tracking_error) && a.axes[j].tracking_error>0) config_.axes[j].tracking_error=a.axes[j].tracking_error;
     if(a.axes[j].acceleration_code) config_.axes[j].acceleration_code=a.axes[j].acceleration_code;
   }
+  rebuild_axis_lookup();
 }
 void CanBusManager::update_motion_model(const std::string &model) {
   if(model!=motion_model_) {
@@ -61,7 +62,7 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
       continue;
     }
     if(!profile_.axes[j].configured || !manual_->calibration_valid(j+1) || !manual_->microstep(j+1) ||
-        !d.position.fresh(now,config_.feedback_timeout) || !d.enable.fresh(now,300ms) || !d.enable.value ||
+        !d.position.fresh(now,config_.feedback_timeout) || now<d.position_sent || now-d.position_sent>=config_.feedback_timeout || !d.enable.fresh(now,300ms) || !d.enable.value ||
         !d.stall.fresh(now,300ms) || d.stall.value || !d.mode.valid || !supports_motor_state(d.mode.value))
       throw std::runtime_error("J"+std::to_string(j+1)+": wymagane przygotowanie ENABLE, kalibracja i świeży stan");
     if(p.points.empty() || std::abs(p.points.front().positions[j]-position_to_joint(a,d.position.value))>a.tracking_error/4)
@@ -80,7 +81,7 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
 bool CanBusManager::program_feedback_good(Time now) const {
   for(unsigned j=0;j<6;++j) if(executor_.status.participating[j]) {
     const auto &d=devices_[config_.axes[j].address];
-    if(!d.position.fresh(now,config_.feedback_timeout) || !d.enable.fresh(now,300ms) || !d.enable.value ||
+    if(!d.position.fresh(now,config_.feedback_timeout) || now<d.position_sent || now-d.position_sent>=config_.feedback_timeout || !d.enable.fresh(now,300ms) || !d.enable.value ||
         !d.stall.fresh(now,300ms) || d.stall.value || d.consecutive_timeouts>=3) return false;
   }
   return true;
@@ -138,8 +139,9 @@ void CanBusManager::schedule_program(Time now) {
     if(e.waiting) return;
     while(e.setup_axis<6 && !s.participating[e.setup_axis]) ++e.setup_axis;
     if(e.setup_axis==6) {
-      s.state="staging";e.frame=0;e.staged=false;e.due=now+config_.cycle;e.started=e.due;
-      staged_.fill(false);sent_stage_.fill(false);return;
+      s.state="warming";e.warmup_started=now;
+      for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) next_position_[config_.axes[j].address]={};
+      return;
     }
     const auto address=config_.axes[e.setup_axis].address;
     if(!can_send(address,now)) return;
@@ -161,47 +163,78 @@ void CanBusManager::schedule_program(Time now) {
     }
     return;
   }
+  if(s.state=="warming") {
+    if(now>=e.preparation_deadline) { fault("Przekroczony termin odświeżenia pozycji przed PTP");return; }
+    for(unsigned j=0;j<kAxes;++j) if(s.participating[j] && devices_[config_.axes[j].address].position_sent<e.warmup_started) return;
+    if(std::any_of(pending_.begin(),pending_.end(),[](const auto &p){return p.used;})) return;
+    s.state="staging";e.frame=0;e.phase_origin=next_cycle_;e.started=e.due=e.phase_origin+config_.cycle;
+    staged_.fill(false);sent_stage_.fill(false);
+    // Rozłożenie okresowych odczytów; następne terminy przesuwamy o okres, nie o opóźnienie pętli.
+    unsigned rank=0,count=0;for(bool participating:s.participating) if(participating) ++count;
+    for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+      const auto address=config_.axes[j].address;
+      next_position_[address]=e.phase_origin+kStageWindow+(rank%2 ? config_.cycle : 0ms);
+      next_enable_[address]=e.phase_origin+kFeedbackWindowEnd+std::chrono::milliseconds(rank*100/count);
+      next_stall_[address]=e.phase_origin+kFeedbackWindowEnd+std::chrono::milliseconds((rank*100/count+50)%100);
+      next_speed_[address]=e.phase_origin+kFeedbackWindowEnd+std::chrono::milliseconds(rank*50/count);
+      next_motor_[address]=e.phase_origin+kFeedbackWindowEnd+std::chrono::milliseconds((rank*50/count+25)%50);
+      ++rank;
+    }
+    return;
+  }
   const auto &program=*e.program;
   s.elapsed=std::max(0.,std::chrono::duration<double>(now-e.started).count());
   s.progress=std::min(1.,s.elapsed/program.duration);
-  const auto reference=program_reference(program,s.elapsed);
-  for(unsigned j=0;j<6;++j) if(s.participating[j]) {
-    const auto &a=config_.axes[j];
-    if(std::abs(position_to_joint(a,devices_[a.address].position.value)-reference.positions[j])>a.tracking_error) {
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    const auto &a=config_.axes[j];const auto &d=devices_[a.address];
+    if(d.position.stamp<=e.checked_position[j]) continue;
+    e.checked_position[j]=d.position.stamp;
+    const auto bounds=program_position_bounds(program,j,std::chrono::duration<double>(d.position_sent-e.started).count(),
+        std::chrono::duration<double>(d.position.stamp-e.started).count());
+    const auto actual=position_to_joint(a,d.position.value);
+    if(actual<bounds[0]-a.tracking_error || actual>bounds[1]+a.tracking_error) {
       fault("Przekroczony błąd śledzenia J"+std::to_string(j+1));return;
     }
   }
   if(e.frame<program.frames.size()) {
-    const auto &frame=program.frames[e.frame];
+    now=current_time(now);
+    auto all_staged=[&] { for(unsigned j=0;j<kAxes;++j) if(s.participating[j] && !staged_[j]) return false;return true; };
     if(now>e.due+1ms) { ++stats_.missed_cycles;fault("Przekroczony termin SYNC; program przerwany bez nadrabiania próbek");return; }
-    for(unsigned j=0;j<6;++j) if(s.participating[j] && !sent_stage_[j]) {
-      const auto address=config_.axes[j].address;
-      if(!can_send(address,now)) continue;
-      // ACK=5 oraz opcjonalny completion=2/endstop=3 mają osobne ramki.
-      // Zachowujemy raporty krańcówek, rezerwując również ich koszt.
-      const double stage_bits=55+10*frame.payloads[j].size()+2*(55+10*3);
-      const double budget=config_.bitrate*config_.cycle.count()/1000.*config_.utilization_limit;
-      if(spent_bits_+stage_bits>budget) { ++stats_.deferred;continue; }
-      spent_bits_+=stage_bits;
-      transport_->send(address,frame.payloads[j]);++stats_.tx;sent_stage_[j]=true;
-      for(auto &pending:pending_) if(!pending.used) {
-        pending={true,address,Kind::stage,0xf5,3,now,std::min(now+config_.response_timeout,e.due)};break;
-      }
-    }
-    bool all=true;for(unsigned j=0;j<6;++j) if(s.participating[j] && !staged_[j]) all=false;
     if(now>=e.due) {
-      if(!all) { fault("Brak kompletu ACK przed terminem SYNC");return; }
+      if(!all_staged()) { fault("Brak kompletu ACK przed terminem SYNC");return; }
       if(!reserve(2,0,true)) { fault("Brak budżetu CAN na terminowy SYNC");return; }
-      transport_->send(0,synchronize_request());++stats_.tx;++stats_.committed;
+      now=current_time(now);
+      if(now>e.due+1ms) { ++stats_.missed_cycles;fault("Przekroczony termin przed zapisem SYNC");return; }
+      transport_->send(0,sync_payload_);++stats_.tx;++stats_.committed;
+      stats_.sync_lateness_ms.add(std::chrono::duration<double,std::milli>(now-e.due).count());
       ++e.frame;staged_.fill(false);sent_stage_.fill(false);s.state="running";s.message="Wykonywanie zatwierdzonego PTP";
-      if(e.frame<program.frames.size()) e.due=e.started+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(program.frames[e.frame].seconds));
+      if(e.frame<program.frames.size()) e.due=e.started+config_.cycle*e.frame;
+    }
+    if(e.frame<program.frames.size() && now>=e.phase_origin) {
+      const auto stage_end=cycle_start_+kStageWindow;
+      if(now>=stage_end) {
+        if(!all_staged()) { fault("Niepełny zestaw ACK w oknie 0–8 ms");return; }
+      } else {
+        const auto &frame=program.frames[e.frame];
+        for(unsigned j=0;j<kAxes;++j) if(s.participating[j] && !sent_stage_[j]) {
+          const auto address=config_.axes[j].address;now=current_time(now);
+          if(now>=stage_end) { fault("Przekroczone okno wysyłania F5");return; }
+          if(!can_send(address,now)) continue;
+          if(!reserve(frame.payloads[j].size(),3,true,1)) { fault("Brak budżetu F5 w oknie przygotowania");return; }
+          transport_->send(address,frame.payloads[j]);++stats_.tx;sent_stage_[j]=true;
+          for(auto &pending:pending_) if(!pending.used) {
+            pending={true,address,Kind::stage,0xf5,3,now,std::min(now+config_.response_timeout,stage_end)};break;
+          }
+        }
+      }
     }
   }
   if(s.elapsed>=program.duration && e.frame==program.frames.size()) {
     s.state="settling";bool reached=true;Time newest{};
     for(unsigned j=0;j<6;++j) if(s.participating[j]) {
       const auto &a=config_.axes[j];const auto &d=devices_[a.address];newest=std::max(newest,d.position.stamp);
-      if(std::abs(position_to_joint(a,d.position.value)-program.target[j])>a.tracking_error/4 ||
+      if(d.position_sent<e.started+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(program.duration)) ||
+          std::abs(position_to_joint(a,d.position.value)-program.target[j])>a.tracking_error/4 ||
           !d.speed.fresh(now,150ms) || d.speed.value!=0) reached=false;
     }
     if(reached && newest>e.last_settle_sample) {

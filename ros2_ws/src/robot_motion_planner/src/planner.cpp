@@ -14,7 +14,7 @@
 
 namespace robot_motion_planner {
 namespace {
-constexpr double cycle=.02;
+constexpr double cycle=mks_servo_can::kMotionCycleSeconds;
 constexpr size_t max_points=10000;
 constexpr double wrist_slow_velocity=5*3.141592653589793/180;
 double seconds(const builtin_interfaces::msg::Duration &duration) { return duration.sec+duration.nanosec*1e-9; }

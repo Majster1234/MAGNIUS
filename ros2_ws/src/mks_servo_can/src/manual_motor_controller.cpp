@@ -257,6 +257,9 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
   if (data[0] == 0x31 && s.expected == 0 && std::abs(value) <= 3) value = 0;
   if (s.expected >= 0 && value != s.expected) { fail("Napęd nie potwierdził warunku operacji: " + std::to_string(data[0])); return; }
   if (s.expected == -2 && value != 1 && value != 2) { fail("Napęd odrzucił komendę prędkości"); return; }
+  // ACK zmiany zera rozpoczyna segment również wtedy, gdy późniejszy pomiar
+  // nie potwierdzi tolerancji operacji. Trace zachowuje rzeczywiste ticki.
+  if(data[0]==0x92 && operation_==Operation::zero) bus_.shaft_reference_changed(axis_);
   if (s.data.front() == 0) {
     if (data[0] == 0x84) {
       // Zero w odpowiedzi jest niejednoznaczne (256 w polu uint8). Nie zgadujemy.

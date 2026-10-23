@@ -118,7 +118,9 @@ Początkowe maksimum JOG wynosi 30 obr./min. Można je zmienić parametrem launc
 
 1. **Załącz** przygotowuje tylko wybrany silnik: potwierdza stabilną pozycję, włącza
    odpowiedzi `8C`, wyłącza synchronizację `4A`, ustawia `SR_vFOC` przez `82`,
-   potwierdza wyłączenie `F3/3A`, czyści poprzedni ruch przez `F7` i sprawdza postój.
+   potwierdza wyłączenie `F3/3A`, zatrzymuje poprzedni ruch przez `F7` i sprawdza postój.
+   Nie jest to potwierdzenie usunięcia synchronicznego celu F5; osobny odbiór
+   sekwencji F7 → F6(0) opisuje dokumentacja wykonania PTP.
    Odczytuje mikrokrok `00 84`, ustawia ochronę `98` na 300 ms i sprawdza odczyt,
    następnie załącza `F3` i potwierdza ENABLE przez `3A`.
 2. **Ustaw zero** wymaga świeżych odczytów, stanu postoju i stabilnej pozycji.
@@ -163,7 +165,7 @@ przewidziano do 2 s na stabilizację; brak potwierdzenia zatrzaskuje błąd.
 `ManualMotorController` w C++ realizuje sekwencje i stan ruchu. Korzysta z tego
 samego `CanBusManager`/`BusRuntime` co diagnostyka i adapter `ros2_control`;
 manager przekazuje ramki, odpowiedzi i timeouty, posiadając jeden transport,
-cztery miejsca oczekujących zapytań i budżet do 50% CAN. Sekwencja ma najwyżej
+cztery miejsca oczekujących zapytań i planowany budżet do 40% CAN (limit 50%). Sekwencja ma najwyżej
 24 kroki i stałą pamięć. Stop ma pierwszeństwo przed zwykłymi zapytaniami.
 
 Tylko jedna oś może być w ruchu, także między kartami/przeglądarkami.
@@ -172,7 +174,7 @@ osi blokuje dalszy ruch i zatrzaskuje błąd. Reset CAN jest wtedy świadomą
 operacją operatora; nie wznawia ruchu ani ENABLE. Zwykły SCAN/reset są blokowane
 podczas operacji ręcznej. Rozpoczęcie operacji ręcznej przerywa SCAN.
 
-Pozycje pozostają odczytywane przy 50 Hz, ENABLE/stall przy 10 Hz. Przygotowane
+Pozycje są odczytywane przy 25 Hz na oś, ENABLE/stall przy 10 Hz. Przygotowane
 osie mają odczyt prędkości i stanu przy 20 Hz również w postoju, aby następny
 JOG mógł zweryfikować gotowość. Publikacja stanu manualnego działa przy 20 Hz,
 diagnostyka CAN nadal przy 5 Hz, a przegląd komputera przy 1 Hz.

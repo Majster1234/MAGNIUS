@@ -20,6 +20,7 @@ class Port final : public Transport {
   unsigned drop_command{}, no_read_command{}, corrupt_command{}, refuse_command{};
   std::chrono::milliseconds zero_delay{1};
   int idle_speed{};
+  int zero_result_ticks{};
   bool receive_clock_skew{};
   Time now{1s};
   std::map<unsigned, Motor> motors{{1, {}}, {2, {}}, {4, {}}};
@@ -73,7 +74,7 @@ class Port final : public Transport {
       case 0x82: m.mode = data[1]; reply.push_back(1); break;
       case 0x4a: m.sync = data[1]; reply.push_back(1); break;
       case 0x98: m.heartbeat = (unsigned(data[1]) << 24) | (unsigned(data[2]) << 16) | (unsigned(data[3]) << 8) | data[4]; reply.push_back(1); break;
-      case 0x92: m.ticks = 0; reply.push_back(1); break;
+      case 0x92: m.ticks = zero_result_ticks; reply.push_back(1); break;
       case 0xf7: m.target = m.rpm = 0; reply.push_back(1); break;
       case 0xf6: {
         const auto raw = (unsigned(data[1] & 0xf) << 8) | data[2];
@@ -105,7 +106,7 @@ struct Rig {
   ManualMotorController &manual() { return bus.manual(); }
   ManualState state() { return manual().snapshot(now); }
   void enable(unsigned axis = 1) {
-    ASSERT_TRUE(manual().set_enable(axis, true, now)); step(160);
+    ASSERT_TRUE(manual().set_enable(axis, true, now)); step(200);
     ASSERT_FALSE(bus.snapshot().fault) << state().message;
     ASSERT_TRUE(state().axes[axis - 1].can_jog) << state().message;
   }
@@ -195,8 +196,9 @@ TEST(ManualMotor, EncoderOscillationWithinOneDegreeKeepsJogReadyAfterStop) {
   const auto center = std::llround(r.port->motors[1].ticks);
   for (unsigned i = 0; i < 250; ++i) {
     // ±45 impulsów to ±0,989°, a pełny rozrzut to prawie 2°.
+    // Każdy stan trwa cały okres enkodera 40 ms, bez aliasowania odczytu 25 Hz.
     r.port->motors[1].ticks = center + (i % 2 ? 45 : -45);
-    for (unsigned j = 0; j < 20; ++j) {
+    for (unsigned j = 0; j < 40; ++j) {
       r.step(); const auto axis = r.state().axes[0];
       ASSERT_TRUE(axis.can_jog) << "Próbka " << i;
       EXPECT_TRUE(axis.enable.valid); EXPECT_TRUE(axis.enable.value);
@@ -211,7 +213,8 @@ TEST(ManualMotor, JogRestToleranceIsAnchoredNotAppliedToEachPositionDelta) {
   Rig r; r.enable();
   for (unsigned i = 1; i <= 20; ++i) {
     r.port->motors[1].ticks = 20 * i; r.step(20);
-    if (i >= 3) EXPECT_FALSE(r.state().axes[0].can_jog);
+    // Dopuszczamy opóźnienie pierwszej obserwacji do pełnego okresu 40 ms.
+    if (i >= 4) { EXPECT_FALSE(r.state().axes[0].can_jog); }
   }
   EXPECT_FALSE(r.start());
   r.step(100); EXPECT_TRUE(r.state().axes[0].can_jog);
@@ -240,6 +243,32 @@ TEST(ManualMotor, ZeroOnlyStationaryAndConfirmed) {
   r.enable(); ASSERT_TRUE(r.manual().zero(1, r.now)); r.step(160);
   EXPECT_NEAR(r.state().axes[0].position.value, 0, .01); EXPECT_FALSE(r.state().busy);
   ASSERT_TRUE(r.start()); r.step(20); EXPECT_FALSE(r.manual().zero(1, r.now));
+}
+TEST(ManualMotor, ShaftTraceIncludesZeroConfirmationWithNewSegment) {
+  Rig r;r.port->motors[1].ticks=1000;r.enable();
+  std::array<ShaftPositionSample,4096> samples;
+  auto n=r.bus.drain_shaft_trace(samples.data(),samples.size());std::uint64_t old_segment=0;
+  for(unsigned i=0;i<n;++i) if(samples[i].axis==1) old_segment=samples[i].segment;
+  ASSERT_GT(old_segment,0u);ASSERT_TRUE(r.manual().zero(1,r.now));r.step(160);
+  n=r.bus.drain_shaft_trace(samples.data(),samples.size());bool boundary=false;
+  for(unsigned i=0;i<n;++i) if(samples[i].axis==1 && samples[i].segment!=old_segment) {
+    EXPECT_EQ(samples[i].ticks,0);if(!boundary) EXPECT_NE(samples[i].flags&1,0u);boundary=true;
+  }
+  EXPECT_TRUE(boundary);
+}
+TEST(ManualMotor, ShaftTraceKeepsMeasuredZeroResidualAndBreaksSegmentOnFailedConfirmation) {
+  for(int residual:{2,9}) {
+    Rig r;r.enable();r.port->zero_result_ticks=residual;
+    std::array<ShaftPositionSample,4096> samples;
+    auto n=r.bus.drain_shaft_trace(samples.data(),samples.size());std::uint64_t previous=0;
+    for(unsigned i=0;i<n;++i) if(samples[i].axis==1) previous=samples[i].segment;
+    ASSERT_TRUE(r.manual().zero(1,r.now));r.step(160);
+    n=r.bus.drain_shaft_trace(samples.data(),samples.size());bool found=false;
+    for(unsigned i=0;i<n;++i) if(samples[i].axis==1 && samples[i].ticks==residual) {
+      EXPECT_NE(samples[i].segment,previous);found=true;
+    }
+    EXPECT_TRUE(found);EXPECT_EQ(r.state().fault,residual==9);
+  }
 }
 TEST(ManualMotor, ConfigurationAckMayTakeLongerThanReadTimeout) {
   Rig r; r.enable(); r.port->zero_delay = 35ms;
@@ -321,7 +350,7 @@ TEST(ManualMotor, UnsupportedParameterReadDoesNotEnableMotor) {
 }
 TEST(ManualMotor, FullScanEchoCannotInventDevices) {
   Rig r; r.port->echo = true; r.step(44000);
-  const auto snapshot = r.bus.snapshot(); EXPECT_EQ(snapshot.checked, 2047u);
+  const auto snapshot = r.bus.snapshot(); EXPECT_EQ(snapshot.checked, 20u);
   unsigned count = 0; for (const auto &d : snapshot.devices) count += d.detected;
   EXPECT_EQ(count, 3u); EXPECT_TRUE(r.port->writes.empty());
 }

@@ -72,6 +72,7 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
       a.address = i + 1; a.gear_ratio = p.gear_ratio; a.direction = p.direction; a.offset = p.offset;
       a.lower = p.lower; a.upper = p.upper; a.max_velocity = p.velocity; a.max_acceleration = p.acceleration;
     }
+    rebuild_axis_lookup();
     manual_->configuration_changed(profile_.changed);
     config_.commissioning_verified = config_.synchronization_verified = config_.stop_verified = false;
     configuration_stage_ = "committed";
@@ -81,6 +82,7 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
     if (configuration_stage_ == "rolled_back") return result(true, "Wycofanie już potwierdzone");
     if (!configuration_locked_ || configuration_stage_ == "finished") return result(false, "Operacja już zakończona");
     profile_ = previous_profile_; config_.axes = previous_axes_; calibration_invalid_ = previous_calibration_invalid_;
+    rebuild_axis_lookup();
     manual_->configuration_changed(candidate_profile_.changed);
     configuration_stage_ = "rolled_back";
     return result(true, "Poprzednie parametry przywrócone; blokada pozostaje aktywna");
@@ -90,7 +92,7 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
     if (configuration_stage_ != "committed" && configuration_stage_ != "rolled_back") return result(false, "Najpierw COMMIT lub ROLLBACK");
     configuration_ready_ = true; configuration_locked_ = false; configuration_stage_ = "finished";
     retired_configuration_operations_[retired_configuration_cursor_++ % retired_configuration_operations_.size()] = operation;
-    if (configuration_bootstrap_) { configuration_bootstrap_ = false; start_scan(); }
+    if (configuration_bootstrap_) { configuration_bootstrap_ = false; if(scan_after_bootstrap_) start_scan(); }
     return result(true, "Konfiguracja uzgodniona");
   }
   return result(false, "Nieznana faza konfiguracji");

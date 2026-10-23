@@ -46,7 +46,7 @@ std::vector<std::uint8_t> request(std::uint16_t address, std::uint8_t command,
   if (address == kBroadcastAddress || address > kMaximumAddress) {
     throw std::invalid_argument("adres MKS musi należeć do zakresu 1–2047");
   }
-  std::vector<std::uint8_t> bytes{command};
+  std::vector<std::uint8_t> bytes;bytes.reserve(payload.size()+2);bytes.push_back(command);
   bytes.insert(bytes.end(), payload.begin(), payload.end());
   bytes.push_back(checksum(address, bytes));
   return bytes;
@@ -64,8 +64,9 @@ ValidationResult validate_response(std::uint16_t expected_address,
     return {false, "nieprawidłowy adres oczekiwany"};
   if (data.size() != expected_length) return {false, "nieprawidłowa długość DLC"};
   if (data.empty() || data.front() != expected_command) return {false, "nieprawidłowa komenda"};
-  const std::vector<std::uint8_t> without_crc(data.begin(), data.end() - 1);
-  if (data.back() != checksum(expected_address, without_crc)) return {false, "błędna suma kontrolna"};
+  unsigned sum=expected_address;
+  for(std::size_t i=0;i+1<data.size();++i) sum+=data[i];
+  if (data.back() != static_cast<std::uint8_t>(sum)) return {false, "błędna suma kontrolna"};
   return {true, ""};
 }
 

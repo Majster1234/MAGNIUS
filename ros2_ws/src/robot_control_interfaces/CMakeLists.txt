@@ -6,6 +6,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ManualAxisState.msg" "msg/ManualState.msg"
+  "msg/ShaftPositionSample.msg" "msg/ShaftTraceBatch.msg"
   "msg/JointConfiguration.msg" "msg/RobotConfiguration.msg"
   "srv/SetMotorEnable.srv" "srv/ZeroMotor.srv" "srv/JogMotor.srv"
   "msg/PlanningContext.msg" "msg/MksPlanSample.msg" "msg/CartesianPlan.msg"

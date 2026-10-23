@@ -42,9 +42,14 @@ class MotionExecutor {
   std::size_t frame{}, setup_axis{}, setup_step{};
   bool waiting{}, staged{};
   Time started{}, due{}, preparation_deadline{}, settled{}, last_settle_sample{};
+  Time phase_origin{}, warmup_started{};
+  std::array<Time,6> checked_position{};
 };
 // Kompilacja poza cyklem IO. Sampler nie alokuje pamięci.
 ProgramPoint program_reference(const PreparedMotionProgram &program, double seconds);
+// Otoczka referencji dla nieznanej chwili próbkowania między zapytaniem a RX.
+std::array<double,2> program_position_bounds(const PreparedMotionProgram &program,
+    unsigned axis, double begin_seconds, double end_seconds);
 PreparedMotionProgram compile_motion_program(PreparedMotionProgram program,
     const std::array<AxisConfig,6> &axes, const std::array<std::uint16_t,6> &microsteps,
     double cycle_seconds);

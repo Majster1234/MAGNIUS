@@ -4,7 +4,7 @@ import type { CanSnapshot } from "./canStatus";
 import { pageFromHash } from "./AppShell";
 
 it("mapuje trasy i zachowuje poprzedni adres konfiguracji", () => {
-    for (const page of ["overview", "can", "manual", "config", "architecture"] as const) expect(pageFromHash(`#${page}`)).toBe(page);
+    for (const page of ["overview", "can", "diagnostics", "manual", "config", "architecture"] as const) expect(pageFromHash(`#${page}`)).toBe(page);
     expect(pageFromHash("#configuration")).toBe("config");
     expect(pageFromHash("")).toBe("overview");
     expect(pageFromHash("#nieznana")).toBe("overview");

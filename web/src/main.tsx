@@ -7,6 +7,7 @@ import { ManualPage } from "./ManualPage";
 import { ConfigurationPage } from "./ConfigurationPage";
 import { AppShell, emptyManualHeader, pageFromHash } from "./AppShell";
 import { ArchitecturePage } from "./ArchitecturePage";
+import { DiagnosticsPage } from "./DiagnosticsPage";
 import { axisPresence, busStateLabel } from "./dashboardData";
 import "./style.css";
 
@@ -117,12 +118,18 @@ function CanPage() {
     const value = (name: string) => summary?.[name];
     return <section className="can-screen" aria-label="Magistrala CAN">
         <div className="page-title"><div><div className="eyebrow">DIAGNOSTYKA SOCKETCAN</div><h1>Magistrala CAN</h1><p>Odczyt identyfikacji i statusów MKS SERVO42D CAN. Bez poleceń ruchu.</p></div><div className="can-actions"><button className="secondary-button" disabled={action !== null} onClick={() => request("reset")}>{action === "reset" ? "Resetowanie…" : "Reset CAN"}</button><button className="primary-button" disabled={action !== null || Boolean(scan?.scanning)} onClick={() => request("scan")}>{action === "scan" ? "Uruchamianie…" : "SCAN"}</button></div></div>
-        <section className={`can-progress ${stale ? "waiting" : ""}`}><Badge state={stale ? "stale" : snapshot?.summary.state ?? "stale"} text={snapshot?.scan.message ?? "Oczekiwanie na diagnostykę CAN"}/><span>{Boolean(scan?.scanning) ? `Adres ${String(scan?.checked ?? 0)} / ${String(scan?.total ?? 2047)}` : String(scan?.state ?? "—")}</span><span className="progress-error">{scan?.error ? String(scan.error) : ""}</span></section>
+        <section className={`can-progress ${stale ? "waiting" : ""}`}><Badge state={stale ? "stale" : snapshot?.summary.state ?? "stale"} text={snapshot?.scan.message ?? "Oczekiwanie na diagnostykę CAN"}/><span>{Boolean(scan?.scanning) ? `Adres ${String(scan?.checked ?? 0)} / ${String(scan?.total ?? 20)}` : String(scan?.state ?? "—")}</span><span className="progress-error">{scan?.error ? String(scan.error) : ""}</span></section>
         <section className="can-strip" aria-label="Podsumowanie magistrali"><div className="strip-state"><strong>{String(value("bus_state") ?? "—")}</strong><small>{String(value("interface") ?? "can0")}</small></div><Metric label="Bitrate" value={value("bitrate")} unit=" bit/s"/><Metric label="Urządzenia" value={value("device_count")}/><Metric label="Obieg odczytu" value={value("full_round_ms")} unit=" ms"/><Metric label="Błędy" value={value("errors")}/></section>
-        <section className="can-table-card"><div className="table-heading"><div><h2>Urządzenia bieżącej sesji</h2><p>Wykryte i utracone adresy. Puste adresy nie są pokazywane.</p></div><span>{devices.length} rekordów</span></div>{devices.length === 0 ? <div className="can-empty"><span>⇄</span><strong>Tabela jest pusta</strong><p>Wyniki będą pojawiać się w trakcie automatycznego skanowania.</p></div> : <><div className="table-scroll"><table><thead><tr><th>CAN ID</th><th>Oś robota</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th>RTT [ms]</th></tr></thead><tbody>{visible.map((device) => <DeviceRow key={device.id} device={device}/>)}</tbody></table></div>{totalPages > 1 && <div className="pagination"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Poprzednie</button><span>{page + 1} / {totalPages}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>Następne</button></div>}</>}</section>
+        <section className="can-table-card"><div className="table-heading"><div><h2>Urządzenia bieżącej sesji</h2><p>Wykryte i utracone adresy. Puste adresy nie są pokazywane.</p></div><span>{devices.length} rekordów</span></div>{devices.length === 0 ? <div className="can-empty"><span>⇄</span><strong>Tabela jest pusta</strong><p>Skan startowy lub przycisk SCAN sprawdza adresy 1–20. Reset zachowuje znane urządzenia i odświeża ich stan.</p></div> : <><div className="table-scroll"><table><thead><tr><th>CAN ID</th><th>Oś robota</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th>RTT [ms]</th></tr></thead><tbody>{visible.map((device) => <DeviceRow key={device.id} device={device}/>)}</tbody></table></div>{totalPages > 1 && <div className="pagination"><button disabled={page === 0} onClick={() => setPage(page - 1)}>Poprzednie</button><span>{page + 1} / {totalPages}</span><button disabled={page + 1 >= totalPages} onClick={() => setPage(page + 1)}>Następne</button></div>}</>}</section>
         <details className="card can-bus-details"><summary>Szczegóły komunikacji</summary>
             <div className="metrics compact">
                 <Metric label="Planowane obciążenie" value={value("scheduled_utilization_percent")} unit="%" />
+                <Metric label="Cykl komend" value={value("command_period_ms")} unit=" ms" />
+                <Metric label="Okres enkoderów" value={value("encoder_period_ms")} unit=" ms" />
+                <Metric label="Limit planowany" value={value("planned_utilization_limit_percent")} unit="%" />
+                <Metric label="Margines ACK do SYNC" value={value("ack_margin_min_ms")} unit=" ms" />
+                <Metric label="Spóźnienie SYNC / maksimum" value={value("sync_lateness_max_ms")} unit=" ms" />
+                <div className="metric"><span>STOP F7 → F6(0)</span><strong>{typeof value("stop_result") === "string" ? String(value("stop_result")) : "—"}</strong></div>
                 <Metric label="Jitter cyklu" value={value("cycle_jitter_ms")} unit=" ms" />
                 <Metric label="Odstęp między ramkami" value={value("rx_interval_mean_ms")} unit=" ms" />
                 <Metric label="Ramki RX / sesja" value={value("rx_frames")} />
@@ -161,6 +168,7 @@ function DeviceRow({ device }: { device: CanDevice }) {
 }
 function App() {
     const [view, setView] = useState(location.hash);
+    const [tracePinnedAxis, setTracePinnedAxis] = useState<number|null>(null);
     const pageId = pageFromHash(view);
     const canView = pageId === "can", manualView = pageId === "manual", configurationView = pageId === "config";
     const [manualHeader, setManualHeader] = useState(emptyManualHeader);
@@ -185,7 +193,7 @@ function App() {
         sampled_at: canStatus.snapshot?.updated_at ?? null, values: {} };
     return (
         <AppShell view={pageId} manual={manualHeader} online={online} connecting={connection === "connecting"}>
-                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : canView ? <CanPage /> : pageId === "architecture" ? <ArchitecturePage /> : <>
+                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : canView ? <CanPage /> : pageId === "diagnostics" ? null : pageId === "architecture" ? <ArchitecturePage /> : <>
                 <div className="page-title">
                     <div>
                         <div className="eyebrow">MONITOROWANIE SYSTEMU</div>
@@ -217,6 +225,7 @@ function App() {
                             : `WIEK DANYCH: ${Math.floor(age)} s`}
                     </span>
                 </section>
+                <a className="diagnostics-tile card" href="#diagnostics"><span className="diagnostics-tile-icon">∿</span><div><h2>Diagnostyka</h2><p>Przebieg pozycji wałów J1–J6, historia i eksport CSV</p></div><span aria-hidden="true">→</span></a>
                 <div className="section-title">
                     <h2>Podzespoły i połączenia</h2>
                     <span>01 — DIAGNOSTYKA</span>
@@ -418,6 +427,9 @@ function App() {
                     </span>
                 </footer>
                 </>}
+                {(pageId === "diagnostics" || tracePinnedAxis!==null) && <DiagnosticsPage visible={pageId === "diagnostics"} pinnedAxis={tracePinnedAxis}
+                    onPin={setTracePinnedAxis} onClose={() => setTracePinnedAxis(null)}
+                    onDock={() => {setTracePinnedAxis(null);setView("#diagnostics");location.hash="diagnostics";}} />}
         </AppShell>
     );
 }

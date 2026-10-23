@@ -234,6 +234,11 @@ Testy automatyczne nie zastępują sprawdzenia na drugim fizycznym urządzeniu.
 
 ## Zatwierdzony program PTP
 
+Moduł **Diagnostyka** (`#diagnostics`) pokazuje sześć osobnych przebiegów pozycji
+wałów i historię. Rejestrator działa w backendzie stale, bez `--record`, z limitem
+20 000 000 B na oś. Skale, kursor, CSV i API: [shaft_trace.md](shaft_trace.md).
+
+
 Status i STOP lokalnego wykonawcy są dostępne w widoku ręcznym także po ponownym
 otwarciu panelu. Bridge w launch ma respawn; jego awaria nie zamyka właściciela CAN.
 Domyślne parametry wykonawcy są wyłączone. Flaga niepełnego zestawu i odbiór:

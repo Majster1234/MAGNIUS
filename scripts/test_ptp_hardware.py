@@ -170,6 +170,36 @@ class Bench:
         self.event('all_staged', axes=list(targets), staging_ms=(time.monotonic_ns()-start)/1e6)
         self.observe(targets, .12, stationary=before)
 
+    def stop_all_zero(self, required=()):
+        """Wszystkie F7 przed wszystkimi F6(0), bez SYNC i bez zmiany ENABLE."""
+        errors, results = [], {}
+        for code, payload in ((0xf7, b''), (0xf6, b'\x00\x00\x01')):
+            replies = {}
+            for axis in range(1, 7):
+                try:
+                    self.send(axis, code, payload)
+                except Exception as exc:
+                    errors.append(str(exc))
+            deadline = time.monotonic() + .02
+            while time.monotonic() < deadline:
+                try:
+                    frame = self.receive(deadline - time.monotonic())
+                except Exception as exc:
+                    errors.append(str(exc))
+                    break
+                if frame and frame[1][0] == code:
+                    replies[frame[0]] = frame[1][1:-1]
+                if set(self.saved).issubset(replies):
+                    break
+            results[f'{code:02x}'] = {str(axis): value.hex() for axis, value in replies.items()}
+            for axis in required:
+                if replies.get(axis) != b'\x01':
+                    errors.append(f'CAN {axis}: niepotwierdzone {code:02x}')
+        self.event('stop_f7_zero', replies=results, errors=errors,
+                   note='ACK nie potwierdza opróżnienia przygotowanego celu')
+        if errors:
+            raise RuntimeError('; '.join(errors))
+
     def move(self, targets, speeds, label, stop_early=False):
         self.stage(targets, speeds)
         before = self.sample(targets)
@@ -177,8 +207,7 @@ class Bench:
         sync = time.monotonic_ns()
         if stop_early:
             self.observe(targets, .2)
-            for a in targets:
-                self.write(a, 0xf7, b'')
+            self.stop_all_zero(targets)
             stopped = time.monotonic_ns()
             reference = self.sample(targets)
             rows = self.observe(targets, .2, stationary=reference)
@@ -222,7 +251,7 @@ class Bench:
             targets = {a:p+STEP for a,p in self.anchor.items()}
             if axes == (1,):
                 self.stage(targets, speeds)
-                self.write(1, 0xf7, b'')
+                self.stop_all_zero(axes)
                 baseline = self.sample(axes)
                 self.send(0, 0x4b)
                 self.observe(axes, .35, stationary=baseline)
@@ -231,8 +260,8 @@ class Bench:
                 self.move(self.anchor, speeds, 'return_after_stop')
             self.move(targets, speeds, 'forward')
             self.move(self.anchor, speeds, 'return')
+            self.stop_all_zero(axes)
             for a in axes:
-                self.write(a, 0xf7, b'')
                 self.write(a, 0xf3, b'\x00')
                 self.write(a, 0x4a, b'\x00')
             self.event('stage_pass', axes=axes)
@@ -242,8 +271,12 @@ class Bench:
         errors = []
         self.anchor = {}
         # Najpierw zatrzymanie wszystkich; potem wyłączenie momentu i odtworzenie parametrów.
+        try:
+            self.stop_all_zero()
+        except Exception as exc:
+            errors.append(str(exc))
         for a in self.saved:
-            for code,payload in ((0xf7,b''),(0xf3,b'\x00'),(0x4a,b'\x00')):
+            for code,payload in ((0xf3,b'\x00'),(0x4a,b'\x00')):
                 try:
                     self.write(a,code,payload)
                 except Exception as exc:

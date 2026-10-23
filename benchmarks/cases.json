@@ -13,7 +13,7 @@
         ]
       }
     ],
-    "workload": "Suma kolejnych liczb modulo 2^32; stan odtwarzany przed ka\u017cd\u0105 seri\u0105.",
+    "workload": "Suma kolejnych liczb modulo 2^32; stan odtwarzany przed każdą serią.",
     "technical_only": true
   },
   "technical.cpp": {
@@ -30,7 +30,7 @@
         ]
       }
     ],
-    "workload": "Suma kolejnych liczb modulo 2^32; stan odtwarzany przed ka\u017cd\u0105 seri\u0105.",
+    "workload": "Suma kolejnych liczb modulo 2^32; stan odtwarzany przed każdą serią.",
     "technical_only": true
   },
   "motion.bus": {
@@ -57,7 +57,7 @@
         ]
       }
     ],
-    "workload": "Atrapa sze\u015bciu nap\u0119d\u00f3w, zerowe nastawy 50 Hz; cykl = submit + 20 tick\u00f3w 1 ms. Profil syntetyczny testu, bez CAN.",
+    "workload": "Atrapa sześciu napędów, zerowe nastawy 50 Hz; cykl = submit + 20 ticków 1 ms. Profil syntetyczny testu, bez CAN.",
     "technical_only": false
   },
   "motion.settings": {
@@ -75,7 +75,227 @@
         ]
       }
     ],
-    "workload": "Odczyt i zapis bez zmiany ustawie\u0144 w prywatnym katalogu tymczasowym; dwa wywo\u0142ania / cykl.",
+    "workload": "Odczyt i zapis bez zmiany ustawień w prywatnym katalogu tymczasowym; dwa wywołania / cykl.",
+    "technical_only": false
+  },
+  "can.stream6": {
+    "language": "cpp",
+    "target": "can_stream6",
+    "adapter_sources": [
+      "benchmarks/can_schedule.cpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_manager.cpp",
+        "symbols": [
+          "tick",
+          "schedule_feedback",
+          "schedule_background",
+          "reserve",
+          "start_scan",
+          "reset_session"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/program_bus.cpp",
+        "symbols": [
+          "schedule_program",
+          "prepare_program",
+          "execute_program"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/motion_executor.cpp",
+        "symbols": [
+          "compile_motion_program",
+          "program_reference"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/protocol.cpp",
+        "symbols": [
+          "request",
+          "validate_response"
+        ]
+      }
+    ],
+    "workload": "Cały PTP 6 osi: przygotowanie, uzbrojenie i 2500 ticków po 1 ms, quintic 0→0.1→0 rad w 2 s. Dane syntetyczne, bez sprzętu.",
+    "technical_only": false
+  },
+  "can.stream4": {
+    "language": "cpp",
+    "target": "can_stream4",
+    "adapter_sources": [
+      "benchmarks/can_schedule.cpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_manager.cpp",
+        "symbols": [
+          "tick",
+          "schedule_feedback",
+          "schedule_background",
+          "reserve",
+          "start_scan",
+          "reset_session"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/program_bus.cpp",
+        "symbols": [
+          "schedule_program",
+          "prepare_program",
+          "execute_program"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/motion_executor.cpp",
+        "symbols": [
+          "compile_motion_program",
+          "program_reference"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/protocol.cpp",
+        "symbols": [
+          "request",
+          "validate_response"
+        ]
+      }
+    ],
+    "workload": "Cały PTP CAN 1,2,3,5, pozostałe nieobecne; te same q/v/a i 2500 ticków co stream6. Dane syntetyczne, bez sprzętu.",
+    "technical_only": false
+  },
+  "can.native": {
+    "language": "cpp",
+    "target": "can_native",
+    "adapter_sources": [
+      "benchmarks/can_schedule.cpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_manager.cpp",
+        "symbols": [
+          "tick",
+          "schedule_feedback",
+          "schedule_background",
+          "reserve",
+          "start_scan",
+          "reset_session"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/program_bus.cpp",
+        "symbols": [
+          "schedule_program",
+          "prepare_program",
+          "execute_program"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/motion_executor.cpp",
+        "symbols": [
+          "compile_motion_program",
+          "program_reference"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/protocol.cpp",
+        "symbols": [
+          "request",
+          "validate_response"
+        ]
+      }
+    ],
+    "workload": "Natywny PTP HOLD 6 osi, 800 ticków po 1 ms wraz z przygotowaniem i uzbrojeniem. Dane syntetyczne, bez sprzętu.",
+    "technical_only": false
+  },
+  "can.idle20": {
+    "language": "cpp",
+    "target": "can_idle20",
+    "adapter_sources": [
+      "benchmarks/can_schedule.cpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_manager.cpp",
+        "symbols": [
+          "tick",
+          "schedule_feedback",
+          "schedule_background",
+          "reserve",
+          "start_scan",
+          "reset_session"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/program_bus.cpp",
+        "symbols": [
+          "schedule_program",
+          "prepare_program",
+          "execute_program"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/motion_executor.cpp",
+        "symbols": [
+          "compile_motion_program",
+          "program_reference"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/protocol.cpp",
+        "symbols": [
+          "request",
+          "validate_response"
+        ]
+      }
+    ],
+    "workload": "20 wykrytych napędów, 20 ticków po 1 ms bez sterowania. Dane syntetyczne, bez sprzętu.",
+    "technical_only": false
+  },
+  "can.reset": {
+    "language": "cpp",
+    "target": "can_reset",
+    "adapter_sources": [
+      "benchmarks/can_schedule.cpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_manager.cpp",
+        "symbols": [
+          "tick",
+          "schedule_feedback",
+          "schedule_background",
+          "reserve",
+          "start_scan",
+          "reset_session"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/program_bus.cpp",
+        "symbols": [
+          "schedule_program",
+          "prepare_program",
+          "execute_program"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/motion_executor.cpp",
+        "symbols": [
+          "compile_motion_program",
+          "program_reference"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/protocol.cpp",
+        "symbols": [
+          "request",
+          "validate_response"
+        ]
+      }
+    ],
+    "workload": "Natywny PTP, STOP po 80 tickach, 50 ticków cleanup, pełny reset sesji, skan i 45000 ticków oraz ponowne przygotowanie ENABLE. Dane syntetyczne, bez sprzętu.",
     "technical_only": false
   }
 }

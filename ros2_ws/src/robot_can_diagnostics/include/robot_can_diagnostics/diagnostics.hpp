@@ -1,5 +1,6 @@
 #pragma once
 #include <future>
+#include <functional>
 #include "robot_can_diagnostics/program_api.hpp"
 #include "mks_servo_can/bus_runtime.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -7,6 +8,7 @@
 #include "std_srvs/srv/trigger.hpp"
 #include "std_msgs/msg/u_int64_multi_array.hpp"
 #include "robot_control_interfaces/msg/manual_state.hpp"
+#include "robot_control_interfaces/msg/shaft_trace_batch.hpp"
 #include "robot_control_interfaces/srv/set_motor_enable.hpp"
 #include "robot_control_interfaces/srv/zero_motor.hpp"
 #include "robot_control_interfaces/srv/jog_motor.hpp"
@@ -18,10 +20,13 @@ namespace robot_can_diagnostics {
 class DiagnosticsNode : public rclcpp::Node {
  public:
   DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runtime,
-                  const mks_servo_can::BusConfig &config);
+                  const mks_servo_can::BusConfig &config, std::function<int()> restart_action = {});
  private:
   void publish();
   void publish_manual();
+  void publish_shaft_trace();
+  rclcpp::Publisher<robot_control_interfaces::msg::ShaftTraceBatch>::SharedPtr shaft_publisher_;
+  rclcpp::TimerBase::SharedPtr shaft_timer_;
   std::shared_ptr<mks_servo_can::BusRuntime> runtime_;
   mks_servo_can::BusConfig config_;
   std::shared_ptr<ProgramApi> program_api_;
@@ -29,6 +34,7 @@ class DiagnosticsNode : public rclcpp::Node {
   mks_servo_can::Time last_manual_publish_{};
   std::string reset_error_;
   std::future<int> reset_future_;
+  std::function<int()> restart_action_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr publisher_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr scan_, reset_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr stop_;

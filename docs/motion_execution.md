@@ -59,7 +59,9 @@ kolejnych zleceń od operatora i bez pomijania próbek.
   faz/czasu nie większej niż cykl. To model do odbioru sprzętowego, nie dowód dynamiki
   obciążonego robota.
 - `streamed`: pełny bufor próbek 20 ms, z osobną barierą F5/ACK/SYNC dla każdego
-  zestawu. Kwantyzacja RPM jest ograniczona tolerancją; zerowa prędkość referencji
+  zestawu. Zestaw uruchomiony w t prowadzi do q(t+20 ms); nie wysyłamy
+  dodatkowego początkowego HOLD ani końcowej próbki przesuniętej o cykl.
+  Kwantyzacja RPM jest ograniczona tolerancją; zerowa prędkość referencji
   nie staje się przypadkową komendą STOP. Walidacja obejmuje otoczki Bernsteina
   pozycji/prędkości/przyspieszenia interpolacji quintic, również między węzłami.
 - Wybór trybu zachodzi przed zatwierdzeniem. Nie ma przełączenia po częściowym starcie.
@@ -67,14 +69,22 @@ kolejnych zleceń od operatora i bez pomijania próbek.
   ustawiane i odczytywane jest `4A=1`. Każdy uczestnik musi zwrócić `F5 05`.
   Spóźnione `F5 02` poprzedniego celu nie zużywa oczekującego ACK kolejnej próbki.
   Zachowujemy raporty krańcówek; budżet uwzględnia opcjonalną drugą odpowiedź F5.
-  Sześć osi programu przy 50 Hz to konserwatywnie 3165 bitów/cykl przed diagnostyką.
+  Sześć osi programu przy 50 Hz i enkoderach 25 Hz to konserwatywnie
+  2535 bitów/cykl przed diagnostyką; całość średnio 37,11% pasma.
 - Terminy wynikają z zegara monotonicznego. IO używa bezwzględnych pobudek.
   Przekroczenie terminu SYNC o ponad 1 ms, brak ACK lub budżetu przerywa program;
   nie ma nadrabiania opóźnionych poleceń ani powtarzania SYNC w ciemno.
-- Nadzór porównuje enkodery z bieżącą referencją, nie z końcowym celem od chwili startu.
+- Nadzór sprawdza nowy pomiar enkodera względem otoczki referencji między
+  wysłaniem zapytania a odebraniem odpowiedzi. Otoczka Bernsteina uwzględnia
+  nieznaną dokładną chwilę próbkowania, również przez granicę segmentu quintic.
+  Nie porównujemy starego pomiaru z referencją dla bieżącej chwili. Tolerancje
+  osi i świeżość 60 ms pozostają obowiązujące.
   Zakończenie wymaga pozycji w 1/4 tolerancji śledzenia i prędkości wału 0 przez
   co najmniej 100 ms; po dodatkowej sekundzie bez potwierdzenia następuje błąd.
-- Awaria wysyła F7 do skonfigurowanych osi i zatrzaskuje błąd. Kasowanie błędu usuwa
+- Awaria blokuje SYNC, wysyła wszystkie F7, następnie wszystkie F6 RPM=0
+  do CAN 1–6 i zatrzaskuje błąd. ACK obecnych osi są zbierane przez najwyżej
+  dwa timeouty; potem komunikacja milknie. Nie zmieniamy ENABLE.
+  Kasowanie błędu usuwa
   potwierdzenie opróżnienia poleceń w napędach. Kolejny start wymaga ponownego odbioru
   tego warunku; samo programowe „reset” nie jest potwierdzeniem opróżnienia sprzętu.
 
@@ -86,6 +96,9 @@ pozycjami. Powrót do ręcznego JOG wymaga ponownego przygotowania ENABLE, któr
 przywraca `4A=0`. Kolejny PTP nie wymaga ponownego przełączania wszystkich ENABLE.
 
 ## Odbiór i parametry uruchomienia
+
+Pełne zestawienie progów, warunków brzegowych i okresów odczytu:
+[Progi czasowe nadzoru PTP](ptp_timing_limits.md).
 
 `robot_bringup/config/execution.example.yaml` jest wyłączonym szablonem ROS.
 Argument `execution_parameters:=/pełna/ścieżka/do/pliku.yaml` obsługują
@@ -139,5 +152,13 @@ wyłączony: ACK F7 nie potwierdza opróżnienia bufora. Nie wysyłać kolejnego
 do czasu potwierdzenia skutecznej sekwencji kasowania/zastępowania rozkazu.
 Szczegóły i ślady: [motion_hardware_results.md](motion_hardware_results.md).
 Płynność fizycznego robota pozostaje niepotwierdzona.
+
+2026-10-22: pięć prób strumieniowanego +10° na rozsprzęglonym CAN 1. Próba 5
+spełniła końcowe ±0,3° i RPM=0 po końcu +100 ms w izolowanym wariancie
+SYNC 2,5 ms / diagnostyka do 19 ms, z poprawką przejścia po sukcesie.
+Ujawniono fałszywy nadzór JTC po zakończeniu PTP i skokowy przebieg pozycji.
+Zmian nie przeniesiono do źródeł wykonawcy produkcyjnego ani jego flag;
+kalibracja CAN 1 pozostaje unieważniona po zerowaniu.
+[Pełny raport](motion_hardware_results.md#seria-limitów--2026-10-22).
 
 Źródło protokołu i zachowania raportów: [instrukcja MKS CAN V1.0.9, §5.2.12 i §11–12](https://github.com/makerbase-motor/MKS-SERVO42D-57D/blob/master/User%20Manual/V1.0.9/MKS%20SERVO42%2657D_CAN%20User%20Manual%20V1.0.9.pdf).

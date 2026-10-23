@@ -60,6 +60,8 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
   Wyjątek: zatwierdzony przykładowy URDF podglądu 1:1, oddzielony od fizycznego robota.
   W symulacji PTP/LIN dopuszczono ostatnią pozycję lub jawnie oznaczone 0° bez pomiaru;
   nie są to odczyty sprzętu, a limity profilu nadal obowiązują.
+- Uruchamiaj testy tylko wtedy, gdy dotyczą modyfikowanego kawałka kodu.
+  Wybieraj konkretne scenariusze; nie uruchamiaj pełnych zestawów ani testów niezwiązanych ze zmianą.
 - Dopasuj sprawdzenia do zmiany: build nie jest testem sterowania, a atrapa terminala testem GUI.
 - Zachowuj zmiany użytkownika. Sprawdzaj stan Git przed operacjami na repozytorium;
   nie wnioskuj o publikacji na podstawie samej obecności lokalnego commitu.
@@ -96,20 +98,19 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Dokumentacja źródłowa
 
-- [README.md](README.md) — uruchamianie; [CONTRIBUTING.md](CONTRIBUTING.md) — zmiany i sprawdzenia.
-- [docs/architecture.md](docs/architecture.md) — architektura i osie.
-- [docs/web_status.md](docs/web_status.md) — LAN/API; [docs/can_diagnostics.md](docs/can_diagnostics.md) — skan CAN.
-- [docs/can_strategy.md](docs/can_strategy.md) — harmonogram; [docs/manual_control.md](docs/manual_control.md) — JOG/ENABLE/zero.
-- [docs/configuration.md](docs/configuration.md) — snapshoty i parametry; [docs/robot_preview.md](docs/robot_preview.md) — podgląd URDF.
-- [docs/cartesian_planning.md](docs/cartesian_planning.md) — IK, droga TCP, API i granice pierwszego etapu.
-- [docs/can_recording.md](docs/can_recording.md) — nagrywanie; wyniki w docs/can_recording_results.md.
-- [docs/socketcan.md](docs/socketcan.md) — SocketCAN; [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko/Git.
-- [docs/motion_execution.md](docs/motion_execution.md) — fizyczny PTP, niepełny zestaw i odbiór.
-- [docs/benchmark_results.md](docs/benchmark_results.md) — benchmarki, pomiary CPU i historia optymalizacji.
+- [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md) — start i sprawdzenia.
+- [Architektura](docs/architecture.md), [LAN/API](docs/web_status.md), [diagnostyka CAN](docs/can_diagnostics.md).
+- [Harmonogram CAN](docs/can_strategy.md), [JOG/ENABLE/zero](docs/manual_control.md), [trace wałów](docs/shaft_trace.md).
+- [Konfiguracja](docs/configuration.md), [podgląd URDF](docs/robot_preview.md), [planowanie TCP](docs/cartesian_planning.md).
+- [Nagrywanie](docs/can_recording.md), [wyniki](docs/can_recording_results.md).
+- [SocketCAN](docs/socketcan.md), [środowisko](docs/setup.md), [Git](docs/github.md).
+- [Fizyczny PTP](docs/motion_execution.md), [benchmarki](docs/benchmark_results.md).
 
 ## Bieżący kontekst
 
-- 2026-10-21: zgoda na rozsprzęglone 1→2→4, +5°/powrót ≤1 RPM. CAN 1,2,3,5 obecne. Test CAN 1: F5 czeka, lecz F7 ACK=1 nie kasuje celu przed SYNC; przerwano przy 0,154°. Etapy 2/4 niewykonane. docs/motion_hardware_results.md, scripts/test_ptp_hardware.py.
-- ENABLE=0 wszystkich, parametry odtworzone, usługa przywrócona, bez nowych błędów CAN/zmiany profilu. Execution nadal false. Następnie odbiór kasowania bufora/STOP na 1, dopiero 2/4; nie ustawiać flag bez pomiaru.
-- PTP C++/panel i allow_missing_motion wdrożone; LIN/blending przyszłe. Wcześniejsze build/testy i regresje benchmarków: docs/motion_execution.md, docs/benchmark_results.md; dziś tylko test stanowiskowy i narzędzia, bez ponowienia całej kolekcji.
-- Otwarte: Ctrl+F5/odbiór UI, JOG TCP zablokowany, IK/J4/J6, geometria/przekładnie/bazowanie, JOG/limity, USB/BUS-OFF/watchdog, drugi LAN, oscylacje, odbiór PTP. Three.js: rozmiar. Licencja TODO; feature/web-status, bez commit/push.
+- 2026-10-23: osobliwość: łuna J5/J3 i dymek przy osi, puls + reduced-motion. Build i Chromium samej sceny OK. docs/robot_preview.md.
+- Trace: kolejki 4096, ROS co 50 ms poza IO, zapis ≤20 000 000 B/oś, CSV. Cache 8 przedziałów/2 HTTP, live reset 10 s. Wcześniejsze wyniki/CPU: docs/benchmark_results.md; ros2_ws/install gotowe. Pinezka jednej osi, rolka pozioma.
+- Restart robot-web-status.service wymaga zgody: auto-review odrzuciło przerwanie stosu/startowy CAN. Potem pasywny scripts/observe_shaft_trace.py i HTTP/CSV bez GUI. Poprzedni nasłuch starszej usługi: 50 Hz CAN 1/2/3/5, HTTP idle/ENABLE=1, CAN 4/6 bez pomiarów.
+- PTP/próba 5 odłożone, flagi bez zmian. Próby 22.10: docs/motion_hardware_results.md; wariant SYNC 2,5 ms/diagnostyka 19 ms. Otwarte: fałszywy JTC po sukcesie, F6=05 w SYNC, skoki enkodera (~6,33 RPM przy zadanym 1); płynność/odbiór 2/4 osi niezaliczone. Kalibracja CAN 1 unieważniona zerowaniem.
+- Nadal: Ctrl+F5/UI, JOG TCP, IK/J4/J6, geometria/przekładnie/bazowanie, JOG/limity, USB/BUS-OFF/watchdog, drugi LAN, oscylacje. LIN/blending przyszłe; Three.js rozmiar; licencja TODO.
+- Git feature/web-status; zachowano wcześniejsze zmiany i config/, bez commit/push. Nie ustawiać flag odbioru bez pomiarów.

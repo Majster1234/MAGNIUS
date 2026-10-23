@@ -4,7 +4,8 @@
 uruchamia go samodzielnie; w trybie ruchu działa w pluginie `robot_hardware`.
 Harmonogram i aktywację opisuje [strategia CAN](can_strategy.md).
 Po starcie, gdy `can0` jest dostępny, skanuje adresy standardowego CAN od 1 do
-2047. Adres 0 jest rozgłoszeniem i nie jest używany. Każdy adres otrzymuje
+20. Pełny zakres protokołu 1–2047 pozostaje bez zmian. Adres 0 jest rozgłoszeniem
+i nie jest używany do skanowania. Każdy adres otrzymuje
 komendę identyfikacji `0x40`, a odpowiedź jest akceptowana dopiero po sprawdzeniu
 CAN ID, komendy, siedmiobajtowego DLC i sumy kontrolnej. Długość 7 potwierdzono
 na napędach z firmware 1.0.9 (np. `40 12 01 00 09 20 7D` dla adresu 1).
@@ -17,17 +18,23 @@ parametrów. Znaczenie ramek pochodzi z [instrukcji Makerbase V1.0.9](https://gi
 ## Zachowanie i ograniczenia
 
 - Timeout odpowiedzi wynosi domyślnie 20 ms (`can_timeout_ms:=20`) i wymaga
-  potwierdzenia pomiarem na docelowym sprzęcie. Skan bez odpowiedzi trwa około
-  41 s. Brak odpowiedzi nie oznacza wolnego adresu.
-- Wykryte SERVO42D mają odczyt pozycji 50 Hz, ENABLE/stall 10 Hz i publikację
-  statusów 5 Hz. Budżet uwzględnia zapytania i odpowiedzi (do 50% CAN).
+  potwierdzenia pomiarem na docelowym sprzęcie. Skan bez odpowiedzi wymaga około
+  400 ms timeoutów plus narzut harmonogramu. Brak odpowiedzi nie oznacza wolnego adresu.
+- Wykryte SERVO42D mają odczyt pozycji 25 Hz na oś, ENABLE/stall 10 Hz i publikację
+  statusów 5 Hz. Budżet uwzględnia zapytania i odpowiedzi (cel do 40%, limit konfiguracji 50% CAN).
   Po trzech nieudanych odczytach urządzenie staje się offline,
   a ENABLE jest nieznane; sprawdzenie offline odbywa się raz na sekundę.
-- Dane są przechowywane tylko jako ostatnie wartości i agregaty o stałym
-  rozmiarze. Skan nie tworzy historii ramek ani bazy danych.
+- Status diagnostyki przechowuje ostatnie wartości i agregaty o stałym rozmiarze.
+  Osobny [trace pozycji wałów](shaft_trace.md) przekazuje przyjęte pomiary CAN 1–6
+  do rejestratora backendu, bez dodatkowych zapytań CAN. Skan nie zapisuje historii ramek.
 - `BUS-OFF` zatrzymuje wysyłanie. Nie ma automatycznej pętli restartów.
   Przycisk **Reset CAN** przerywa pracę, zamyka socket, restartuje wyłącznie
-  `robot-can@can0.service`, otwiera socket i uruchamia nowy skan.
+  `robot-can@can0.service`, otwiera socket bez skanu. Zachowuje znane adresy i ostatnią identyfikację,
+  unieważnia pomiary, gotowość i program. Do nowych odpowiedzi urządzenia mają
+  stan niepotwierdzony. Nowe adresy wykrywa osobny SCAN 1–20; przy pustej liście
+  reset nie wysyła zapytań identyfikacyjnych, również gdy konfiguracja startowa
+  zostanie uzgodniona dopiero po resecie. Nieudany restart pozostawia socket
+  zamknięty i pokazuje błąd resetu.
 - Odbiór własnych ramek jest wyłączony w socketcie; echo lokalne nie może
   tworzyć pozycji urządzeń.
 
