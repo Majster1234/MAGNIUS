@@ -218,8 +218,13 @@ void DiagnosticsNode::publish() {
       kv("full_round_ms", s.feedback_round_ms.count ? number(s.feedback_round_ms.mean) : "null"),
       kv("cycle_ms", number(s.cycle_ms.mean)), kv("cycle_max_ms", number(s.cycle_ms.maximum)), kv("cycle_jitter_ms", number(s.cycle_ms.deviation())),
       kv("feedback_span_ms", s.feedback_span_ms.count ? number(s.feedback_span_ms.mean) : "null"),
-      kv("command_period_ms",std::to_string(config_.cycle.count())), kv("encoder_period_ms",std::to_string(mks_servo_can::kEncoderPeriod.count())),
+      kv("command_period_ms",std::to_string(config_.cycle.count())),
+      kv("motion_use_ack","false"),kv("streaming_lookahead_ms",number(1000*get_parameter("execution_lookahead_time_sec").as_double())),
+      kv("encoder_period_ms",std::to_string(snapshot.source==mks_servo_can::Source::program ?
+          get_parameter("execution_position_period_ms").as_int() : (snapshot.active ? mks_servo_can::kStreamingCycle.count() : mks_servo_can::kEncoderPeriod.count()))),
       kv("planned_utilization_limit_percent",number(100*std::min(mks_servo_can::kPlannedUtilization,config_.utilization_limit))),
+      kv("future_module_reserve_percent",number(100*mks_servo_can::kFutureModuleReservedUtilization)),
+      kv("total_bus_planning_limit_percent",number(100*mks_servo_can::kTotalPlannedUtilization)),
       kv("hard_utilization_limit_percent",number(100*config_.utilization_limit)),
       kv("cycle_bits",number(s.cycle_bits)),kv("peak_scheduled_utilization_percent",number(100*s.peak_scheduled_utilization)),
       kv("ack_margin_min_ms",s.ack_margin_ms.count ? number(s.ack_margin_ms.minimum) : "null"),
@@ -227,7 +232,7 @@ void DiagnosticsNode::publish() {
       kv("stop_pending",s.stop_pending ? "true" : "false"),kv("stop_f7_ack_mask",std::to_string(s.stop_f7_acks)),
       kv("stop_zero_ack_mask",std::to_string(s.stop_zero_acks)),kv("stop_rejected_mask",std::to_string(s.stop_rejected)),
       kv("stop_failed_mask",std::to_string(s.stop_failed)),kv("stop_elapsed_ms",number(s.stop_elapsed_ms)),
-      kv("stop_result",quote(s.stop_pending ? "F7 → F6(0) w toku" : s.stop_failed ? "Niepotwierdzony STOP" :
+      kv("stop_result",quote(s.stop_pending ? "F7 → F6(0) w toku" : s.stop_failed ? "Niepotwierdzony STOP" : !config_.use_ack && s.stop_elapsed_ms>0 ? "STOP wysłano bez ACK; postój wymaga pomiaru" :
           (s.stop_f7_acks || s.stop_zero_acks) ? "ACK odebrane; kasowanie celu wymaga odbioru" :
           s.stop_elapsed_ms>0 ? "Wysłano STOP; brak potwierdzonych napędów" : "Brak próby")),
       kv("completion_reports",std::to_string(s.completion_reports)),kv("endstop_reports",std::to_string(s.endstop_reports)),

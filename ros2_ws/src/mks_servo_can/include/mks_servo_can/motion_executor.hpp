@@ -44,6 +44,9 @@ class MotionExecutor {
   Time started{}, due{}, preparation_deadline{}, settled{}, last_settle_sample{};
   Time phase_origin{}, warmup_started{};
   std::array<Time,6> checked_position{};
+  Time batch_started{}, batch_deadline{}, last_sync{}, next_check{}, check_started{};
+  bool checking_position{};
+  std::array<double,6> last_target{};
 };
 // Kompilacja poza cyklem IO. Sampler nie alokuje pamięci.
 ProgramPoint program_reference(const PreparedMotionProgram &program, double seconds);

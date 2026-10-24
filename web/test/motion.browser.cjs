@@ -5,7 +5,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
  const browser = await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const context = await browser.newContext({viewport:{width:1366,height:768}});
- const dist=path.resolve(__dirname,'../dist'), commands=[], writes=[], errors=[], sockets=new Set(), requests=[], plans=new Map(), jobs=new Map(), events=[];
+ const dist=process.env.ROBOT_WEB_TEST_DIST || path.resolve(__dirname,'../dist'), commands=[], writes=[], errors=[], sockets=new Set(), requests=[], plans=new Map(), jobs=new Map(), events=[];
  let settings={revision:'initial',ignore_missing_drivers:false,allow_missing_motion:false}, seed=Array(6).fill(0), slow=false, cancelling=false, delayedPlan=false;
  let motion={program_id:'',state:'idle',mode:'',message:'Oczekiwanie',execution_key:'',participating:Array(6).fill(false),tcp_verified:false,busy:false,progress:0,duration:0,start_positions:Array(6).fill(0),target_positions:Array(6).fill(0)}, preparation={state:'idle'};const physicalWrites=[];
  const state={fresh:true,busy:false,fault:false,active_axis:0,max_rpm:30,operation:'idle',message:'Podgląd bez napędów',configuration_revision:'initial',
@@ -44,7 +44,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   if(url.pathname==='/api/v1/robot/description')return route.fulfill({contentType:'application/xml',body:fs.readFileSync(path.resolve(__dirname,'../../ros2_ws/src/robot_description/urdf/preview_6dof.example.urdf'),'utf8')});
   if(url.pathname==='/api/v1/planning/context')return json({model_id:'model',configuration_revision:'initial',settings_revision:settings.revision,ignore_missing_drivers:settings.ignore_missing_drivers,
    planner_available:true,available:state.axes.map(a=>a.available),preview_seed_degrees:seed,seed_sources:state.axes.map(a=>a.available?'measured':'zero'),
-   profiles:Array.from({length:6},()=>({configured:false,lower:-3600,upper:3600,velocity:180}))});
+   profiles:Array.from({length:6},()=>({configured:false,lower:-3600,upper:3600,velocity:80}))});
   if(url.pathname==='/api/v1/planning/moves'){
    assert(!cancelling,'Nowe obliczenie musi czekać na zakończenie anulowania');
    const data=request.postDataJSON();requests.push(data);const id=String(requests.length);events.push('post'+id);
@@ -76,8 +76,19 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert(settings.ignore_missing_drivers && !settings.allow_missing_motion);
   let page=await context.newPage();await page.goto('http://robot.test/#manual');
   await page.getByRole('button',{name:'Planowanie',exact:true}).click();
+  const velocity=page.getByRole('spinbutton',{name:'Prędkość PTP °/s',exact:true});
+  const acceleration=page.getByRole('spinbutton',{name:'Przyspieszenie PTP °/s²',exact:true});
+  assert.equal(await velocity.inputValue(),'6','Nowy panel nie wybiera automatycznie zwiększonej prędkości');
+  await velocity.fill('81');assert(await page.getByRole('button',{name:'PTP',exact:true}).isDisabled());
+  await velocity.fill('');assert(await page.getByRole('button',{name:'PTP',exact:true}).isDisabled());
+  await velocity.fill('80');await acceleration.fill('0');assert(await page.getByRole('button',{name:'PTP',exact:true}).isDisabled());
+  assert.equal(requests.length,0,'Błędne parametry nie rozpoczynają obliczeń');
+  await acceleration.fill('125');
   await page.getByRole('button',{name:'PTP',exact:true}).click();
   await page.getByText(/PTP · 0.60 s · pętla/).waitFor();
+  assert.equal(requests.at(-1).preview_velocity_degrees_s,80);
+  assert.equal(requests.at(-1).preview_acceleration_degrees_s2,125);
+  await page.screenshot({path:'/tmp/robot-ptp-parameters.png',fullPage:true});
   const physical=()=>page.getByRole('region',{name:'Wykonanie fizycznego PTP',exact:true});
   await physical().getByRole('button',{name:'Przygotuj PTP robota',exact:true}).click();
   await physical().getByText('Tryb niepełnego zestawu jest wyłączony',{exact:true}).waitFor();
@@ -96,12 +107,34 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   const q=JSON.parse(await page.locator('.robot-preview canvas').getAttribute('data-motion-joint-angles'));
   assert(Math.abs(q[2]-.1)<1e-6,'Podgląd nie porusza pominiętą osią: '+JSON.stringify(q));
   await physical().getByRole('checkbox',{name:/Zatwierdzam fizyczny ruch/}).check();
+  const computed=requests.length;
+  await velocity.fill('40');await acceleration.fill('200');await delay(350);
+  assert(await execute.isDisabled(),'Zmiana parametrów unieważnia przygotowane wykonanie');
+  assert.equal(await physical().getByRole('checkbox',{name:/Zatwierdzam fizyczny ruch/}).count(),0);
+  assert.equal(requests.length,computed,'Zmiana nie uruchamia samoczynnie obliczeń ani ruchu');
+  assert.deepEqual(physicalWrites,[]);
+  await page.getByRole('button',{name:'PTP',exact:true}).click();
+  await page.getByText(/PTP · 0.60 s · pętla/).waitFor();
+  assert.equal(requests.at(-1).preview_velocity_degrees_s,40);
+  assert.equal(requests.at(-1).preview_acceleration_degrees_s2,200);
+  await physical().getByRole('button',{name:'Przygotuj PTP robota',exact:true}).click();
+  await physical().getByRole('checkbox',{name:/Zatwierdzam fizyczny ruch/}).waitFor();
+  assert(!await physical().getByRole('checkbox',{name:/Zatwierdzam fizyczny ruch/}).isChecked());
+  await physical().getByRole('checkbox',{name:/Zatwierdzam fizyczny ruch/}).check();
   await execute.click();await delay(350);assert(motion.busy);assert.equal(physicalWrites.length,1);
   await page.close();assert(motion.busy);assert.equal(physicalWrites.length,1,'Zamknięcie panelu nie zatrzymuje programu');
   page=await context.newPage();await page.goto('http://robot.test/#manual');
   await physical().getByRole('button',{name:'STOP robota',exact:true}).waitFor();
+  for(const [state,label] of [['waiting_position','Oczekiwanie na pozycję osi'],['waiting_feedback','Oczekiwanie na pomiary'],['waiting_budget','Oczekiwanie na budżet CAN']]) {
+   motion={...motion,state,progress:.4,elapsed:4,message:'Oczekiwanie grupy J1, J2'};
+   await physical().getByText(label,{exact:true}).waitFor();
+   assert((await physical().textContent()).includes('plan: 2.00 s · czas: 4.00 s'));
+   assert(await physical().getByRole('button',{name:'Wykonaj PTP',exact:true}).isDisabled());
+   assert(await physical().getByRole('button',{name:'STOP robota',exact:true}).isEnabled());
+   assert.equal(physicalWrites.length,1,'Oczekiwanie nie ponawia START ani nie wysyła STOP');
+  }
   await physical().getByRole('button',{name:'STOP robota',exact:true}).click();await delay(250);
   assert(!motion.busy);assert.deepEqual(physicalWrites.slice(1),['STOP']);assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({result:'OK',checks:['dwa niezależne suwaki','brak zgody domyślnie','lista osi i niepotwierdzone TCP','jawne zatwierdzenie','wykonanie po zamknięciu panelu','ponowne połączenie i STOP']}));
+  console.log(JSON.stringify({result:'OK',checks:['parametry PTP i zakres80°/s','puste i nieprawidłowe wartości','unieważnienie programu i zgody po zmianie','nowy plan z nową prędkością/przyspieszeniem','dwa niezależne suwaki','lista osi i niepotwierdzone TCP','jawne zatwierdzenie','wykonanie po zamknięciu panelu','stany oczekiwania bez ponawiania ruchu','ponowne połączenie i STOP']}));
  }finally{clearInterval(timer);await context.close();await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

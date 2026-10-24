@@ -127,8 +127,13 @@ function CanPage() {
                 <Metric label="Cykl komend" value={value("command_period_ms")} unit=" ms" />
                 <Metric label="Okres enkoderów" value={value("encoder_period_ms")} unit=" ms" />
                 <Metric label="Limit planowany" value={value("planned_utilization_limit_percent")} unit="%" />
-                <Metric label="Margines ACK do SYNC" value={value("ack_margin_min_ms")} unit=" ms" />
-                <Metric label="Spóźnienie SYNC / maksimum" value={value("sync_lateness_max_ms")} unit=" ms" />
+                {value("motion_use_ack") === false ? <>
+                    <div className="metric"><span>Tryb ruchu</span><strong>Streaming bez ACK</strong></div>
+                    <Metric label="Wyprzedzenie pozycji" value={value("streaming_lookahead_ms")} unit=" ms" />
+                </> : <>
+                    <Metric label="Margines ACK do terminu" value={value("ack_margin_min_ms")} unit=" ms" />
+                    <Metric label="Spóźnienie SYNC / maksimum" value={value("sync_lateness_max_ms")} unit=" ms" />
+                </>}
                 <div className="metric"><span>STOP F7 → F6(0)</span><strong>{typeof value("stop_result") === "string" ? String(value("stop_result")) : "—"}</strong></div>
                 <Metric label="Jitter cyklu" value={value("cycle_jitter_ms")} unit=" ms" />
                 <Metric label="Odstęp między ramkami" value={value("rx_interval_mean_ms")} unit=" ms" />

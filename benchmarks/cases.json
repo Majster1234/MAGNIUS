@@ -117,6 +117,14 @@
           "request",
           "validate_response"
         ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/streaming_motion.cpp",
+        "symbols": [
+          "compile_streaming_program",
+          "streaming_setpoint",
+          "streaming_bus_utilization"
+        ]
       }
     ],
     "workload": "Cały PTP 6 osi: przygotowanie, uzbrojenie i 2500 ticków po 1 ms, quintic 0→0.1→0 rad w 2 s. Dane syntetyczne, bez sprzętu.",
@@ -160,6 +168,14 @@
         "symbols": [
           "request",
           "validate_response"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/streaming_motion.cpp",
+        "symbols": [
+          "compile_streaming_program",
+          "streaming_setpoint",
+          "streaming_bus_utilization"
         ]
       }
     ],

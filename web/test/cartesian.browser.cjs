@@ -5,7 +5,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 (async () => {
  const browser = await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const context = await browser.newContext({viewport:{width:1366,height:768}});
- const dist=path.resolve(__dirname,'../dist'), commands=[], writes=[], errors=[], sockets=new Set(), requests=[], plans=new Map(), jobs=new Map(), events=[];
+ const dist=process.env.ROBOT_WEB_TEST_DIST || path.resolve(__dirname,'../dist'), commands=[], writes=[], errors=[], sockets=new Set(), requests=[], plans=new Map(), jobs=new Map(), events=[];
  let settings={revision:'initial',ignore_missing_drivers:false}, seed=Array(6).fill(0), slow=false, cancelling=false, delayedPlan=false;
  const state={fresh:true,busy:false,fault:false,active_axis:0,max_rpm:30,operation:'idle',message:'Podgląd bez napędów',configuration_revision:'initial',
   axes:Array.from({length:6},(_,i)=>({axis:i+1,available:false,position_known:false,position_age_seconds:0,position_degrees:0,prepared:false,enable_known:true,enabled:false,
@@ -96,7 +96,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   await page.waitForFunction(old=>JSON.parse(document.querySelector('.robot-preview canvas').dataset.motionTrace).id!==old,trace.id);
   assert.equal(requests.at(-1).tcp_velocity_mm_s,50);assert.equal(requests.at(-1).tcp_acceleration_mm_s2,100);
   assert.equal(requests.at(-1).tcp_angular_velocity_degrees_s,10);assert(!('preview_velocity_degrees_s' in requests.at(-1)));
-  await panel.getByText('Prędkość podglądu',{exact:true}).click();
+  await panel.getByText('Prędkość podglądu LIN',{exact:true}).click();
   const feed=panel.getByRole('spinbutton',{name:'Prędkość TCP mm/s',exact:true});
   const changedFeed=page.waitForRequest(r=>r.url().endsWith('/planning/moves') && r.postDataJSON().tcp_velocity_mm_s===25);
   await feed.fill('25');await changedFeed;

@@ -34,96 +34,49 @@ Blokada procesu dla pary użytkownik/interfejs w `/tmp` zapobiega uruchomieniu
 dwóch właścicieli z projektu przez to samo konto. Nie blokuje obcych programów
 SocketCAN ani innych kont. Magistrala musi mieć jednego nadawcę poleceń ruchu.
 
-## Harmonogram i budżet
+## Harmonogram i budżet — 100 Hz
 
-| Operacja | Profil startowy | Zasada |
+| Operacja | Okres | Zasada |
 | --- | --- | --- |
-| Stop i błędy | Przy wykryciu | Przerwanie pracy, zatrzask błędu |
-| Zestaw pozycji sześciu osi | 50 Hz | Najnowsza próbka, bez historii poleceń |
-| Pozycje rzeczywiste `0x31` | 25 Hz / oś | Dwie naprzemienne grupy, osobna świeżość |
-| ENABLE i stall | 10 Hz | Osobne znaczniki czasu |
-| Prędkość / stan pracy | 20 Hz w PTP i dla przygotowanych osi; stan 2 Hz poza nimi | Terminy rozłożone, ustępują komendom |
-| Tryb pracy | Przy wykryciu / co 5 s w postoju | W ruchu bez zmian konfiguracji |
-| Publikacja do panelu | 5 Hz | Korzysta z cache |
-| SCAN, reset | Bez aktywnego sterowania | Brak automatycznego wznowienia |
+| F5 uczestników |10 ms | aktualna faza q/v, lookahead 25 ms, FF 1,15, bez ACK/SYNC |
+|31 w PTP/JTC |10 ms/oś | asynchroniczne zapytania, osobny RX/cache |
+|31 poza sterowaniem |40 ms/oś | dotychczasowa diagnostyka/JOG |
+| ENABLE/stall |100 ms | osobne znaczniki, jawny błąd przerywa |
+| prędkość/F1 |50 ms w ruchu | bez pauz pośredniej tolerancji |
+| publikacja panelu |200 ms | z cache, liczba klientów nie zwiększa CAN |
+| konfiguracja/skan |w postoju | zwykłe odpowiedzi, maksymalnie 4 oczekujące |
 
-Zwykłe transakcje mają cztery sloty i najwyżej jedno zapytanie na adres.
-Koszt rezerwujemy wspólnie dla żądania i odpowiedzi: konserwatywnie
-`55 + 10 * DLC` bitów na standardową ramkę wraz ze stuffingiem i odstępem.
-Cel planowania to najwyżej 40% przy 500000 bit/s; limit konfiguracji pozostaje
-najwyżej 50%, STOP omija budżet. Obciążenie planowane nie jest fizycznym
-pomiarem magistrali i nie obejmuje retransmisji.
+F5 nie zajmuje miejsca oczekiwania i nie czeka na odczyt 31. Wspólne F5 ma
+pierwszeństwo przed diagnostyką; koszt całego zestawu jest rezerwowany przed
+nadaniem. Zwykłe odpowiedzi mają walidację adresu/komendy/DLC/sumy/terminu.
+Przy spóźnieniu zegara jedna aktualna klatka zastępuje nieaktualne, bez serii
+nadrabiania. Brak budżetu daje waiting_budget, nie częściowy zestaw.
 
-W strumieniowanym PTP wspólny okres planera, kompilatora i IO wynosi 20 ms:
-
-| Faza cyklu | Praca |
-| --- | --- |
-| 0–8 ms | F5 kolejnego zestawu i komplet ACK |
-| 8–14 ms | Enkodery jednej z dwóch grup |
-| 14–18 ms | Diagnostyka; najwyżej osiem transakcji |
-| 18–20 ms | Rezerwa, bez nowych zapytań |
-| Granica cyklu | SYNC, wyłącznie po komplecie ACK |
-
-Ostatnie 2 ms okna odczytu są zarezerwowane dla odpowiedzi; nowego zapytania
-nie rozpoczynamy w tej końcówce. Timeout odpowiedzi jest ograniczony końcem
-okna. Przed wejściem w harmonogram odświeżamy wszystkie pozycje i opróżniamy
-zwykłe sloty; pierwszy zestaw jest przygotowany przed pierwszym SYNC.
-Uczestnicy są rozdzielani naprzemiennie według kolejności CAN ID,
-również dla niepełnego zestawu. W ruchu pozostałe adresy nie zajmują budżetu.
-
-Dla sześciu osi F5 + ACK + dodatkowe raporty + SYNC zajmują 1905 bitów/cykl,
-trzy odczyty enkoderów 630 bitów/cykl. ENABLE/stall 10 Hz i prędkość/stan
-20 Hz dodają średnio 1176 bitów/cykl. Łącznie to 3711 bitów, **37,11%**;
-górna granica ośmiu odczytów diagnostycznych to 3895 bitów, **38,95%**.
-Rezerwacja diagnostyki nie może zużyć kredytów komend ani pozycji.
-Terminy diagnostyki przesuwamy o okres, unikając dryfu zależnego od pobudek IO.
-Profil 10 ms jest odrzucany; program nie zmienia bitrate ani nie pomija próbek.
-
-Odpowiedzi dopasowuje się do adresu, komendy, DLC, sumy i terminu. Błędna ramka
-nie usuwa oczekującego zapytania. Po timeoutcie obowiązuje dodatkowa kwarantanna
-adresu. MKS nie ma numeru transakcji: nie da się niezawodnie odróżnić dowolnie
-spóźnionej identycznej odpowiedzi od nowej. Dopuszczalną latencję trzeba zmierzyć;
-wykryta utrata terminów powoduje błąd sterowania.
+Konserwatywny koszt ramki:55+10*DLC bitów. Przy 100 Hz F5+31 i dotychczasowej
+diagnostyce 4/6 osi kosztują 35,44/53,16% przy 500k albo 17,72/26,58% przy 1M.
+Robot ma 40%, przyszły moduł osobne 20 punktów, łącznie 60%. Profil 6 osi 500k
+jest odrzucany; maksymalny konfiguracyjny limit 50% nie rozszerza puli robota.
+Nie obejmuje to retransmisji ani arbitralnego przyszłego modułu bez jego profilu.
 
 ## Wykonanie i zatrzymanie
 
-JTC lokalnie interpoluje trajektorię. W IO używamy listy wykrytych adresów
-i przygotowanych zapytań; walidacja CRC nie kopiuje payloadu do nowego wektora.
-`read()` i `write()` adaptera używają prób
-blokady (`try_lock`), tablic sześciu osi i ostatnich wartości; nie wywołują CAN
-i nie czekają na odpowiedzi. Wątek IO jest niezależny od executorów ROS.
-Nie stanowi to potwierdzenia twardych gwarancji czasu rzeczywistego.
+CanSystem read/write korzystają z atomowych skrzynek najnowszej próbki i cache;
+nie oczekują na mutex ani odbiór. IO jest jedynym nadawcą, a osobny RX używa
+O_NONBLOCK+poll 1 ms. Komendy obejmują position i velocity; hardware udostępnia
+oba stany. Aktywacja inicjuje cele rzeczywistymi odczytami, prędkości 0.
 
-Każdy zestaw ma numer, źródło, czas utworzenia i termin ważności. Po sprawdzeniu
-limitów pozycji, prędkości i przyspieszenia manager wysyła sześć F5. Dopiero komplet
-odpowiedzi `F5 05 CRC` pozwala wysłać broadcast `4B 4B`. Brak ACK lub przeterminowana
-próbka blokują SYNC i wywołują stop. SYNC nie ma potwierdzenia odbioru; zgodność
-ruchu trzeba nadzorować pozycjami.
+F5/F6/FE są bez ACK. Uzbrojenie PTP ustawia i odczytuje `8C 00/00` i `4A 0`, sprawdza
+SR_vFOC, watchdog 300 ms, mikrokroki, F1 i start. Nie ma SYNC ani pauz tolerancji
+pośredniej. Jedynie ostatni cel czeka na dwie kontrole pozycji >=100 ms od siebie;
+waiting_position/waiting_feedback nie ponawiają ruchu. Po sukcesie nie uruchamiają
+się stare nastawy JTC. Brak pośredniej pozycji PTP nie przerywa strumienia.
 
-Próbka z `CanSystem` może zawierać pozycje i prędkości JTC. Wspólny kompilator
-F5 wyznacza RPM z profilu próbki zamiast zawsze używać maksimum osi; kod `acc`
-pozostaje osobnym parametrem napędu. Podgląd przyszłych zestawów 50 Hz oblicza
-[planner kartezjański](cartesian_planning.md), który nie wysyła niczego do CAN.
-Lokalny wykonawca PTP przygotowuje zestawy przed planowanym SYNC i nadzoruje
-śledzenie względem czasu pomiaru. Zgodność ramek nie gwarantuje wspólnego czasu
-dojazdu; wymagany odbiór sprzętowy opisuje [wykonanie PTP](motion_execution.md).
-
-Startowe progi oprogramowania: 60 ms dla pozycji i nowych zapisów kontrolera,
-300 ms dla ENABLE/stall, 200 ms dla lease źródła. Nie wyznaczają one dopuszczalnej
-drogi zatrzymania robota i wymagają odbioru na sprzęcie.
-
-Przy fault aktywnego sterowania manager zatrzaskuje błąd i blokuje SYNC.
-Wysyła F7 do wszystkich skonfigurowanych osi, następnie F6 RPM=0 do tych samych
-osi (dla PTP CAN 1–6). Po ACK F7 obecnych napędów lub timeoutcie rozpoczyna
-F6; cała procedura ma najwyżej dwa timeouty, domyślnie 40 ms. Osobne maski
-ACK, odrzucenia i braków są publikowane w diagnostyce. Potem kończy wszelkie
-nadawanie, aby nie podtrzymywać firmware watchdog. Zamknięcie transportu
-wykonuje pozostałą próbę F6 bez czekania i raportuje niepotwierdzone odpowiedzi.
-Nie wysyła SYNC ani nie załącza ENABLE. ACK F7/F6 nie jest dowodem skasowania
-przygotowanego celu i nie ustawia flag odbioru. Ta polityka wymaga wcześniejszej
-weryfikacji z obciążeniem i hamulcami (`stop_verified`). Sprzętowy obwód awaryjny
-pozostaje niezależny. Reset lub rekonfiguracja kasują zatrzask, lecz nie aktywują
-ruchu. Program nie ustawia automatycznie trybu, ENABLE, synchronizacji ani watchdog.
+JTC zachowuje watchdog komend/pozycji 60 ms oraz lease 200 ms; ręczny JOG ma własne
+reguły. Nie ma przerwania JTC od samej różnicy q pomiar/zadanie. Jawne błędy
+napędu, operator STOP, BUS-OFF i utrata transportu zatrzaskują fault.
+STOP natychmiast nadaje F7 wszystkich osi, potem F6(0), bez czekania na ACK,
+następnie cisza. Wysłanie STOP nie potwierdza skutecznego postoju ani hamowania.
+Reset nie aktywuje ruchu. Szczegóły: [kontrakt PTP](motion_execution.md).
 
 ## Interfejs ruchu i konfiguracja
 
@@ -149,7 +102,7 @@ Poprawnie zakończona trajektoria utrzymuje ostatnią pozycję.
 
 `robot_bringup/config/ros2_control.example.xacro` jest fragmentem rzeczywistego
 URDF, bez geometrii. Wymaga pełnego YAML sześciu osi: adresów, przełożeń, kierunków,
-offsetów, limitów, dopuszczalnego błędu śledzenia i kodu przyspieszenia MKS.
+offsetów, limitów i parametrów strumienia (CPR, acc, lookahead, FF, RPM).
 Kod MKS nie jest przyspieszeniem w rad/s². `null`, duplikaty i wartości nieskończone
 są odrzucane. Adresy 1, 2 i 4 nie są automatycznie przypisywane do przegubów.
 
@@ -163,25 +116,21 @@ ros2 launch robot_bringup motion_control.launch.py \
 ```
 
 Launch pozostawia hardware i kontroler trajektorii nieaktywne. Po skanie,
-wyborze źródła i potwierdzeniu gotowości wymagana jest jawna aktywacja. Cztery
-flagi `motion_enabled`, `commissioning_verified`, `synchronization_verified`,
-`stop_verified` muszą być świadomie ustawione po odbiorze SR_CLOSE/SR_vFOC,
-bazowania, ENABLE, synchronizacji, ACK, hamulców i watchdog. Bieżące CR_vFOC
-nie spełnia warunków. Model i konfiguracja MoveIt/Servo nie są wymyślane.
+wyborze źródła i potwierdzeniu gotowości wymagana jest jawna aktywacja. Parametry `motion_enabled` i
+`execution_enabled` pozostają jawne. Historyczne flagi odbioru
+nie są bramkami strumienia i nie są ustawiane na true. Nadal wymagamy kalibracji,
+ENABLE, właściwego trybu CAN i przygotowania; model/limity nie są wymyślane.
 
 ## Testy i odbiór
 
-Emulator sześciu napędów i wstrzykiwany zegar sprawdzają pełny skan, echo, błędne
-i spóźnione odpowiedzi, ACK/SYNC, utratę pozycji, komend, lease, BUS-OFF oraz USB.
-Minuta symulowanego ruchu 50 Hz sprawdza budżet i wzrost RSS po rozgrzaniu.
-To nie jest test płynności fizycznego robota ani minuta czasu ściennego.
+Testy z emulatorem i wstrzykiwanym zegarem obejmują 100 Hz bez ACK, odchyłkę/brak
+pomiaru pośredniego, końcową tolerancję, STOP, BUS-OFF, USB, profile i budżet.
+Test odbiornika używa lokalnego socketpair UNIX, bez otwierania CAN. Osobne testy
+sprawdzają bajty F5, int48, atomowe skrzynki i interfejsy hardware.
 
-Przed ruchem trzeba zmierzyć sześć osi: terminy ACK, rozrzut aktualizacji,
-błąd śledzenia i fizyczne obciążenie/retransmisje. RTT jest mierzone zegarem
-monotonicznym przy odczycie socketu w userspace; obejmuje USB i pobudkę IO
-(docelowo 1 ms), nie jest czasem samego przewodu. Odbiór musi potwierdzić F7,
-synchronizację i watchdog. Jeśli terminy nie są dotrzymane, cykl wykonawczy
-należy przenieść do odpowiedniego lokalnego kontrolera.
+To nie jest odbiór płynności ani twardego RT. Wymagane przyszłe pomiary fizyczne:
+latencja/rozrzut F5/31, obciążenie i retransmisje, śledzenie trajektorii oraz STOP
+i watchdog. Przy wyłączonym ACK błędne przyjęcie F5 nie jest potwierdzane.
 
 ## Fizyczny PTP i niepełny zestaw napędów
 
@@ -190,3 +139,9 @@ Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
 nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
 Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
 Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.
+
+W PTP po próbach sprzętowych nowe odczyty mają przerwę4 ms przed kolejnym F5
+(odpowiedź MKS ma ten sam CAN ID). Strumień nie czeka na odbiór. Przy czterech
+osiach uzyskano F5 średnio 10 ms, odczyty średnio 11,12–11,32 ms, bez błędów CAN
+w końcowej próbie. Dotyczy ograniczonego 1 RPM/acc 1; nie jest odbiorem 6 osi/JTC.
+[Raport sprzętowy](motion_hardware_results.md).

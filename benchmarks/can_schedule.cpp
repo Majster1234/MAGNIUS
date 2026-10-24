@@ -17,7 +17,7 @@ class Emulator final : public Transport {
   bool opened{false}, disconnected{false}, own_echo{false}, complete_before_ack{false};
   std::uint16_t missing_ack{}, missing_position{};
   std::uint16_t absent_address{};
-  std::array<bool,21> enabled{}, sync{};
+  std::array<bool,21> enabled{}, sync{}, respond{}, complete{};
   std::array<unsigned, 21> position_requests{};
   Time now{};
   std::array<std::uint64_t, 256> counts{};
@@ -42,10 +42,12 @@ class Emulator final : public Transport {
       case 0x40: reply = {0x40, 0x12, 1, 0, 9, 0x20}; break;
       case 0x00:
         if(data[1]==0x98) reply={0x98,0,0,1,44};
+        else if(data[1]==0x8c) reply={0x8c,static_cast<uint8_t>(respond[address]),static_cast<uint8_t>(complete[address])};
         else reply={data[1],static_cast<uint8_t>(data[1]==0x82 ? 5 : data[1]==0x84 ? 16 : sync[address])};
         break;
       case 0x4a: sync[address]=data[1];reply={0x4a,1};break;
-      case 0x82: case 0x8c: case 0x98: case 0xf7: reply={data[0],1};break;
+      case 0x8c:respond[address]=data[1];complete[address]=data[2];reply={0x8c,1};break;
+      case 0x82: case 0x98: case 0xf7: reply={data[0],1};break;
       case 0xf6: reply={0xf6,1};break;
       case 0xf3: enabled[address]=data[1];reply={0xf3,1};break;
       case 0x32: reply={0x32,0,0};break;
@@ -64,7 +66,8 @@ class Emulator final : public Transport {
         prepared_payloads[address]=data;
         const auto raw = (std::int32_t(data[4]) << 16) | (std::int32_t(data[5]) << 8) | data[6];
         prepared[address] = raw & 0x800000 ? raw - 0x1000000 : raw;
-        if (missing_ack == address) return;
+        if(!sync[address]) positions[address]=prepared[address];
+        if(!respond[address] || missing_ack==address) return;
         if(complete_before_ack) {
           auto complete=std::vector<uint8_t>{0xf5,2};complete.push_back(checksum(address,complete));
           responses.push_back({address,complete,false,0,now+1ms});
@@ -83,7 +86,7 @@ class Emulator final : public Transport {
   }
 };
 BusConfig configured() {
-  BusConfig config; config.motion_enabled = true;
+  BusConfig config;config.bitrate=1000000;config.motion_enabled = true;
   config.commissioning_verified = config.synchronization_verified = config.stop_verified = true;
   for (std::size_t i = 0; i < kAxes; ++i)
     config.axes[i] = {static_cast<std::uint16_t>(i + 1), 10, 1, 0, -2, 2, 1, 100, 0.2, 1};
@@ -134,8 +137,7 @@ struct Cycle {
       if(!h.manager->manual().prepared(j)) throw std::runtime_error("enable failed");
     }
   }
-  void cycle(std::uint64_t) {
-    if(kind==3) { h.run(20); return; }
+  void begin_program() {
     h.manager->update_motion_model("model");
     h.manager->update_motion_settings("settings",kind==1,h.now);
     PreparedMotionProgram p;p.id="bench";p.model_id="model";p.revision="bench";p.settings_revision="settings";
@@ -143,6 +145,10 @@ struct Cycle {
     if(kind<2) { auto middle=a;middle.seconds=1;middle.positions.fill(.1);p.points.insert(p.points.begin()+1,middle); }
     auto s=h.manager->prepare_program(std::move(p),h.now);
     if(!h.manager->execute_program(s.program_id,"key"+std::to_string(++count),h.now)) throw std::runtime_error("execute");
+  }
+  void cycle(std::uint64_t) {
+    if(kind==3) { h.run(20); return; }
+    begin_program();
     if(kind==4) {
       h.run(80);h.manager->stop("benchmark");h.run(50);h.manager->close();
       // API dostępne po obu stronach pomiaru; ścieżka zachowania adresów jest badana osobno w testach.
@@ -158,6 +164,19 @@ int main(int argc,char **argv) {
   const std::string executable=argv[0];
   unsigned kind=executable.find("stream4")!=std::string::npos ? 1 : executable.find("native")!=std::string::npos ? 2 :
       executable.find("idle20")!=std::string::npos ? 3 : executable.find("reset")!=std::string::npos ? 4 : 0;
+  if(const auto duration=std::getenv("CAN_BENCH_PTP_REALTIME_SECONDS")) {
+    Cycle cycle(kind);const auto start=Clock::now();auto due=start,next_program=start;
+    const auto seconds=std::stod(duration);unsigned ticks=0;
+    while(std::chrono::duration<double>(Clock::now()-start).count()<seconds) {
+      if(Clock::now()>=next_program) {
+        if(cycle.h.manager->program_status().busy) throw std::runtime_error("Program nie zmieścił się w oknie 3 s");
+        cycle.begin_program();next_program+=3s;
+      }
+      cycle.h.run(1);++ticks;due+=1ms;std::this_thread::sleep_until(due);
+    }
+    std::cout<<"{\"programs\":"<<cycle.count<<",\"ticks\":"<<ticks<<"}\n";
+    return cycle.verify() ? 0 : 1;
+  }
   if(const auto duration=std::getenv("CAN_BENCH_REALTIME_SECONDS")) {
     Cycle cycle(3); const auto start=Clock::now();auto due=start;
     const auto seconds=std::stod(duration);

@@ -29,6 +29,8 @@ class CanSystem : public hardware_interface::SystemInterface {
   mks_servo_can::ControlState state_;
   std::array<double, mks_servo_can::kAxes> positions_{}, commands_{};
   std::array<double, mks_servo_can::kAxes> velocities_{};
+  std::array<double,mks_servo_can::kAxes> state_velocities_{},previous_positions_{};
+  std::array<std::uint64_t,mks_servo_can::kAxes> previous_stamps_{};
   bool velocity_commands_{false};
   std::uint64_t sequence_{};
   bool active_{false};

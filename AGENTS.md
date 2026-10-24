@@ -1,12 +1,12 @@
 # AGENTS.md — wskazówki i kontekst dla AI
 
-Zakres: całe repozytorium; uwzględniaj instrukcje podkatalogów, systemu i użytkownika.
-Zasady i ostatni kontekst poniżej; kod i wyniki narzędzi są źródłem prawdy.
+Zakres: repozytorium; uwzględniaj instrukcje podkatalogów/systemu/użytkownika.
+Źródłem prawdy są kod i narzędzia.
 
 ## Utrzymanie kontekstu po każdym prompcie
 
-1. Na początku zadania czytaj ten plik; sprawdzaj istotne fakty, aktualny Git, środowisko i testy.
-2. Po każdym prompcie, także bez zmian kodu, przed odpowiedzią zapisz nową wersję pliku.
+1. Na początku czytaj plik i sprawdzaj fakty, Git, środowisko i testy.
+2. Przed odpowiedzią po każdym prompcie aktualizuj plik, także bez zmian kodu.
 3. Nadpisuj **Bieżący kontekst** aktualnym podsumowaniem, bez dziennika i kopii rozmowy.
    Zachowuj obowiązujące zasady; aktualizuj je po zmianie ustaleń projektu.
 4. Zapisuj zadanie/rezultat, implementację, decyzje, sprawdzenia/ograniczenia,
@@ -15,14 +15,13 @@ Zasady i ostatni kontekst poniżej; kod i wyniki narzędzi są źródłem prawdy
 6. Usuwaj stare dane, odsyłaj do docs. Limit: około 120 linii/8 KiB, kontekst 30 linii; ścieżki względne.
 7. Nie zapisuj haseł, tokenów, prywatnych danych kont, pełnych logów ani toku rozumowania.
 8. Gdy tryb lub uprawnienia zabraniają zapisu, nie omijaj ograniczeń; zgłoś brak aktualizacji.
-
-Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zleć jego odczytanie.
+Agent aktualizuje plik, bez hooka. Narzędziu bez obsługi AGENTS.md zleć odczyt.
 
 ## Projekt i mapa repozytorium
 
-- Cel: robot 6-DOF, Ubuntu 22.04, ROS 2 Humble, `colcon`, docelowo `ros2_control`.
+- Robot 6-DOF, Ubuntu 22.04, ROS 2 Humble, colcon/ros2_control.
 - Komunikacja: Linux SocketCAN → BIGTREETECH U2C v2.1 → MKS SERVO42D CAN.
-- Bitrate potwierdzony przez użytkownika: 500000 bit/s, interfejs `can0`, sterownik `gs_usb`.
+- Bitrate potwierdzony przez użytkownika i hosta (24.10): 1000000 bit/s, interfejs `can0`, sterownik `gs_usb`.
 - Protokół napędów jest protokołem producenta MKS; nie zakładaj CANopen/CiA 402.
 - CAN 1–6 → J1–J6. ROS: SI; GUI: mm/°. JOG: °/s przegubu lub RPM wału. Mobile zakończone.
 
@@ -30,14 +29,14 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 | --- | --- |
 | `ros2_ws/src/robot_description` | URDF/Xacro, geometria, RViz |
 | `ros2_ws/src/mks_servo_can` | Protokół, transport, manager, ManualMotorController |
-| `ros2_ws/src/robot_can_diagnostics` | Diagnostyka CAN, usługi ręczne C++ |
+| `ros2_ws/src/robot_can_diagnostics` | Diagnostyka/usługi C++ |
 | `ros2_ws/src/robot_hardware` | CanSystem, sześć osi, Humble |
 | `ros2_ws/src/robot_kinematics`, `robot_motion_planner` | FK/IK KDL, TCP/TOTG, podgląd MKS |
-| `ros2_ws/src/robot_bringup` | Launch diagnostyki i konfiguracje przykładowe |
+| `ros2_ws/src/robot_bringup` | Launch i przykłady |
 | `ros2_ws/src/robot_system_monitor` | Monitor systemu i CAN |
-| `ros2_ws/src/robot_configuration` | Snapshoty JSON, zapis do ROS |
+| `ros2_ws/src/robot_configuration` | Snapshoty JSON/ROS |
 | `ros2_ws/src/robot_web_bridge`, `web/` | FastAPI, WebSocket, React/TypeScript |
-| `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale aplikacji/diagnostyki/workspace |
+| `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale ROS |
 | `scripts/install_app_autostart.sh`, `system/application/` | Autostart panelu, systemd |
 | `hardware/`, `docs/` | Sprzęt i dokumentacja |
 | `system/can/`, `scripts/install_socketcan.sh` | SocketCAN przez systemd |
@@ -47,6 +46,13 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
 
 - Domyślnie przed każdym testem ruchu opisz oś, kierunek, prędkość, czas/zakres
   i zatrzymanie oraz uzyskaj zgodę użytkownika przed wykonaniem.
+- PTP streaming (24.10): 100 Hz, F5/F6/F7/FE bez ACK, bez SYNC (4A=0),
+  CanRSP/raporty wyłączone (8C00/00), SR_vFOC=05. Lookahead 25 ms, FF 1,15,
+  holding 3/max 2500 RPM, acc 240; limity mechaniczne nadal obowiązują.
+  Odczyty PTP bez startu zapytań 4 ms przed F5; ruch nie czeka na odczyt.
+  Tolerancja ±0,5° tylko na końcu (dwa pomiary >=100 ms); bez pauz pośrednich.
+  CAN: razem60%, robot40%, osobne20 punktów dla przyszłego modułu.
+  Sześć osi100 Hz wymaga1 Mbit/s; fizyczny can0 ma1 Mbit/s, TX1000.
 - Rozmawiaj i pisz dokumentację po polsku; zachowuj istniejące nazwy pakietów i API.
 - Zakładkę „Ustawienia systemowe” uzupełniaj tylko na konkretne polecenie użytkownika.
 - Najpierw sprawdź odpowiedni kod i dokumentację. Wyszukuj przez `rg`; nie czytaj
@@ -69,13 +75,12 @@ Agent aktualizuje plik; nie jest to hook. W narzędziu bez obsługi AGENTS.md zl
   `TODO` w metadanych, dopóki użytkownik nie ustali właściwych danych.
 - Nie dodawaj do historii katalogów `build/`, `install/`, `log/`, lokalnych ustawień,
   danych uwierzytelniających ani nagrań ROS pomijanych przez `.gitignore`.
-- Przed zmianą logiki ROS/backendu ustal listę podprogramów z bieżącego promptu;
-  dodaj brakujące scenariusze i zmierz je przed/po, na tych samych danych i cyklach.
-  Badaj tylko zmienione podprogramy/cykle, bez całej kolekcji i wcześniejszych zmian.
-- Po każdej optymalizacji uzupełniaj `docs/benchmark_results.md`: lista podprogramów,
-  cel, przed/po, procent, rozrzut, metadane i wniosek, także pogorszenie/brak poprawy.
-  Dla zmienionego cyklu procesu dodaj odczyt CPU przy porównywalnym obciążeniu;
-  brak pomiaru/bazy opisz jawnie. Procedura i narzędzie: ten sam dokument; bez GUI/CI.
+- Przed zmianą ROS/backendu określ podprogramy, dodaj brakujące scenariusze,
+  zmierz przed/po te same dane/cykle. Bez całej kolekcji i cudzych zmian.
+- Po optymalizacji uzupełnij docs/benchmark_results.md: zakres, cel, przed/po,
+  procent, rozrzut, metadane, wniosek (także pogorszenie/brak poprawy).
+  Zmieniony cykl procesu: CPU przy porównywalnym obciążeniu; brak bazy/pomiaru
+  opisz jawnie. Procedura i narzędzie tamże; bez GUI/CI.
 
 ## Polecenia sprawdzające
 
@@ -91,7 +96,6 @@ colcon build --symlink-install
 colcon test
 colcon test-result --verbose
 ```
-
 `--dry-run` wymaga GNOME Terminal i nie otwiera okien. Po błędzie sprawdź przyczynę;
 nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treści/ścieżek/formatu.
 `0 tests` oznacza brak testów wykonywalnych.
@@ -108,10 +112,6 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Bieżący kontekst
 
-- 2026-10-24: audyt/plan PTP: docs/ptp_rollout_status.md. Bez ruchu. API/ROS 12:33: PTP/flagi false, rewizja pusta, parametry -1; J1/2/3/5 przygotowane i skalibrowane, J4/6 brak. allow_missing_motion=true nie włącza wykonawcy.
-- PTP: fałszywy nadzór JTC po sukcesie; F6=05 nie dowodzi postoju; skoki enkodera ~6,33 RPM przy nastawie 1. Próba 5 (22.10): izolowana, bez nadzoru śledzenia, czasy 2,5/19 ms; produkcja 1/18 ms; odbiór 2/4/6 osi niezaliczony. Próby/ślady: docs/motion_hardware_results.md.
-- config/local/execution.yaml: stare flagi/rewizja, nieużywany; goal_tolerance/tracking_delay bez obsługi. Nie jest gotowym odbiorem. Dalej regresja sukcesu/STOP, potem odbiór STOP/bufora/dynamiki; flagi bez zmian.
-- Wcześniej 24.10: UI: wał bez kalibracji, poświata/tooltip J1–J6; 3 testy/build/Chromium OK wtedy. Audyt bez nowych testów. docs/manual_control.md. Node 22 w /tmp; web/dist przez symlink.
-- Trace i wcześniejsze pomiary: docs/shaft_trace.md, docs/benchmark_results.md. Restart usługi wymaga zgody: auto-review odrzuciło przerwanie stosu/startowy CAN.
-- Nadal: Ctrl+F5/UI, JOG TCP, IK/J4/J6, geometria/przekładnie/bazowanie, JOG/limity, USB/BUS-OFF/watchdog, drugi LAN, oscylacje. LIN/blending przyszłe; Three.js rozmiar; licencja TODO.
-- Git feature/web-status; bez commit/push; zachować config/ i zmiany użytkownika. Flag odbioru nie ustawiać bez pomiarów; nowe próby ruchu wymagają zgody.
+- 24.10: host/usługa1M/TX1000; CAN10s/4000 pozycji1/2/3/5 bez błędów,4/6 brak. Zero23:35 ACK/0ticks i zatwierdzenie bazy OK. docs/can_1m_results.md. Ruchy operatora succeeded w statusie, bez nowego odbioru agenta.
+- User zatwierdził80°/s. Panel web/dist: widoczne v/a PTP, domyślnie6/50; edycja usuwa plan/zgodę. Build+2 Chromium i2 atrapy profilu OK. Bez zmian cykli ROS/benchmarków. scripts/set_ptp_80.sh wykonany przez operatora;23:49 HTTP/ROS potwierdziły rewizję4061beb8c2c344a089e9a1d936d3ae32, enabledtrue/holding1/max14/acc1, limity80. PID88862 active/fresh, bezfault, ENABLE0, PTPidle,0błędów CAN. Bez ruchu/zera/ENABLE1. docs/manual_control.md. Następny krok: użytkownik wybiera v/a, przelicza i zatwierdza PTP;80°/s nieodebrane sprzętowo.
+- Stare próby500k/1RPM:1/2/4osiOK;86,38%±0,5°. docs/motion_hardware_results.md. Otwarte:płynność/prędkość/acc240/JTC/6osi/TCP,STOP/F6=05,skoki,ROS/panel,Ctrl+F5,JOG TCP/limity,IK/J4/J6,geometria/bazowanie,USB/BUS-OFF/watchdog,LAN2,oscylacje,LIN/blending,Three.js/licencja. Trace:docs/manual_control.md. Git feature/web-status; zachować zmiany,bez commit/push; flagi tylko po pomiarach.

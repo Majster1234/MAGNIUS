@@ -23,7 +23,7 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
     if (bootstrap ? configuration_ready_ || configuration_stage_ != "boot" : configuration_locked_ || !configuration_ready_)
       return result(false, "Inna operacja lub nieuzgodniona konfiguracja");
     if (!bootstrap && expected != profile_.revision) return result(false, "Konflikt rewizji konfiguracji C++");
-    if (active_ || inflight_ || manual_->busy() || fault_) return result(false, "Zapis wymaga nieaktywnego sterowania i braku awarii");
+    if (active_ || manual_->busy() || fault_) return result(false, "Zapis wymaga nieaktywnego sterowania i braku awarii");
     if (profile.revision.empty() || profile.revision.size() > 64) return result(false, "Nieprawidłowa rewizja");
     auto candidate = profile;
     for (std::size_t i = 0; i < kAxes; ++i) {

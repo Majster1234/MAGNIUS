@@ -294,13 +294,14 @@ static Plan compute_impl(const Context &c,const std::vector<Pose> &targets,doubl
   std::copy(output.points.back().positions.begin(),output.points.back().positions.end(),plan.target_positions.begin());
   plan.id=robot_kinematics::model_id(c.model_id+c.configuration_revision+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   plan.execution_ready=false; plan.execution_message="Podgląd: wykonanie wymaga odrębnego odbioru geometrii, kalibracji, synchronizacji i zatrzymania";
-  report(.8,"Kompilacja podglądu F5 / ACK / SYNC");
+  report(.8,"Kompilacja podglądu F5 100 Hz z wyprzedzeniem pozycji");
   try {
     std::array<mks_servo_can::AxisConfig,6> axes;
     for(unsigned i=0;i<6;++i) {
       const auto &p=c.profiles[i];
       if(!p.configured || codes[i]<1 || codes[i]>255) throw std::runtime_error("Brak pełnego profilu osi lub jawnie potwierdzonego kodu MKS acc; trajektoria pozostaje podglądem");
       axes[i]={static_cast<uint16_t>(i+1),p.gear_ratio,double(p.direction),p.zero_offset_rad,p.lower_rad,p.upper_rad,p.velocity_rad_s,p.acceleration_rad_s2,0,static_cast<uint8_t>(codes[i])};
+      axes[i].streaming.acceleration=static_cast<uint8_t>(codes[i]);
     }
     auto previous=c.seed; cursor=0;
     for(double t=0;t<=total+1e-9;t+=cycle) {
@@ -312,7 +313,7 @@ static Plan compute_impl(const Context &c,const std::vector<Pose> &targets,doubl
       }
       plan.mks_samples.push_back(frame); previous=s.q;
     }
-    plan.mks_compatible=true; plan.mks_message="Przedstawialne F5 przy 50 Hz; ACK/SYNC i śledzenie wymagają odbioru sprzętu";
+    plan.mks_compatible=true; plan.mks_message="Przedstawialne F5 przy 100 Hz; płynność i śledzenie wymagają odbioru sprzętu";
   } catch(const std::exception &e) { plan.mks_samples.clear(); plan.mks_message=e.what(); }
   report(1,"Plan gotowy do podglądu"); return plan;
 }

@@ -33,7 +33,8 @@ void ManualMotorController::observe_positions(Time now) {
     const auto &d = bus_.devices_[axis]; const auto &p = d.position;
     auto &anchor = stationary_anchor_[axis - 1]; auto &jog_anchor = jog_rest_anchor_[axis - 1];
     auto &previous = velocity_previous_[axis - 1]; auto &velocity = velocity_[axis - 1];
-    if (!p.fresh(now, 60ms)) { anchor.valid = jog_anchor.valid = previous.valid = velocity.valid = false; continue; }
+    const auto feedback_age=bus_.active_ && bus_.source_==Source::program ? kProgramFeedbackTimeout : 60ms;
+    if (!p.fresh(now, feedback_age)) { anchor.valid = jog_anchor.valid = previous.valid = velocity.valid = false; continue; }
     if (!anchor.valid || std::abs(p.value - anchor.value) > 3) anchor = p;
     // Osobne pasmo dla JOG: drobne drgania nie kasują potwierdzonego postoju.
     // Odniesienie nie podąża za każdą próbką, więc sumujący się ruch przekroczy pasmo.
@@ -86,7 +87,7 @@ bool ManualMotorController::set_enable(unsigned axis, bool enabled, Time now) {
     bus_.config_.synchronization_verified = false;
     // Odczyt 32 działa także w trybie CR. Nigdy nie przygotowujemy poruszającego się wału.
     add(request(axis, 0x32), 4, 0);
-    add(request(axis, 0x8c, {1, 1}));
+    add(request(axis, 0x8c, {0, 0}));add(parameter_request(axis,0x8c),4,0);
     add(request(axis, 0x4a, {0})); add(parameter_request(axis, 0x4a), 3, 0);
     add(request(axis, 0x82, {5})); add(parameter_request(axis, 0x82), 3, 5);
     add(enable_request(axis, false)); add(request(axis, 0x3a), 3, 0);
@@ -264,7 +265,7 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
     if (data[0] == 0x84) {
       // Zero w odpowiedzi jest niejednoznaczne (256 w polu uint8). Nie zgadujemy.
       try { speed_scale(static_cast<std::uint16_t>(value)); } catch (const std::exception &e) { fail(e.what()); return; }
-      microstep_[axis_ - 1] = static_cast<std::uint16_t>(value);
+      microstep_[axis_ - 1] = static_cast<std::uint16_t>(value);d.microstep.set(static_cast<std::uint16_t>(value),stamp);
       const auto &profile = bus_.profile_.axes[axis_ - 1];
       if (profile.configured) {
         const auto acceleration = speed_scale(microstep_[axis_ - 1]) / .01275 * 2 * std::acos(-1.0) / 60 / profile.gear_ratio;
@@ -288,6 +289,8 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
       }
     }
     if (data[0] == 0x82) d.mode.set(static_cast<std::uint8_t>(value), stamp);
+    if (data[0] == 0x8c) (d.responses_known=true,d.responses_disabled=data.size()==4 && data[1]==0 && data[2]==0);
+    if (data[0] == 0x4a) (d.synchronization_known=true,d.synchronization_disabled=value==0);
   }
   if (data[0] == 0x3a) d.enable.set(value != 0, stamp);
   if (data[0] == 0xf1) d.motor_state.set(static_cast<std::uint8_t>(value), stamp);
@@ -329,11 +332,13 @@ void ManualMotorController::tick(Time now) {
   if (phase_ == Phase::stopping) {
     if (now >= stop_deadline_) { fail("Nie potwierdzono zatrzymania — stan ruchu nieznany"); return; }
     if (!stop_sent_ && !waiting_) {
-      if (bus_.send_manual(axis_, speed_request(axis_, false, 0), 3, now, true)) waiting_ = true;
+      if (bus_.send_manual(axis_, speed_request(axis_, false, 0), 0, now, true)) {
+        stop_sent_=true;stop_at_=now;waiting_=false;
+      }
     }
     const auto &d = bus_.devices_[axis_];
     // Stabilność z kolejnych pozycji 50 Hz, bez dodatkowych dwóch cykli 32H.
-    // Wymagamy też pomiarów po ACK STOP, nigdy samego upływu czasu.
+    // Wymagamy pomiarów po nadaniu STOP, nigdy samego upływu czasu.
     if (stop_sent_ && jog_stopped(axis_, now) && d.position.stamp >= stop_at_ + 60ms &&
         d.speed.stamp > stop_at_ && d.motor_state.stamp > stop_at_) {
       phase_ = Phase::idle; last_stop_ = now; owner_.clear(); message_ = "Zatrzymanie potwierdzone";
@@ -349,7 +354,15 @@ void ManualMotorController::tick(Time now) {
     // Zapis konfiguracji/zera trwa dłużej od odczytu (92H: ~27 ms na sprzęcie).
     const auto opcode = s.data.front();
     const auto timeout = opcode == 0x92 || opcode == 0x82 || opcode == 0x98 || opcode == 0x4a || opcode == 0x8c ? 100ms : 0ms;
-    if (bus_.send_manual(axis_, s.data, s.length, now, false, timeout)) waiting_ = true;
+    if (bus_.send_manual(axis_, s.data, s.length, now, false, timeout)) {
+      if(opcode==0xf5 || opcode==0xf6 || opcode==0xf7 || opcode==0xfe) {
+        waiting_=false;++step_;
+        if(step_==step_count_) {
+          if(operation_==Operation::jog) phase_=Phase::moving;
+          else complete(now);
+        }
+      } else waiting_=true;
+    }
   }
 }
 ManualState ManualMotorController::snapshot(Time now) const {

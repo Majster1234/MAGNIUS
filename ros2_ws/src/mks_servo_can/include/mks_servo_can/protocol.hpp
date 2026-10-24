@@ -56,6 +56,7 @@ std::vector<std::uint8_t> speed_request(std::uint16_t address, bool clockwise,
                                        std::uint16_t rpm, std::uint8_t acceleration = 1);
 std::vector<std::uint8_t> enable_request(std::uint16_t address, bool enabled);
 std::vector<std::uint8_t> zero_request(std::uint16_t address);
+std::vector<std::uint8_t> encoder_position_request(std::uint16_t address);
 std::vector<std::uint8_t> parameter_request(std::uint16_t address, std::uint8_t parameter);
 std::optional<std::int16_t> parse_speed(std::uint16_t address, const std::vector<std::uint8_t> &data);
 double speed_scale(std::uint16_t microstep);

@@ -3,7 +3,6 @@
   <name>robot_configuration</name><version>0.0.0</version>
   <description>Snapshoty JSON, geometria i transakcyjne zastosowanie konfiguracji robota.</description>
   <maintainer email="maintainer@example.com">Project maintainer (TODO)</maintainer><license>TODO</license>
-  <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>rclpy</exec_depend><exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>std_msgs</exec_depend><exec_depend>robot_control_interfaces</exec_depend>
   <test_depend>python3-pytest</test_depend>

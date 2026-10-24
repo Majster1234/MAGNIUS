@@ -10,7 +10,7 @@ using namespace std::chrono_literals;
 
 namespace {
 struct Motor {
-  bool enabled{}, stalled{};
+  bool enabled{}, stalled{}, respond{true}, complete{true};
   unsigned mode{2}, microstep{16}, sync{1}, heartbeat{};
   double rpm{}, target{}, ticks{};
 };
@@ -55,6 +55,7 @@ class Port final : public Transport {
         const auto parameter = data[1]; if (parameter == no_read_command) return;
         reply = {parameter};
         if (parameter == 0x98) reply.insert(reply.end(), {0, 0, static_cast<std::uint8_t>(m.heartbeat >> 8), static_cast<std::uint8_t>(m.heartbeat)});
+        else if(parameter==0x8c) reply.insert(reply.end(),{static_cast<uint8_t>(m.respond),static_cast<uint8_t>(m.complete)});
         else reply.push_back(parameter == 0x82 ? m.mode : parameter == 0x84 ? m.microstep : m.sync);
         break;
       }
@@ -72,13 +73,18 @@ class Port final : public Transport {
       case 0xf1: reply.push_back(m.rpm == 0 && m.target == 0 ? 1 : m.target == m.rpm ? 4 : m.target == 0 ? 3 : 2); break;
       case 0xf3: if (cmd != refuse_command) m.enabled = data[1]; reply.push_back(cmd == refuse_command ? 0 : 1); break;
       case 0x82: m.mode = data[1]; reply.push_back(1); break;
+      case 0x8c:m.respond=data[1];m.complete=data[2];reply.push_back(1);break;
       case 0x4a: m.sync = data[1]; reply.push_back(1); break;
       case 0x98: m.heartbeat = (unsigned(data[1]) << 24) | (unsigned(data[2]) << 16) | (unsigned(data[3]) << 8) | data[4]; reply.push_back(1); break;
       case 0x92: m.ticks = zero_result_ticks; reply.push_back(1); break;
-      case 0xf7: m.target = m.rpm = 0; reply.push_back(1); break;
+      case 0xf7:
+        m.target = m.rpm = 0;
+        if(!m.respond) return;  // CAN V1.0.9: CanRSP=Disable tłumi też F7.
+        reply.push_back(1); break;
       case 0xf6: {
         const auto raw = (unsigned(data[1] & 0xf) << 8) | data[2];
         if (m.enabled) m.target = raw * speed_scale(m.microstep) * (data[1] & 0x80 ? 1 : -1);
+        if(!m.respond) return;
         reply.push_back(m.enabled ? 1 : 0); break;
       }
       default: reply.push_back(1); break;
@@ -144,6 +150,20 @@ TEST(ManualMotor, PreparationStopsWithEnableOffWithoutUsingSpeedCommand) {
   EXPECT_EQ(r.port->counts[0xf7], 1u);
   EXPECT_EQ(r.port->motors[1].target, 0);
   EXPECT_TRUE(r.port->motors[1].enabled);
+}
+TEST(ManualMotor, PreparationVerifiesStoppedMotorWithoutF7AckWhenCanRspIsDisabled) {
+  Rig r;r.port->motors[1].target=30;r.enable();
+  EXPECT_FALSE(r.port->motors[1].respond);
+  EXPECT_EQ(r.port->counts[0xf7],1u);
+  EXPECT_GT(r.port->counts[0xf1],0u);
+  EXPECT_TRUE(r.port->motors[1].enabled);
+  EXPECT_EQ(r.port->counts[0xf5],0u);
+}
+TEST(ManualMotor, LostF7StillFailsStoppedStateVerificationBeforeEnable) {
+  Rig r;r.port->motors[1].target=30;r.port->drop_command=0xf7;
+  ASSERT_TRUE(r.manual().set_enable(1,true,r.now));r.step(300);
+  EXPECT_TRUE(r.bus.snapshot().fault);
+  EXPECT_FALSE(r.port->motors[1].enabled);
 }
 TEST(ManualMotor, OneOwnerReleaseAndDisable) {
   Rig r; r.enable(1); r.enable(2); ASSERT_TRUE(r.start()); unsigned seq = 1;
@@ -309,10 +329,10 @@ TEST(ManualMotor, RefusedEnableNeverConfirmsReady) {
   EXPECT_FALSE(r.port->motors[1].enabled); const auto tx = r.bus.snapshot().statistics.tx; r.step(1000);
   EXPECT_EQ(tx, r.bus.snapshot().statistics.tx); EXPECT_TRUE(r.bus.service_allowed());
 }
-TEST(ManualMotor, MissingStopResponseLatchesFaultAndSilencesBus) {
+TEST(ManualMotor, MissingStopCommandEventuallyLatchesFaultAndSilencesBus) {
   Rig r; r.enable(); ASSERT_TRUE(r.start()); unsigned seq = 1; r.held(500, seq);
   r.port->drop_command = 0xf6;
-  ASSERT_TRUE(r.manual().jog(JogAction::stop, 1, 0, 0, "panel-a", ++seq, r.now, r.now)); r.step(100);
+  ASSERT_TRUE(r.manual().jog(JogAction::stop, 1, 0, 0, "panel-a", ++seq, r.now, r.now)); r.step(3000);
   EXPECT_TRUE(r.state().fault); EXPECT_TRUE(r.state().busy); EXPECT_FALSE(r.start(2, "panel-b"));
   const auto tx = r.bus.snapshot().statistics.tx; r.step(500); EXPECT_EQ(tx, r.bus.snapshot().statistics.tx);
   r.bus.close(); r.bus.reset_session(); r.bus.open(r.now); EXPECT_FALSE(r.state().busy);

@@ -13,6 +13,7 @@
 #include "mks_servo_can/motion_executor.hpp"
 #include "mks_servo_can/motion_timing.hpp"
 #include "mks_servo_can/shaft_trace.hpp"
+#include "mks_servo_can/streaming_motion.hpp"
 
 namespace mks_servo_can {
 class ManualMotorController;
@@ -38,6 +39,9 @@ struct Aggregate {
 struct DeviceState {
   Identity identity{};
   bool detected{false};
+  bool responses_disabled{}, synchronization_disabled{};
+  bool responses_known{}, synchronization_known{};
+  Sample<std::uint16_t> microstep;
   Time last_ok{};
   Time position_sent{};
   Sample<std::int64_t> position;
@@ -53,6 +57,7 @@ struct AxisConfig {
   std::uint16_t address{};
   double gear_ratio{}, direction{}, offset{}, lower{}, upper{}, max_velocity{}, max_acceleration{}, tracking_error{};
   std::uint8_t acceleration_code{};
+  StreamingParameters streaming{};
 };
 enum class Source { none, trajectory, jog, program };
 enum class ResetMode { clear_discovery, preserve_discovery };
@@ -67,7 +72,9 @@ struct CommandBatch {
 struct BusConfig {
   std::string interface{"can0"};
   unsigned bitrate{500000};
-  std::chrono::milliseconds cycle{kMotionCycle}, response_timeout{20}, feedback_timeout{60}, command_timeout{60};
+  std::chrono::milliseconds cycle{kStreamingCycle}, response_timeout{20}, feedback_timeout{60}, command_timeout{60};
+  bool use_ack{false};
+  unsigned rx_poll_timeout_ms{1};
   double utilization_limit{0.5};
   bool motion_enabled{false};
   bool commissioning_verified{false};
@@ -79,6 +86,11 @@ struct BusConfig {
   unsigned manual_max_rpm{30};
   bool program_enabled{}, program_stop_verified{}, program_sync_verified{}, program_staged_reset_verified{};
   std::string program_revision;
+  std::chrono::milliseconds program_ack_timeout{kProgramAckTimeout}, program_position_period{kProgramPositionPeriod};
+  std::array<double,kAxes> program_position_tolerance{
+      kProgramPositionTolerance,kProgramPositionTolerance,kProgramPositionTolerance,
+      kProgramPositionTolerance,kProgramPositionTolerance,kProgramPositionTolerance};
+  std::array<StreamingParameters,kAxes> program_streaming{};
 
 };
 struct BusStatistics {
@@ -125,6 +137,8 @@ class CanBusManager {
   void reset_session(ResetMode mode = ResetMode::clear_discovery);
   BusSnapshot snapshot() const;
   ControlState control_state() const;
+  // Czytelnik RT przekazuje adres ze swojego snapshotu; nie czyta zmiennego config_.
+  AxisFeedback encoder_feedback(unsigned address) const { return transport_->position_feedback(address); }
   const BusConfig &config() const { return config_; }
   static double position_to_joint(const AxisConfig &axis, std::int64_t ticks);
   static std::int32_t joint_to_position(const AxisConfig &axis, double position);
@@ -147,7 +161,7 @@ class CanBusManager {
   ShaftTraceQueue shaft_trace_;
   std::array<std::uint64_t,6> shaft_sequences_{}, shaft_segments_{};
   std::array<std::uint32_t,6> shaft_flags_{};
-  enum class Kind { identity, mode, position, enable, stall, motor, speed, stage, manual, program_setup };
+  enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, manual, program_setup };
   struct Pending {
     bool used{false};
     std::uint16_t address{};
@@ -168,21 +182,22 @@ class CanBusManager {
   void next_scan(std::uint16_t address);
   void fault(const std::string &message);
   void emergency_stop();
-  void schedule_stop(Time now);
   void send_zero_stop(Time now);
-  bool stop_reply(const Frame &frame, Time stamp);
-  void finish_stop(Time now);
   Time current_time(Time fallback) const;
   bool phased_program() const;
   unsigned feedback_group() const;
   void rebuild_axis_lookup();
   double mandatory_cycle_bits() const;
+  double stream_cycle_bits(unsigned participants) const;
+  void send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload);
   bool feedback_good(Time now) const;
   void schedule_feedback(Time now);
   void schedule_background(Time now);
   void schedule_motion(Time now);
   void schedule_program(Time now);
   bool program_feedback_good(Time now) const;
+  void begin_program_check(Time now);
+  bool check_program_positions(Time now);
   void program_setup_reply(const Frame &frame, Time now);
 
   void start_cycle(Time now);
@@ -204,13 +219,14 @@ class CanBusManager {
   std::size_t known_count_{};
   std::vector<std::uint8_t> query_payload_{0,0,0};
   const std::vector<std::uint8_t> sync_payload_{0x4b,0x4b};
+  std::array<std::vector<std::uint8_t>,kAxes> stream_payloads_{};
+  // Wyłącznie odczyty i konfiguracja. Ruch nigdy nie zajmuje slotu ACK.
   std::array<Pending, 4> pending_{};
   std::array<Time, 2048> quarantine_{};
   std::array<Time, 2048> next_position_{}, next_enable_{}, next_stall_{}, next_motor_{}, next_mode_{}, next_speed_{};
-  std::array<bool, kAxes> staged_{}, sent_stage_{};
   std::array<double, kAxes> committed_positions_{}, previous_velocity_{};
   BusStatistics stats_;
-  std::optional<CommandBatch> latest_, inflight_;
+  std::optional<CommandBatch> latest_;
   std::uint64_t last_sequence_{};
   Time cycle_start_{}, next_cycle_{}, last_rx_{}, last_command_{}, lease_stamp_{}, last_tick_{}, last_cycle_wake_{};
   std::uint64_t cycle_number_{};

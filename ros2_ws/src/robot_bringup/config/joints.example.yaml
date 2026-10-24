@@ -5,8 +5,12 @@
 # Limity dotyczą przegubu po przekładni, w jednostkach wskazanych w nazwach pól.
 joints:
   joint_1:
-    tracking_error_rad: null
-    mks_acceleration_code: null
+    encoder_cpr: 16384
+    default_acc: 240
+    lookahead_time_sec: 0.025
+    velocity_ff_scale: 1.15
+    min_holding_rpm: 3
+    max_rpm: 2500
     can_id: 1
     firmware_version: null
     gear_ratio: null
@@ -18,8 +22,12 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_2:
-    tracking_error_rad: null
-    mks_acceleration_code: null
+    encoder_cpr: 16384
+    default_acc: 240
+    lookahead_time_sec: 0.025
+    velocity_ff_scale: 1.15
+    min_holding_rpm: 3
+    max_rpm: 2500
     can_id: 2
     firmware_version: null
     gear_ratio: null
@@ -31,8 +39,12 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_3:
-    tracking_error_rad: null
-    mks_acceleration_code: null
+    encoder_cpr: 16384
+    default_acc: 240
+    lookahead_time_sec: 0.025
+    velocity_ff_scale: 1.15
+    min_holding_rpm: 3
+    max_rpm: 2500
     can_id: 3
     firmware_version: null
     gear_ratio: null
@@ -44,8 +56,12 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_4:
-    tracking_error_rad: null
-    mks_acceleration_code: null
+    encoder_cpr: 16384
+    default_acc: 240
+    lookahead_time_sec: 0.025
+    velocity_ff_scale: 1.15
+    min_holding_rpm: 3
+    max_rpm: 2500
     can_id: 4
     firmware_version: null
     gear_ratio: null
@@ -57,8 +73,12 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_5:
-    tracking_error_rad: null
-    mks_acceleration_code: null
+    encoder_cpr: 16384
+    default_acc: 240
+    lookahead_time_sec: 0.025
+    velocity_ff_scale: 1.15
+    min_holding_rpm: 3
+    max_rpm: 2500
     can_id: 5
     firmware_version: null
     gear_ratio: null
@@ -70,8 +90,12 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_6:
-    tracking_error_rad: null
-    mks_acceleration_code: null
+    encoder_cpr: 16384
+    default_acc: 240
+    lookahead_time_sec: 0.025
+    velocity_ff_scale: 1.15
+    min_holding_rpm: 3
+    max_rpm: 2500
     can_id: 6
     firmware_version: null
     gear_ratio: null

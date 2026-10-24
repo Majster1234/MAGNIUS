@@ -13,6 +13,7 @@ std::vector<std::uint8_t> enable_request(std::uint16_t address, bool enabled) {
   return request(address, 0xf3, {static_cast<std::uint8_t>(enabled)});
 }
 std::vector<std::uint8_t> zero_request(std::uint16_t address) { return request(address, 0x92); }
+std::vector<std::uint8_t> encoder_position_request(std::uint16_t address) { return request(address,0x31); }
 std::vector<std::uint8_t> parameter_request(std::uint16_t address, std::uint8_t parameter) {
   return request(address, 0, {parameter});
 }
@@ -135,10 +136,10 @@ std::optional<std::int64_t> parse_position(std::uint16_t address,
 }
 std::vector<std::uint8_t> absolute_position_request(std::uint16_t address, std::int32_t ticks,
                                                  std::uint16_t rpm, std::uint8_t acceleration) {
-  if (ticks < -8388607 || ticks > 8388607 || rpm == 0 || rpm > 3000)
+  if (ticks < -8388608 || ticks > 8388607 || rpm == 0 || rpm > 3000)
     throw std::invalid_argument("pozycja/prędkość poza zakresem MKS F5");
   const auto bits = static_cast<std::uint32_t>(ticks);
-  return request(address, 0xf5, {static_cast<std::uint8_t>(rpm >> 8), static_cast<std::uint8_t>(rpm),
+  return request(address, 0xf5, {static_cast<std::uint8_t>((rpm >> 8)&0x0f), static_cast<std::uint8_t>(rpm),
       acceleration, static_cast<std::uint8_t>(bits >> 16), static_cast<std::uint8_t>(bits >> 8),
       static_cast<std::uint8_t>(bits)});
 }

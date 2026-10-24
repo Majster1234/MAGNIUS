@@ -1,31 +1,27 @@
-# Lokalne stanowisko CAN 1/2/3/5; akceptacja do testów 2026-10-22.
-# Śledzenie +/-0,5 stopnia od 500 ms po SYNC; cel +/-0,2 stopnia.
+# Ciągły PTP 100 Hz: F5 bez ACK, lookahead 25 ms, velocity feed-forward 1,15.
+# Budżet: robot do 40% CAN, przyszły moduł 20%, razem do 60%.
+# Przygotowany 24.10.2026; nie ładuje się do działającej usługi automatycznie.
 /**:
   ros__parameters:
-    execution_enabled: true
-    execution_configuration_revision: bb3a2d31cd16469a989482e9104aa250
-    execution_stop_verified: true
-    execution_sync_verified: true
-    execution_staged_reset_verified: true
-    execution_tracking_error_rad:
-    - 0.008726646259971648
-    - 0.008726646259971648
-    - 0.008726646259971648
-    - 0.008726646259971648
-    - 0.008726646259971648
-    - 0.008726646259971648
+    execution_enabled: false
+    execution_configuration_revision: d33a621cee7945719bc9c0f342d2c4bb
     execution_acceleration_codes:
-    - 1
-    - 1
-    - 1
-    - 1
-    - 1
-    - 1
-    execution_goal_tolerance_rad:
-    - 0.003490658503988659
-    - 0.003490658503988659
-    - 0.003490658503988659
-    - 0.003490658503988659
-    - 0.003490658503988659
-    - 0.003490658503988659
-    execution_tracking_delay_ms: 500
+    - 240
+    - 240
+    - 240
+    - 240
+    - 240
+    - 240
+    execution_use_ack: false
+    execution_lookahead_time_sec: 0.025
+    execution_velocity_ff_scale: 1.15
+    execution_min_holding_rpm: 3
+    execution_max_rpm: 2500
+    execution_position_period_ms: 10
+    execution_position_tolerance_rad:
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648

@@ -38,7 +38,10 @@ class Emulator final : public Transport {
     std::vector<std::uint8_t> reply;
     switch (data[0]) {
       case 0x40: reply = {0x40, 0x12, 1, 0, 9, 0x20}; break;
-      case 0x00: reply = {0x82, 5}; break;
+      case 0x00:
+        if(data[1]==0x8c) reply={0x8c,0,0};
+        else reply={data[1],static_cast<uint8_t>(data[1]==0x82 ? 5 : data[1]==0x84 ? 16 : 0)};
+        break;
       case 0x3a: reply = {0x3a, 1}; break;
       case 0x3e: reply = {0x3e, 0}; break;
       case 0xf1: reply = {0xf1, 1}; break;
@@ -53,8 +56,7 @@ class Emulator final : public Transport {
         prepared_payloads[address]=data;
         const auto raw = (std::int32_t(data[4]) << 16) | (std::int32_t(data[5]) << 8) | data[6];
         prepared[address] = raw & 0x800000 ? raw - 0x1000000 : raw;
-        if (missing_ack == address) return;
-        reply = {0xf5, 5}; break;
+        positions[address]=prepared[address];return; // CanRSP=Disable
       }
       default: return;
     }
@@ -68,7 +70,7 @@ class Emulator final : public Transport {
   }
 };
 BusConfig configured() {
-  BusConfig config; config.motion_enabled = true;
+  BusConfig config; config.bitrate=1000000;config.motion_enabled = true;
   config.commissioning_verified = config.synchronization_verified = config.stop_verified = true;
   for (std::size_t i = 0; i < kAxes; ++i)
     config.axes[i] = {static_cast<std::uint16_t>(i + 1), 1, 1, 0, -2, 2, 1, 100, 0.2, 2};
@@ -81,14 +83,16 @@ struct Harness {
   explicit Harness(BusConfig config = configured()) {
     auto transport = std::make_unique<Emulator>(); bus = transport.get(); bus->now = now;
     manager = std::make_unique<CanBusManager>(config, std::move(transport));
-    manager->open(now); manager->start_scan();
+    manager->open(now);manager->require_configuration();RobotProfile profile;profile.revision="unit";profile.changed.fill(true);
+    for(unsigned j=0;j<6;++j) {const auto &a=config.axes[j];profile.axes[j]={true,a.gear_ratio,a.direction,a.offset,a.lower,a.upper,a.max_velocity,a.max_acceleration};}
+    if(!manager->configure(ConfigurationPhase::bootstrap,"boot","",profile,now).accepted || !manager->configure(ConfigurationPhase::finish,"boot","",profile,now).accepted) throw std::runtime_error("bootstrap");
   }
   void run(int ms) {
     for (int i = 0; i < ms; ++i) { bus->now = now; manager->tick(now); now += 1ms; }
   }
   void ready() { run(45000); ASSERT_FALSE(manager->snapshot().scanning); }
   CommandBatch batch(std::uint64_t sequence, double position = 0.001) const {
-    CommandBatch batch; batch.positions.fill(position); batch.sequence = sequence;
+    CommandBatch batch;batch.velocities_valid=true; batch.positions.fill(position); batch.sequence = sequence;
     batch.created = now; batch.expires = now + 19ms; batch.source = Source::trajectory; return batch;
   }
 };
@@ -124,10 +128,10 @@ TEST(BusManager, ShaftTraceContainsEachAcceptedEncoderAndDoesNotDuplicateCache) 
   EXPECT_GT(out[0].segment,segment);EXPECT_NE(out[0].flags&1,0u);
   EXPECT_EQ(h.bus->counts[0xf5],0u);EXPECT_EQ(h.bus->counts[0x4b],0u);
 }
-TEST(BusManager, AllSixAcknowledgementsRequiredForSync) {
+TEST(BusManager, AllSixAxesAreSentWithoutAckOrSync) {
   Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
   ASSERT_TRUE(h.manager->submit(h.batch(1))); h.run(10);
-  EXPECT_EQ(h.bus->counts[0xf5], 6u); EXPECT_EQ(h.bus->counts[0x4b], 1u);
+  EXPECT_EQ(h.bus->counts[0xf5], 6u); EXPECT_EQ(h.bus->counts[0x4b], 0u);
   EXPECT_EQ(h.manager->snapshot().statistics.committed, 1u);
   EXPECT_FALSE(h.manager->start_scan()); EXPECT_FALSE(h.manager->service_allowed());
 }
@@ -135,34 +139,29 @@ TEST(BusManager, ProfileVelocityReachesAllDrivesAndInvalidVelocityBlocksSync) {
   Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory,h.now));
   auto command=h.batch(1); command.velocities_valid=true; command.velocities.fill(.15);
   ASSERT_TRUE(h.manager->submit(command)); h.run(10);
-  ASSERT_EQ(h.bus->counts[0x4b],1u);
+  ASSERT_EQ(h.bus->counts[0xf5],6u);
   for(unsigned i=1;i<=6;++i) {
     const auto &frame=h.bus->prepared_payloads.at(i);
-    EXPECT_EQ((frame[1]<<8)|frame[2],1);  // 0,15 rad/s = 1,43 RPM, zamiast maksimum osi.
+    EXPECT_EQ((frame[1]<<8)|frame[2],3);  // 0,15 rad/s = 1,43 RPM, zamiast maksimum osi.
   }
   command=h.batch(2); command.velocities_valid=true; command.velocities.fill(100);
   ASSERT_TRUE(h.manager->submit(command)); h.run(20);
-  EXPECT_TRUE(h.manager->snapshot().fault); EXPECT_EQ(h.bus->counts[0x4b],1u);
+  EXPECT_TRUE(h.manager->snapshot().fault); EXPECT_EQ(h.bus->counts[0x4b],0u);
 }
-TEST(BusManager, MissingAckStopsWithoutPartialSyncOrAutomaticRecovery) {
-  Harness h; h.ready(); h.bus->missing_ack = 2;
-  ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
-  h.manager->submit(h.batch(1)); h.run(30);
-  EXPECT_TRUE(h.manager->snapshot().fault);
-  EXPECT_EQ(h.bus->counts[0x4b], 0u); EXPECT_EQ(h.bus->counts[0xf7], 6u);
-  h.run(40); // F7 i F6(0) mają łącznie najwyżej dwa timeouty.
-  EXPECT_EQ(h.bus->counts[0xf6],6u);
-  const auto tx = h.manager->snapshot().statistics.tx;
-  h.run(1000); EXPECT_EQ(h.manager->snapshot().statistics.tx, tx);
-  EXPECT_FALSE(h.manager->activate(Source::trajectory, h.now));
+TEST(BusManager, MissingAckHasNoEffectOnFireAndForgetStream) {
+  Harness h;h.ready();h.bus->missing_ack=2;
+  ASSERT_TRUE(h.manager->activate(Source::trajectory,h.now));
+  for(unsigned i=1;i<=20;++i) {ASSERT_TRUE(h.manager->submit(h.batch(i)));h.run(10);}
+  EXPECT_FALSE(h.manager->snapshot().fault);EXPECT_EQ(h.bus->counts[0xf5],120u);EXPECT_EQ(h.bus->counts[0x4b],0u);
 }
+
 TEST(BusManager, OldCommandAndWrongSourceCannotExecute) {
   Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
   auto batch = h.batch(1); batch.source = Source::jog;
   EXPECT_FALSE(h.manager->submit(batch));
   batch.source = Source::trajectory; batch.created -= 1s; batch.expires -= 1s;
   EXPECT_TRUE(h.manager->submit(batch)); h.run(2);
-  EXPECT_TRUE(h.manager->snapshot().fault); EXPECT_EQ(h.bus->counts[0xf5], 0u);
+  EXPECT_FALSE(h.manager->snapshot().fault); EXPECT_EQ(h.bus->counts[0xf5], 0u);h.run(70);EXPECT_TRUE(h.manager->snapshot().fault);
 }
 TEST(BusManager, FeedbackAndWatchdogAreIndependentOfDiagnosticTraffic) {
   Harness h; h.ready(); ASSERT_TRUE(h.manager->activate(Source::trajectory, h.now));
@@ -238,7 +237,7 @@ TEST(BusManager, SourceLeaseLossStopsEvenIfControllerKeepsWriting) {
   EXPECT_EQ(h.bus->counts[0xf7], 6u);
 }
 TEST(BusManager, RejectsCycleWhenCriticalTrafficCannotFitBudget) {
-  auto config = configured(); config.cycle = 10ms;
+  auto config = configured(); config.utilization_limit=.2;
   EXPECT_THROW(CanBusManager(config, std::make_unique<Emulator>()), std::invalid_argument);
 }
 TEST(BusManager, DelayedPositionDoesNotRefreshAnUnrelatedFieldOrSuppressTimeout) {
@@ -259,9 +258,9 @@ TEST(BusManager, OversuppliedCommandsDoNotStarveFeedbackOrGrowQueue) {
   }
   const auto snapshot = h.manager->snapshot();
   EXPECT_FALSE(snapshot.fault) << snapshot.message;
-  EXPECT_GT(snapshot.statistics.dropped_commands, 900u);
+  EXPECT_GT(snapshot.statistics.dropped_commands, 898u);
   EXPECT_LE(snapshot.statistics.scheduled_utilization, 0.5);
-  EXPECT_LE(snapshot.statistics.committed, 51u);
+  EXPECT_LE(snapshot.statistics.committed, 101u);
   for (const auto &axis : configured().axes)
     EXPECT_TRUE(snapshot.devices[axis.address].position.fresh(h.now, 60ms));
 }

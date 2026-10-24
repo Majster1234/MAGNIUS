@@ -18,12 +18,16 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     const [message, setMessage] = useState("Ustaw cel przez JOG lub TCP, następnie wybierz PTP lub LIN.");
     const [busy, setBusy] = useState(false), [playing, setPlaying] = useState(false), [serial, setSerial] = useState(0);
     const [overrides, setOverrides] = useState<string[]>(Array(6).fill(""));
-    const [velocity, setVelocity] = useState("10"), [acceleration, setAcceleration] = useState("50");
+    const [velocity, setVelocity] = useState("6"), [acceleration, setAcceleration] = useState("50");
     const [tcpVelocity, setTcpVelocity] = useState("50"), [tcpAcceleration, setTcpAcceleration] = useState("100"), [tcpAngularVelocity, setTcpAngularVelocity] = useState("10");
     const generation = useRef(0), animation = useRef(0), mounted = useRef(true), armed = useRef(false);
     const job = useRef<string | null>(null), cancellation = useRef<Promise<unknown>>(Promise.resolve());
     const work = useRef<Promise<unknown>>(Promise.resolve()), previousContext = useRef(contextKey(context));
     const key = contextKey(context), targetKey = positions.join("/");
+    const maxPtpVelocity = Math.min(360, Math.max(...(context?.profiles.map(profile => profile.velocity) ?? [360])));
+    const ptpParametersValid = velocity.trim() !== "" && acceleration.trim() !== "" &&
+        Number.isFinite(Number(velocity)) && Number(velocity) >= .01 && Number(velocity) <= maxPtpVelocity &&
+        Number.isFinite(Number(acceleration)) && Number(acceleration) >= .01 && Number(acceleration) <= 3600;
     const editingContext = useRef<string | null>(null);
     function cancelJob() {
         if (!job.current) return cancellation.current;
@@ -40,6 +44,11 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         void cancelJob();
     }
     function stop() { armed.current = false; interrupt(); setMessage("Podgląd zatrzymany. Wybierz PTP/LIN, aby uruchomić go ponownie."); }
+    function changePtpParameter(setValue: (value: string) => void, value: string) {
+        armed.current = false; interrupt(); setPlanId(null); onPlanReady?.(null); onMotion(null, null);
+        setValue(value);
+        setMessage("Parametry PTP zmienione. Wybierz PTP, aby przeliczyć plan; potem przygotuj i zatwierdź ruch ponownie.");
+    }
     useEffect(() => {
         mounted.current = true;
         const blur = () => { armed.current = false; interrupt(); setMessage("Podgląd zatrzymany po utracie fokusu. Wybierz PTP/LIN, aby wznowić."); };
@@ -62,7 +71,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         }
     }, [key, usable, onMotion]);
     function choose(type: "PTP" | "LIN") {
-        if (!context || !usable || editing) return;
+        if (!context || !usable || editing || (type === "PTP" && !ptpParametersValid)) return;
         const values = context.preview_seed_degrees.map((q, i) => overrides[i].trim() ? Number(overrides[i]) : q);
         if (!values.every((q, i) => Number.isFinite(q) && q >= context.profiles[i].lower && q <= context.profiles[i].upper)) {
             setMessage("Start poza limitami. Popraw pozycje w edytorze Start symulacji."); return;
@@ -158,9 +167,22 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
             <strong>Ruch do celu TCP</strong><span className="badge planning-badge">Tylko symulacja</span>
             <div className="cartesian-actions">
                 {(["PTP", "LIN"] as const).map(type => <button key={type} aria-pressed={choice === type}
-                    disabled={!context?.planner_available || !usable || editing} onClick={() => choose(type)}>{type}</button>)}
+                    disabled={!context?.planner_available || !usable || editing || (type === "PTP" && !ptpParametersValid)} onClick={() => choose(type)}>{type}</button>)}
                 <button disabled={!busy && !playing} onClick={stop}>Zatrzymaj podgląd</button>
             </div>
+            {choice !== "LIN" && <fieldset className="ptp-parameters" disabled={editing || !usable}>
+                <legend>Parametry ruchu PTP</legend>
+                <div className="cartesian-target">
+                    <label>Prędkość PTP °/s<input aria-label="Prędkość PTP °/s" type="number" min="0.01" max={maxPtpVelocity} step="any" value={velocity}
+                        aria-invalid={velocity.trim() === "" || !Number.isFinite(Number(velocity)) || Number(velocity) < .01 || Number(velocity) > maxPtpVelocity}
+                        onChange={e => changePtpParameter(setVelocity, e.target.value)} /></label>
+                    <label>Przyspieszenie PTP °/s²<input aria-label="Przyspieszenie PTP °/s²" type="number" min="0.01" max="3600" step="any" value={acceleration}
+                        aria-invalid={acceleration.trim() === "" || !Number.isFinite(Number(acceleration)) || Number(acceleration) < .01 || Number(acceleration) > 3600}
+                        onChange={e => changePtpParameter(setAcceleration, e.target.value)} /></label>
+                </div>
+                <small>Wartości dotyczą przegubów i obowiązują w podglądzie oraz wykonaniu fizycznym. Każda oś zachowuje własne limity. Zmiana wymaga ponownego obliczenia i zatwierdzenia PTP.</small>
+                {!ptpParametersValid && <p role="alert">Podaj prędkość od 0,01 do {maxPtpVelocity}°/s i przyspieszenie od 0,01 do 3600°/s².</p>}
+            </fieldset>}
             <p className="cartesian-message" role="status">{message}</p>
             <label className="motion-frames-toggle"><input type="checkbox" checked={showMotionFrames} onChange={event => onShowMotionFrames?.(event.target.checked)} />Pokaż klatki pośrednie</label>
             <small>Przy osobliwości nadgarstka J4/J6 zwalniają do maks. 5°/s.</small>{" "}
@@ -171,16 +193,11 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                     <input type="number" step="any" aria-label={`Start symulacji J${i + 1}`} value={overrides[i]} placeholder={String(context?.preview_seed_degrees[i] ?? 0)}
                         onChange={e => setOverrides(old => old.map((q, j) => j === i ? e.target.value : q))} /></label>)}</div>
             </details>
-            <details><summary>Prędkość podglądu</summary><div className="cartesian-target">
-                {choice === "LIN" ? <>
+            {choice === "LIN" && <details><summary>Prędkość podglądu LIN</summary><div className="cartesian-target">
                     <label>Prędkość TCP mm/s<input type="number" min="0.01" max="10000" value={tcpVelocity} onChange={e => setTcpVelocity(e.target.value)} /></label>
                     <label>Przysp. TCP mm/s²<input type="number" min="0.01" max="100000" value={tcpAcceleration} onChange={e => setTcpAcceleration(e.target.value)} /></label>
                     <label>Obrót TCP °/s<input type="number" min="0.01" max="360" value={tcpAngularVelocity} onChange={e => setTcpAngularVelocity(e.target.value)} /></label>
-                </> : <>
-                    <label>Prędkość złączy °/s<input type="number" min="0.01" max="360" value={velocity} onChange={e => setVelocity(e.target.value)} /></label>
-                    <label>Przysp. złączy °/s²<input type="number" min="0.01" max="3600" value={acceleration} onChange={e => setAcceleration(e.target.value)} /></label>
-                </>}
-            </div></details>
+            </div></details>}
         </div>
     </div>;
 }

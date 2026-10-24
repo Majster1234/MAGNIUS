@@ -1,8 +1,8 @@
 # Szablon parametrów ROS 2; nie jest gotowy do uruchomienia.
-# Profil startowy 50 Hz; wymaga pełnego URDF, konfiguracji osi i odbioru sprzętu.
+# Profil startowy 100 Hz; wymaga pełnego URDF, konfiguracji osi i odbioru sprzętu.
 controller_manager:
   ros__parameters:
-    update_rate: 50  # Profil pomiarowy, nie potwierdzenie płynności ruchu.
+    update_rate: 100  # Profil pomiarowy, nie potwierdzenie płynności ruchu.
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
     joint_trajectory_controller:
@@ -22,4 +22,5 @@ joint_trajectory_controller:
       - velocity
     state_interfaces:
       - position
+      - velocity
     allow_partial_joints_goal: false

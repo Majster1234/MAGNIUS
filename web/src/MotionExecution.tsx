@@ -3,7 +3,7 @@ import { validateCartesianPlan, type CartesianPlan } from "./cartesianTrajectory
 import { planningRequest } from "./planningContext";
 
 type Status = { state: string; program_id: string; mode: string; message: string; busy: boolean; progress: number;
-    duration: number; start_positions: number[]; target_positions: number[]; preparation?: { state: string; preview_plan_id?: string; program_id?: string }; participating: boolean[]; tcp_verified: boolean; execution_key: string };
+    duration: number; elapsed?: number; start_positions: number[]; target_positions: number[]; preparation?: { state: string; preview_plan_id?: string; program_id?: string }; participating: boolean[]; tcp_verified: boolean; execution_key: string };
 export function MotionExecution({ planId, disabled, onPreview }: { planId: string | null; disabled: boolean; onPreview: (plan: CartesianPlan) => void }) {
     const [status, setStatus] = useState<Status | null>(null), [message, setMessage] = useState("");
     const [preparing, setPreparing] = useState(false), [sending, setSending] = useState(false);
@@ -54,7 +54,7 @@ export function MotionExecution({ planId, disabled, onPreview }: { planId: strin
         catch (error) { setMessage((error as Error).message); }
         finally { setSending(false); }
     }
-    const stateLabels: Record<string, string> = {idle: "Oczekiwanie", ready: "Gotowy", arming: "Uzbrajanie", staging: "Przygotowanie startu", running: "W ruchu", settling: "Potwierdzanie celu", succeeded: "Zakończony", failed: "Przerwany", invalidated: "Nieaktualny"};
+    const stateLabels: Record<string, string> = {idle: "Oczekiwanie", ready: "Gotowy", arming: "Uzbrajanie", warming: "Odczyt pozycji startowej", staging: "Przygotowanie startu", running: "W ruchu", waiting_position: "Oczekiwanie na pozycję osi", waiting_feedback: "Oczekiwanie na pomiary", waiting_budget: "Oczekiwanie na budżet CAN", settling: "Potwierdzanie celu", succeeded: "Zakończony", failed: "Przerwany", invalidated: "Nieaktualny"};
     const ready = status?.state === "ready" && !preparing && status.preparation?.preview_plan_id === planId && status.preparation?.state === "ready" && status.preparation?.program_id === status.program_id;
     return <section className="physical-motion" aria-label="Wykonanie fizycznego PTP">
         <strong>Wykonanie fizyczne PTP</strong>
@@ -64,11 +64,11 @@ export function MotionExecution({ planId, disabled, onPreview }: { planId: strin
             <button disabled={!ready || !confirmed || sending || preparing} onClick={() => void execute()}>Wykonaj PTP</button>
             <button className="danger" onClick={() => void stop()}>STOP robota</button>
         </div>
-        {status?.program_id && <p><strong>{stateLabels[status.state] || status.state}</strong> · {status.mode === "native_ptp" ? "PTP natywny" : "PTP próbkowany"} · {status.duration.toFixed(2)} s · osie: {status.participating.map((yes, i) => yes ? `J${i + 1}` : "").filter(Boolean).join(", ")} · {Math.round(status.progress * 100)}%</p>}
+        {status?.program_id && <p><strong>{stateLabels[status.state] || status.state}</strong> · {status.mode === "native_ptp" ? "PTP natywny" : "PTP próbkowany"} · plan: {status.duration.toFixed(2)} s{typeof status.elapsed === "number" ? ` · czas: ${status.elapsed.toFixed(2)} s` : ""} · osie: {status.participating.map((yes, i) => yes ? `J${i + 1}` : "").filter(Boolean).join(", ")} · {Math.round(status.progress * 100)}%</p>}
         {status?.program_id && <p>Start → cel: {status.participating.map((yes, i) => yes ? `J${i + 1}: ${(status.start_positions[i] * 180 / Math.PI).toFixed(2)}° → ${(status.target_positions[i] * 180 / Math.PI).toFixed(2)}°` : "").filter(Boolean).join(" · ")}</p>}
         {status?.program_id && !status.tcp_verified && <p className="motion-warning" role="status">Niepełny zestaw napędów. Ruch obejmuje wyłącznie wymienione osie. Pozycja TCP i osiągnięcie celu TCP nie są potwierdzone.</p>}
         {ready && <label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />Zatwierdzam fizyczny ruch wymienionych osi{status?.tcp_verified ? "." : " mimo niepotwierdzonej pozycji TCP."}</label>}
         <p role="status">{preparing ? "Przygotowywanie programu z aktualnej pozycji…" : message || status?.message || "Wybierz PTP i oblicz podgląd."}</p>
-        <small>Zatwierdzony ruch trwa również po zamknięciu panelu lub utracie LAN. STOP przerywa program.</small>
+        <small>Zatwierdzony ruch trwa również po zamknięciu panelu lub utracie LAN. Oczekiwanie na pozycję wydłuża czas wykonania. STOP przerywa program.</small>
     </section>;
 }

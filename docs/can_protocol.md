@@ -3,7 +3,7 @@
 ## Podział warstw
 
 U2C jest mostkiem USB–CAN. Na tym komputerze Linux wykrywa go jako interfejs
-SocketCAN `can0` ze sterownikiem `gs_usb`. Biblioteka `mks_servo_can` będzie korzystać z tego
+SocketCAN `can0` ze sterownikiem `gs_usb`. Biblioteka `mks_servo_can` korzysta z tego
 interfejsu do wymiany ramek z napędami MKS SERVO42D CAN.
 
 Użytkownik potwierdził bitrate **500000 bit/s**. Konfigurację systemową i sposób
@@ -38,19 +38,48 @@ pobrania. Wersja sprzętowa U2C `2.1` nie określa wersji jego firmware.
 | Timeouty, błędy, częstotliwość odczytu i obciążenie magistrali dla sześciu osi | Ten dokument po pomiarach |
 
 Mapowanie potwierdzone przez użytkownika: CAN 1–6 → J1–J6, odpowiednio
-`joint_1`–`joint_6`; zapisano je w szablonie osi. Bitrate 500000 bit/s został potwierdzony i zapisany
-w szablonie konfiguracji; musi odpowiadać ustawieniom fizycznych urządzeń.
+`joint_1`–`joint_6`; zapisano je w szablonie osi. Bitrate 500000 bit/s został potwierdzony na sprzęcie; nowy szablon 100 Hz wskazuje 1 Mbit/s.
+Zmiana szablonu nie przestawia interfejsu ani napędów.
 
-## Stan implementacji
+## Streaming F5 + 31 — kontrakt 24.10.2026
 
-Biblioteka koduje i dekoduje ramki MKS, skanuje adresy i odczytuje pozycję,
-ENABLE, stall, tryb oraz stan pracy. Manager ma harmonogram i transakcję F5/ACK/SYNC;
-ruch sześciu osi wymaga pełnej konfiguracji i odbioru. Osobny moduł obsługuje
-ENABLE, zero i prędkościowy JOG wałów bez modelu robota:
-[sterowanie ręczne](manual_control.md). Szczegóły trajektorii: [strategia CAN](can_strategy.md).
-Szablony nadal wymagają parametrów rzeczywistych osi.
+Classical CAN, standardowe identyfikatory 1–2047, dane big-endian. Suma kontrolna
+jest sumą bajtów danych i CAN ID modulo 256 (nie wielomianowym CRC).
 
-Przyszłe testy protokołu powinny sprawdzać ramki referencyjne z instrukcji,
-niepoprawne długości i sumy kontrolne, dopasowanie odpowiedzi do napędu oraz
-timeouty. Integrację z transportem można później sprawdzać na `vcan`,
-oddzielnie od testów z fizycznym U2C i napędami.
+| Komenda | Format z sumą kontrolną | Znaczenie |
+| --- | --- | --- |
+| F5 | `F5 speed_hi speed_lo acc pos_hi pos_mid pos_lo checksum`, DLC8 | bezwzględny cel int24; speed_hi ma maskę 0F; RPM<=3000 |
+| 31 zapytanie | `31 (ID+31)&FF`, DLC2 | pozycja enkodera wieloobrotowego |
+| 31 odpowiedź | `31 p5 p4 p3 p2 p1 p0 checksum`, DLC8 | int48 ze znakiem; rozszerzenie znaku do int64 |
+| 8C zapis | `8C 00 00 checksum` | wyłączenie odpowiedzi ruchu i raportu zakończenia |
+| 4A zapis | `4A 00 checksum` | bez oczekiwania na SYNC |
+
+F5 koduje pełny int24 [-8388608,8388607]; fizyczna konfiguracja dodatkowo
+sprawdza reprezentowalność limitów i zakres instrukcji. Enkoder ma 16384 impulsy
+na obrót wału, niezależnie od przekładni. ROS używa radianów przegubu,
+z uwzględnieniem kierunku i offsetu. Parametr speed dla innych mikrokroków niż 16
+wymaga skali MKS odczytanej z 84; liczba impulsów enkodera się nie zmienia.
+
+Wymagane ustawienia dla sześciu osi 100 Hz: **CanRate=1M, CanRSP=Disable,
+Work Mode=SR_vFOC (05)**. CR_vFOC jest trybem wejścia impulsowego; nie nadaje
+się do tego sterowania CAN. Źródło: [instrukcja MKS CAN V1.0.9, §5.2.12,
+rozdział 11](https://github.com/makerbase-motor/MKS-SERVO42D-57D/blob/master/User%20Manual/V1.0.9/MKS%20SERVO42%2657D_CAN%20User%20Manual%20V1.0.9.pdf).
+Wyłączone CanRSP nie wyłącza odpowiedzi na odczyty i konfigurację. F5 może
+aktualizować cel w trakcie ruchu; nie oczekujemy jego ACK ani zakończenia.
+
+Każde 10 ms wspólny właściciel nadaje uczestnikom F5 z lookahead 25 ms i FF 1,15,
+a następnie asynchronicznie odpytuje 31. Zwykłe zapytania mają cztery miejsca
+oczekiwania, więc sześć osi obsługiwane jest potokowo. Osobny wątek RX waliduje
+adres/typ/DLC/sumę, aktualizuje atomowe impulsy/czas, przekazuje pozostałe ramki
+kolejką do managera. Dopasowanie zwykłych odpowiedzi dodatkowo sprawdza komendę
+i termin. Błędna ramka nie potwierdza zapytania.
+
+Tolerancja jest wyłącznie warunkiem końcowym; odchyłka pośrednia nie blokuje
+następnego F5. Brak ACK nie jest błędem, bo nie ma transakcji ACK ruchu.
+Nie wysyłamy SYNC 4B; osie dostają ramki kolejno ze wspólnego zegara odniesienia.
+BUS-OFF, utrata transportu i jawne błędy napędu nadal przerywają program.
+Szczegóły matematyki, limitów i budżetu: [wykonanie PTP](motion_execution.md).
+
+Fizyczny can0 zachowuje 500 kbit/s. Wdrożenie źródeł nie jest zmianą CanRate,
+CanRSP/trybu rzeczywistych napędów ani odbiorem płynności. Ręczne ENABLE/zero/JOG:
+[sterowanie ręczne](manual_control.md). Nieznane parametry osi pozostają do ustalenia.

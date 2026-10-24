@@ -73,7 +73,7 @@ TEST(Planner, CombinedCornersFrozenWristAndMksHoldPreview) {
   const auto hold=compute(c,{model.fk(c.seed)},.002,.01,1,1,codes);
   ASSERT_TRUE(hold.mks_compatible) << hold.mks_message; ASSERT_GE(hold.mks_samples.size(),2u);
   for(const auto &frame:hold.mks_samples) for(unsigned i=0;i<6;++i) {
-    EXPECT_EQ(frame.operation[i],0); EXPECT_EQ(frame.speed_rpm[i],1); EXPECT_EQ(frame.acceleration_code[i],2);
+    EXPECT_EQ(frame.operation[i],0); EXPECT_EQ(frame.speed_rpm[i],3); EXPECT_EQ(frame.acceleration_code[i],2);
     EXPECT_EQ(frame.payloads[i*8],0xf5);
   }
   EXPECT_FALSE(hold.execution_ready);

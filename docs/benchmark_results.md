@@ -497,3 +497,340 @@ Testy obejmują margines, zmianę kierunku, limit pamięci/równoległości, bra
 anulowania przy ruchu, odrzucanie spóźnionych odpowiedzi po zmianie skali,
 odświeżenie niepełnego przedziału po live, luki, szczyty, błąd HTTP i zamknięcie.
 Nie uruchamiano testów pozostałych modułów ani prób sprzętowych.
+
+## 2026-10-24 — podstawowy PTP: ACK zestawu i oczekiwanie grupy
+
+Cel: zachować lokalną trajektorię i regulację w MKS, zastąpić natychmiastowy fault
+odchyłki oczekiwaniem, odczytywać kąt 10 Hz oraz zebrać sześć ACK F5 we wspólnych
+5 ms. Nie jest to pomiar fizycznej płynności ani odbiór magistrali.
+
+Zakres zmienionych podprogramów: `configure_program_authorization`,
+`prepare_program/execute_program/program_setup_reply`, `schedule_program`,
+`begin_program_check/check_program_positions/program_batch_window`;
+`CanBusManager::tick/can_send/expire/send_query/schedule_feedback/schedule_background`,
+rezerwacja budżetu i `mandatory_cycle_bits`, `ManualMotorController::observe_positions`.
+Kompilacja programu jest mierzona w prepare, z odrębną tolerancją PTP; kod JTC
+nie otrzymuje tej tolerancji. Nowe parametry API ROS i metadana okresu publikowana
+przez diagnostykę są sprawdzone funkcjonalnie, bez osobnego pomiaru ich narzutu.
+
+Przed zmianą logiki zapisano bazę istniejących `can.stream4`/`can.stream6`,
+rozszerzając wcześniej adapter o tryb pomiaru CPU PTP w czasie rzeczywistym.
+Przed/po mają identyczny adapter, punkty q/v/a 0→0,1→0 rad w 2 s oraz 2500
+syntetycznych ticków 1 ms na program. Cykl pomiarowy obejmuje przygotowanie,
+uzbrojenie i cały program, nie pojedynczy okres CAN. Zmiana zachowania może
+wydłużyć wykonanie; scenariusz nadal mieści cały program w tej samej liczbie ticków.
+Nie uruchamiano reszty rejestru benchmarków ani GUI/CI do pomiaru wydajności.
+
+| Scenariusz | Cykle × serie | Przed wall / CPU [µs/program] | Po wall / CPU [µs/program] | Spadek wall / CPU [%] | Rozrzut wall przed / po [µs] |
+| --- | --- | --- | --- | --- | --- |
+| `can.stream4`, CAN 1/2/3/5 | 200 × 7 | 1587,439 / 1587,358 | 1437,384 / 1437,296 | 9,45 / 9,45 | 1573,080–1614,363 / 1430,827–1442,558 |
+| `can.stream6` | 100 × 7 | 2116,678 / 2116,594 | 1848,832 / 1848,620 | 12,65 / 12,66 | 2067,193–2126,545 / 1843,848–1854,553 |
+
+Wartości centralne: mediany średnich siedmiu serii; rozrzut: min–max, nie percentyle
+pojedynczych ticków. Metadane: Intel i5-7500T, 4 CPU, affinity 0–3, powersave,
+Linux 6.8.0-138-generic, GCC 11.4.0, Release `-O1 -DNDEBUG`, rozgrzewka >=1 s.
+Oba porównania narzędzia potwierdziły zgodność metadanych, danych i liczby cykli.
+
+**CPU procesu:** dwa odrębne emulatory (4 i 6 osi) uruchomione równolegle,
+1000 ticków/s czasu ściennego, program co 3 s. Każdy przebieg trwał 19 s:
+7 programów i 19000 ticków przed i po. Po 2 s rozgrzewki obserwowano 15 s,
+co 1 s, przez `/proc`. Oba procesy zużyły **0,420 → 0,420 s CPU**, średnio
+około **2,800% → 2,800% jednego rdzenia** każdy, maksima około 4%.
+Obliczone różnice średnich poniżej 0,01% względnie wynikają z różnic długości
+okna; **brak mierzalnej poprawy CPU procesu** przy rozdzielczości liczników.
+To po jednym oknie przed/po; brak rozrzutu między powtórzonymi oknami.
+Nie mierzono CPU nowej usługi ROS ze sprzętem — nie była uruchamiana.
+
+Procedura odtworzenia bazy i pomiaru po zmianie (nowe nazwy plików przy każdym
+uruchomieniu; narzędzie nie nadpisuje wyników):
+
+```bash
+cmake -S benchmarks -B build/benchmarks -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG'
+python3 scripts/benchmark_ros.py run --case can.stream4 --context ptp-ack-wait-offline --output log/benchmarks/ptp-stream4-base.json
+python3 scripts/benchmark_ros.py run --case can.stream6 --context ptp-ack-wait-offline --output log/benchmarks/ptp-stream6-base.json
+# Po zmianie: ten sam --case i --context, dodatkowo --baseline <plik-bazy>.
+# Następnie compare --before <baza> --after <nowy-plik>.
+CAN_BENCH_PTP_REALTIME_SECONDS=19 build/benchmarks/can_stream4 > /tmp/ptp-cpu4.json & ptp_pid4=$!
+CAN_BENCH_PTP_REALTIME_SECONDS=19 build/benchmarks/can_stream6 > /tmp/ptp-cpu6.json & ptp_pid6=$!
+sleep 2
+python3 scripts/benchmark_ros.py watch --pid stream4="$ptp_pid4" --pid stream6="$ptp_pid6" --duration 15 --interval 1 --context 'PTP 4/6: 1000 tickow/s, jeden program co 3 s, emulatory' --output log/benchmarks/ptp-cpu-new.json
+wait "$ptp_pid4" "$ptp_pid6"
+```
+
+Lokalne wyniki: `log/benchmarks/ptp-ack-wait-20261024/`: `stream{4,6}-before.json`,
+`stream{4,6}-after-final.json`, porównania i `cpu-{before,after,compare}.json`.
+Pliki `*-after.json` są wcześniejszym pomiarem roboczym; tabela używa wyłącznie
+`*-after-final.json`, po skończonych kompilacjach i testach.
+
+Scenariusze regresji wykazały przed zmianą: wymóg flag odbioru, STOP przy utracie
+odczytu, brak przyjęcia sześciu ACK blisko 5 ms oraz fałszywy fault po niezerowym
+celu >starej tolerancji JTC. Nie mają porównywalnego czasu wykonania sukcesu przed
+zmianą; są oceniane funkcjonalnie. Po zmianie: **40 testów wykonawcy/kompilatora,
+7 wybranych JTC, 5 JOG, 3 parametrów ROS i 4 CanSystem — bez błędów**.
+Build trzech pakietów w izolowanym overlay Release -O1, frontend typecheck/build
+i przeglądarka na atrapach statusów PTP przeszły. Nie wykonano ruchu ani restartu.
+
+Wniosek: koszt syntetycznych programów spadł o 9–13%, CPU procesów bez mierzalnej
+poprawy. Model zajętości CAN wynosi 22,47% dla czterech i 33,33% dla sześciu osi,
+poniżej 40%; zachowanie budżetu jest sprawdzane także przy limicie 26%.
+Osiągalność wspólnego ACK w 5 ms, realna dynamika i skuteczność STOP wymagają
+osobnego odbioru. Historyczne wyniki sprzętowe nie zostały podniesione do zaliczenia.
+
+## Próby stanowiskowe PTP — 2026-10-24
+
+Seria sprzętowa z [raportem dziewięciu prób](motion_hardware_results.md#podstawowy-ptp--2026-10-24)
+nie zmieniła logiki ani optymalizacji produkcyjnej biblioteki. Badano rzeczywisty
+`CanBusManager::tick`, `schedule_program` i obsługę ACK/pozycji w nowym procesie
+stanowiskowym; wejście: te same osie, +20° i powrót, quintic nominalnie 20 ms,
+ACK zestawu 5 ms, pozycja 100 ms, tolerancja 0,5°, rozkazy do 1 RPM wału.
+
+Interwencje dotyczyły przygotowania stanowiska i częstości wywołania `tick`:
+1 ms → 0,5 ms → 0,25 ms → 0,2 ms; ostatnia próba miała affinity CPU2.
+Dla czterech osi pełny ruch przy 0,5 i 0,25 ms osiągał oba cele, ale inne próby
+z tymi samymi okresami przerwał ACK. Także 0,2 ms z affinity nie wystarczyło.
+Maksymalny czas pełnego ACK w dwóch ukończonych parach czterech osi wyniósł
+4,818 i 4,090 ms; nie są to maksima całej serii, która zawierała timeouty.
+
+Nie wykonano porównywalnej bazy czasów samych podprogramów ani pomiaru CPU
+przy tych czterech częstotliwościach. Nie podajemy zmiany procentowej ani
+rozrzutu wydajności: różne momenty przerwań, pozycje startowe i liczba
+ukończonych punktów uniemożliwiają porównanie czasu całych prób jako benchmarku.
+Wniosek: **brak podstaw do uznania tej interwencji za optymalizację**; krótszy
+okres IO nie gwarantuje 5 ms i wymaga pomiaru CPU przed zmianą produkcyjnego
+`BusRuntime`. Poprzednie emulowane `can.stream4`/`can.stream6` i CPU pozostają
+wynikami osobnego porównania powyżej; nie przypisujemy ich sprzętowi.
+
+Metadane: ta sama biblioteka Release `-O1 -DNDEBUG`, Linux SocketCAN `can0`
+500 kbit/s, rozsprzęglone MKS 42D, mikrokrok 16. Źródła, SHA, znaczniki
+monotoniczne i ślady: `log/hardware-ptp/group-20261024/`. Bez pomiarów CPU,
+bez testu sześciu osi i bez powtórzenia całej kolekcji benchmarków.
+
+## ACK 10 ms i rezerwa CAN — 2026-10-24
+
+Zakres tego zadania: domyślny `program_ack_timeout` oraz parametr ROS
+`execution_ack_timeout_ms` 5→10 ms. Wpływa to na cykle
+`prepare_program/execute_program`, `schedule_program/program_batch_window`,
+`schedule_feedback/schedule_background` i `tick`, przez długość okna bez
+rozpoczynania diagnostyki. Nie zmieniano implementacji tych metod ani okresu
+pobudzania IO, JOG lub JTC. Diagnostyka zyskała metadane limitu łącznego CAN
+60% i rezerwy przyszłego modułu 20%; bieżący robot nadal planuje najwyżej 40%.
+
+Przed zmianą zachowano bazę can.stream4/6; po zmianie te same punkty q/v/a,
+200 programów × 7 serii i 2500 syntetycznych ticków 1 ms na program.
+Sprawdzono identyczność ustawień i SHA adaptera. Scenariusze obejmują
+przygotowanie i wykonanie, z tą samą liczbą cykli, nie pojedynczy tick.
+Biblioteka managera przyjmuje deadline jako parametr; jej SHA pozostał ten sam,
+a nowa kompilacja klienta/API przekazuje nowy domyślny parametr 10 ms.
+
+| Scenariusz | Programy × serie | Przed wall / CPU [µs/program] | Po wall / CPU [µs/program] | Spadek wall / CPU [%] | Rozrzut wall przed / po [µs] |
+| --- | --- | --- | --- | --- | --- |
+| can.stream4 | 200 × 7 | 1446.737 / 1446.751 | 1411.055 / 1408.808 | 2.47 / 2.62 | 1437.840–1455.237 / 1384.046–1436.044 |
+| can.stream6 | 200 × 7 | 1851.687 / 1850.932 | 1784.245 / 1784.038 | 3.64 / 3.61 | 1840.486–1871.638 / 1758.940–1831.656 |
+
+Mediany średnich serii; rozrzut min–max. Intel i5-7500T, 4 CPU, affinity 0–3,
+Linux 6.8.0-138-generic, GCC 11.4.0, Release `-O1 -DNDEBUG`, jak w metadanych
+plików. Wynik około 2–4% niższy nie oznacza skrócenia fizycznego ruchu:
+zmiana okna ACK zmienia też harmonogram i liczbę odczytów w stałym cyklu.
+Nie jest to optymalizacja implementacji ani gwarancja deadline na sprzęcie.
+
+CPU procesu w emulacji: przed/po dwa procesy 4 i 6 osi równolegle, 19 s,
+po 19000 ticków i 7 programów; 2 s rozgrzewki, obserwacja 15 s co 1 s.
+W obu przypadkach zakres 0–3, tło hosta nie było izolowane.
+
+| Scenariusz | CPU przed → po [s w oknie] | Średnio przed → po [% jednego rdzenia] | Maks. próbek przed → po [%] |
+| --- | --- | --- | --- |
+| can.stream4 | 0,390 → 0,400 | 2,600 → 2,667 | około 4 → 4 |
+| can.stream6 | 0,410 → 0,340 | 2,733 → 2,267 | około 4 → 4 |
+
+Dla 4 osi CPU wzrósł około 2,56% względnie, dla 6 spadł około 17,07%.
+To pojedyncze okno na wariant, z rozdzielczością liczników /proc, bez rozrzutu
+między powtórzeniami; nie traktujemy go jako dowodu poprawy CPU. W serii
+sprzętowej CPU nowego procesu stanowiskowego wyniósł 6,74–8,59% rdzenia,
+z aktywnym trace i przygotowaniem; nie ma porównywalnego pomiaru sprzętu ACK5
+z poprzedniej serii. Nie porównujemy tych wartości z emulacją ani usługą ROS.
+
+Wyniki, komendy i metadane: `log/hardware-ptp/ack10-tolerance-20261024/`,
+`stream{4,6}-{before,after}.json`, `cpu-{before,after}.json`,
+`cpu{4,6}-{before,after}-run.json`. Użyto tej samej procedury `benchmark_ros.py
+run --case can.stream4|can.stream6 --context ack10-reserve20`, po zmianie
+`--baseline` wskazuje odpowiednią bazę. CPU: ta sama procedura realtime/watch
+opisana wyżej. Nie uruchamiano reszty rejestru benchmarków ani GUI.
+
+Sprawdzenia funkcjonalne: build trzech pakietów; 40 testów PTP/kompilatora,
+3 parametrów ROS OK; sześć prób sprzętu z ACK10/zmianą tolerancji.
+[Raport i procent zgodności](motion_hardware_results.md#ack-10-ms-i-porównanie-tolerancji--2026-10-24):
+jedna pełna próba, 21,02% wobec czasu nominalnego i 85,76% wobec uruchomionych
+celów w paśmie ±0,5°. ACK10 nie usunął braków ACK i błędów CAN; odbiór
+niezaliczony. Model 6 osi 33,33% + przyszła rezerwa 20% = 53,33% <60%,
+bez fizycznego testu sześciu osi i bez wygenerowanego ruchu przyszłego modułu.
+
+## 24.10.2026 — ciągłe F5 100 Hz, lookahead i feed-forward
+
+Zakres: `prepare_program/execute_program/schedule_program`, kompilacja strumienia,
+`streaming_setpoint`, `tick/schedule_feedback/schedule_background/reserve`,
+`SocketCan::receive_loop/position_feedback`, skrzynki `BusRuntime` oraz
+`CanSystem::read/write/on_activate`; dodatkowo F6 bez ACK w module ręcznym.
+Cel: usunięcie pauz ACK/tolerancji pośredniej, aktualna referencja co10 ms,
+asynchroniczny RX i brak mutexów/odbioru w read/write.
+
+Przed edycją zapisano źródła, zakres/hash i bazę `can.stream4/6` przy500k:
+mediany1390,796/1774,217 µs za program (200 iteracji ×7). Nie porównujemy tych
+wartości procentowo do profilu1M, ponieważ zmieniłyby się warunki magistrali.
+Do porównania kontrolowanego odtworzono stary wykonawca ACK10/20 ms z zapisanych
+źródeł i wcześniejszej biblioteki; **jedyna adaptacja starego managera to
+zezwolenie na 1 Mbit/s**. Stara biblioteka zachowała SHA256
+`8cca3bef20c85118131a46de7ebb24a1c42383e876683cee1227513a2039978a`.
+Nagłówki bazy odtworzono w osobnym katalogu zgodnie ze starym ABI (instalowane
+nagłówki symlink-install wskazują już nowe źródła). Smoke test bazy zakończył
+program bez fault. Jest to kontrolowana baza odtworzona, nie ponowny test sprzętu.
+
+Obie strony mają **ten sam adapter emulatora**, SHA256
+`4c210c9ebcde9b3291f712accc87540782a67c3439db3c33deff05e2cbde3ce9`.
+Dane: cztery/sześć osi, przekładnia10, q=0→0,1→0 rad/2 s, 2500 ticków1 ms
+na program, ten sam profil i zachowanie odczytów/konfiguracji w emulatorze.
+Różnią się zamierzone algorytmy: stary50 Hz+ACK10+kontrola pośrednia kontra
+nowy100 Hz bez ACK/SYNC z lookahead25 ms i FF1,15. Mierzymy cały program
+z kompilacją i uzbrajaniem, nie czas samej ramki ani opóźnienie na przewodzie.
+
+Host: Ubuntu22.04, kernel6.8.0-138, i5-7500T, affinity0–3; GCC11.4,
+C++17 Release `-O1 -DNDEBUG`. Warmup1 s, 7 serii po 200 programów, bez równoległego
+builda i testów przeglądarki. Narzędzie: `benchmarks/harness.hpp`, osobne binaria
+z tym samym adapterem; `--iterations 200`. Jednostka poniżej: µs/program.
+
+| Scenariusz | Wall przed (min–max) | Wall po (min–max) | Oszczędność wall | CPU przed→po | Oszczędność CPU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| can.stream4 | 1401.952 (1390.288–1415.335) | 1273.744 (1249.636–1301.488) | 9.14% | 1401.826→1273.701 | 9.14% |
+| can.stream6 | 1780.383 (1755.912–1924.953) | 1768.724 (1745.983–1801.683) | 0.65% | 1780.104→1768.650 | 0.64% |
+
+CPU działających procesów: uruchomiono równolegle jeden emulator4 osi i jeden6,
+każdy przez 19 s z tickiem1 ms i programem co 3 s (7 programów/19000 ticków).
+`benchmark_ros.py watch` zbierał `/proc` przez15 s od2 s po starcie, interwał 1 s,
+ten sam kontekst na obu stronach. 100% oznacza jeden rdzeń.
+
+| Proces | CPU przed→po | Różnica względna | Maksimum próbki przed→po |
+| --- | ---: | ---: | ---: |
+| stream4 | 2.466%→2.600% | +5.41% | 4.000%→4.003% |
+| stream6 | 2.333%→2.200% | -5.71% | 4.000%→3.000% |
+
+Wniosek: koszt całego programu4 osi spadł o9,14%; dla6 osi zmiana0,65% mieści
+się w rozrzucie, więc brak dowodu przyspieszenia. CPU procesu4 osi nieznacznie
+wzrósł,6 osi spadł; przy małych czasach i kwantyzacji `/proc` nie traktujemy
+tego jako istotnego zysku. Główny efekt to dwukrotnie częstszy, nieblokowany
+strumień. To nie pomiar płynności ani zgodności fizycznej trajektorii.
+
+Dla nowego wątku SocketCAN RX, atomowych read/write i JOG **nie ma porównywalnej
+bazy CPU z fizycznym500k ani nowej sesji sprzętowej**. Emulator nie otwiera CAN
+ani nie uruchamia SocketCan RX. Test UNIX socketpair sprawdza prawdziwą pętlę
+RX/cache i kolejkę, ale nie jej fizyczną latencję/CPU. Nie przypisujemy kosztów
+całego managera tym podprogramom. Odbiór czasowy100 Hz/1M pozostaje do wykonania.
+
+Lokalne artefakty (ignorowane przez Git): `log/streaming100-20261024/`,
+`scope.json`, `before/`, `baseline1M/metadata.json`, `comparison-metadata.json`,
+`stream*-1M-{before,after}.json`, `cpu-1M-{before,after}.json`,
+`comparison-summary.json`, `after-source-sha256.json`. Powtórzenie surowego
+pomiaru: `baseline1M/can_stream4 --iterations 200` i
+`build/streaming100-dev/can_stream4 --iterations 200`, analogicznie stream6.
+Baza zachowuje stary zegar i ACK; nie należy jej używać do sterowania sprzętem.
+
+Sprawdzenia tej wersji: cały workspace11 pakietów (bez ostrzeżeń kompilatora),
+327 testów ROS bez błędów,91 testów panelu,9 scenariuszy Chromium na atrapach,
+rosdep, bash/AST/XML/YAML, dry-run konfiguracji1M/txqueuelen1000. Vite nadal
+zgłasza istniejący rozmiar chunku>500 kB; testy modeli mogą logować brak geometrii
+kolizyjnej przykładowego URDF. Systemd verify zgłasza niezwiązane ostrzeżenia
+hosta (netplan/snapd); szablon usługi przechodzi kontrolę. Początkowy test ROS
+załadował stary prefiks bibliotek; końcowy używa jawnego `--install-base` nowego
+workspace. Test nawigacji czeka teraz na aria-current; przejściową porażkę testu
+JOG powtórzono bez zmiany progów i uzyskano sukces. Ruchu/restartu nie wykonano.
+
+Końcowa poprawka CanSystem pobiera czas po atomowym odczycie cache, aby
+równoległy RX nie udawał pomiaru z przyszłości. Adres bierze ze snapshotu
+CanSystem, bez odczytu mutowalnej konfiguracji managera. Po poprawce ponownie
+327 testów ROS bez błędów. Parser bitrate Netlink potwierdził 500000 bez
+otwierania SocketCAN; stan usługi/PID bez zmiany. Nowy panel pokazuje tryb
+bez ACK zamiast pustych metryk ACK/SYNC; 91 testów i scenariusz shell ponownie OK.
+
+## 24.10.2026 — poprawki ujawnione na rzeczywistych MKS po wdrożeniu
+
+Zakres: send_manual i ManualMotorController::tick (F7), następnie
+schedule_feedback/schedule_background oraz pierwszy zestaw schedule_program.
+Przy CanRSP=Disable napęd nie odpowiada na F7: sekwencja ENABLE czekała
+niepotrzebnie 20 ms. Ramki i stan przed poprawką: log/streaming100-deployment/
+f7-before oraz log/hardware-ptp/streaming100-20261024/enable-diagnostic-*.
+Test tego samego braku odpowiedzi przed zmianą: FAIL; po: PASS;
+zgubione F7 nadal blokuje ENABLE przez F1. Test trwał 1 ms przed i po;
+/usr/bin/time miał 0,00 s CPU obu procesów, więc brak rozdzielczości i brak
+podstaw do procentu oszczędności. To poprawka poprawności, nie optymalizacja CPU.
+107 testów pakietu CAN po zmianie OK, fizyczne ENABLE/zero/disable 1/2/3/5 OK.
+
+Drugi problem: przed pierwszym F5 wykonawca uruchamiał 31 około 1 ms wcześniej.
+Dwie osie osiągnęły cel, lecz zapis zawierał 221 ramek błędów BIT1/controller.
+Test kolejności odtworzył 4 przedwczesne 31 przed pierwszym F5. Poprawka
+wyrównuje początek odczytów do pierwszego F5; nie czeka na encoder/ACK.
+Po zmianie 108 testów pakietu CAN OK. Narzędzie prób przerywa przy błędach CAN.
+
+Pomiar: ten sam benchmarks/can_schedule.cpp i binarium dynamiczne,
+1 Mbit/s w emulatorze, q=0→0,1→0/2 s, 2500 ticków 1 ms, 200 iteracji×7,
+warmup 1 s, GCC11.4/O1/NDEBUG, i5-7500T/affinity0–3. Aplikacja sprzętowa
+była zatrzymana. Zakres pomiaru to cały program 4/6 osi, wraz z uzbrajaniem.
+
+| Przypadek | Wall przed µs/program (min–max) | Wall po µs/program (min–max) | Oszczędność | CPU mediana przed→po µs |
+| --- | ---: | ---: | ---: | ---: |
+| can.stream4 | 1296.218 (1285.688–1302.662) | 1311.765 (1288.521–1339.772) | -1.20% | 1296.120→1310.224 |
+| can.stream6 | 1783.266 (1757.874–1798.648) | 1771.875 (1739.196–1826.933) | 0.64% | 1783.229→1771.891 |
+
+CPU działających emulatorów: 4 i 6 osi równolegle, 19 s, 7 programów co 3 s,
+tick 1 ms. Watch 15 s po 2 s, interwał 1 s. 100% oznacza jeden rdzeń.
+
+| Proces | CPU przed→po | Maksimum próbki przed→po |
+| --- | ---: | ---: |
+| stream4 | 3.133%→2.466% | 4.000%→3.001% |
+| stream6 | 2.533%→2.800% | 4.001%→4.998% |
+
+Wniosek: wall 4 osi pogorszył się o 1,20%, 6 osi poprawił o 0,64%; zakresy
+pokrywają się, brak istotnego zysku. Celem była poprawna kolejność transmisji.
+CPU nie odwzorowuje RX sprzętu ani skutków retransmisji; nie przypisujemy mu
+poprawy komunikacji. Artefakty: log/streaming100-deployment/phase-before,
+phase-after, phase-{before,after}-cpu.json; snapshoty źródeł przed zmianą zachowano.
+
+### Ostatnie 4 ms cyklu bez nowych zapytań — interwencja po drugiej próbie
+
+Pierwsza poprawka kolejności nie usunęła kolizji F1/F5 w kolejnych cyklach.
+Ślad drugiej próby wykazał F1~1,5 ms przed F5; test sprzętowy zatrzymał się.
+Dodano `program_query_window` dla schedule_feedback/schedule_background:
+nowe odczyty PTP rozpoczynamy tylko w fazie 0–6 ms względem zegara F5.
+Ruch nie czeka na pomiar. Test na emulatorze z opóźnieniem 2 ms odtwarzał
+odczyty w końcu cyklu przed zmianą, po zmianie przechodzi. 109 testów CAN OK.
+
+Bazą są bezpośrednio poprzednie pomiary phase-after (zebrane przed edycją),
+identyczny adapter i binarium, 1M/200 iteracji×7/2500 ticków, konfiguracja jak wyżej.
+Nowe pliki: guard-before/, guard-after/, phase-guard-after-cpu.json.
+
+| Przypadek | Wall przed µs/program (min–max) | Wall po µs/program (min–max) | Oszczędność | CPU mediana przed→po µs |
+| --- | ---: | ---: | ---: | ---: |
+| can.stream4 | 1311.765 (1288.521–1339.772) | 1226.477 (1196.302–1261.038) | 6.50% | 1310.224→1224.988 |
+| can.stream6 | 1771.875 (1739.196–1826.933) | 1672.640 (1663.275–1720.920) | 5.60% | 1771.891→1672.551 |
+
+CPU procesu: ten sam watch 15 s po 2 s, 4+6 osi równolegle przez 19 s.
+
+| Proces | CPU przed→po | Maksimum przed→po |
+| --- | ---: | ---: |
+| stream4 | 2.466%→3.600% | 3.001%→5.001% |
+| stream6 | 2.800%→2.400% | 4.998%→3.996% |
+
+Wniosek: wall zmalał o6,50%/5,60%, ale CPU procesu4 osi wzrósł
+2,466→3,600% rdzenia (około46% względnie); dla6 osi spadł2,800→2,400%.
+Nie jest to jednolita poprawa wydajności. CPU dotyczy całego procesu; nie
+przypisujemy tej zmiany jednej funkcji. Celem była ochrona kolejności CAN.
+Po poprawce dwie i cztery osie osiągnęły cele bez błędów CAN; to efekt
+potwierdzony na sprzęcie w ograniczonym profilu 1 RPM/acc 1, nie pełny odbiór RT.
+Rzeczywisty proces C++ z trace: 7,78% rdzenia (J1), 9,37% (J1+J2 po poprawce),
+10,72% (cztery osie). Brak porównywalnej bazy sprzętowej przed/po dla tego CPU:
+wcześniejsze błędy CAN zmieniały liczbę retransmisji i długość próby. Te liczby
+nie są procentem optymalizacji. Pełne dane i ograniczenia: [raport](motion_hardware_results.md).
+
+Końcowa biblioteka jest rzeczywiście załadowana w produkcyjnym can_diagnostics;
+SHA256 4e8cd2a594d43a1ff71684fa308bf618abbfd522f818fe7c02e559bbe433d586.
+Weryfikacja: 109 testów CAN po ostatniej poprawce i testy 2 konsumentów w domenie
+ROS 87, odseparowanej od działającego ROS 0. Suma zapisanych wyników 331 bez błędów
+zawiera też wcześniejsze wyniki niezmienianych pakietów; nie przypisujemy ich
+nowej sesji. Produkcja po testach active/fresh, 500k/TX1000, bez ruchu/fault.

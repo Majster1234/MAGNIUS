@@ -343,3 +343,26 @@ Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
 nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
 Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
 Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.
+
+
+### Ustawianie prędkości i przyspieszenia PTP
+
+W **Sterowanie ręczne → Planowanie** ustaw cel i w sekcji **Parametry ruchu PTP**
+wpisz **Prędkość PTP °/s** oraz **Przyspieszenie PTP °/s²**. Są to wartości
+przegubów. Domyślne ustawienie panelu: 6°/s i 50°/s². Prędkość jest ograniczona
+aktywnym profilem osi; użytkownik zatwierdził przywrócenie limitu 80°/s.
+Każda oś nadal zachowuje swoje ograniczenia prędkości i przyspieszenia.
+Obecny profil przegubów ogranicza przyspieszenie do 500°/s²; większa wartość
+w polu jest ograniczana przez planner. Kod rampy wewnętrznej MKS acc=1 pozostaje
+osobną nastawą; pole panelu zmienia przyspieszenie trajektorii referencyjnej.
+
+Po edycji wybierz ponownie **PTP**, następnie **Przygotuj PTP robota**,
+sprawdź podgląd i ponownie zaznacz zgodę przed **Wykonaj PTP**.
+Zmiana któregokolwiek parametru unieważnia poprzedni plan i zatwierdzenie,
+również po obejrzeniu podglądu przygotowanego programu. Edycja nie uruchamia
+ruchu ani ENABLE. Ustawienia JOG w tabeli są oddzielne od parametrów PTP.
+
+Przywrócenie wcześniejszego limitu 80°/s z profilu prób 1 RPM:
+`sudo ./scripts/set_ptp_80.sh --apply`. Procedura wymaga postoju, wyłącza napędy,
+przyjmuje konfigurację przez API i restartuje usługę. Nie zeruje enkoderów i
+nie wykonuje ruchu. Raport wdrożenia: [CAN 1M](can_1m_results.md).

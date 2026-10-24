@@ -1,4 +1,8 @@
-# Stan wdrożenia i plan odbioru koordynowanego PTP
+# Audyt przed uproszczeniem PTP — 24.10.2026
+
+Poniższy audyt opisuje stan **przed** wdrożeniem podstawowego PTP z ACK i
+oczekiwaniem na pozycję. Późniejszy aktualny kontrakt100 Hz bez ACK ruchu: [motion_execution.md](motion_execution.md).
+Zniesienie bramek odbioru jest decyzją projektu, nie zaliczeniem historycznych prób.
 
 Przegląd: **2026-10-24**, źródła repozytorium, wyniki sprzętowe 21–22.10
 oraz pasywny odczyt API i parametrów ROS o 12:33–12:34 CEST.

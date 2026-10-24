@@ -70,6 +70,30 @@ osi, opóźnień i obciążenia CAN; sama architektura nie gwarantuje płynnośc
 Uruchomienie, kontrakt API i zasady LAN: [panel diagnostyczny](web_status.md)
 oraz [README backendu](../ros2_ws/src/robot_web_bridge/README.md).
 
+## Pętla 100 Hz i asynchroniczny odbiór — 24.10.2026
+
+Kontroler publikuje q/v co 10 ms. CanSystem eksportuje position i velocity w obu
+kierunkach. write przekazuje najnowszą próbkę atomową skrzynką do jednego
+CanBusManager; lokalny MotionExecutor ma wcześniej skompilowaną trajektorię.
+Wspólna funkcja streaming_setpoint wylicza q+v*0,025 s i prędkość wału z FF 1,15,
+przekładnią, kierunkiem i offsetem. F5 jest wysyłane bez oczekiwania na ACK,
+przy CanRSP=Disable i 4A=0; potem planowane są 31 nominalnie 100 Hz/oś.
+
+SocketCAN ma oddzielny wątek RX: O_NONBLOCK, poll 1 ms, atomowy cache int64/czas
+oraz kolejkę SPSC 4096 ramek (pojemność użytkowa 4095). Przepełnienie/utrata
+transportu jest sygnalizowana managerowi. read/write nie wykonują recv ani nie
+czekają na mutex managera. read przelicza impulsy na radiany, prędkość z różnicy
+pozycji i rzeczywistych znaczników pomiarów. Aktywacja inicjuje zadane pozycje
+odczytami sprzętu, a prędkości zerem.
+
+W strumieniu brak pauz tolerancji pośredniej. Ostatni cel ma dwie kontrole
+końcowej pozycji >=100 ms od siebie. STOP i jawne awarie pozostają aktywne.
+Wymagany dla sześciu osi profil 1 Mbit/s mieści robot w 26,58% magistrali;
+przyszły moduł zachowuje 20 punktów rezerwy. Fizyczny 500k nie jest automatycznie
+przełączany. Dla CAN wymagany SR_vFOC, nie impulsowy CR_vFOC.
+[Kontrakt i konfiguracja](motion_execution.md), [formaty ramek](can_protocol.md).
+Wspólny zegar nie zapewnia sprzętowo równoczesnego startu ani twardego RT.
+
 ## Docelowy przepływ danych
 
 ```text

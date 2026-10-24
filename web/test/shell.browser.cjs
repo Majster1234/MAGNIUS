@@ -44,6 +44,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     await page.evaluate(()=>{window.navigationSentinel='same-document';window.resizeEvents=0;window.addEventListener('resize',()=>window.resizeEvents++);});
     for(const [id,label] of [['can','Magistrala CAN'],['diagnostics','Diagnostyka'],['manual','Sterowanie ręczne'],['config','Konfiguracja'],['architecture','Architektura'],['overview','Przegląd systemu']]){
       await nav.getByRole('link',{name:label,exact:true}).click();await page.getByRole('heading',{name:label,exact:true}).waitFor();
+      await nav.locator(`a[href="#${id}"][aria-current="page"]`).waitFor();
       assert.equal(new URL(page.url()).hash,`#${id}`);
       assert.equal(await nav.locator('a.active').count(),1);assert.equal(await nav.getByRole('link',{name:label,exact:true}).getAttribute('aria-current'),'page');
       assert.equal(await page.locator('.app-topbar').count(),1);assert(await sidebar.isVisible());
@@ -58,6 +59,10 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
         assert(await page.getByText('ACK odebrane; kasowanie celu wymaga odbioru',{exact:true}).isVisible());
         assert((await details.locator('.metric').filter({has:page.getByText('Cykl komend',{exact:true})}).textContent()).includes('20'));
         assert((await details.locator('.metric').filter({has:page.getByText('Okres enkoderów',{exact:true})}).textContent()).includes('40'));
+        can.summary.values.motion_use_ack=false;can.summary.values.streaming_lookahead_ms=25;publish();
+        await details.getByText('Streaming bez ACK',{exact:true}).waitFor();
+        assert((await details.locator('.metric').filter({has:page.getByText('Wyprzedzenie pozycji',{exact:true})}).textContent()).includes('25'));
+        assert.equal(await details.getByText('Spóźnienie SYNC / maksimum',{exact:true}).count(),0);
         assert(await page.getByRole('columnheader',{name:'Oś robota',exact:true}).isVisible());
         assert(await page.locator('.device-row').filter({hasText:'MKS SERVO42D'}).nth(2).getByRole('cell',{name:'J5',exact:true}).isVisible());
         await page.screenshot({path:'/tmp/robot-shell-can.png',fullPage:true});

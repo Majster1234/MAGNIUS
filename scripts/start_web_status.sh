@@ -27,9 +27,27 @@ if [[ ! -f /opt/ros/humble/setup.bash || ! -f "$project_dir/ros2_ws/install/loca
 fi
 source /opt/ros/humble/setup.bash
 source "$project_dir/ros2_ws/install/local_setup.bash"
+if [[ -n ${ROBOT_OVERLAY_SETUP:-} ]]; then
+    if [[ ! -r $ROBOT_OVERLAY_SETUP ]]; then
+        echo "Brak setup overlay: $ROBOT_OVERLAY_SETUP" >&2
+        exit 1
+    fi
+    source "$ROBOT_OVERLAY_SETUP"
+fi
 if ! python3 -c 'import fastapi, uvicorn.protocols.websockets.wsproto_impl, aiofiles, psutil, rclpy' 2>/dev/null; then
     echo 'Brak zależności panelu. Uruchom: sudo ./scripts/install_web_dependencies.sh' >&2
     exit 1
 fi
 export ROS_LOCALHOST_ONLY=1
+# Nowy kontrakt parametrów nie może trafić do starego binarnego właściciela CAN.
+# Jawna ścieżka użytkownika i jawny overlay mają pierwszeństwo.
+if [[ -z ${ROBOT_OVERLAY_SETUP:-} && ! -f "$project_dir/ros2_ws/install/mks_servo_can/include/mks_servo_can/streaming_motion.hpp" ]]; then
+    explicit_execution=false
+    for argument in "$@"; do
+        if [[ $argument == execution_parameters:=* ]]; then explicit_execution=true; fi
+    done
+    if [[ $explicit_execution == false ]]; then
+        set -- "execution_parameters:=$project_dir/ros2_ws/src/robot_bringup/config/execution.legacy.example.yaml" "$@"
+    fi
+fi
 exec ros2 launch robot_bringup web_status.launch.py "$@"

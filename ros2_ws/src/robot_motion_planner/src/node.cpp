@@ -22,7 +22,7 @@ using PreviewHandle=rclcpp_action::ServerGoalHandle<PreviewAction>;
 class PlannerNode : public rclcpp::Node {
  public:
   PlannerNode():Node("robot_motion_planner") {
-    const auto values=declare_parameter<std::vector<int64_t>>("mks_acceleration_codes",std::vector<int64_t>(6,-1));
+    const auto values=declare_parameter<std::vector<int64_t>>("mks_acceleration_codes",std::vector<int64_t>(6,240));
     if(values.size()!=6) throw std::invalid_argument("Wymagane sześć kodów acc; -1 oznacza brak potwierdzenia");
     std::copy(values.begin(),values.end(),codes_.begin());
     description_=create_subscription<std_msgs::msg::String>("/robot/preview/robot_description",rclcpp::QoS(1).transient_local(),

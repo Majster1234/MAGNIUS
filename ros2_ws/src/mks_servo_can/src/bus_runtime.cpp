@@ -8,14 +8,16 @@ BusRuntime::BusRuntime(BusConfig config, std::unique_ptr<Transport> transport)
 BusRuntime::~BusRuntime() { shutdown(); }
 void BusRuntime::start(bool scan_on_start) {
   if (running_) throw std::logic_error("Manager CAN już działa");
-  { std::lock_guard<std::mutex> guard(mutex_); manager_.open(Clock::now()); if (scan_on_start) manager_.start_scan(); }
+  { std::lock_guard<std::mutex> guard(mutex_); manager_.open(Clock::now()); if (scan_on_start) manager_.start_scan();feedback_.publish(manager_.control_state()); }
   running_ = true;
   worker_ = std::thread([this] {
     Time previous{};auto deadline=Clock::now();
     while (running_) {
       const auto wake = Clock::now();
       { std::lock_guard<std::mutex> guard(mutex_);
-        const auto begin = Clock::now(); manager_.tick(begin); const auto end = Clock::now();
+        const auto begin = Clock::now();CommandBatch command;
+        if(commands_.take(command,seen_command_)) manager_.submit(command);
+        manager_.tick(begin);feedback_.publish(manager_.control_state());const auto end = Clock::now();
         if (previous != Time{} && begin - previous > std::chrono::milliseconds(5)) {
           TraceEvent e; e.event = "io_loop_gap"; e.duration_ns = trace_ns(begin) - trace_ns(previous);
           e.request_ns = trace_ns(wake); e.deadline_ns = trace_ns(begin); trace(e);
@@ -40,7 +42,7 @@ void BusRuntime::shutdown() {
 bool BusRuntime::scan() { std::lock_guard<std::mutex> guard(mutex_); return manager_.start_scan(); }
 void BusRuntime::reset_session(ResetMode mode) { std::lock_guard<std::mutex> guard(mutex_); manager_.reset_session(mode); }
 bool BusRuntime::reset_allowed() { std::lock_guard<std::mutex> guard(mutex_); return manager_.service_allowed(); }
-bool BusRuntime::activate(Source source) { std::lock_guard<std::mutex> guard(mutex_); return manager_.activate(source, Clock::now()); }
+bool BusRuntime::activate(Source source) { std::lock_guard<std::mutex> guard(mutex_);const auto accepted=manager_.activate(source,Clock::now());feedback_.publish(manager_.control_state());return accepted; }
 void BusRuntime::stop(const std::string &reason) { std::lock_guard<std::mutex> guard(mutex_); manager_.stop(reason); }
 void BusRuntime::renew_source_lease(Source source, Time created) {
   std::lock_guard<std::mutex> guard(mutex_);
@@ -49,13 +51,11 @@ void BusRuntime::renew_source_lease(Source source, Time created) {
   manager_.renew_source_lease(source, created);
 }
 bool BusRuntime::try_submit(const CommandBatch &batch) {
-  std::unique_lock<std::mutex> guard(mutex_, std::try_to_lock);
-  return guard.owns_lock() && manager_.submit(batch);
+  if(!running_.load(std::memory_order_acquire)) return false;
+  commands_.publish(batch);return true;
 }
 bool BusRuntime::try_read(ControlState &state) {
-  std::unique_lock<std::mutex> guard(mutex_, std::try_to_lock);
-  if (!guard.owns_lock()) return false;
-  state = manager_.control_state(); return true;
+  return feedback_.read(state);
 }
 BusSnapshot BusRuntime::snapshot() { std::lock_guard<std::mutex> guard(mutex_); return manager_.snapshot(); }
 ManualState BusRuntime::manual_snapshot() { std::lock_guard<std::mutex> guard(mutex_); return manager_.manual().snapshot(Clock::now()); }

@@ -4,6 +4,7 @@
 #include <thread>
 #include "mks_servo_can/bus_manager.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
+#include "mks_servo_can/realtime_mailbox.hpp"
 
 namespace mks_servo_can {
 // Właściciel wątku IO. Interfejsy try_* nie czekają na mutex ani transport.
@@ -21,6 +22,8 @@ class BusRuntime {
   void renew_source_lease(Source source, Time created);
   bool try_submit(const CommandBatch &batch);
   bool try_read(ControlState &state);
+  AxisFeedback encoder_feedback(unsigned address) const { return manager_.encoder_feedback(address); }
+  BusConfig config_snapshot() { std::lock_guard<std::mutex> guard(mutex_);return manager_.config(); }
   BusSnapshot snapshot();
   ManualState manual_snapshot();
   std::size_t drain_shaft_trace(ShaftPositionSample *out,std::size_t maximum) { return manager_.drain_shaft_trace(out,maximum); }
@@ -45,5 +48,8 @@ class BusRuntime {
   CanBusManager manager_;
   std::atomic<bool> running_{false};
   std::thread worker_;
+  CommandMailbox commands_;
+  ControlMailbox feedback_;
+  std::uint64_t seen_command_{};
 };
 }  // namespace mks_servo_can
