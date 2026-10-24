@@ -10,4 +10,5 @@ export type ManualState = {
     fresh: boolean; busy: boolean; fault: boolean; recording?: boolean; active_axis: number;
     max_rpm: number; operation: string; message: string; axes: Axis[];
     configuration_revision?: string;
+    state_monotonic_ns?: string;
 };

@@ -1,31 +1,33 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { validateCartesianPlan, type CartesianPlan } from "./cartesianTrajectory";
 import { planningRequest } from "./planningContext";
+import type { MotionObservation, MotionStatus } from "./motionStatus";
 
-type Status = { state: string; program_id: string; mode: string; message: string; busy: boolean; progress: number;
-    duration: number; elapsed?: number; start_positions: number[]; target_positions: number[]; preparation?: { state: string; preview_plan_id?: string; program_id?: string }; participating: boolean[]; tcp_verified: boolean; execution_key: string };
-export function MotionExecution({ planId, disabled, onPreview }: { planId: string | null; disabled: boolean; onPreview: (plan: CartesianPlan) => void }) {
-    const [status, setStatus] = useState<Status | null>(null), [message, setMessage] = useState("");
+export function MotionExecution({ planId, disabled, onPreview, onStatus }: { planId: string | null; disabled: boolean; onPreview: (plan: CartesianPlan) => void; onStatus?: (value: MotionObservation | null) => void }) {
+    const [status, setStatus] = useState<MotionStatus | null>(null), [message, setMessage] = useState("");
     const [preparing, setPreparing] = useState(false), [sending, setSending] = useState(false);
     const [confirmed, setConfirmed] = useState(false);
     const generation = useRef(0), key = useRef("");
+    const statusEpoch = useRef(0);
+    const receive = useCallback((value: MotionStatus) => {
+        setStatus(value); onStatus?.({ status: value, receivedAt: performance.now() });
+        setPreparing(value.preparation?.state === "planning");
+        if (value.preparation?.state === "failed") setMessage(value.preparation.message || "Przygotowanie nie powiodło się");
+    }, [onStatus]);
     useEffect(() => {
         let closed = false, pending = false;
         const update = async () => {
             if (pending) return; pending = true;
+            const epoch = statusEpoch.current;
             try {
                 const value = await planningRequest("motion/status");
-                if (!closed) {
-                    setStatus(value);
-                    setPreparing(value.preparation?.state === "planning");
-                    if (value.preparation?.state === "failed") setMessage(value.preparation.message);
-                }
-            } catch (error) { if (!closed) setMessage((error as Error).message); }
+                if (!closed && epoch === statusEpoch.current) receive(value);
+            } catch (error) { if (!closed && epoch === statusEpoch.current) { setMessage((error as Error).message); onStatus?.(null); } }
             finally { pending = false; }
         };
         void update(); const timer = setInterval(() => void update(), 250);
         return () => { closed = true; clearInterval(timer); };
-    }, []);
+    }, [receive, onStatus]);
     useEffect(() => { generation.current++; setConfirmed(false); key.current = ""; }, [planId]);
     async function prepare() {
         setSending(true); setConfirmed(false); setMessage("");
@@ -43,13 +45,13 @@ export function MotionExecution({ planId, disabled, onPreview }: { planId: strin
     async function execute() {
         if (!status || !confirmed) return;
         if (!key.current) key.current = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
-        setSending(true);setMessage("");
-        try { await planningRequest("motion/execute", { program_id: status.program_id, execution_key: key.current }); setConfirmed(false); }
+        setSending(true);setMessage(""); statusEpoch.current++;
+        try { receive(await planningRequest("motion/execute", { program_id: status.program_id, execution_key: key.current })); setConfirmed(false); }
         catch (error) { setMessage((error as Error).message + " Sprawdź stan programu przed ponowieniem."); }
         finally { setSending(false); }
     }
     async function stop() {
-        setSending(true);
+        setSending(true); statusEpoch.current++; onStatus?.(null);
         try { await planningRequest("motion/stop", {}); setConfirmed(false); }
         catch (error) { setMessage((error as Error).message); }
         finally { setSending(false); }

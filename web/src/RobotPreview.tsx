@@ -5,20 +5,27 @@ import { previewLimits } from "./previewLimits";
 import type { createPreviewScene } from "./robotPreviewScene";
 import type { Notice } from "./eventLog";
 import type { MotionTrace } from "./previewMotionTrail";
+import type { MotionObservation } from "./motionStatus";
 
-export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, simulationPositions = null, motionTrace = null, simulationAllowed = false, expectedRevision, modelId, showMotionFrames = true }: {
+export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, simulationPositions = null, motionTrace = null, execution = null, simulationAllowed = false, expectedRevision, modelId, showMotionFrames = true }: {
     state: ManualState | null; usable: boolean; onNotice: (notice: Notice) => void; planning: boolean;
     pending: boolean; physicalJogActive: boolean; plannedPositions: (number | null)[]; planningReady: boolean; onPlanningStart: () => void; onPlanningSync: () => void; onPlanningEnd: () => void;
     onModelStatus: (status: { ready: boolean; revision?: string }) => void;
     showMotionFrames?: boolean;
     simulationPositions?: number[] | null; simulationAllowed?: boolean; expectedRevision?: string; modelId?: string;
     motionTrace?: MotionTrace | null;
+    execution?: MotionObservation | null;
 }) {
     const host = useRef<HTMLDivElement>(null);
     const scene = useRef<ReturnType<typeof createPreviewScene> | null>(null);
     const pose = useRef(new PreviewPose());
     const poseRevision = useRef(state?.configuration_revision);
-    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision, showMotionFrames }); input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, expectedRevision, showMotionFrames };
+    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames }); input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames };
+    const sample = useRef<{ state: ManualState | null; receivedAt: number; key: string }>({ state: null, receivedAt: -Infinity, key: "" });
+    const sampleSequence = useRef(0);
+    useEffect(() => {
+        sample.current = { state, receivedAt: performance.now(), key: state?.state_monotonic_ns || String(++sampleSequence.current) };
+    }, [state]);
     const [message, setMessage] = useState("Wczytywanie modelu z ROS…");
     const [modelKind, setModelKind] = useState("partial-demo");
     const [, refresh] = useState(0);
@@ -55,7 +62,10 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                             limits: valid.map((ok, i) => previewLimits(current?.axes[i], pose.current.degrees(i), ok)), planning: activePlanning,
                             plannedAngles: planned.map(position => position === null ? null : position * Math.PI / 180),
                             motionAngles: input.current.simulationPositions?.map(value => value * Math.PI / 180) ?? null,
-                            motionTrace: input.current.motionTrace, showMotionFrames: input.current.showMotionFrames };
+                            motionTrace: input.current.motionTrace, showMotionFrames: input.current.showMotionFrames,
+                            executionFrame: { state: sample.current.state === current ? current : null, usable: online,
+                                receivedAt: sample.current.receivedAt, sampleKey: sample.current.key,
+                                execution: input.current.execution, revision: revisionToLoad } };
                     });
                     setMessage("");
                     onModelStatus({ ready: true, revision: revisionToLoad });
@@ -79,12 +89,19 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     const now = performance.now();
     const valid = Array.from({ length: 6 }, (_, i) => !!(usable && state?.axes[i]?.available && state.axes[i].position_known && (!state.axes[i].joint_configured || state.axes[i].joint_position_known) && pose.current.fresh(i, now)));
     const count = valid.filter(Boolean).length;
+    const executionTrace = scene.current?.executionTrace();
     const canStartPlanning = !message && (usable && count > 0 || simulationAllowed) && !pending && !physicalJogActive && !state?.busy;
     return <section className="robot-preview" aria-label="Wizualizacja robota">
         <header><h2>Wizualizacja robota</h2><span className="badge warn">{modelKind === "configured" ? "Geometria konfiguracji" : "Geometria demonstracyjna"} · {state?.axes.some(axis => axis.joint_configured) ? "przełożenia osi" : "wały 1:1"}</span>
             {planning && <span className="badge planning-badge">Planowanie — JOG / TCP</span>}
             <span className={`preview-completeness ${count === 6 ? "complete" : "partial"}`}>{count === 6 ? "Pozycja kompletna — 6/6 osi" : `Pozycja częściowa — ${count}/6 osi`}</span>
         </header>
+        <div className="preview-trail-legend" aria-label="Ślady TCP">
+            <span className="trail-planned">Plan PTP/LIN</span><span className="trail-executed">Wykonane PTP</span>
+            <button type="button" disabled={!executionTrace?.points} title="Usuwa złotą historię w tym panelu. Historia obejmuje do 20 000 punktów."
+                onClick={() => { scene.current?.clearExecutionTrace(); refresh(value => value + 1); }}>Wyczyść ślad</button>
+            {executionTrace?.partial && <span className="trail-partial" role="status">Tor modelu — niepełne pomiary</span>}
+        </div>
         <div className="preview-body"><div className="preview-viewport" aria-label="Model 3D robota">
             <div ref={host} className="preview-canvas" />{message && <p className="preview-overlay" role="status">{message}</p>}
             <button className="preview-home" type="button" aria-label="Dopasuj widok" title="Dopasuj widok" onClick={() => scene.current?.view("fit")} disabled={!!message}>

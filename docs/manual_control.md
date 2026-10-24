@@ -366,3 +366,14 @@ Przywrócenie wcześniejszego limitu 80°/s z profilu prób 1 RPM:
 `sudo ./scripts/set_ptp_80.sh --apply`. Procedura wymaga postoju, wyłącza napędy,
 przyjmuje konfigurację przez API i restartuje usługę. Nie zeruje enkoderów i
 nie wykonuje ruchu. Raport wdrożenia: [CAN 1M](can_1m_results.md).
+
+
+### Ślady TCP na podglądzie 3D
+
+Linia niebieska oznacza plan PTP/LIN, a złota — historię fizycznego PTP z
+odczytów enkoderów. Kolejne ruchy dodają osobne odcinki; przycisk **Wyczyść ślad**
+usuwa złotą historię bez wpływu na plan lub sterowanie. Historia pozostaje po
+STOP i zakończeniu ruchu, a znika przy opuszczeniu/odświeżeniu ekranu oraz zmianie
+modelu lub konfiguracji. Bufor ma 20 000 punktów. Przy brakujących osiach
+widnieje **Tor modelu — niepełne pomiary**; przerwy w pomiarach nie są łączone linią.
+Szczegóły: [podgląd robota](robot_preview.md#złota-historia-fizycznego-ptp).

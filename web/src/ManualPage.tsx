@@ -14,6 +14,7 @@ import type { MotionTrace } from "./previewMotionTrail";
 import { EventConsole, useEventConsole } from "./EventConsole";
 import type { Axis, ManualState } from "./manualTypes";
 import type { ManualHeaderState } from "./AppShell";
+import type { MotionObservation } from "./motionStatus";
 
 function calibrationRepair(axis: Axis) {
     return axis.joint_configured && !axis.calibration_valid ?
@@ -63,6 +64,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     useEffect(() => { onHeaderStatus?.({ connected, fresh, planning, recording: !!state?.recording }); }, [onHeaderStatus, connected, fresh, planning, state?.recording]);
     const [simulationPositions, setSimulationPositions] = useState<number[] | null>(null);
     const [motionTrace, setMotionTrace] = useState<MotionTrace | null>(null);
+    const [execution, setExecution] = useState<MotionObservation | null>(null);
     const context = usePlanningContext();
     const simulationAllowed = !!context?.ignore_missing_drivers && connected;
     const [plan, setPlan] = useState(() => new PlanningJog().snapshot(performance.now()));
@@ -306,7 +308,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         </header>
         <div className="manual-workspace"><div className="manual-observation">
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
-            simulationPositions={simulationPositions} motionTrace={motionTrace} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} />
+            simulationPositions={simulationPositions} motionTrace={motionTrace} execution={execution} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} />
         <div className="manual-console-dock"><h2>Zdarzenia <span>Historia sterowania</span></h2><EventConsole entries={entries} /></div>
         </div><div className="manual-controls-row"><div className="manual-table"><table><colgroup>
             <col className="manual-col-jog"/><col className="manual-col-axis"/><col/>
@@ -331,7 +333,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} />
         {planning && <div className="manual-simulation"><CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}
             showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={setPhysicalPlanId} onPreparedPreview={registerPreparedPreview} /></div>}
-        <div className="manual-simulation"><MotionExecution planId={physicalPlanId} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} /></div>
+        <div className="manual-simulation"><MotionExecution planId={physicalPlanId} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onStatus={setExecution} /></div>
         <aside className="can-note"><span className="manual-info-icon" aria-hidden="true">i</span><div><h2>{planning ? "Plan lokalny" : "Obsługa JOG"}</h2><p>{planning ? "JOG i TCP poruszają bliźniakiem. Fizyczny PTP wymaga osobnego przygotowania i zatwierdzenia. ENABLE i zerowanie są tu zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p></div></aside>
         </div></div></div>
     </section>;

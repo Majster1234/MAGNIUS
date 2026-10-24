@@ -6,7 +6,7 @@ export type MotionTrace = { plan: CartesianPlan; seconds: number };
 
 export function createMotionTrail(scene: THREE.Scene, robot: URDFRobot) {
     const geometry = new THREE.BufferGeometry();
-    const material = new THREE.LineBasicMaterial({ color: 0xffbb65, transparent: true, opacity: .95, depthWrite: false, depthTest: false });
+    const material = new THREE.LineBasicMaterial({ color: 0x4da3ff, transparent: true, opacity: .95, depthWrite: false, depthTest: false });
     const line = new THREE.Line(geometry, material); line.frustumCulled = false; line.visible = false;
     line.renderOrder = 3; scene.add(line);
     // Osobny FK nie zmienia aktualnej pozy wyświetlanego bliźniaka.
@@ -43,7 +43,7 @@ export function createMotionTrail(scene: THREE.Scene, robot: URDFRobot) {
             geometry.setDrawRange(0, visibleCount); line.visible = visibleCount > 1;
             return changed;
         },
-        snapshot() { return { id: key, points: visibleCount, capacity: count, seconds: maximum, visible: line.visible }; },
+        snapshot() { return { id: key, points: visibleCount, capacity: count, seconds: maximum, visible: line.visible, color: `#${material.color.getHexString()}` }; },
         // Geometrię i materiał zwalnia właściciel sceny.
     };
 }

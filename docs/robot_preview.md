@@ -18,7 +18,7 @@ Niebieski bliźniak celu oraz pomarańczowy bliźniak ruchu mają w TCP układ o
 **X — czerwona, Y — zielona, Z — niebieska**. Osie i etykiety obracają się wraz
 z narzędziem według aktualnego URDF. Dla niepełnej pozycji celu układ jest ukryty.
 
-Pomarańczowa linia pokazuje tor TCP pomarańczowego bliźniaka PTP/LIN. Narasta
+Niebieska linia (`#4DA3FF`) pokazuje planowany tor TCP bliźniaka PTP/LIN. Narasta
 podczas pierwszego przejazdu i pozostaje widoczna w kolejnych cyklach oraz po
 zatrzymaniu podglądu. Skok z końca na start nie dorysowuje odcinka powrotnego.
 Nowy poprawny plan zastępuje poprzedni ślad; zakończenie planowania, zmiana
@@ -26,6 +26,45 @@ kontekstu lub opuszczenie ekranu usuwa go. Samo edytowanie celu zachowuje stary
 ślad do otrzymania nowego planu. FK linii korzysta z tej samej interpolacji JTC
 co animacja, próbkowanej co najwyżej co 1/60 s (maks. 12001 punktów dla 200 s).
 Powtarzanie pętli nie powiększa bufora. Ślad nie jest nagraniem fizycznego TCP.
+
+### Złota historia fizycznego PTP
+
+Złota linia (`#FFC857`) pokazuje tor TCP wyliczany przez FK bieżącego URDF z
+surowych pomiarów przegubów. Przekładnie, kierunki i offsety są uwzględnione
+w odczytach przegubów. Klon używany tylko do FK śladu nie obcina pomiaru
+do limitu URDF, więc przekroczenie nie zostaje ukryte; ograniczenia sterowania
+pozostają niezmienione. Źródłem nie jest wygładzona pozycja widocznego modelu
+ani pozycja zadana przez planner. Niebieski plan i złota historia mogą być
+widoczne jednocześnie; legenda jest stale dostępna nad sceną.
+
+Zapis obejmuje wyłącznie trwające wykonania PTP rozróżnione przez `program_id`
+i `execution_key`. Przygotowanie, animacja podglądu i fizyczny JOG nie rozpoczynają
+historii. Kolejne wykonania dodają osobne odcinki, bez linii łączących koniec
+jednego z początkiem następnego. Sukces, błąd i STOP zachowują zgromadzony tor;
+wyjście z trybu planowania także go nie usuwa.
+
+Przy brakujących osiach nieuczestniczących w programie FK przyjmuje ich kąty
+startowe z tego programu. Złoty ślad ma wtedy jawne oznaczenie **„Tor modelu —
+niepełne pomiary”**. Nie jest potwierdzeniem fizycznego TCP. Utrata pomiaru
+uczestniczącej osi, utrata statusu PTP lub przerwa w odbiorze rozdziela tor:
+po odzyskaniu danych powstaje nowy odcinek, bez interpolowania luki. Zmiana
+zestawu dostępnych pomiarów także rozdziela odcinki.
+
+Istniejący strumień WebSocket dostarcza pomiary; zapis ma limit 20 Hz i pomija
+powtórzenia. Pomiar przegubu musi być młodszy niż 250 ms, a ostatni status PTP
+niż 750 ms. Nie powstają dodatkowe zapytania HTTP, usługi ROS ani ramki CAN.
+Renderowanie i pobieranie statusu zachowują dotychczasowe częstotliwości.
+Historia obejmuje tylko próbki obserwowane przez otwarty widok, nie odtwarza
+ruchu sprzed jego otwarcia ani z czasu ukrycia karty.
+
+**„Wyczyść ślad”** usuwa wyłącznie złotą historię. Podczas PTP zbieranie wznawia
+się od kolejnej poprawnej próbki. Bufor mieści maksymalnie 20 000 punktów;
+najstarsze fragmenty są usuwane bez łączenia rozdzielonych odcinków.
+Odświeżenie, opuszczenie ekranu albo zmiana modelu/rewizji konfiguracji usuwa
+historię. Nie zapisujemy jej na dysku ani w backendzie. Materiały i geometrie
+śladu są zwalniane razem ze sceną.
+
+### Ostrzeżenia o osobliwościach
 
 Blisko konfiguracji osobliwej odpowiedni model otrzymuje żółtą, pulsującą łunę;
 przy większej bliskości czerwoną, pulsującą szybciej. Łuna znajduje się w początku
@@ -251,3 +290,34 @@ Poprzedni etap integracji modelu (nie powtarzano teraz testów ROS/backendu):
   potwierdził jedynie joint_1/2/4, około 20 nowych pomiarów/s na oś i zgodny TF.
   Działający panel LAN odczytał identyczny URDF i kąty enkoderów; bez błędów JS.
   Nie wykonywano nowych prób ruchu ani testu na drugim fizycznym kliencie LAN.
+
+
+## Wdrożenie złotej historii — 25.10.2026
+
+Zmieniono wyłącznie frontend i dokumentację. TypeScript i build produkcyjny
+przeszły. Wykonano 12 testów jednostkowych sceny/śladów, w tym 9 scenariuszy
+złotej historii: FK surowych przegubów także poza limitem URDF, przygotowanie/JOG, sukces/STOP,
+oddzielne klucze wykonania, brakujące osie, utrata świeżości/statusu/fault,
+deduplikacja i limit 20 Hz, czyszczenie oraz przepełnienie bufora. Test bufora
+sprawdza także rzeczywiste wierzchołki, żeby wykluczyć pozorne mosty po usunięciu
+najstarszego punktu. Zakończone testy Chromium na atrapach:
+
+- `trails.browser.cjs`: oba kolory jednocześnie, legenda, wiele PTP, przerwy,
+  niepełne pomiary, czyszczenie w trakcie ruchu, zachowanie po wyjściu z planowania,
+  reset przy zmianie modelu i odświeżeniu; zero poleceń sterowania.
+- `motion.browser.cjs`: statusy i zatwierdzanie PTP, również po zmianie parametrów.
+- `cartesian.browser.cjs`: regresja narastania planu, pętli, anulowania i zatrzymania.
+  Pierwsze równoległe uruchomienie trafiło na opóźnioną końcową klatkę po blur;
+  sprawdzenie zsynchronizowano z komunikatem zatrzymania i klatkami RAF zamiast
+  stałego oczekiwania 100 ms. Końcowe uruchomienie przeszło.
+
+Wdrożono sprawdzone pliki statyczne, zachowując wcześniejsze zasoby i kopię
+poprzedniego panelu. HTTP potwierdziło nowe JS/CSS. Nie restartowano ROS:
+`robot-web-status.service` pozostała active, MainPID=88862, NRestarts=0.
+Nie zmieniano backendu, cykli CAN ani konfiguracji napędów i nie wykonywano
+próby ruchowej. Dawne wyniki sprzętowe i benchmarki nie są pomiarami tej sesji.
+Lokalne dowody/kopia: `log/ptp-trails/20261024T221348Z/` (znacznik katalogu UTC).
+
+Pasywna kontrola Chromium działającego panelu LAN po odświeżeniu bez cache
+potwierdziła WebGL, legendę i oba kolory. Blokowano polecenia HTTP/WS:
+zero prób sterowania i zero błędów JavaScript (`live.json` w katalogu dowodów).
