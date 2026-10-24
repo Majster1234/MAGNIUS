@@ -1,5 +1,8 @@
 # Fizyczne wykonanie PTP
 
+Stan źródeł, działającej usługi i kolejność dokończenia odbioru na 24.10.2026:
+[plan wdrożenia koordynowanego PTP](ptp_rollout_status.md).
+
 Pierwszy etap wykonuje pojedynczy PTP. LIN i łączenie odcinków pozostają kolejnym
 etapem. Wykonawca C++ posiada cały program i kolejne ramki w pamięci; nie oczekuje
 na taktowanie z przeglądarki, HTTP ani kolejny cel akcji ROS.

@@ -770,6 +770,7 @@ footer {
 .manual-screen .badge.stale { color:#a1b1c1; border-color:#344252; background:#1b2531; }
 .manual-active { background:#12372e; }
 .manual-planned-active { background:#162f4b; }
+.manual-table tr.manual-axis-error { position:relative; outline:1px solid #ef4444; outline-offset:-1px; box-shadow:inset 0 0 12px #ef444445,0 0 8px #ef444460; }
 .manual-enable, .jog-controls, .jog-speed { display:flex; align-items:center; }
 .jog-controls { gap:3px; }
 .manual-enable { gap:0; }

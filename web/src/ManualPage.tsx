@@ -15,15 +15,20 @@ import { EventConsole, useEventConsole } from "./EventConsole";
 import type { Axis, ManualState } from "./manualTypes";
 import type { ManualHeaderState } from "./AppShell";
 
-export function MotorPosition({ axis, position, plannedPosition, stale = false, lower = -3600, upper = 3600 }: { axis: number; position: number | null; plannedPosition?: number | null; stale?: boolean; lower?: number; upper?: number }) {
+function calibrationRepair(axis: Axis) {
+    return axis.joint_configured && !axis.calibration_valid ?
+        `J${axis.axis}: nieważna kalibracja przegubu po zerowaniu wału. Wyłącz napęd przyciskiem „Wyłącz”. W zakładce „Konfiguracja” sprawdź i ustaw poprawny „Offset zera przegubu” dla J${axis.axis}, a następnie kliknij „Zapisz do ROS”, aby ponownie zatwierdzić kalibrację. Po zapisie możesz przygotować napęd przyciskiem „Załącz”. Do tego czasu pozycja dotyczy wału, a JOG przegubu jest zablokowany.` : undefined;
+}
+
+export function MotorPosition({ axis, position, plannedPosition, stale = false, lower = -3600, upper = 3600, shaftFallback = false }: { axis: number; position: number | null; plannedPosition?: number | null; stale?: boolean; lower?: number; upper?: number; shaftFallback?: boolean }) {
     const known = position !== null && Number.isFinite(position);
     const bounded = known ? Math.max(lower, Math.min(upper, position)) : 0;
     const plannedKnown = plannedPosition !== null && plannedPosition !== undefined && Number.isFinite(plannedPosition);
     const plannedLabel = plannedKnown ? `Bliźniak J${axis}: ${plannedPosition.toFixed(1)}°` : "";
     return <div className={`motor-position ${stale ? "measurement-stale" : ""}`}>
-        <span className="position-value"><span>{known ? `${position.toFixed(1)}°` : "—"}</span>{known && stale && <em>ostatni pomiar</em>}</span>
+        <span className="position-value"><span>{known ? `${position.toFixed(1)}°` : "—"}</span>{shaftFallback && <em>wał · brak kalibracji</em>}{known && stale && <em>ostatni pomiar</em>}</span>
         <div className={`position-track ${known ? "" : "unknown"}`} role={known ? "meter" : "img"}
-            aria-label={`Pozycja J${axis} względem limitów${known ? "" : ": brak danych"}`}
+            aria-label={`Pozycja ${shaftFallback ? "wału " : ""}J${axis} względem limitów${known ? "" : ": brak danych"}`}
             aria-valuemin={known ? lower : undefined} aria-valuemax={known ? upper : undefined}
             data-stale={stale} aria-valuenow={known ? bounded : undefined} aria-valuetext={known ? `${stale ? "Ostatni pomiar: " : ""}${position.toFixed(1)}°${plannedKnown ? `; ${plannedLabel}` : ""}` : undefined}>
             {lower <= 0 && upper >= 0 && <span className="position-zero" style={{left:`${-lower / (upper-lower)*100}%`}}/>}
@@ -32,6 +37,17 @@ export function MotorPosition({ axis, position, plannedPosition, stale = false, 
                 style={{ left: `${(Math.max(lower, Math.min(upper, plannedPosition)) - lower) / (upper - lower) * 100}%` }} />}
         </div><div className="position-limits"><span>{Number(lower.toFixed(2))}°</span><span>{upper > 0 ? "+" : ""}{Number(upper.toFixed(2))}°</span></div>
     </div>;
+}
+
+export function AxisPosition({ axis, usable, planning = false, plannedPosition, planAvailable = false }: { axis: Axis; usable: boolean; planning?: boolean; plannedPosition?: number | null; planAvailable?: boolean }) {
+    const shaftFallback = !!axis.joint_configured && !axis.calibration_valid;
+    const joint = !!axis.joint_configured && !shaftFallback;
+    const title = shaftFallback ? calibrationRepair(axis) :
+        joint ? `Przegub; wał: ${axis.position_known ? axis.position_degrees.toFixed(1) + "°" : "brak danych"}` : "Wał silnika — brak pełnego profilu przegubu";
+    return <div className="manual-position-reading" title={title}><MotorPosition axis={axis.axis}
+        position={joint ? axis.joint_position_known ? axis.joint_position_degrees! : null : axis.position_known ? axis.position_degrees : null}
+        lower={joint ? axis.joint_lower_degrees : -3600} upper={joint ? axis.joint_upper_degrees : 3600} stale={!usable} shaftFallback={shaftFallback}
+        plannedPosition={planning && !shaftFallback ? plannedPosition : undefined}/>{planning && <small className={`planned-position ${planAvailable ? "" : "plan-unavailable"}`}>Plan: {plannedPosition == null ? "—" : `${plannedPosition.toFixed(1)}°`}</small>}</div>;
 }
 
 
@@ -296,18 +312,18 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             <col className="manual-col-jog"/><col className="manual-col-axis"/><col/>
             <col className="manual-col-drive"/><col className="manual-col-zero"/><col className="manual-col-speed"/>
         </colgroup><thead><tr><th>JOG</th><th>Oś / CAN</th><th title="Pozycja osi / wału">Pozycja</th><th>Napęd / ENABLE</th><th>Zero wału</th><th>Prędkość</th></tr></thead><tbody>
-            {axes.map((axis) => <tr key={axis.axis} className={planning ? plan.activeAxis === axis.axis ? "manual-active manual-planned-active" : "" : state?.active_axis === axis.axis ? "manual-active" : ""}>
+            {axes.map((axis) => <tr key={axis.axis} title={calibrationRepair(axis)} className={[
+                planning ? plan.activeAxis === axis.axis ? "manual-active manual-planned-active" : "" : state?.active_axis === axis.axis ? "manual-active" : "",
+                calibrationRepair(axis) ? "manual-axis-error" : "",
+            ].filter(Boolean).join(" ")}>
                 <td><div className={`jog-controls ${planning ? "jog-planning" : ""}`}>{arrow(axis, -1)}{!planning && <span className={`motion-indicator ${usable && axis.motion === "w prędkości" ? "moving" : ""}`} aria-live="polite"><span>{usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span></span>}{arrow(axis, 1)}</div></td>
                 <td className="manual-axis"><strong>J{axis.axis}</strong><small>CAN {axis.axis}</small>
                     <span className={`badge ${usable && axis.available ? "ok" : "stale"}`}>{!usable ? "Dane nieaktualne" : axis.available ? "Połączony" : "Niedostępny"}</span></td>
-                <td title={axis.joint_configured ? `Przegub; wał: ${axis.position_known ? axis.position_degrees.toFixed(1)+"°" : "brak danych"}` : "Wał silnika — brak pełnego profilu przegubu"}><div className="manual-position-reading"><MotorPosition axis={axis.axis}
-                    position={axis.joint_configured ? axis.joint_position_known ? axis.joint_position_degrees! : null : axis.position_known ? axis.position_degrees : null}
-                    lower={axis.joint_configured ? axis.joint_lower_degrees : -3600} upper={axis.joint_configured ? axis.joint_upper_degrees : 3600} stale={!usable}
-                    plannedPosition={planning ? plan.positions[axis.axis - 1] : undefined}/>{planning && <small className={`planned-position ${plan.available[axis.axis - 1] ? "" : "plan-unavailable"}`}>Plan: {plan.positions[axis.axis - 1] === null ? "—" : `${plan.positions[axis.axis - 1]!.toFixed(1)}°`}</small>}</div></td>
+                <td><AxisPosition axis={axis} usable={usable} planning={planning} plannedPosition={plan.positions[axis.axis - 1]} planAvailable={plan.available[axis.axis - 1]}/></td>
                 <td className="manual-drive"><span className={`badge ${usable && axis.enable_known ? axis.enabled ? "ok" : "warn" : "stale"}`}>{usable && axis.enable_known ? axis.enabled ? "Włączony" : "Wyłączony" : "Nieznany"}</span>
                     <div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
                     <button className="secondary-button" disabled={planning || !usable || !axis.available || pending || (state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
-                <td><button className="link-button" title="Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu" disabled={planning || !usable || !axis.can_zero || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
+                <td><button className="link-button" title={calibrationRepair(axis) ?? "Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu"} disabled={planning || !usable || !axis.can_zero || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
                 <td>{jogSpeed(axis)}</td>
             </tr>)}
         </tbody></table></div>

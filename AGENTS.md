@@ -108,9 +108,10 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Bieżący kontekst
 
-- 2026-10-23: osobliwość: łuna J5/J3 i dymek przy osi, puls + reduced-motion. Build i Chromium samej sceny OK. docs/robot_preview.md.
-- Trace: kolejki 4096, ROS co 50 ms poza IO, zapis ≤20 000 000 B/oś, CSV. Cache 8 przedziałów/2 HTTP, live reset 10 s. Wcześniejsze wyniki/CPU: docs/benchmark_results.md; ros2_ws/install gotowe. Pinezka jednej osi, rolka pozioma.
-- Restart robot-web-status.service wymaga zgody: auto-review odrzuciło przerwanie stosu/startowy CAN. Potem pasywny scripts/observe_shaft_trace.py i HTTP/CSV bez GUI. Poprzedni nasłuch starszej usługi: 50 Hz CAN 1/2/3/5, HTTP idle/ENABLE=1, CAN 4/6 bez pomiarów.
-- PTP/próba 5 odłożone, flagi bez zmian. Próby 22.10: docs/motion_hardware_results.md; wariant SYNC 2,5 ms/diagnostyka 19 ms. Otwarte: fałszywy JTC po sukcesie, F6=05 w SYNC, skoki enkodera (~6,33 RPM przy zadanym 1); płynność/odbiór 2/4 osi niezaliczone. Kalibracja CAN 1 unieważniona zerowaniem.
+- 2026-10-24: audyt/plan PTP: docs/ptp_rollout_status.md. Bez ruchu. API/ROS 12:33: PTP/flagi false, rewizja pusta, parametry -1; J1/2/3/5 przygotowane i skalibrowane, J4/6 brak. allow_missing_motion=true nie włącza wykonawcy.
+- PTP: fałszywy nadzór JTC po sukcesie; F6=05 nie dowodzi postoju; skoki enkodera ~6,33 RPM przy nastawie 1. Próba 5 (22.10): izolowana, bez nadzoru śledzenia, czasy 2,5/19 ms; produkcja 1/18 ms; odbiór 2/4/6 osi niezaliczony. Próby/ślady: docs/motion_hardware_results.md.
+- config/local/execution.yaml: stare flagi/rewizja, nieużywany; goal_tolerance/tracking_delay bez obsługi. Nie jest gotowym odbiorem. Dalej regresja sukcesu/STOP, potem odbiór STOP/bufora/dynamiki; flagi bez zmian.
+- Wcześniej 24.10: UI: wał bez kalibracji, poświata/tooltip J1–J6; 3 testy/build/Chromium OK wtedy. Audyt bez nowych testów. docs/manual_control.md. Node 22 w /tmp; web/dist przez symlink.
+- Trace i wcześniejsze pomiary: docs/shaft_trace.md, docs/benchmark_results.md. Restart usługi wymaga zgody: auto-review odrzuciło przerwanie stosu/startowy CAN.
 - Nadal: Ctrl+F5/UI, JOG TCP, IK/J4/J6, geometria/przekładnie/bazowanie, JOG/limity, USB/BUS-OFF/watchdog, drugi LAN, oscylacje. LIN/blending przyszłe; Three.js rozmiar; licencja TODO.
-- Git feature/web-status; zachowano wcześniejsze zmiany i config/, bez commit/push. Nie ustawiać flag odbioru bez pomiarów.
+- Git feature/web-status; bez commit/push; zachować config/ i zmiany użytkownika. Flag odbioru nie ustawiać bez pomiarów; nowe próby ruchu wymagają zgody.

@@ -40,6 +40,15 @@ Po zastosowaniu kompletnego profilu w [konfiguracji](configuration.md) wiersz os
 przechodzi na pozycję przegubu i JOG w °/s z przełożeniem, kierunkiem, offsetem
 oraz limitami przegubu. Poniższy opis RPM i ±3600° dotyczy trybu wału; ochrona
 wału pozostaje dodatkowym ograniczeniem także przy JOG przegubu.
+Jeśli zerowanie unieważni kalibrację skonfigurowanego przegubu, tabela nadal
+pokazuje pomiar enkodera jako **wał · brak kalibracji**, ze skalą wału ±3600°.
+Nie jest to pozycja przegubu: JOG przegubu pozostaje zablokowany do ponownego
+zatwierdzenia offsetu w konfiguracji. Cel bliźniaka pozostaje osobną wartością
+„Plan”; nie jest nanoszony na skalę wału. Brak odczytu CAN nadal oznacza „—”.
+Wiersz każdej osi z nieważną kalibracją ma czerwoną poświatę na krawędziach.
+Po najechaniu myszą tooltip opisuje naprawę: **Wyłącz** napęd, w **Konfiguracji**
+sprawdź i ustaw właściwy **Offset zera przegubu** tej osi, kliknij **Zapisz do ROS**,
+a po zatwierdzeniu ponownie przygotuj napęd przyciskiem **Załącz**.
 Kompaktowe wiersze zawierają wskaźnik pozycji wału między −3600° i +3600°,
 z zaznaczonym zerem. Wskaźnik służy wyłącznie do odczytu; nie zadaje ruchu.
 Przy braku pomiaru nie pokazuje punktu pozycji. Poza limitem punkt pozostaje
