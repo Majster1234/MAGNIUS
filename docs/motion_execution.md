@@ -1,4 +1,46 @@
-# Fizyczne wykonanie PTP — streaming 100 Hz
+# Fizyczne wykonanie PTP/LIN — streaming 100 Hz
+
+## LIN na wspólnym wykonawcy — 25.10.2026
+
+PTP i LIN korzystają z tego samego wykonawcy C++ oraz strumienia CAN 100 Hz.
+Różni je obliczona trajektoria q/v/a: PTP synchronizuje przeguby, a LIN wyznacza
+prostą TCP z interpolacją orientacji SLERP i ciągłym IK wzdłuż drogi. Planner
+zachowuje kontrolę gałęzi IK, końcowych kątów, osobliwości, limitów osi i posuwu.
+Tolerancje obliczonej referencji LIN wynoszą 0,1 mm i 0,1°. Nie oznaczają
+zmierzonej dokładności fizycznego toru TCP.
+
+Przebieg panelu: wybór LIN i podgląd → **Przygotuj LIN robota** → opcjonalny
+**Podgląd przygotowanego LIN** → osobne zatwierdzenie → **Wykonaj LIN**.
+Przygotowanie przelicza drogę od aktualnych pomiarów, z celem i zachowanymi
+limitami posuwu z wybranego podglądu. Zmiana celu, typu lub parametrów unieważnia
+zgodę. Stary podgląd LIN bez zapisanych trzech limitów TCP wymaga przeliczenia.
+Zapis ustawień ani przygotowanie nie rozpoczyna ruchu.
+
+ROS: nowa akcja `/robot/planning/compute_physical_motion` typu
+`ComputePhysicalMotion` przyjmuje typ PTP=0/LIN=1, dotychczasowy kontekst i cel
+przegubów oraz `tcp_velocity`, `tcp_acceleration`, `tcp_angular_velocity` w SI.
+LIN wymaga trzech dodatnich limitów, PTP trzech zer. Dotychczasowa akcja
+`/robot/planning/compute_physical_ptp` pozostaje zgodną nakładką dla PTP.
+Usługi przygotowania i wykonania są wspólne; adapter nie przyjmuje symulacji
+ani innych typów ruchu. Format statusu wykonawcy ROS pozostaje bez zmian.
+
+HTTP `/api/v1/motion/{prepare,status,prepared,execute,stop}` zachowuje adresy.
+Przygotowanie i status podają `motion_type`. Typ w statusie pochodzi z fizycznego
+planu zgodnego z `program_id`; bez zgodnego planu jest `null`, także po restarcie
+mostu. Pole `execution_limits` zapisuje znormalizowane limity LIN w jednostkach
+panelu: mm/s, mm/s² i °/s, łącznie z domyślnym przyspieszeniem 100 i obrotem 10.
+
+Wybrano nadzór taki jak PTP: wspólne lookahead, korekcja osi, dithering, STOP
+i potwierdzanie pozycji końcowych ±0,5° przegubów. Nie dodano zatrzymania od
+odchyłki TCP w trakcie ruchu. Osobna korekcja osi, dynamika napędów i lookahead
+mogą zmienić rzeczywisty tor względem prostej referencji; odbiór sprzętowy musi
+ocenić ten efekt. Nie zmieniono profilu produkcyjnego ani parametrów CAN.
+
+Istniejące `allow_missing_motion` obejmuje również próby LIN na niepełnym
+zestawie. Nieobecne osie nie otrzymują komend, a ich podgląd pozostaje na starcie.
+Panel oznacza **Próba LIN — tor TCP nie jest potwierdzony**; `tcp_verified=false`.
+Nadal nie wolno pomijać obecnej osi z nieważną kalibracją lub bez ENABLE.
+Blending, fizyczny JOG TCP i wykrywanie kolizji nie należą do tej zmiany.
 
 Kontrakt źródeł z 25.10.2026 (85 ms, korekcja pozycji i dithering RPM) zastępuje wcześniejsze F5/ACK/SYNC i oczekiwanie
 na pozycję w punktach pośrednich. Program jest lokalnym strumieniem F5 co 10 ms.
@@ -415,3 +457,35 @@ sudo systemctl restart robot-web-status.service
 Po restarcie pozostaje kontrola przygotowania PTP bez wykonania programu.
 Wyniki buildu, hashe artefaktów i potwierdzenie wdrożenia:
 `log/ptp-revision-build-20261025`.
+
+## Wdrożenie wspólnego PTP/LIN — 25.10.2026
+
+Zbudowano 11 pakietów do `install/lin-ros` (Release, `-O1 -DNDEBUG`,
+`BUILD_TESTING=OFF` dla buildu produkcyjnego) i frontend z Node.js 22.23.4.
+Testy zbudowano osobno. Zaliczone: 109 scenariuszy C++/Python/ROS, 2 testy
+interpolacji TypeScript i 2 scenariusze Chromium. Wśród nich rzeczywisty planner
+ROS w domenie 132, adapter NoIo w domenie 188 oraz pełny/niepełny LIN na
+emulatorze z przełożeniami, offsetami, ujemnymi celami, kontrolą rewizji i STOP.
+Ruchu sprzętowego ani fizycznego CAN w tej turze nie uruchamiano.
+
+Frontend wdrożono do `web/dist`, zachowując poprzednie zasoby dla otwartych kart
+i wymieniając `index.html` po skopiowaniu nowych plików. Następnie odświeżono
+zasoby pakietu `robot_web_bridge`. Sprawdzono 11 prefixów pakietów, komplet
+zależności pięciu artefaktów, typ nowej akcji, zasoby panelu i argumenty launch.
+
+Dotychczasowy punkt startowy `install/streaming-smooth-ros/local_setup.bash`
+przekierowuje teraz do `install/lin-ros/local_setup.bash`. Kopia poprzedniego
+przekierowania i frontendu, hashe oraz wyniki: `log/lin-20261025/deployment`.
+Systemowego drop-in nie zmieniano. Przy przełączeniu MainPID=12021,
+ActiveState=active, NRestarts=0 pozostały bez zmian; nowy backend oczekuje na
+restart operatora. Parametry wykonania i konfiguracja CAN pozostają dotychczasowe.
+
+```bash
+sudo systemctl restart robot-web-status.service
+```
+
+Restart wykonać w postoju. Po nim odświeżyć panel i sprawdzić przygotowanie LIN
+bez wykonania programu. Osobna próba sprzętowa wymaga uzgodnienia osi, kierunku,
+prędkości, zakresu i zatrzymania; testy emulatora nie potwierdzają rzeczywistego
+toru TCP. Pomiary programowe: [benchmark_results.md](benchmark_results.md),
+raporty testów: `log/lin-20261025`.

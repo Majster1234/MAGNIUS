@@ -94,7 +94,7 @@ TEST(ConfigurationRevision, BootstrapGateBlocksPreparationAndInvalidatesOldProgr
 }
 TEST(ConfigurationRevision, ExecutionEnableAndInvalidCalibrationRemainRequired) {
   auto c=config();c.program_enabled=false;Rig disabled_bus(c);disabled_bus.ready();
-  rejected(disabled_bus,disabled_bus.program(),"Wykonanie PTP wyłączone");
+  rejected(disabled_bus,disabled_bus.program(),"Wykonanie PTP/LIN wyłączone");
   Rig h;h.ready();h.bus->require_configuration();auto p=changed_profile(h,"uncalibrated");
   p.calibration_invalid[0]=true;
   ASSERT_TRUE(h.bus->configure(ConfigurationPhase::bootstrap,"restart","",p,h.now).accepted);

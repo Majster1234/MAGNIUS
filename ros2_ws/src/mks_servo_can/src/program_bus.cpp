@@ -37,7 +37,7 @@ void CanBusManager::update_motion_settings(const std::string &revision,bool allo
   motion_settings_revision_=revision;allow_missing_motion_=allow_missing;motion_settings_stamp_=now;
 }
 MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time now) {
-  if(!config_.program_enabled) throw std::runtime_error("Wykonanie PTP wyłączone");
+  if(!config_.program_enabled) throw std::runtime_error("Wykonanie PTP/LIN wyłączone");
   // Rewizję wybiera zakończona transakcja konfiguracji, a nie kopia UUID w YAML.
   // Sprawdzamy tę bramkę przed przejęciem sterowania od JTC.
   if(!configuration_ready_ || configuration_locked_)
@@ -70,7 +70,7 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
         !d.stall.fresh(now,300ms) || d.stall.value || !d.mode.valid || d.mode.value!=5)
       throw std::runtime_error("J"+std::to_string(j+1)+": wymagane ENABLE, kalibracja i świeży stan SR_vFOC");
     if(p.points.empty() || std::abs(p.points.front().positions[j]-position_to_joint(a,d.position.value))>config_.program_position_tolerance[j])
-      throw std::runtime_error("Zmieniła się pozycja początkowa; przelicz PTP");
+      throw std::runtime_error("Zmieniła się pozycja początkowa; przelicz ruch");
     microsteps[j]=d.microstep.value;axes[j].streaming=config_.program_streaming[j];
   }
   if(streaming_bus_utilization(participants,config_.bitrate)>std::min(kPlannedUtilization,config_.utilization_limit)+1e-12)
@@ -188,7 +188,7 @@ void CanBusManager::schedule_program(Time now) {
     if(!e.checking_position || !check_program_positions(now)) return;
     if(e.settled==Time{}) e.settled=now;
     if(now-e.settled<100ms) {s.state="settling";return;}
-    s.busy=false;s.state="succeeded";s.progress=1;s.message="PTP zakończony: pozycje końcowe potwierdzone";
+    s.busy=false;s.state="succeeded";s.progress=1;s.message="Ruch zakończony: pozycje końcowe potwierdzone";
     active_=false;source_=Source::none;return;
   }
   // Czas całkowitoliczbowy: double(k*0,01) przesuwało część granic o tick 1 ms.

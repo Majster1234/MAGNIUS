@@ -46,7 +46,7 @@ Agent aktualizuje plik, bez hooka. Narzędziu bez obsługi AGENTS.md zleć odczy
 
 - Domyślnie przed każdym testem ruchu opisz oś, kierunek, prędkość, czas/zakres
   i zatrzymanie oraz uzyskaj zgodę użytkownika przed wykonaniem.
-- PTP streaming (25.10, nowy build): 100 Hz, F5/F6/F7/FE bez ACK, bez SYNC (4A=0),
+- PTP/LIN streaming (25.10, nowy build): 100 Hz, F5/F6/F7/FE bez ACK, bez SYNC (4A=0),
   CanRSP/raporty wyłączone (8C00/00), SR_vFOC=05. Lookahead85 ms, FF1, Kp2,5,
   dithering per oś, holding1/max2500 RPM, acc135; limity mechaniczne obowiązują.
   Odczyty PTP bez startu zapytań 4 ms przed F5; ruch nie czeka na odczyt.
@@ -115,7 +115,7 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Bieżący kontekst
 
-- 25.10 build11 pakietów OK: install/ptp-revision-ros (Release/O1). Wdrożony na następny start przez przekierowanie install/streaming-smooth-ros/local_setup.bash; kopia i wyniki log/ptp-revision-build-20261025. Szczegóły/ograniczenia: docs/motion_execution.md.
-- Ta tura25.10: 13 testów na nowych bibliotekach OK (7 rewizji,6 ROS NoIo),11 prefixów/5 zależności/launch args OK. Bez ruchu/restartu. PID1388/NRestarts0 bez zmian. Dalej restart w postoju: sudo systemctl restart robot-web-status.service; potem prepare bez execute. Profil max500RPM/80°/s/3:1/acc135 bez zmian.
-- Rewizja PTP z profilu po FINISH; stare UUID YAML ignorowane, PREPARE/bootstrap unieważnia ready także po rollbacku. docs/configuration.md. Wcześniejsze71 testów i benchmark: log/ptp-revision-mechanism-20261025, docs/benchmark_results.md; nie odbiór sprzętu.
-- Otwarte: płynność/prędkość/acc135/JTC/6osi/TCP, STOP/F6=05/skoki, ROS/panel, JOG TCP/limity, IK/J4/J6, geometria/bazowanie, USB/BUS-OFF/watchdog, LAN2/oscylacje, LIN/blending, Three.js/licencja. Git feature/web-status; zachować cudze zmiany, bez commit/push. Flagi po pomiarach; ruch wymaga osobnej zgody.
+- 25.10 LIN/PTP: wspólny wykonawca, nowa ComputePhysicalMotion i zgodne PTP, limity TCP i typ w HTTP/panelu. Niepełny zestaw oznaczony, nadzór jak PTP. docs/motion_execution.md.
+- Sprawdzenia25.10:109 C++/Python/ROS+2 TS+2 Chromium OK;11 pakietów i frontend zbudowane. Bez fizycznego CAN/ruchu. Wyniki/benchmarki: log/lin-20261025, docs/benchmark_results.md.
+- Wdrożone: frontend i punkt install/streaming-smooth-ros/local_setup.bash → install/lin-ros/local_setup.bash; kopie: log/lin-20261025/deployment. PID12021/NRestarts0 bez zmian. Dalej restart robot-web-status.service w postoju, prepare LIN bez execute. Profil500RPM/80°/s/3:1/acc135 bez zmian.
+- Otwarte: odbiór toru LIN, płynność/prędkość/acc135/JTC/6osi/TCP, STOP/F6=05/skoki, ROS/panel, JOG TCP/limity, IK/J4/J6, geometria/bazowanie, USB/BUS-OFF/watchdog, LAN2/oscylacje, blending, Three.js/licencja. Git feature/web-status; zachować cudze zmiany, bez commit/push. Flagi po pomiarach; ruch wymaga osobnej zgody.

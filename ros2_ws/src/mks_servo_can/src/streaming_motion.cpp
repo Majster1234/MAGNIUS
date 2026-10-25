@@ -70,7 +70,7 @@ PreparedMotionProgram compile_streaming_program(PreparedMotionProgram p,const st
     p.start[j]=p.points.front().positions[j];p.target[j]=p.points.back().positions[j];
     p.tcp_verified=p.tcp_verified && p.participating[j];any=any || p.participating[j];
     if(p.participating[j] && (std::abs(p.points.front().velocities[j])>1e-8 || std::abs(p.points.back().velocities[j])>1e-8))
-      throw std::invalid_argument("PTP wymaga prędkości 0 na obu końcach");
+      throw std::invalid_argument("Ruch wymaga prędkości 0 na obu końcach");
   }
   if(!any) throw std::invalid_argument("Brak uczestników streaming");
   for(const auto &point:p.points) {

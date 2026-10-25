@@ -32,7 +32,7 @@ flowchart TD
     MON[robot_system_monitor / Python + rclpy]
     LINUX[Linux / CPU / RAM / Netlink CAN]
     MOVE[C++ / IK / droga TCP / TOTG]
-    EXEC[MotionExecutor C++ / zatwierdzony PTP]
+    EXEC[MotionExecutor C++ / zatwierdzony PTP i LIN]
     GATE[robot_motion_gate / trajektoria albo jog]
     CTRL[ros2_control / kontroler trajektorii]
     HW[robot_hardware / C++]
@@ -45,7 +45,7 @@ flowchart TD
     CAN --> DIAG
     DIAG -->|DiagnosticArray / 5 Hz| API
     API <-->|Obliczenia i podgląd planu| MOVE
-    MOVE -->|Odrębny fizyczny plan PTP| EXEC
+    MOVE -->|Odrębny fizyczny plan PTP lub LIN| EXEC
     API -->|Przygotowanie i zatwierdzenie| EXEC
     EXEC -->|Wspólny właściciel magistrali| CAN
     GATE --> CTRL
@@ -161,4 +161,4 @@ Backend przekazuje żądania przez typowane interfejsy ROS; moduł używa wspól
 managera i jednego transportu CAN. Bez modelu robota, pojedynczo, w jednostkach
 wału silnika. Szczegóły: [sterowanie ręczne](manual_control.md).
 
-Fizyczny PTP, wyłączność programu, niepełny zestaw napędów i odbiór: [motion_execution.md](motion_execution.md).
+Fizyczny PTP/LIN, wspólny wykonawca, wyłączność programu, niepełny zestaw napędów i odbiór: [motion_execution.md](motion_execution.md).

@@ -26,6 +26,14 @@ def number(value, label, lower=None, upper=None):
     return float(value)
 
 
+def lin_limits(data, require_all=False):
+    fields = (('tcp_velocity_mm_s', None, 10000), ('tcp_acceleration_mm_s2', 100, 100000),
+              ('tcp_angular_velocity_degrees_s', 10, 360))
+    if require_all and any(key not in data for key, _, _ in fields):
+        raise ValueError('Brak zapisanych limitów TCP; przelicz podgląd LIN')
+    return {key: number(data.get(key, default), key, .01, maximum) for key, default, maximum in fields}
+
+
 def pose_values(values):
     if not isinstance(values, list) or len(values) != 6:
         raise ValueError('TCP wymaga XYZ w mm oraz Roll/Pitch/Yaw w stopniach')
@@ -352,11 +360,13 @@ class PlanningClient:
         context = await self.context(data, True)
         goal = self.preview_type.Goal(context=context, motion_type=0 if data['motion_type']=='PTP' else 1,
                                       target_positions=[math.radians(number(q, 'Cel osi')) for q in target])
+        limits = {key: data[key] for key in ('preview_velocity_degrees_s', 'preview_acceleration_degrees_s2') if key in data}
         if data['motion_type'] == 'LIN' and 'tcp_velocity_mm_s' in data:
-            goal.tcp_velocity = number(data['tcp_velocity_mm_s'], 'Prędkość TCP mm/s', .01, 10000) / 1000
-            goal.tcp_acceleration = number(data.get('tcp_acceleration_mm_s2', 100), 'Przyspieszenie TCP mm/s²', .01, 100000) / 1000
-            goal.tcp_angular_velocity = math.radians(number(data.get('tcp_angular_velocity_degrees_s', 10), 'Obrót TCP °/s', .01, 360))
-        return await self.submit(goal, self.preview, {'settings_revision': settings['revision'], 'execution_limits': {key: data[key] for key in ('preview_velocity_degrees_s', 'preview_acceleration_degrees_s2') if key in data}})
+            limits = lin_limits(data)
+            goal.tcp_velocity = limits['tcp_velocity_mm_s'] / 1000
+            goal.tcp_acceleration = limits['tcp_acceleration_mm_s2'] / 1000
+            goal.tcp_angular_velocity = math.radians(limits['tcp_angular_velocity_degrees_s'])
+        return await self.submit(goal, self.preview, {'settings_revision': settings['revision'], 'execution_limits': limits})
 
     async def submit(self, goal, action, metadata=None):
         if any(job['status'] == 'running' for job in self.jobs.values()):

@@ -66,8 +66,8 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
       if(!request->issued_monotonic_ns || request->issued_monotonic_ns>now || now-request->issued_monotonic_ns>3000000000ULL)
         throw std::runtime_error("Przeterminowane przygotowanie programu");
       const auto &plan=request->plan;
-      if(plan.simulation_only || plan.motion_type!="PTP" || plan.trajectory.points.size()>10000 || plan.trajectory.joint_names.size()!=6)
-        throw std::runtime_error("Wymagany fizyczny plan PTP z sześcioma osiami");
+      if(plan.simulation_only || (plan.motion_type!="PTP" && plan.motion_type!="LIN") || plan.trajectory.points.size()>10000 || plan.trajectory.joint_names.size()!=6)
+        throw std::runtime_error("Wymagany fizyczny plan PTP/LIN z sześcioma osiami");
       mks_servo_can::PreparedMotionProgram input;input.id=plan.id;input.revision=plan.configuration_revision;input.model_id=plan.model_id;input.settings_revision=request->settings_revision;
       for(unsigned j=0;j<6;++j) if(plan.trajectory.joint_names[j]!="joint_"+std::to_string(j+1)) throw std::runtime_error("Nieprawidłowa kolejność osi");
       input.points.reserve(plan.trajectory.points.size());

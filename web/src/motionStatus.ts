@@ -1,7 +1,8 @@
 export type MotionStatus = {
     state: string; program_id: string; mode: string; message: string; busy: boolean; progress: number;
     duration: number; elapsed?: number; start_positions: number[]; target_positions: number[];
-    preparation?: { state: string; preview_plan_id?: string; program_id?: string; message?: string };
+    motion_type?: "PTP" | "LIN" | null;
+    preparation?: { state: string; preview_plan_id?: string; program_id?: string; motion_type?: "PTP" | "LIN"; message?: string };
     participating: boolean[]; tcp_verified: boolean; execution_key: string;
 };
 

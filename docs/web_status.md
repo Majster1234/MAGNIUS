@@ -232,7 +232,7 @@ Testy automatyczne nie zastępują sprawdzenia na drugim fizycznym urządzeniu.
 - Nie sprawdzono drugiego fizycznego urządzenia LAN, zapory wymagającej hasła,
   zdalnego GitHub Actions ani działania napędów. Procesy testowe zakończono.
 
-## Zatwierdzony program PTP
+## Zatwierdzony program PTP/LIN
 
 Moduł **Diagnostyka** (`#diagnostics`) pokazuje sześć osobnych przebiegów pozycji
 wałów i historię. Rejestrator działa w backendzie stale, bez `--record`, z limitem
@@ -241,5 +241,8 @@ wałów i historię. Rejestrator działa w backendzie stale, bez `--record`, z l
 
 Status i STOP lokalnego wykonawcy są dostępne w widoku ręcznym także po ponownym
 otwarciu panelu. Bridge w launch ma respawn; jego awaria nie zamyka właściciela CAN.
+PTP i LIN mają wspólny przebieg przygotowania i zatwierdzania. Typ w statusie HTTP
+pochodzi z planu zgodnego z identyfikatorem programu; po restarcie mostu może być
+`null`. Nie jest odgadywany z aktualnego wyboru w panelu.
 Domyślne parametry wykonawcy są wyłączone. Flaga niepełnego zestawu i odbiór:
 [motion_execution.md](motion_execution.md). Restart całej usługi/launch nadal zatrzymuje stos.

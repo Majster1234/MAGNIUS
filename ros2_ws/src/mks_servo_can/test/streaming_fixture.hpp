@@ -52,7 +52,7 @@ class Port final : public Transport {
       }
       case 0xf5: {
         const auto raw=(std::uint32_t(data[4])<<16)|(std::uint32_t(data[5])<<8)|data[6];
-        targets[axis]=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : raw;
+        targets[axis]=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : static_cast<std::int32_t>(raw);
         if(!frozen[axis]) positions[axis]=targets[axis];return; // brak jakiegokolwiek ACK
       }
       case 0xf6:case 0xfe:return;

@@ -434,5 +434,47 @@
     ],
     "workload": "Bootstrap i skan atrap 6 osi; prepare starego planu, transakcja przełożeń 1..6 z ENABLE=0, prepare nowej rewizji z ENABLE=1. Bez wykonania programu i fizycznego CAN; przed poprawką nowe prepare odrzucane.",
     "technical_only": false
+  },
+  "planner.reference": {
+    "language": "cpp",
+    "target": "planner_reference",
+    "adapter_sources": [
+      "benchmarks/planner_motion.cpp",
+      "ros2_ws/src/robot_description/urdf/preview_6dof.example.urdf"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/robot_motion_planner/src/planner.cpp",
+        "symbols": [
+          "compute_physical_ptp",
+          "compute_physical_motion",
+          "compute_preview",
+          "compute_impl"
+        ]
+      }
+    ],
+    "workload": "Cykl: dotychczasowy fizyczny PTP i podgląd LIN, sześć syntetycznych profili i ten sam cel; bez ROS node i CAN.",
+    "technical_only": false
+  },
+  "planner.physical_lin": {
+    "language": "cpp",
+    "target": "planner_physical_lin",
+    "adapter_sources": [
+      "benchmarks/planner_motion.cpp",
+      "ros2_ws/src/robot_description/urdf/preview_6dof.example.urdf"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/robot_motion_planner/src/planner.cpp",
+        "symbols": [
+          "compute_physical_ptp",
+          "compute_physical_motion",
+          "compute_preview",
+          "compute_impl"
+        ]
+      }
+    ],
+    "workload": "Cykl: nowy fizyczny LIN z posuwem TCP, sześć syntetycznych profili; bez ROS node i CAN. Nowa funkcja bez wcześniejszej bazy.",
+    "technical_only": false
   }
 }

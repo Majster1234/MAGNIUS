@@ -321,18 +321,26 @@ Plan compute(const Context &c,const std::vector<Pose> &targets,double p_tol,doub
              const std::array<int64_t,6> &codes,const std::function<bool()> &cancelled,const std::function<void(float,const std::string&)> &progress) {
   return compute_impl(c,targets,p_tol,r_tol,v_scale,a_scale,codes,cancelled,progress);
 }
-Plan compute_physical_ptp(const Context &c,const robot_kinematics::Joints &target,const std::array<int64_t,6> &codes,
-    const std::function<bool()> &cancelled,const std::function<void(float,const std::string&)> &progress) {
+Plan compute_physical_motion(const Context &c,const robot_kinematics::Joints &target,uint8_t type,const std::array<int64_t,6> &codes,
+    const std::function<bool()> &cancelled,const std::function<void(float,const std::string&)> &progress,const TcpLimits &tcp) {
   validate_context(c);
-  if(c.simulation_only) throw std::invalid_argument("Fizyczny PTP wymaga kontekstu pomiarowego");
+  if(c.simulation_only || type>1) throw std::invalid_argument("Fizyczny PTP/LIN wymaga kontekstu pomiarowego i poprawnego typu ruchu");
+  if(type==1 ? (!std::isfinite(tcp.velocity) || tcp.velocity<=0 || !std::isfinite(tcp.acceleration) || tcp.acceleration<=0 ||
+      !std::isfinite(tcp.angular_velocity) || tcp.angular_velocity<=0) :
+      (tcp.velocity!=0 || tcp.acceleration!=0 || tcp.angular_velocity!=0))
+    throw std::invalid_argument("LIN wymaga dodatnich limitów TCP; PTP wymaga zerowych pól TCP");
   for(unsigned j=0;j<6;++j) {
     if(c.locked[j] || !std::isfinite(target[j]) || target[j]<c.lower[j] || target[j]>c.upper[j])
-      throw std::invalid_argument("Cel PTP poza limitami lub zablokowana oś");
+      throw std::invalid_argument("Cel PTP/LIN poza limitami lub zablokowana oś");
     if(c.simulated_start[j] ? !c.allow_missing_execution : !c.profiles[j].configured)
       throw std::invalid_argument("Założona pozycja wymaga trybu niepełnego zestawu; obecna oś wymaga profilu");
   }
   robot_kinematics::Model model(c.urdf,c.lower,c.upper);
-  return compute_impl(c,{model.fk(target)},1e-4,3.141592653589793/1800,1,1,codes,cancelled,progress,&target,true);
+  return compute_impl(c,{model.fk(target)},1e-4,3.141592653589793/1800,1,1,codes,cancelled,progress,&target,type==0,tcp);
+}
+Plan compute_physical_ptp(const Context &c,const robot_kinematics::Joints &target,const std::array<int64_t,6> &codes,
+    const std::function<bool()> &cancelled,const std::function<void(float,const std::string&)> &progress) {
+  return compute_physical_motion(c,target,0,codes,cancelled,progress);
 }
 Plan compute_preview(const Context &c,const robot_kinematics::Joints &target,uint8_t type,const std::array<int64_t,6> &codes,
              const std::function<bool()> &cancelled,const std::function<void(float,const std::string&)> &progress,const TcpLimits &tcp) {

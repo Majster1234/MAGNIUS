@@ -15,6 +15,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/JogJoint.srv" "srv/ConfigureRobot.srv" "srv/ConfigurationCommand.srv"
   "msg/MotionSettings.msg" "msg/MotionProgramStatus.msg"
   "srv/PrepareMotionProgram.srv" "srv/GetMotionProgram.srv" "action/ExecuteMotionProgram.action" "action/ComputePhysicalPtp.action"
+  "action/ComputePhysicalMotion.action"
   DEPENDENCIES geometry_msgs trajectory_msgs)
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

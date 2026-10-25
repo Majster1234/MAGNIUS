@@ -10,7 +10,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     onEditingReady?: (ready: boolean) => void;
     beforePlanning?: () => Promise<void>;
     showMotionFrames?: boolean; onShowMotionFrames?: (show: boolean) => void;
-    onPlanReady?: (id: string | null) => void;
+    onPlanReady?: (id: string | null, type?: "PTP" | "LIN" | null) => void;
     onPreparedPreview?: (callback: ((plan: CartesianPlan) => void) | null) => void;
 }) {
     const [planId, setPlanId] = useState<string | null>(null);
@@ -45,9 +45,12 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     }
     function stop() { armed.current = false; interrupt(); setMessage("Podgląd zatrzymany. Wybierz PTP/LIN, aby uruchomić go ponownie."); }
     function changePtpParameter(setValue: (value: string) => void, value: string) {
-        armed.current = false; interrupt(); setPlanId(null); onPlanReady?.(null); onMotion(null, null);
+        armed.current = false; interrupt(); setPlanId(null); onPlanReady?.(null, choice); onMotion(null, null);
         setValue(value);
         setMessage("Parametry PTP zmienione. Wybierz PTP, aby przeliczyć plan; potem przygotuj i zatwierdź ruch ponownie.");
+    }
+    function changeLinParameter(setValue: (value: string) => void, value: string) {
+        interrupt(); setPlanId(null); onPlanReady?.(null, choice); onMotion(null, null); setValue(value);
     }
     useEffect(() => {
         mounted.current = true;
@@ -150,7 +153,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         armed.current = false;generation.current++;cancelAnimationFrame(animation.current);
         setBusy(false);setPlaying(true);
         const current = generation.current, epoch = performance.now(), total = pointTime(plan.trajectory.points.at(-1)!);
-        setMessage(`Podgląd przygotowanego PTP · ${total.toFixed(2)} s · fizyczne wykonanie wymaga zatwierdzenia`);
+        setMessage(`Podgląd przygotowanego ${plan.motion_type} · ${total.toFixed(2)} s · fizyczne wykonanie wymaga zatwierdzenia`);
         function frame(now: number) {
             if (!mounted.current || generation.current !== current) return;
             const seconds = Math.min(total, (now - epoch) / 1000);
@@ -159,7 +162,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         }
         animation.current = requestAnimationFrame(frame);
     }, [onMotion]);
-    useEffect(() => { onPlanReady?.(choice === "PTP" ? planId : null);return () => onPlanReady?.(null); }, [choice, planId, onPlanReady]);
+    useEffect(() => { onPlanReady?.(planId, choice);return () => onPlanReady?.(null); }, [choice, planId, onPlanReady]);
     useEffect(() => { onPreparedPreview?.(showPrepared);return () => onPreparedPreview?.(null); }, [showPrepared, onPreparedPreview]);
     const invalidStart = context?.preview_seed_degrees.some((q, i) => q < context.profiles[i].lower || q > context.profiles[i].upper);
     return <div className="cartesian-planning motion-selection" aria-label="Podgląd ruchu PTP/LIN">
@@ -194,9 +197,9 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                         onChange={e => setOverrides(old => old.map((q, j) => j === i ? e.target.value : q))} /></label>)}</div>
             </details>
             {choice === "LIN" && <details><summary>Prędkość podglądu LIN</summary><div className="cartesian-target">
-                    <label>Prędkość TCP mm/s<input type="number" min="0.01" max="10000" value={tcpVelocity} onChange={e => setTcpVelocity(e.target.value)} /></label>
-                    <label>Przysp. TCP mm/s²<input type="number" min="0.01" max="100000" value={tcpAcceleration} onChange={e => setTcpAcceleration(e.target.value)} /></label>
-                    <label>Obrót TCP °/s<input type="number" min="0.01" max="360" value={tcpAngularVelocity} onChange={e => setTcpAngularVelocity(e.target.value)} /></label>
+                    <label>Prędkość TCP mm/s<input type="number" min="0.01" max="10000" value={tcpVelocity} onChange={e => changeLinParameter(setTcpVelocity, e.target.value)} /></label>
+                    <label>Przysp. TCP mm/s²<input type="number" min="0.01" max="100000" value={tcpAcceleration} onChange={e => changeLinParameter(setTcpAcceleration, e.target.value)} /></label>
+                    <label>Obrót TCP °/s<input type="number" min="0.01" max="360" value={tcpAngularVelocity} onChange={e => changeLinParameter(setTcpAngularVelocity, e.target.value)} /></label>
             </div></details>}
         </div>
     </div>;

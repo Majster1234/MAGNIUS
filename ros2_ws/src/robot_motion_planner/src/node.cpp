@@ -2,6 +2,8 @@
 #include "robot_control_interfaces/action/compute_cartesian_path.hpp"
 #include "robot_control_interfaces/action/compute_preview_motion.hpp"
 #include "robot_control_interfaces/action/compute_physical_ptp.hpp"
+#include "robot_control_interfaces/action/compute_physical_motion.hpp"
+#include <type_traits>
 #include "robot_control_interfaces/msg/robot_configuration.hpp"
 #include "robot_control_interfaces/srv/solve_ik.hpp"
 #include "robot_control_interfaces/msg/manual_state.hpp"
@@ -17,7 +19,7 @@ using Action=robot_control_interfaces::action::ComputeCartesianPath;
 using Handle=rclcpp_action::ServerGoalHandle<Action>;
 using PreviewAction=robot_control_interfaces::action::ComputePreviewMotion;
 using PhysicalAction=robot_control_interfaces::action::ComputePhysicalPtp;
-using PhysicalHandle=rclcpp_action::ServerGoalHandle<PhysicalAction>;
+using MotionAction=robot_control_interfaces::action::ComputePhysicalMotion;
 using PreviewHandle=rclcpp_action::ServerGoalHandle<PreviewAction>;
 class PlannerNode : public rclcpp::Node {
  public:
@@ -64,30 +66,40 @@ class PlannerNode : public rclcpp::Node {
       }, [](const std::shared_ptr<PreviewHandle>) { return rclcpp_action::CancelResponse::ACCEPT; },
       [this](const std::shared_ptr<PreviewHandle> handle) {
         if(worker_.joinable()) worker_.join(); worker_=std::thread([this,handle]() { execute_preview(handle); }); });
-    physical_=rclcpp_action::create_server<PhysicalAction>(this,"/robot/planning/compute_physical_ptp",
-      [this](const rclcpp_action::GoalUUID &,std::shared_ptr<const PhysicalAction::Goal> goal) {
-        try { validate_context(goal->context);guard(goal->context); } catch(...) { return rclcpp_action::GoalResponse::REJECT; }
-        if(goal->context.simulation_only || busy_.exchange(true)) return rclcpp_action::GoalResponse::REJECT;
-        return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
-      },[](const std::shared_ptr<PhysicalHandle>) { return rclcpp_action::CancelResponse::ACCEPT; },
-      [this](const std::shared_ptr<PhysicalHandle> handle) {
-        if(worker_.joinable()) worker_.join();
-        worker_=std::thread([this,handle] {
-          auto result=std::make_shared<PhysicalAction::Result>();
-          try {
-            const auto goal=handle->get_goal();
-            result->plan=compute_physical_ptp(goal->context,goal->target_positions,codes_,
-              [&] { return stopping_ || handle->is_canceling() || !context_valid(goal->context); },
-              [&](float progress,const std::string &phase) { auto feedback=std::make_shared<PhysicalAction::Feedback>();feedback->progress=progress;feedback->phase=phase;handle->publish_feedback(feedback); });
-            guard(goal->context);result->success=true;result->message="Fizyczny PTP obliczony; wymagane przygotowanie wykonawcy";
-            if(handle->is_canceling()) handle->canceled(result);else handle->succeed(result);
-          } catch(const std::exception &e) { result->message=e.what();if(handle->is_canceling()) handle->canceled(result);else handle->abort(result); }
-          busy_=false;
-        });
-      });
+    physical_=physical_server<PhysicalAction>("/robot/planning/compute_physical_ptp");
+    physical_motion_=physical_server<MotionAction>("/robot/planning/compute_physical_motion");
   }
   ~PlannerNode() override { stopping_=true; if(worker_.joinable()) worker_.join(); }
  private:
+  template<class A> typename rclcpp_action::Server<A>::SharedPtr physical_server(const std::string &name) {
+    using H=rclcpp_action::ServerGoalHandle<A>;
+    return rclcpp_action::create_server<A>(this,name,
+      [this](const rclcpp_action::GoalUUID &,std::shared_ptr<const typename A::Goal> goal) {
+        try { validate_context(goal->context);guard(goal->context); } catch(...) { return rclcpp_action::GoalResponse::REJECT; }
+        if constexpr(std::is_same_v<A,MotionAction>) if(goal->motion_type>1) return rclcpp_action::GoalResponse::REJECT;
+        if(goal->context.simulation_only || busy_.exchange(true)) return rclcpp_action::GoalResponse::REJECT;
+        return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+      },[](const std::shared_ptr<H>) { return rclcpp_action::CancelResponse::ACCEPT; },
+      [this](const std::shared_ptr<H> handle) {
+        if(worker_.joinable()) worker_.join();
+        worker_=std::thread([this,handle] { execute_physical<A>(handle); });
+      });
+  }
+  template<class A> void execute_physical(const std::shared_ptr<rclcpp_action::ServerGoalHandle<A>> &handle) {
+    auto result=std::make_shared<typename A::Result>();
+    try {
+      const auto goal=handle->get_goal();uint8_t type=0;TcpLimits tcp;
+      if constexpr(std::is_same_v<A,MotionAction>) {
+        type=goal->motion_type;tcp={goal->tcp_velocity,goal->tcp_acceleration,goal->tcp_angular_velocity};
+      }
+      result->plan=compute_physical_motion(goal->context,goal->target_positions,type,codes_,
+        [&] { return stopping_ || handle->is_canceling() || !context_valid(goal->context); },
+        [&](float progress,const std::string &phase) { auto feedback=std::make_shared<typename A::Feedback>();feedback->progress=progress;feedback->phase=phase;handle->publish_feedback(feedback); },tcp);
+      guard(goal->context);result->success=true;result->message="Fizyczny "+result->plan.motion_type+" obliczony; wymagane przygotowanie wykonawcy";
+      if(handle->is_canceling()) { result->success=false;handle->canceled(result); } else handle->succeed(result);
+    } catch(const std::exception &e) { result->message=e.what();if(handle->is_canceling()) handle->canceled(result);else handle->abort(result); }
+    busy_=false;
+  }
   void guard(const Context &context) {
     std::lock_guard<std::mutex> lock(mutex_);
     if(model_id_!=context.model_id || xml_!=context.urdf)
@@ -150,6 +162,7 @@ class PlannerNode : public rclcpp::Node {
   rclcpp_action::Server<Action>::SharedPtr action_;
   rclcpp_action::Server<PreviewAction>::SharedPtr preview_;
   rclcpp_action::Server<PhysicalAction>::SharedPtr physical_;
+  rclcpp_action::Server<MotionAction>::SharedPtr physical_motion_;
 };
 }
 int main(int argc,char **argv) {

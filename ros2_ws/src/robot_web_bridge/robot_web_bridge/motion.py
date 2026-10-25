@@ -3,7 +3,7 @@ import asyncio
 import math
 import time
 import uuid
-from .planning import configuration_ready, ros_result
+from .planning import configuration_ready, lin_limits, ros_result
 
 
 class MotionConflict(ValueError):
@@ -13,14 +13,14 @@ class MotionConflict(ValueError):
 class MotionClient:
     def __init__(self, node, planning, configuration):
         from rclpy.action import ActionClient
-        from robot_control_interfaces.action import ComputePhysicalPtp, ExecuteMotionProgram
+        from robot_control_interfaces.action import ComputePhysicalMotion, ExecuteMotionProgram
         from robot_control_interfaces.srv import PrepareMotionProgram, GetMotionProgram
         from std_srvs.srv import Trigger
         from controller_manager_msgs.srv import ListControllers, SwitchController
         self.planning, self.configuration = planning, configuration
-        self.physical_type, self.execute_type = ComputePhysicalPtp, ExecuteMotionProgram
+        self.physical_type, self.execute_type = ComputePhysicalMotion, ExecuteMotionProgram
         self.prepare_type, self.status_type, self.stop_type = PrepareMotionProgram, GetMotionProgram, Trigger
-        self.physical = ActionClient(node, ComputePhysicalPtp, '/robot/planning/compute_physical_ptp')
+        self.physical = ActionClient(node, ComputePhysicalMotion, '/robot/planning/compute_physical_motion')
         self.executor = ActionClient(node, ExecuteMotionProgram, '/robot/motion/execute_program')
         self.prepare_client = node.create_client(PrepareMotionProgram, '/robot/motion/prepare_program')
         self.status_client = node.create_client(GetMotionProgram, '/robot/motion/program_status')
@@ -42,7 +42,14 @@ class MotionClient:
     async def status(self):
         from rosidl_runtime_py.convert import message_to_ordereddict
         response = await self.call(self.status_client, self.status_type.Request())
-        return {**message_to_ordereddict(response.status), 'preparation': dict(self.preparation)}
+        return {**message_to_ordereddict(response.status), 'preparation': dict(self.preparation),
+                'motion_type': self.program_motion_type(response.status.program_id)}
+
+    def program_motion_type(self, program_id):
+        plan = getattr(self, 'physical_plan', None)
+        if program_id and program_id == getattr(self, 'prepared_program_id', None) and plan is not None:
+            return plan.motion_type if plan.motion_type in ('PTP', 'LIN') else None
+        return None
 
     async def prepare(self, data):
         async with self.lock:
@@ -52,8 +59,10 @@ class MotionClient:
             if status['busy']:
                 raise MotionConflict('Trwa wykonanie programu')
             plan = await self.planning.get_plan(data.get('plan_id'))
-            if plan.get('motion_type') != 'PTP' or not plan.get('simulation_only'):
-                raise ValueError('Wybierz zapisany podgląd PTP; fizyczny LIN nie jest jeszcze dostępny')
+            if plan.get('motion_type') not in ('PTP', 'LIN') or not plan.get('simulation_only'):
+                raise ValueError('Wybierz zapisany podgląd PTP lub LIN')
+            if plan['motion_type'] == 'LIN':
+                lin_limits(plan.get('execution_limits', {}), require_all=True)
             code, settings = await self.configuration('system_get')
             if code != 200:
                 raise RuntimeError('Brak potwierdzonych ustawień ruchu')
@@ -73,7 +82,8 @@ class MotionClient:
                 if source != 'measured':
                     seeds[j] = math.degrees(plan['start_positions'][j])
             identifier = uuid.uuid4().hex
-            self.preparation = {'id': identifier, 'state': 'planning', 'preview_plan_id': plan['id'], 'message': 'Obliczanie fizycznego PTP'}
+            self.preparation = {'id': identifier, 'state': 'planning', 'preview_plan_id': plan['id'],
+                                'motion_type': plan['motion_type'], 'message': f"Obliczanie fizycznego {plan['motion_type']}"}
             self.task = asyncio.create_task(self.prepare_program(plan, settings, seeds, sources, snapshot, identifier))
             return dict(self.preparation)
 
@@ -84,7 +94,7 @@ class MotionClient:
         active = [item for item in listing.controller if item.state == 'active' and
                   any(name.startswith('joint_') and name.endswith(('/position', '/velocity')) for name in item.claimed_interfaces)]
         if any(item.name != self.controller for item in active):
-            raise MotionConflict('Inny kontroler posiada osie; zwolnij go przed wykonaniem PTP')
+            raise MotionConflict('Inny kontroler posiada osie; zwolnij go przed wykonaniem ruchu')
         if active:
             request = self.switch_type.Request(deactivate_controllers=[self.controller], strictness=self.switch_type.Request.STRICT)
             request.timeout.sec = 2
@@ -95,6 +105,7 @@ class MotionClient:
     async def prepare_program(self, plan, settings, seeds, sources, snapshot, identifier):
         try:
             payload = {'model_id': plan['model_id'], 'configuration_revision': plan['configuration_revision'],
+                       'motion_type': plan['motion_type'],
                        'seed_degrees': seeds, 'simulated_start': [source != 'measured' for source in sources],
                        **plan.get('execution_limits', {})}
             # Limity z podglądu są zachowane: nie zwiększamy zatwierdzanego posuwu.
@@ -104,8 +115,14 @@ class MotionClient:
             context.simulated_start = payload['simulated_start']
             context.locked = [False] * 6
             if not self.physical.server_is_ready():
-                raise RuntimeError('Planner fizycznego PTP jest niedostępny')
-            goal = self.physical_type.Goal(context=context, target_positions=plan['target_positions'])
+                raise RuntimeError('Planner fizycznego PTP/LIN jest niedostępny')
+            goal = self.physical_type.Goal(context=context, motion_type=0 if plan['motion_type'] == 'PTP' else 1,
+                                          target_positions=plan['target_positions'])
+            if plan['motion_type'] == 'LIN':
+                limits = lin_limits(plan['execution_limits'], require_all=True)
+                goal.tcp_velocity = limits['tcp_velocity_mm_s'] / 1000
+                goal.tcp_acceleration = limits['tcp_acceleration_mm_s2'] / 1000
+                goal.tcp_angular_velocity = math.radians(limits['tcp_angular_velocity_degrees_s'])
             handle = await ros_result(self.physical.send_goal_async(goal))
             if not handle.accepted:
                 raise RuntimeError('Planner odrzucił fizyczny kontekst ruchu')
@@ -114,7 +131,7 @@ class MotionClient:
             if not result.success:
                 raise ValueError(result.message)
             physical = result.plan
-            if physical.simulation_only or physical.motion_type != 'PTP' or physical.model_id != plan['model_id'] or physical.configuration_revision != plan['configuration_revision']:
+            if physical.simulation_only or physical.motion_type != plan['motion_type'] or physical.model_id != plan['model_id'] or physical.configuration_revision != plan['configuration_revision']:
                 raise ValueError('Planner zwrócił niezgodny program')
             code, current = await self.configuration('system_get')
             if code != 200 or current.get('revision') != settings['revision']:

@@ -37,3 +37,17 @@ foreach(scenario stream6 stream4 native idle20 reset)
     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:can_schedule> ${CMAKE_CURRENT_BINARY_DIR}/can_${scenario}
     DEPENDS can_schedule)
 endforeach()
+
+# Scenariusze planera wymagają środowiska ROS; pozostałe benchmarki działają bez niego.
+find_package(robot_motion_planner QUIET)
+if(robot_motion_planner_FOUND)
+  foreach(target planner_reference planner_physical_lin)
+    add_executable(${target} planner_motion.cpp ../ros2_ws/src/robot_motion_planner/src/planner.cpp)
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    target_include_directories(${target} BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/../ros2_ws/src/robot_motion_planner/include)
+    target_link_libraries(${target} PRIVATE robot_motion_planner::robot_motion_planner)
+    target_compile_definitions(${target} PRIVATE DEMO_URDF="${CMAKE_CURRENT_SOURCE_DIR}/../ros2_ws/src/robot_description/urdf/preview_6dof.example.urdf")
+  endforeach()
+  target_compile_definitions(planner_physical_lin PRIVATE PHYSICAL_LIN_BENCH)
+endif()

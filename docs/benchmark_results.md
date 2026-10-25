@@ -139,6 +139,43 @@ Automatyczne sprawdzenie warunków nie potwierdza identyczności zewnętrznego r
 
 ## Historia optymalizacji
 
+### 25.10.2026 — wspólne wykonanie PTP/LIN
+
+Zakres funkcjonalny: wspólna funkcja `compute_physical_motion` i zgodna nakładka
+PTP, nowa akcja ROS, zachowanie limitów LIN w `PlanningClient.move`, przygotowanie
+i typ programu w `MotionClient`. Wykonawca CAN zachowuje algorytm i cykl 100 Hz;
+zmiany w jego źródłach dotyczą komunikatów wspólnych dla PTP/LIN.
+Naprawa znaku 24-bitowego celu dotyczy wyłącznie emulatora testowego.
+
+`planner.reference` mierzy ten sam cykl fizycznego PTP i podglądu LIN przed/po,
+30 cykli × 7 serii. Adapter kompiluje rzeczywisty `planner.cpp`, korzystając
+z zależności ROS; nie uruchamia węzłów ani CAN. `motion.configuration` mierzy
+kontekst, wejście przygotowania i bramkę wykonania na atrapach usług w stanach
+idle/done/committing, 600 cykli × 7 serii.
+
+| Scenariusz / miara [µs/cykl] | Przed: mediana (min–max) | Po: mediana (min–max) | Zmiana |
+| --- | ---: | ---: | ---: |
+| planner.reference wall | 7182,511 (7100,310–7258,249) | 7297,453 (7071,052–7607,725) | +1,60% |
+| planner.reference CPU | 7179,179 (7099,256–7245,973) | 7257,521 (7066,874–7420,492) | +1,09% |
+| motion.configuration wall | 472,926 (469,523–474,900) | 481,834 (476,023–485,748) | +1,88% |
+| motion.configuration CPU | 472,885 (469,496–474,899) | 479,594 (475,577–485,603) | +1,42% |
+
+Nowa ścieżka `planner.physical_lin`: 40 cykli × 7 serii, wall 5131,463 µs
+(5036,794–5174,708), CPU 5119,586 µs (5036,067–5150,665). Brak wcześniejszej
+bazy fizycznego LIN, więc nie przypisujemy jej procentowej poprawy.
+Wspólny kod planera ma niewielki wzrost mediany przy nakładających się zakresach;
+nie wykazano przyspieszenia ani wpływu na fizyczną płynność.
+
+Metadane: i5-7500T, 4 CPU, powersave, Linux 6.8.0-138-generic, GCC 11.4.0,
+Release `-O1 -DNDEBUG`; most CPython 3.10.12 bez optymalizacji. Raporty, hashe
+i porównania `comparable`: `log/lin-20261025/{planner,bridge}-{before,after,compare}.json`,
+nowy LIN: `physical-lin.json`. Konstrukcji nowego serwera ROS, RTT usług,
+`prepare_program` i rozszerzonego statusu HTTP nie zmierzono osobno.
+Nie zmieniono cyklu okresowego CAN; brak porównania CPU procesu produkcyjnego,
+bo nowy backend oczekuje na restart operatora i nie ma bazy o tym samym obciążeniu.
+Testy obejmują planner, rzeczywistą akcję ROS, trajektorię LIN na emulatorze,
+bramki API i Chromium; odbiór sprzętowego toru TCP pozostaje osobnym zadaniem.
+
 ### 25.10.2026 — rewizja PTP po rzeczywistej zmianie konfiguracji
 
 Zakres: `CanBusManager::configure_program_authorization/prepare_program`,

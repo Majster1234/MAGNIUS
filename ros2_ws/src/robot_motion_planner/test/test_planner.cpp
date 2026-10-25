@@ -257,3 +257,57 @@ TEST(PhysicalPtp, ReplansPhysicalContextAndMarksMissingReferencesExplicitly) {
   const auto partial=compute_physical_ptp(c,target,codes);EXPECT_TRUE(partial.simulated_start[5]);
   c.simulation_only=true;EXPECT_THROW(compute_physical_ptp(c,target,codes),std::invalid_argument);
 }
+
+TEST(PhysicalMotion, LinPreservesFullPoseAndTcpLimitsBetweenSamples) {
+  auto c=context();c.seed[4]=.8;
+  for(auto &p:c.profiles) p.configured=true;
+  std::array<int64_t,6> codes;codes.fill(-1);
+  robot_kinematics::Model model(c.urdf,c.lower,c.upper);
+  for(unsigned kind=0;kind<3;++kind) {
+    auto target=c.seed;
+    if(kind==0) {
+      auto pose=model.fk(c.seed);pose.translation().x()+=.002;
+      const auto answer=model.solve(pose,c.seed,c.locked,1e-7,1e-6);ASSERT_TRUE(answer.success);
+      target=answer.positions;
+    } else if(kind==1) target[5]+=.02;
+    else {target[0]+=.005;target[1]+=.003;}
+    const TcpLimits limits{.005,.05,.1};
+    const auto p=compute_physical_motion(c,target,1,codes,{}, {},limits);
+    EXPECT_FALSE(p.simulation_only);EXPECT_FALSE(p.execution_ready);EXPECT_EQ(p.motion_type,"LIN");
+    const auto start=model.fk(c.seed),end=model.fk(target);const auto d=(end.translation()-start.translation()).eval();
+    const double total=time_of(p.trajectory.points.back()),h=1e-4;
+    for(double t=.001;t<total-.001;t+=.005) {
+      const auto q=position_at(p,t);const auto pose=model.fk(q);
+      const auto a=model.fk(position_at(p,t-h)),b=model.fk(position_at(p,t+h));
+      const double u=d.squaredNorm()>1e-8 ? std::clamp((pose.translation()-start.translation()).dot(d)/d.squaredNorm(),0.,1.) :
+        std::clamp(Eigen::AngleAxisd(pose.rotation()*start.rotation().transpose()).angle()/Eigen::AngleAxisd(end.rotation()*start.rotation().transpose()).angle(),0.,1.);
+      const auto expected=robot_kinematics::interpolate(start,end,u);
+      EXPECT_LE((pose.translation()-expected.translation()).norm(),1e-4);
+      EXPECT_LE(Eigen::AngleAxisd(pose.rotation()*expected.rotation().transpose()).angle(),.1*rad);
+      EXPECT_LE((b.translation()-a.translation()).norm()/(2*h),limits.velocity+1e-5);
+      EXPECT_LE(Eigen::AngleAxisd(b.rotation()*a.rotation().transpose()).angle()/(2*h),limits.angular_velocity+1e-5);
+      EXPECT_LE((b.translation()-2*pose.translation()+a.translation()).norm()/(h*h),limits.acceleration+1e-3);
+    }
+    check_interpolation(p,c,model);
+    for(unsigned j=0;j<6;++j) EXPECT_NEAR(p.trajectory.points.back().positions[j],target[j],1e-9);
+  }
+}
+TEST(PhysicalMotion, RequiresLinFeedAndRejectsInvalidContextBranchAndCancellation) {
+  auto c=context();for(auto &p:c.profiles) p.configured=true;
+  std::array<int64_t,6> codes;codes.fill(-1);auto target=c.seed;target[0]+=.005;
+  const TcpLimits feed{.05,.1,.2};
+  for(const auto &limits:{TcpLimits{},TcpLimits{NAN,.1,.2},TcpLimits{.05,0,.2},TcpLimits{.05,.1,-1}})
+    EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},limits),std::invalid_argument);
+  EXPECT_THROW(compute_physical_motion(c,target,2,codes,{}, {},feed),std::invalid_argument);
+  EXPECT_THROW(compute_physical_motion(c,target,0,codes,{}, {},feed),std::invalid_argument);
+  EXPECT_THROW(compute_physical_motion(c,target,1,codes,[]{return true;},{},feed),std::runtime_error);
+  c.simulation_only=true;EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},feed),std::invalid_argument);
+  c.simulation_only=false;c.simulated_start[5]=true;
+  EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},feed),std::invalid_argument);
+  c.allow_missing_execution=true;
+  EXPECT_TRUE(compute_physical_motion(c,target,1,codes,{}, {},feed).simulated_start[5]);
+  c.locked[0]=true;EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},feed),std::invalid_argument);
+  c.locked[0]=false;c.lower.fill(-20);c.upper.fill(20);target=c.seed;target[5]+=2*3.141592653589793;
+  EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},feed),std::runtime_error);
+  target[0]=21;EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},feed),std::invalid_argument);
+}

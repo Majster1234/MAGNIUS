@@ -169,7 +169,7 @@ Testy obejmują schema/storage/transakcje, prawdziwy ROS/RSP/TF na atrapie stero
 emulator C++ i Chromium z WebGL. Bieżące wyniki i ograniczenia odbioru: `AGENTS.md`.
 Testy sprzętowe raportujemy osobno. Przełożenia w testach nie są danymi fizycznego robota.
 
-## Fizyczny PTP i niepełny zestaw napędów
+## Fizyczny PTP/LIN i niepełny zestaw napędów
 
 Aktywna rewizja jest identyfikatorem zatwierdzonej konfiguracji, a nie wartością
 przełożenia. Rzeczywisty zapis nadaje nową rewizję również po wczytaniu dawnego
@@ -184,8 +184,9 @@ nie przywraca jego gotowości. Podgląd i fizyczny plan trzeba przygotować pono
 Dawny `execution_configuration_revision` jest przyjmowany, lecz ignorowany.
 `execution_enabled`, kalibracja, postój/ENABLE oraz ograniczenia osi nadal obowiązują.
 
-Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
+Fizyczny PTP/LIN ma odrębne przygotowanie, wspólny lokalny wykonawca C++ i jawne zatwierdzenie.
 Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
 nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
 Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
-Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.
+Sam podgląd PTP/LIN pozostaje symulacją. Przy niepełnym zestawie próba LIN
+nie potwierdza prostoliniowości ani osiągnięcia TCP; panel oznacza to jawnie.

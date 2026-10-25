@@ -91,6 +91,10 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const beforePlanning = useCallback(async () => { await tcpStepControl.current?.settled(); }, []);
     const onEditingReady = useCallback((ready: boolean) => { tcpPlannerReady.current = ready; }, []);
     const [physicalPlanId, setPhysicalPlanId] = useState<string | null>(null);
+    const [physicalMotionType, setPhysicalMotionType] = useState<"PTP" | "LIN" | null>(null);
+    const receivePhysicalPlan = useCallback((id: string | null, type?: "PTP" | "LIN" | null) => {
+        setPhysicalPlanId(id); setPhysicalMotionType(type ?? null);
+    }, []);
     const preparedPreview = useRef<((plan: CartesianPlan) => void) | null>(null);
     const registerPreparedPreview = useCallback((callback: ((plan: CartesianPlan) => void) | null) => { preparedPreview.current = callback; }, []);
     const showPreparedPreview = useCallback((plan: CartesianPlan) => { preparedPreview.current?.(plan); }, []);
@@ -332,9 +336,9 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         <div className="manual-tools"><TcpControls allowed={tcpAllowed && plan.activeAxis === 0} planning={planning} held={tcpHeld} stepAvailable={!!context?.tcp_step_available}
             missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} />
         {planning && <div className="manual-simulation"><CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}
-            showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={setPhysicalPlanId} onPreparedPreview={registerPreparedPreview} /></div>}
-        <div className="manual-simulation"><MotionExecution planId={physicalPlanId} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onStatus={setExecution} /></div>
-        <aside className="can-note"><span className="manual-info-icon" aria-hidden="true">i</span><div><h2>{planning ? "Plan lokalny" : "Obsługa JOG"}</h2><p>{planning ? "JOG i TCP poruszają bliźniakiem. Fizyczny PTP wymaga osobnego przygotowania i zatwierdzenia. ENABLE i zerowanie są tu zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p></div></aside>
+            showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={receivePhysicalPlan} onPreparedPreview={registerPreparedPreview} /></div>}
+        <div className="manual-simulation"><MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onStatus={setExecution} /></div>
+        <aside className="can-note"><span className="manual-info-icon" aria-hidden="true">i</span><div><h2>{planning ? "Plan lokalny" : "Obsługa JOG"}</h2><p>{planning ? "JOG i TCP poruszają bliźniakiem. Fizyczny PTP/LIN wymaga osobnego przygotowania i zatwierdzenia. ENABLE i zerowanie są tu zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p></div></aside>
         </div></div></div>
     </section>;
 }

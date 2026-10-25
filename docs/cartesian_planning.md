@@ -2,7 +2,7 @@
 
 Panel oblicza pojedynczy ruch i odtwarza go na dodatkowym bliźniaku. Każdy wynik
 podglądu ma `execution_ready=false`, także przy poprawnych ramkach MKS. Fizyczny
-PTP ma odrębny interfejs opisany w [motion_execution.md](motion_execution.md). Planner nie otwiera SocketCAN ani nie wysyła ENABLE, zero lub JOG.
+PTP/LIN ma odrębny interfejs opisany w [motion_execution.md](motion_execution.md). Planner nie otwiera SocketCAN ani nie wysyła ENABLE, zero lub JOG.
 Model demonstracyjny pozwala ocenić obliczenia, nie potwierdza geometrii robota.
 
 ## Obsługa panelu
@@ -164,6 +164,8 @@ Odpowiedź zawiera `positions_degrees[6]`, `tcp` w mm/°, trzy identyfikatory ko
 | --- | --- |
 | `/robot/planning/solve_ik` | `SolveIK`; także FK przez `forward_only` |
 | `/robot/planning/compute_preview_motion` | `ComputePreviewMotion`; kontekst, PTP/LIN, sześć docelowych kątów, postęp/anulowanie |
+| `/robot/planning/compute_physical_motion` | `ComputePhysicalMotion`; fizyczny PTP/LIN od pomiarów, limity TCP w SI |
+| `/robot/planning/compute_physical_ptp` | Zachowane `ComputePhysicalPtp`; zgodna nakładka dla PTP |
 | `/robot/planning/compute_cartesian_path` | Zachowane `ComputeCartesianPath`; do 32 celów TCP, tolerancje zaokrągleń i skale czasu |
 | `/robot/preview/robot_description` | URDF, transient local |
 | `/robot/configuration/active` | `RobotConfiguration`, transient local, co 500 ms |
@@ -199,32 +201,23 @@ W ROS obowiązują SI i kwaterniony. Zmiana wspólnego ustawienia:
 `GET/PUT /api/v1/configuration/system`, pole `ignore_missing_drivers`, przez operacje
 `system_get/system_set` istniejącej usługi `ConfigurationCommand`.
 
-## Podgląd MKS i przyszłe wykonanie
+## Podgląd MKS i wykonanie
 
 `mks_servo_can::compile_motor_sample` przelicza q przez przełożenie, kierunek i offset
-na 16384 jednostki enkodera/obrót wału, sprawdza zakres F5 ±8388607 i błąd kwantyzacji.
-RPM wynika z pochodnej i przyrostu pozycji w cyklu, w zakresie profilu oraz 1–3000.
-Ruch poniżej 1 RPM lub zmiana kierunku wewnątrz próbki może odrzucić podgląd MKS,
-zachowując trajektorię symulacji. Utrzymanie celu używa RPM=1, nie `speed=0` oznaczającego stop.
+na 16384 jednostki enkodera/obrót wału. Generator F5 ogranicza pozycję i RPM do
+reprezentacji napędu oraz profilu. Uwzględnia lookahead; prędkość pochodzi z v(t).
+Poniżej minimum używa holding RPM, nie `speed=0` oznaczającego stop. Nie zapewnia
+to płynnego śledzenia bardzo małych prędkości.
 
-Sześć kodów `mks_acceleration_codes` wymaga potwierdzenia 1–255; przykład ma `-1`.
+Sześć kodów `mks_acceleration_codes` musi mieścić się w 1–255; przykład ma 135.
 Kod producenta nie jest rad/s². Bez pełnego profilu lub kodów `mks_compatible=false`.
-Podgląd zawiera co 20 ms pozycje, RPM, acc, operacje i 48 bajtów F5 z CRC.
-Znacznik podglądu opisuje punkt referencji q(t). Wykonawca fizyczny kompiluje
-odrębne zestawy: SYNC w t uruchamia cel q(t+20 ms). Podgląd referencji nie jest
-kolejką gotowych ramek wykonawcy ani potwierdzeniem wykonania na sprzęcie.
-F5 nie zadaje czasu dojazdu, ACK nie oznacza osiągnięcia celu. Przygotowanie sześciu
-komend i komplet ACK muszą poprzedzać SYNC, także pierwszy w chwili 0.
-Nie zakładamy kolejki przyszłych odcinków w napędzie.
-
-Istniejący manager odrzuca przeterminowane zestawy i wymaga kompletu ACK.
-`CanSystem`/przykład JTC obsługują position+velocity, starszy interfejs position nadal
-szacuje prędkość z różnic pozycji. Bramki `FollowJointTrajectory`, aktywacja, lease i stop
-pozostają obowiązujące. Lokalny wykonawca PTP wymaga zatwierdzenia programu po id,
-zgodności startu/modelu/rewizji, maski uczestników i odbioru sprzętowego.
-Nadzoruje terminy i błąd śledzenia oraz zatrzymuje bez automatycznego wznowienia;
-szczegóły opisuje [wykonanie PTP](motion_execution.md). Fizyczny LIN pozostaje
-kolejnym etapem.
+Podgląd zawiera co 10 ms pozycje, RPM, acc, operacje i 48 bajtów F5 z CRC.
+Nie jest kolejką ramek fizycznego wykonania ani potwierdzeniem ruchu sprzętu.
+Wykonawca PTP/LIN interpoluje q/v/a dla rzeczywistej chwili nadania, stosuje
+korekcję z pomiarów i dithering RPM. F5 nie zadaje czasu dojazdu. Streaming nie
+używa ACK ruchu ani SYNC, a dokładność pozycji jest sprawdzana na końcu programu.
+Zgodność startu/modelu/rewizji, maska uczestników, kalibracja i osobne zatwierdzenie
+obowiązują oba typy ruchu. Szczegóły: [wykonanie PTP/LIN](motion_execution.md).
 
 ## Uruchamianie i testy
 
@@ -251,10 +244,12 @@ konfigurację, limity, anulowanie i zgodność HTTP→C++. Chromium sprawdza trz
 stały start/cel, automatyczne przeliczanie, pętlę, opóźnione wyniki oraz globalny suwak
 dwóch klientów. Osobne testy CAN używają emulatora sześciu napędów.
 
-## Fizyczny PTP i niepełny zestaw napędów
+## Fizyczny PTP/LIN i niepełny zestaw napędów
 
-Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
+Fizyczny PTP/LIN ma odrębne przygotowanie, wspólny lokalny wykonawca C++ i jawne zatwierdzenie.
 Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
 nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
 Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
-Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.
+Sam podgląd nadal dotyczy symulacji. Fizyczny LIN przelicza drogę od aktualnych
+pomiarów, zachowując zatwierdzone limity TCP; niepełny zestaw jest oznaczoną próbą
+bez potwierdzenia rzeczywistego toru TCP.

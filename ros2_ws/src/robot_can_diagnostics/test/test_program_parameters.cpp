@@ -62,3 +62,25 @@ TEST_F(ProgramParameters, ExplicitMotionAckIsRejectedForStreaming) {
   auto node=std::make_shared<rclcpp::Node>("ptp_no_ack_test",options);auto bus=runtime();
   EXPECT_THROW(robot_can_diagnostics::ProgramApi api(node.get(),bus),std::invalid_argument);
 }
+TEST_F(ProgramParameters, PhysicalPtpAndLinReachAuthorizationButPreviewAndUnknownTypeDoNot) {
+  using Prepare=robot_control_interfaces::srv::PrepareMotionProgram;
+  auto node=std::make_shared<rclcpp::Node>("motion_prepare_types");auto bus=runtime();
+  robot_can_diagnostics::ProgramApi api(node.get(),bus);
+  auto client=node->create_client<Prepare>("/robot/motion/prepare_program");
+  ASSERT_TRUE(client->wait_for_service(std::chrono::seconds(2)));
+  for(unsigned kind=0;kind<4;++kind) {
+    auto request=std::make_shared<Prepare::Request>();
+    request->issued_monotonic_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(mks_servo_can::Clock::now().time_since_epoch()).count();
+    auto &plan=request->plan;plan.motion_type=kind==0 ? "PTP" : kind==3 ? "UNKNOWN" : "LIN";plan.simulation_only=kind==2;
+    for(unsigned j=0;j<6;++j) plan.trajectory.joint_names.push_back("joint_"+std::to_string(j+1));
+    for(unsigned k=0;k<2;++k) {
+      trajectory_msgs::msg::JointTrajectoryPoint point;
+      point.positions.assign(6,0);point.velocities.assign(6,0);point.accelerations.assign(6,0);point.time_from_start.sec=k;
+      plan.trajectory.points.push_back(point);
+    }
+    auto future=client->async_send_request(request);
+    ASSERT_EQ(rclcpp::spin_until_future_complete(node,future,std::chrono::seconds(3)),rclcpp::FutureReturnCode::SUCCESS);
+    const auto response=future.get();EXPECT_FALSE(response->accepted);
+    EXPECT_NE(response->message.find(kind<2 ? "wyłączone" : "Wymagany fizyczny plan"),std::string::npos)<<response->message;
+  }
+}

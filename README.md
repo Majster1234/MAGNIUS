@@ -49,8 +49,9 @@ Obsługa: [planowanie lokalne](docs/robot_preview.md#planowanie-lokalne).
 Wybór **PTP/LIN** automatycznie oblicza ruch od zapisanego startu do celu ustawionego
 JOG i odtwarza go w pętli na trzecim, pomarańczowym modelu. Nowy JOG przelicza ruch
 po puszczeniu strzałki. W **Konfiguracja → Ustawienia systemowe** wspólny suwak
-pozwala symulować wszystkie osie bez napędów. C++ używa KDL/Eigen i TOTG;
-wykonanie na robocie pozostaje zablokowane. [Instrukcja PTP/LIN i API](docs/cartesian_planning.md).
+pozwala symulować wszystkie osie bez napędów. C++ używa KDL/Eigen i TOTG.
+Fizyczny PTP/LIN wymaga osobnego przygotowania od pomiarów i jawnego zatwierdzenia;
+sam podgląd nie uruchamia robota. [Instrukcja PTP/LIN i API](docs/cartesian_planning.md).
 Przy osobliwości nadgarstka trajektoria płynnie ogranicza J4/J6 do maks. 5°/s;
 po oddaleniu dopuszczalna prędkość wraca do wartości zadanej.
 W LIN ustawiasz prędkość przesuwu TCP w mm/s, a obrót TCP ma osobny limit w °/s.
