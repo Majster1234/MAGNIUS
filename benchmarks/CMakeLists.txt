@@ -28,6 +28,10 @@ target_include_directories(can_schedule PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(can_schedule PRIVATE motion_can)
 add_executable(shaft_capture shaft_capture.cpp)
 target_link_libraries(shaft_capture PRIVATE motion_can)
+add_executable(streaming_jtc streaming_jtc.cpp)
+target_link_libraries(streaming_jtc PRIVATE motion_can)
+add_executable(ptp_revision ptp_revision.cpp)
+target_link_libraries(ptp_revision PRIVATE motion_can)
 foreach(scenario stream6 stream4 native idle20 reset)
   add_custom_target(can_${scenario}
     COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:can_schedule> ${CMAKE_CURRENT_BINARY_DIR}/can_${scenario}

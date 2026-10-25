@@ -20,6 +20,17 @@ Puste pole oznacza brak danych; zero jest wartością.
 - **Zapisz do ROS** stosuje rewizję w C++, opisie modelu i trwałym pliku.
   Nie załącza ENABLE, nie zeruje enkoderów i nie uruchamia ruchu.
 
+Ponowny zapis tych samych wartości przy potwierdzonej konfiguracji i ważnej
+kalibracji zachowuje aktywną rewizję, model oraz pliki. Nazwa i data snapshotu
+nie są zmianą parametrów fizycznych; aktywny dokument pozostaje dotychczasowy.
+Taki zapis nie wykonuje transakcji C++ i nie unieważnia autoryzacji PTP.
+Nadal sprawdzana jest rewizja bazowa i wyłączność operacji. Rzeczywista zmiana
+wartości, ponowne zatwierdzanie nieważnej kalibracji lub odzyskiwanie po błędzie
+wymagają pełnej transakcji; zmienione parametry nie są automatycznie
+stosowane przez zapis samego szkicu lub snapshotu. Po potwierdzonym zapisie do ROS
+nowa rewizja obowiązuje także dla PTP; jego przygotowanie i wykonanie są osobnymi
+operacjami operatora.
+
 Bursztynowe pola różnią się od aktywnej konfiguracji ROS. Snapshot ich nie
 odznacza. Dopiero potwierdzone zastosowanie ustanawia nową podstawę porównania.
 Powrót do wartości usuwa zaznaczenie; `100` i `100.0` oznaczają tę samą liczbę.
@@ -159,6 +170,19 @@ emulator C++ i Chromium z WebGL. Bieżące wyniki i ograniczenia odbioru: `AGENT
 Testy sprzętowe raportujemy osobno. Przełożenia w testach nie są danymi fizycznego robota.
 
 ## Fizyczny PTP i niepełny zestaw napędów
+
+Aktywna rewizja jest identyfikatorem zatwierdzonej konfiguracji, a nie wartością
+przełożenia. Rzeczywisty zapis nadaje nową rewizję również po wczytaniu dawnego
+snapshotu; ponowny zapis identycznych wartości z ważną kalibracją zachowuje ją.
+Osobny identyfikator operacji pozwala uzgadniać przerwane transakcje i odrzucać
+spóźnione żądania. Plan przechowuje rewizję konfiguracji, hash modelu i rewizję
+ustawień wykonania; przygotowanie i start sprawdzają ich aktualność.
+
+Zakończony zapis w ROS udostępnia nowy profil PTP bez zmiany YAML i bez restartu.
+Przyjęcie transakcji unieważnia wcześniej przygotowany program; wycofanie zapisu
+nie przywraca jego gotowości. Podgląd i fizyczny plan trzeba przygotować ponownie.
+Dawny `execution_configuration_revision` jest przyjmowany, lecz ignorowany.
+`execution_enabled`, kalibracja, postój/ENABLE oraz ograniczenia osi nadal obowiązują.
 
 Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
 Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;

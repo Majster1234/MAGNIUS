@@ -90,7 +90,12 @@ class Coordinator:
                 raise Conflict('Konfiguracja zmieniła się w innym panelu. Wczytaj aktywną rewizję; szkic zachowano')
             validate_transition(self.active['document'], document)
             previous = deepcopy(self.active)
-            candidate = {'revision': uuid.uuid4().hex, 'document': document}
+            unchanged = (self.operation['phase'] in ('idle', 'done') and self.operation['success'] is True
+                         and previous['document']['values'] == document['values']
+                         and not any(self.storage.calibration(previous['revision'])))
+            # Nazwa i data snapshotu nie zmieniają modelu ani profilu fizycznego.
+            # Unieważniona kalibracja nadal wymaga pełnej transakcji i postoju.
+            candidate = deepcopy(previous) if unchanged else {'revision': uuid.uuid4().hex, 'document': document}
             operation_id = uuid.uuid4().hex
             self.operation = {'id': operation_id, 'phase': 'preparing', 'message': 'Sprawdzanie warunków zastosowania', 'success': None}
             self.running = True
@@ -101,6 +106,9 @@ class Coordinator:
         attempted = False
         finishing = False
         try:
+            if candidate == previous:
+                self.phase('done', 'Parametry bez zmian; zachowano aktywną rewizję konfiguracji', True)
+                return
             journal['previous_calibration'] = self.storage.calibration(previous['revision'])
             self.storage.atomic('pending.json', journal)
             attempted = True

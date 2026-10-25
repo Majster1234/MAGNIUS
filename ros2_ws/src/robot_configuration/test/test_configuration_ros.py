@@ -112,6 +112,21 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
             sample=JointState(name=['joint_1'],position=[0.]);sample.header.stamp=probe.get_clock().now().to_msg();publisher.publish(sample);time.sleep(.05)
         assert math.isclose(transforms['preview/link_1'].transform.translation.x,.123,abs_tol=1e-9)
         assert command('apply',document=document,expected_revision='initial')[0]==409
+        # Sam zapis tych samych wartości nie zmienia rewizji/modelu ani nie wysyła PREPARE.
+        profile_count = len(profiles)
+        document['created_at'] = '2026-10-25T01:00:00Z'
+        for _ in range(2):
+            assert command('apply', document=document, expected_revision=revision)[0] == 202
+            deadline = time.monotonic()+5
+            while time.monotonic()<deadline:
+                _, state = command('status')
+                if state['operation']['phase'] == 'done':
+                    break
+                time.sleep(.02)
+            assert state['operation']['success'] is True and state['active']['revision'] == revision
+        assert len(profiles) == profile_count and runtime['revision'] == revision
+        assert json.loads((tmp_path/'configuration/active.json').read_text()) == saved
+        assert node.coordinator.transport.description == build_urdf(saved['document'], revision)
     finally:
         executor.shutdown(timeout_sec=3);thread.join(timeout=3)
         for item in (node,probe,server):item.destroy_node()

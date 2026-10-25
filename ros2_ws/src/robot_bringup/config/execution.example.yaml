@@ -1,15 +1,27 @@
-# Wspólne parametry procesu posiadającego CAN: diagnostyka albo CanSystem.
-# Ten szablon NIE zezwala na wykonanie. Domyślny acc profilu streaming = 240.
-# Bez ACK ruchu; tolerancja dotyczy wyłącznie dolotu końcowego.
+# Streaming 100 Hz: lookahead85 ms, FF1, Kp2.5, dithering RPM, acc135.
+# Nie przeładowuje działającej usługi ani nie uruchamia ruchu.
 /**:
   ros__parameters:
     execution_enabled: false
-    execution_configuration_revision: ""
+    # Rewizja PTP pochodzi z zakończonego zapisu konfiguracji w ROS.
     execution_use_ack: false
-    execution_lookahead_time_sec: 0.025
-    execution_velocity_ff_scale: 1.15
-    execution_min_holding_rpm: 3
+    execution_lookahead_time_sec: 0.085
+    execution_velocity_ff_scale: 1.0
+    execution_min_holding_rpm: 1
     execution_max_rpm: 2500
     execution_position_period_ms: 10
-    execution_position_tolerance_rad: [0.008726646259971648, 0.008726646259971648, 0.008726646259971648, 0.008726646259971648, 0.008726646259971648, 0.008726646259971648]
-    execution_acceleration_codes: [240, 240, 240, 240, 240, 240]
+    execution_position_tolerance_rad:
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    execution_acceleration_codes:
+    - 135
+    - 135
+    - 135
+    - 135
+    - 135
+    - 135
+    execution_position_kp: 2.5

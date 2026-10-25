@@ -19,7 +19,9 @@ robot_control_interfaces::msg::MotionProgramStatus message(const mks_servo_can::
 ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntime> runtime):runtime_(std::move(runtime)) {
   mks_servo_can::BusConfig authorization;
   authorization.program_enabled=node->declare_parameter("execution_enabled",false);
-  authorization.program_revision=node->declare_parameter("execution_configuration_revision",std::string{});
+  const auto legacy_revision=node->declare_parameter("execution_configuration_revision",std::string{});
+  if(!legacy_revision.empty())
+    RCLCPP_WARN(node->get_logger(),"execution_configuration_revision jest przestarzałe i ignorowane; PTP korzysta z zatwierdzonej konfiguracji ROS");
   // Przyjmujemy stare nazwy dla zgodności plików, ale nie stanowią bramek PTP.
   const bool stop_verified=node->declare_parameter("execution_stop_verified",false);
   const bool sync_verified=node->declare_parameter("execution_sync_verified",false);
@@ -29,21 +31,22 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
     RCLCPP_WARN(node->get_logger(),"Stare flagi odbioru i execution_tracking_error_rad nie sterują podstawowym PTP");
   (void)node->declare_parameter("execution_ack_timeout_ms",10); // zgodność starych YAML; nie jest bramką ruchu
   authorization.use_ack=node->declare_parameter("execution_use_ack",false);
-  const auto lookahead=node->declare_parameter("execution_lookahead_time_sec",.025);
-  const auto ff=node->declare_parameter("execution_velocity_ff_scale",1.15);
-  const auto minimum=node->declare_parameter("execution_min_holding_rpm",3);
+  const auto lookahead=node->declare_parameter("execution_lookahead_time_sec",.085);
+  const auto ff=node->declare_parameter("execution_velocity_ff_scale",1.0);
+  const auto kp=node->declare_parameter("execution_position_kp",2.5);
+  const auto minimum=node->declare_parameter("execution_min_holding_rpm",1);
   const auto maximum=node->declare_parameter("execution_max_rpm",2500);
   if(minimum<1 || maximum<minimum || maximum>3000) throw std::invalid_argument("Nieprawidłowe RPM streaming");
   authorization.program_position_period=std::chrono::milliseconds(node->declare_parameter("execution_position_period_ms",10));
   const auto tolerance=node->declare_parameter("execution_position_tolerance_rad",std::vector<double>(6,mks_servo_can::kProgramPositionTolerance));
-  const auto codes=node->declare_parameter("execution_acceleration_codes",std::vector<int64_t>(6,240));
+  const auto codes=node->declare_parameter("execution_acceleration_codes",std::vector<int64_t>(6,135));
   if(tolerance.size()!=6 || codes.size()!=6) throw std::invalid_argument("Wymagane sześć tolerancji pozycji i kodów acc wykonawcy");
   for(unsigned j=0;j<6;++j) {
     authorization.program_position_tolerance[j]=tolerance[j];
-    if(codes[j]<1 || codes[j]>255 || !std::isfinite(lookahead) || lookahead<0 || lookahead>.2 || !std::isfinite(ff) || ff<1 || ff>3)
+    if(codes[j]<1 || codes[j]>255 || !std::isfinite(lookahead) || lookahead<0 || lookahead>.2 || !std::isfinite(ff) || ff<1 || ff>3 || !std::isfinite(kp) || kp<0)
       throw std::invalid_argument("Nieprawidłowy lookahead/feed-forward/acc");
     authorization.axes[j].acceleration_code=static_cast<std::uint8_t>(codes[j]);
-    auto &stream=authorization.program_streaming[j];stream.lookahead_time_sec=lookahead;stream.velocity_ff_scale=ff;
+    auto &stream=authorization.program_streaming[j];stream.lookahead_time_sec=lookahead;stream.velocity_ff_scale=ff;stream.position_kp=kp;
     stream.min_holding_rpm=minimum;stream.max_rpm=maximum;stream.acceleration=static_cast<std::uint8_t>(codes[j]);
   }
   runtime_->configure_program_authorization(authorization);

@@ -2,4 +2,4 @@
 robot_motion_planner:
   ros__parameters:
     # Wspólny domyślny kod acc strumienia 100 Hz; to nie odbiór dynamiki sprzętu.
-    mks_acceleration_codes: [240, 240, 240, 240, 240, 240]
+    mks_acceleration_codes: [135, 135, 135, 135, 135, 135]

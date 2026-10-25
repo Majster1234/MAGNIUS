@@ -6,6 +6,10 @@
 namespace mks_servo_can {
 void CanBusManager::require_configuration() {
   configuration_ready_ = false; configuration_locked_ = true; configuration_stage_ = "boot";
+  if (executor_.status.state == "ready") {
+    executor_.status.state = "invalidated";
+    executor_.status.message = "Konfiguracja wymaga uzgodnienia; przygotuj program ponownie";
+  }
 }
 ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std::string &operation,
     const std::string &expected, const RobotProfile &profile, Time now) {
@@ -39,6 +43,11 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
       if (!bootstrap && candidate.changed[i] && device.detected && device.consecutive_timeouts < 3 &&
           !manual_->configuration_stopped(i + 1, now))
         return result(false, "J" + std::to_string(i + 1) + ": wymagany potwierdzony postój i ENABLE=0");
+    }
+    // Także rollback nie przywraca gotowości starego programu.
+    if (executor_.status.state == "ready") {
+      executor_.status.state = "invalidated";
+      executor_.status.message = "Zapis konfiguracji unieważnił program; przelicz i przygotuj PTP ponownie";
     }
     previous_profile_ = profile_; previous_axes_ = config_.axes; candidate_profile_ = candidate;
     previous_calibration_invalid_ = calibration_invalid_; configuration_bootstrap_ = bootstrap;

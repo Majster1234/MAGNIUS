@@ -3,7 +3,7 @@ import asyncio
 import math
 import time
 import uuid
-from .planning import ros_result
+from .planning import configuration_ready, ros_result
 
 
 class MotionConflict(ValueError):
@@ -61,9 +61,10 @@ class MotionClient:
             allow_missing = settings.get('allow_missing_motion') is True
             (_, model), state = self.planning.current(False)
             code, snapshot = await self.configuration('status')
-            if code != 200 or snapshot.get('operation', {}).get('phase') != 'idle':
+            if code != 200 or not configuration_ready(snapshot):
                 raise RuntimeError('Konfiguracja fizycznego robota nie jest uzgodniona')
-            if model != plan['model_id'] or state.get('configuration_revision') != plan['configuration_revision']:
+            if (model != plan['model_id'] or state.get('configuration_revision') != plan['configuration_revision']
+                    or snapshot['active']['revision'] != plan['configuration_revision']):
                 raise ValueError('Zmienił się model lub konfiguracja; przelicz podgląd')
             seeds, sources = self.planning.reference(model, plan['configuration_revision'], state)
             if not allow_missing and any(source != 'measured' for source in sources):
@@ -176,7 +177,7 @@ class MotionClient:
             code, snapshot = await self.configuration('status')
             if code != 200:
                 raise RuntimeError('Konfiguracja ROS jest niedostępna')
-            if snapshot.get('operation', {}).get('phase') != 'idle' or snapshot.get('active', {}).get('revision') != self.prepared_configuration_revision:
+            if not configuration_ready(snapshot, self.prepared_configuration_revision):
                 raise ValueError('Konfiguracja nie jest aktualna lub uzgodniona')
             (_, model), measured = self.planning.current(False)
             if model != self.prepared_model_id or measured.get('configuration_revision') != self.prepared_configuration_revision:

@@ -9,6 +9,15 @@ from copy import deepcopy
 import xml.etree.ElementTree as ET
 
 
+def configuration_ready(snapshot, revision=None):
+    """Potwierdzony bootstrap lub zakończony zapis, na wskazanej rewizji."""
+    operation = snapshot.get('operation') or {}
+    active_revision = (snapshot.get('active') or {}).get('revision')
+    return (operation.get('phase') in ('idle', 'done') and operation.get('success') is True
+            and isinstance(active_revision, str) and bool(active_revision)
+            and (revision is None or active_revision == revision))
+
+
 def number(value, label, lower=None, upper=None):
     if type(value) not in (int, float) or not math.isfinite(value):
         raise ValueError(f'{label}: wymagana skończona liczba')
@@ -97,8 +106,9 @@ class PlanningClient:
         from robot_control_interfaces.msg import PlanningContext, JointConfiguration
         (xml, identifier), state = self.current(preview)
         code, snapshot = configuration_snapshot if configuration_snapshot is not None else await self.configuration('status')
-        phases = ('idle', 'done', 'uncertain', 'failed') if preview else ('idle',)
-        if code != 200 or snapshot.get('operation', {}).get('phase') not in phases:
+        permitted = (snapshot.get('operation', {}).get('phase') in ('idle', 'done', 'uncertain', 'failed')
+                     if preview else configuration_ready(snapshot))
+        if code != 200 or not permitted:
             raise RuntimeError('Konfiguracja ROS jest niedostępna lub nieuzgodniona')
         active = snapshot['active']
         if preview and active['revision'] != 'initial' and ET.fromstring(xml).get('configuration_revision') != active['revision']:

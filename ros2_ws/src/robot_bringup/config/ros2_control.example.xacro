@@ -19,6 +19,7 @@
       <param name="default_acc">${settings['default_acc']}</param>
       <param name="lookahead_time_sec">${settings['lookahead_time_sec']}</param>
       <param name="velocity_ff_scale">${settings['velocity_ff_scale']}</param>
+      <param name="position_kp">${settings.get('position_kp', 2.5)}</param>
       <param name="min_holding_rpm">${settings['min_holding_rpm']}</param>
       <param name="max_rpm">${settings['max_rpm']}</param>
     </joint>

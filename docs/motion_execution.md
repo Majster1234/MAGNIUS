@@ -1,6 +1,6 @@
 # Fizyczne wykonanie PTP — streaming 100 Hz
 
-Kontrakt źródeł z 24.10.2026 zastępuje wcześniejsze F5/ACK/SYNC i oczekiwanie
+Kontrakt źródeł z 25.10.2026 (85 ms, korekcja pozycji i dithering RPM) zastępuje wcześniejsze F5/ACK/SYNC i oczekiwanie
 na pozycję w punktach pośrednich. Program jest lokalnym strumieniem F5 co 10 ms.
 Regulację silnika realizuje MKS. Na rozsprzęglonych 1/2/4 osiach sprawdzono ruch i powrót przy zadanym limicie 1 RPM.
 Osiągnięto cele końcowe ±0,5° bez błędów CAN po poprawkach. Śledzenie całej
@@ -18,18 +18,33 @@ opisuje również procedurę ponownego zerowania i odblokowania profilu prób
 Planner dostarcza pozycję q, prędkość v i przyspieszenie w SI. Kompilator przygotowuje
 całą trajektorię przed ruchem, sprawdzając limity q/v/a w całych przedziałach
 splajnu (otoczki Bernsteina), nie tylko w węzłach. Maksimum to 10000 punktów
-wejściowych i 200 s. Ramki są przygotowane dla t=0, 0,01, … oraz końcowego celu
-na najbliższej kolejnej granicy zegara. Końce PTP muszą mieć v=0.
+wejściowych i 200 s. Siatka nadawania to t=0, 0,01, … oraz końcowy cel
+na najbliższej kolejnej granicy zegara. Podczas wykonania q/v/a są próbkowane
+przez kwintyczną interpolację Hermite’a dla rzeczywistego czasu wysyłania,
+także przy spóźnieniu pomiędzy węzłami. Końce PTP muszą mieć v=0; nie zerujemy
+pochodnej w pośrednich punktach, gdy trajektoria przewiduje dalszy ruch.
 
 Dla każdej uczestniczącej osi:
 
 ```text
 q_la = clamp(q + v * lookahead_time_sec, lower, upper)
 pulses = clamp(llround(direction * (q_la - zero_offset_rad) * gear_ratio * 16384 / (2π)), -8388608, 8388607)
-rpm = clamp(lround(abs(v) * gear_ratio * 60 / (2π) * velocity_ff_scale), min_holding_rpm, max_rpm)
+v_corr = position_kp * (q - q_actual) * sign(v)  # tylko świeży pomiar i v != 0
+v_eff = clamp(abs(v) * velocity_ff_scale + v_corr, 0, axis_max_velocity)
+rpm_float = min(v_eff * gear_ratio * 60 / (2π) / speed_scale, wire_max_rpm)
+rpm_int = floor(rpm_float + residual)
+residual = rpm_float + residual - rpm_int
 ```
 
-Domyślnie lookahead=25 ms, FF=1,15, holding=3 RPM, max=2500 RPM, acc=240.
+Domyślnie lookahead=85 ms, FF=1,00, Kp=2,5 1/s, holding=1 RPM,
+max=2500 RPM i acc=135. Każda oś ma osobny akumulator ułamków RPM,
+zerowany przy starcie, postoju i zmianie kierunku. Prędkość 1,73 RPM przy
+mikrokroku16 daje 73 ramki z 2 RPM i 27 z 1 RPM na 100 cykli. W innych
+mikrokrokach dithering dotyczy odpowiednio przeskalowanych jednostek MKS.
+Poniżej minimum używamy holding zamiast zera; dla prędkości poniżej 1 RPM
+nie gwarantuje to ciągłości fizycznego ruchu. Korekcja zwiększa prędkość przy
+pozostawaniu za referencją i zmniejsza ją przy wyprzedzeniu, w obu kierunkach.
+Może przekroczyć nominalny posuw referencji, do limitu osi i max_rpm.
 Dodatkowo obowiązuje rzeczywisty limit prędkości osi; za mały limit dla holding
 powoduje odrzucenie profilu. Przy mikrokrokach innych niż 16 kod RPM uwzględnia
 skalę MKS odczytaną z `84`; podane RPM oznaczają prędkość wału. Offset jest
@@ -46,6 +61,38 @@ Nie ma już wyboru `native_ptp`; API zachowuje nazwę trybu `streamed`.
 
 Przygotowanie nadal wymaga jawnego `execution_enabled`, zgodnej rewizji profilu,
 modelu i ustawień, kalibracji, ENABLE, świeżego stanu i prawidłowych limitów.
+Most HTTP dopuszcza zarówno `idle` po uzgodnieniu startowym, jak i `done`
+po zapisie konfiguracji, wyłącznie z `success=true` i aktywną rewizją zgodną
+z planem oraz stanem osi. Trwająca, nieudana lub niepotwierdzona transakcja
+blokuje fizyczne przygotowanie i pierwszy start. Powtórzenie tego samego klucza
+wykonania pozostaje idempotentne. Podgląd zachowuje dotychczasową politykę.
+
+Rewizję fizycznego PTP wyznacza aktywna konfiguracja zatwierdzona przez transakcję
+`PREPARE → model ROS → COMMIT → trwały zapis → FINISH`. Zapis poprawnych przełożeń,
+kierunków, offsetów i limitów w panelu nie wymaga przepisywania UUID do YAML ani
+restartu backendu. Nadal wymaga postoju i ENABLE=0 dla zmienionych obecnych osi.
+`execution_enabled` pozostaje osobną bramką włączenia PTP.
+Ponowny zapis identycznych wartości z ważną kalibracją zachowuje rewizję
+konfiguracji, także gdy zmieniła się nazwa lub data snapshotu. Rzeczywista zmiana
+nadaje nową rewizję; plan i stan osi muszą się z nią zgadzać. Przyjęty PREPARE
+unieważnia wcześniej przygotowany program, także po późniejszym rollbacku.
+Nieuzgodniony start, trwająca transakcja, nieważna kalibracja lub stary plan
+nadal blokują przygotowanie. Po zmianie konfiguracji trzeba przeliczyć podgląd,
+przygotować fizyczny PTP i osobno zatwierdzić wykonanie. Zapis nie rozpoczyna ruchu.
+
+Od poprawki mechanizmu rewizji z 25.10 `execution_configuration_revision`
+i pole C++ `program_revision` są przestarzałe i ignorowane. ROS przyjmuje dawny
+parametr dla zgodności YAML oraz ostrzega przy niepustej wartości. Stare pliki
+działają bez ręcznego uzgadniania UUID. Uruchomiony wcześniej backend wymaga
+jednorazowego wdrożenia i restartu z nowym kodem; dalsze zapisy konfiguracji
+nie wymagają restartu. Samo odświeżenie przeglądarki nie ładuje poprawki C++.
+Na późniejsze polecenie operatora lokalny profil produkcyjny ma
+`execution_max_rpm=500` zamiast 14. Przełożenia 3:1 oraz limity przegubów
+80°/s pozostają zachowane; przy tym przełożeniu limit przegubu odpowiada
+40 RPM wału. Wartość 500 RPM jest górnym ograniczeniem wykonawcy,
+a nie zadaną prędkością ani zwiększeniem limitów osi. Zmiana YAML wymaga
+restartu backendu w postoju, bez automatycznego uruchamiania ruchu.
+
 Uzbrajanie potwierdza F1=postój, bieżącą pozycję startową, SR_vFOC=05,
 mikrokroki i watchdog=300 ms. Przed pierwszym F5 zapisuje/odczytuje `8C 00 00`
 (CanRSP i raport ukończenia wyłączone) oraz `4A=0` (bez oczekiwania na SYNC).
@@ -93,19 +140,21 @@ Plik ROS `execution.example.yaml` pozostaje **wyłączony**. Parametry PTP:
 
 | Parametr | Wartość domyślna |
 | --- | --- |
-| execution_enabled / execution_configuration_revision | false / pusta |
+| execution_enabled | false; niezależne włączenie fizycznego PTP |
+| execution_configuration_revision | przestarzały, ignorowany; rewizję wyznacza zatwierdzona konfiguracja ROS |
 | execution_use_ack | false; true jest odrzucane |
-| execution_lookahead_time_sec / execution_velocity_ff_scale | 0,025 / 1,15 |
-| execution_min_holding_rpm / execution_max_rpm | 3 / 2500 |
-| execution_acceleration_codes | sześć razy 240 |
+| execution_lookahead_time_sec / execution_velocity_ff_scale | 0,085 / 1,00 |
+| execution_position_kp | 2,5 1/s; skończone, nieujemne |
+| execution_min_holding_rpm / execution_max_rpm | 1 / 2500 |
+| execution_acceleration_codes | sześć razy 135 |
 | execution_position_period_ms | 10; inny okres jest odrzucany |
 | execution_position_tolerance_rad | sześć razy 0,00872664626; tylko koniec |
 
 Stare flagi odbioru i `execution_ack_timeout_ms` pozostają zgodnością API;
 nie sterują strumieniem ani nie są sztucznie ustawiane na true. YAML osi i Xacro
-mają osobno encoder_cpr=16384, default_acc, lookahead_time_sec, velocity_ff_scale,
+mają osobno encoder_cpr=16384, default_acc, lookahead_time_sec, velocity_ff_scale, position_kp,
 min_holding_rpm, max_rpm. Nieznane przełożenia/limity pozostają `null`. Podgląd planera ma zgodny
-domyślny `mks_acceleration_codes`=240; nieobsługiwane dawne pola
+domyślny `mks_acceleration_codes`=135; nieobsługiwane dawne pola
 `tracking_error_rad`/`mks_acceleration_code` usunięto z szablonu osi.
 
 Budżet używa konserwatywnego kosztu `55+10*DLC` bitów i obejmuje F5+31 100 Hz,
@@ -287,3 +336,82 @@ limit każdej osi i kwantyzacja MKS). Procedurę wykonano o 23:49:47 CEST; HTTP 
 limit 80°/s, holding1/max14 RPM, acc1 i zgodną nową rewizję. Napędy wyłączone,
 PTP idle; bez nowej próby ruchu. Szczegóły i aktualny stan:
 [raport migracji](can_1m_results.md).
+
+
+## Zmiana strumieniowania — 25.10.2026
+
+Rzeczywisty sampler kwintyczny q/v/a był już obecny. Poprawiono jego użycie:
+spóźniony tick np.17 ms korzysta teraz z referencji17 ms, zamiast starej klatki10 ms.
+Przygotowanie nadal weryfikuje cały profil i siatkę; wykonawca oblicza wszystkie
+payloady dla jednego wspólnego czasu przed pierwszym F5. Potem wysyła zwartą serię
+aktywnych osi i dopiero asynchroniczne odczyty. W stanie waiting_budget akumulatory
+nie zmieniają się. Po opóźnieniu nie odtwarzamy historii ani nie ponawiamy
+niepewnego, częściowo wysłanego zestawu.
+
+Korekcja używa cache RX SocketCAN lub świeżej pozycji managera (wiek<250 ms),
+po przeliczeniu na przegub. Przy braku pomiaru działa sam feed-forward/dithering;
+trajektoria nie czeka, a potwierdzenie końca nadal wymaga pozycji. JTC korzysta
+z tego samego generatora RPM; jego własne warunki aktywacji i świeżości pozostają.
+
+`shaft_trace` już wcześniej był pasywnym konsumentem kolejki SPSC. Nie ma osobnego
+shaft_trace.cpp wysyłającego31; pobieranie wykresów nie zajmuje mutexu CAN.
+Test sprawdza brak nadawania przy opróżnianiu kolejki. Przy brakujących4/6 test
+potwierdza, że podczas PTP nie wysyła się do nich ani F5, ani zapytań. Uczestnicy
+są ustalani przed startem; utrata pomiaru uczestnika nie usuwa go z programu.
+Nie wprowadzono niepełnego JTC ani sztucznej kalibracji. Bufory/telemetria nie
+zwiększają liczby ramek, więc budżet robot40% + rezerwa20 punktów pozostaje.
+
+Nowy build: `install/streaming-smooth-ros`, osobno od produkcyjnego
+`install/streaming100-ros`. Zmiana struktury parametrów wymaga użycia całego
+nowego overlay, bez mieszania bibliotek/nagłówków. Lokalny profil produkcji
+ma przygotowane85 ms/FF1/Kp2,5/min1/acc135 oraz zachowany limit80°/s i max14 RPM.
+Wcześniejsza działająca usługa miała już min1/acc1, więc część diagnozy o jej
+min3/acc240 dotyczyła dawnych domyślnych nastaw. Nowy acc135 jest zmianą także
+względem tamtego profilu prób; nie oznacza odebranego zachowania sprzętu.
+Nie wykonywano nowego ruchu, restartu usługi ani przełączenia produkcji.
+Skrypty wcześniejszych prób jawnie wybierająceacc1 pozostają profilami historycznymi.
+Wykonalność i fizyczną płynność nowego algorytmu trzeba potwierdzić oddzielną
+próbą i przebiegiem shaft_trace. Benchmarki: [wyniki](benchmark_results.md).
+
+
+Do wdrożenia nowego kodu trzeba przełączyć `ROBOT_OVERLAY_SETUP` w drop-in
+`/etc/systemd/system/robot-web-status.service.d/streaming100.conf` na
+`/home/mk/Desktop/Projekty/install/streaming-smooth-ros/local_setup.bash`,
+zachowując argument profilu produkcyjnego i bitrate1M. Dopiero wtedy wykonać
+osobno uzgodniony restart w postoju. Sam restart dotychczasowego overlay
+nie uruchamia nowego algorytmu. Zmieniony YAML produkcyjny jest przygotowany
+dla nowego builda, a uruchomiony proces nie przeładowuje go w locie.
+
+## Build i wdrożenie poprawki rewizji — 25.10.2026
+
+Zbudowano wszystkie 11 pakietów wymaganych przez `robot_bringup` w osobnym
+overlay `install/ptp-revision-ros`, z katalogiem `build/ptp-revision-ros`.
+Konfiguracja produkcyjna: Release, `-O1 -DNDEBUG`, `BUILD_TESTING=OFF`.
+Build zakończył się poprawnie. Na jego bibliotekach uruchomiono wcześniej
+zbudowane binaria regresji: 7 testów rewizji i 6 testów parametrów ROS NoIo
+w domenie 188; wszystkie przeszły. Poprzednie 71 testów dotyczyło wcześniejszej
+tury implementacji. Sprawdzono wybór wszystkich 11 pakietów w środowisku usługi,
+zależności pięciu artefaktów bez starych bibliotek oraz `launch --show-args`.
+Nie uruchamiano sprzętowego CAN ani ruchu.
+
+Systemd nadal wskazuje `install/streaming-smooth-ros/local_setup.bash`.
+Ten plik jest teraz krótkim przekierowaniem do nowego
+`install/ptp-revision-ros/local_setup.bash`. Poprzednią wersję zachowano jako
+`log/ptp-revision-build-20261025/deployment/local_setup.bash.before`.
+Nie nadpisano bibliotek używanych przez działający proces. Systemowego drop-in
+nie zmieniono, ponieważ zapis przez sudo wymagał hasła; przekierowanie znajduje
+się w zapisywalnym katalogu projektu. Build kolejnej wersji powinien używać
+nowego prefixu i aktualizować punkt startowy usługi; budowanie do starego
+`streaming-smooth-ros` może zastąpić ten wygenerowany plik.
+
+Wdrożenie jest gotowe na następny start. Usługa pozostała aktywna,
+MainPID=1388 i NRestarts=0 przed/po; nie wykonano restartu. Profil fizyczny
+i parametry CAN pozostały bez zmian. Operator wykonuje w postoju:
+
+```bash
+sudo systemctl restart robot-web-status.service
+```
+
+Po restarcie pozostaje kontrola przygotowania PTP bez wykonania programu.
+Wyniki buildu, hashe artefaktów i potwierdzenie wdrożenia:
+`log/ptp-revision-build-20261025`.

@@ -44,8 +44,11 @@ def test_http_cpp_plan_without_execution(monkeypatch, tmp_path):
     async def configuration(operation):
         if operation == 'system_get':
             return 200, dict(revision='settings', ignore_missing_drivers=True)
-        return 200, dict(operation=dict(phase='idle'), active=dict(revision='http-test', document=dict(values={})))
+        return 200, dict(operation=dict(phase='done', success=True), active=dict(revision='http-test', document=dict(values={})))
     client = PlanningClient(node, descriptions, manual, configuration)
+    context = asyncio.run(client.context(dict(model_id=identifier, configuration_revision='http-test',
+        seed_degrees=[0.]*6, preview_velocity_degrees_s=10, preview_acceleration_degrees_s2=50)))
+    assert not context.simulation_only and context.configuration_revision == 'http-test'
     def publish():
         publisher.publish(ManualState(monotonic_ns=time.monotonic_ns(), configuration_revision='http-test',
                           axes=[ManualAxisState(axis=i+1, available=True, position_known=True, position_age_seconds=.001) for i in range(6)]))

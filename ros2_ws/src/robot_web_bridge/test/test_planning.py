@@ -24,7 +24,7 @@ def client():
     value.manual = SimpleNamespace(snapshot=lambda: {'fresh': True, 'configuration_revision': 'rev', 'axes': axes})
     value.descriptions = SimpleNamespace(snapshot=lambda: ('<robot/>', 'model'))
     async def config(operation):
-        return 200, {'operation': {'phase': 'idle'}, 'active': {'revision': 'rev', 'document': {'values': {}}}}
+        return 200, {'operation': {'phase': 'idle', 'success': True}, 'active': {'revision': 'rev', 'document': {'values': {}}}}
     value.configuration = config
     return value
 
@@ -41,6 +41,36 @@ def test_context_freezes_missing_axes_requires_explicit_positions():
     data['configuration_revision'] = 'old'
     with pytest.raises(ValueError, match='zmianie'):
         asyncio.run(value.context(data))
+
+
+@pytest.mark.parametrize('phase,success,accepted', [
+    ('idle', True, True), ('done', True, True), ('done', False, False),
+    ('done', None, False), ('idle', None, False), ('failed', False, False),
+    ('uncertain', None, False), ('committing', None, False)])
+def test_physical_context_requires_successful_configuration(phase, success, accepted):
+    value = client()
+    data = dict(model_id='model', configuration_revision='rev', seed_degrees=[0.]*6,
+                preview_velocity_degrees_s=10, preview_acceleration_degrees_s2=50)
+    async def configuration(_):
+        return 200, dict(operation=dict(phase=phase, success=success),
+                         active=dict(revision='rev', document=dict(values={})))
+    value.configuration = configuration
+    if accepted:
+        result = asyncio.run(value.context(data))
+        assert result.configuration_revision == 'rev' and not result.simulation_only
+    else:
+        with pytest.raises(RuntimeError, match='nieuzgodniona'):
+            asyncio.run(value.context(data))
+
+
+def test_done_does_not_allow_physical_context_with_stale_axis_revision():
+    value = client()
+    async def configuration(_):
+        return 200, dict(operation=dict(phase='done', success=True),
+                         active=dict(revision='new', document=dict(values={})))
+    value.configuration = configuration
+    with pytest.raises(ValueError, match='Rewizja profilu'):
+        asyncio.run(value.context(dict(model_id='model', configuration_revision='new')))
 
 
 def test_preview_reference_cache_has_provenance_and_model_revision_boundary():
@@ -68,7 +98,7 @@ def feed_client():
     async def configuration(operation):
         if operation == 'system_get':
             return 200, dict(revision='settings')
-        return 200, dict(operation=dict(phase='idle'), active=dict(revision='rev', document=dict(values=values)))
+        return 200, dict(operation=dict(phase='idle', success=True), active=dict(revision='rev', document=dict(values=values)))
     async def submit(goal, action, metadata):
         return goal
     value.configuration, value.submit = configuration, submit

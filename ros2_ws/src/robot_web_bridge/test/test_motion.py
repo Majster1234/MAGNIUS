@@ -12,7 +12,7 @@ def future(value):
     result = Future(); result.set_result(value); return result
 
 
-def motion_client(allow=False):
+def motion_client(allow=False, phase='idle', success=True, revision='rev'):
     c = MotionClient.__new__(MotionClient)
     c.lock = asyncio.Lock(); c.task = None; c.preparation = {'state': 'idle'}; c.planner_handle = None
     plan = dict(id='preview', model_id='model', configuration_revision='rev', simulation_only=True,
@@ -21,7 +21,7 @@ def motion_client(allow=False):
     async def configuration(operation):
         if operation == 'system_get':
             return 200, dict(revision='settings', allow_missing_motion=allow)
-        return 200, dict(operation=dict(phase='idle'), active=dict(revision='rev'))
+        return 200, dict(operation=dict(phase=phase, success=success), active=dict(revision=revision))
     async def get_plan(identifier):
         assert identifier == 'preview'; return plan
     async def context(payload, *args):
@@ -135,4 +135,53 @@ def test_first_execute_rechecks_persistent_revision_before_ros_goal():
         c.execute_type = NS(Goal=lambda **kwargs: NS(**kwargs))
         result = await c.execute({'program_id': 'program', 'execution_key': 'new'})
         assert result['busy'] and len(calls) == 1
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('phase', ['idle', 'done'])
+def test_confirmed_configuration_allows_prepare_and_first_execute(phase):
+    async def scenario():
+        c = motion_client(True, phase)
+        await c.prepare({'plan_id': 'preview'})
+        await c.task
+        assert c.preparation['state'] == 'ready'
+        goals = []
+        c.executor = NS(server_is_ready=lambda: True,
+                        send_goal_async=lambda goal: (goals.append(goal) or future(NS(accepted=True))))
+        c.execute_type = NS(Goal=lambda **kwargs: NS(**kwargs))
+        await c.execute({'program_id': 'program', 'execution_key': 'new'})
+        assert len(goals) == 1
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('phase,success', [
+    ('starting', None), ('preparing', None), ('model', None), ('committing', None),
+    ('rolling_back', None), ('uncertain', None), ('failed', False),
+    ('done', False), ('done', None), ('idle', False), ('idle', None)])
+def test_unconfirmed_configuration_never_reaches_prepare_or_execute(phase, success):
+    async def scenario():
+        c = motion_client(True, phase, success)
+        with pytest.raises(RuntimeError, match='nie jest uzgodniona'):
+            await c.prepare({'plan_id': 'preview'})
+        assert c.task is None
+        c.current_status.update(program_id='program', state='ready')
+        c.prepared_program_id, c.prepared_settings_revision = 'program', 'settings'
+        c.prepared_configuration_revision = 'rev'
+        with pytest.raises(ValueError, match='uzgodniona'):
+            await c.execute({'program_id': 'program', 'execution_key': 'new'})
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize('revision', ['changed', '', None])
+def test_active_revision_must_match_preview_and_prepared_program(revision):
+    async def scenario():
+        c = motion_client(True, 'done', True, revision)
+        with pytest.raises((RuntimeError, ValueError)):
+            await c.prepare({'plan_id': 'preview'})
+        assert c.task is None
+        c.current_status.update(program_id='program', state='ready')
+        c.prepared_program_id, c.prepared_settings_revision = 'program', 'settings'
+        c.prepared_configuration_revision = 'rev'
+        with pytest.raises(ValueError, match='aktualna lub uzgodniona'):
+            await c.execute({'program_id': 'program', 'execution_key': 'new'})
     asyncio.run(scenario())

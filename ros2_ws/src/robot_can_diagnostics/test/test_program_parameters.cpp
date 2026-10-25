@@ -25,13 +25,29 @@ TEST_F(ProgramParameters, DefaultPolicyConstructsWithoutAcceptanceFlagsAndWithou
   EXPECT_NO_THROW(robot_can_diagnostics::ProgramApi api(node.get(),bus));
   EXPECT_EQ(node->get_parameter("execution_ack_timeout_ms").as_int(),10);
   EXPECT_EQ(node->get_parameter("execution_position_period_ms").as_int(),10);
+  EXPECT_DOUBLE_EQ(node->get_parameter("execution_lookahead_time_sec").as_double(),.085);
+  EXPECT_DOUBLE_EQ(node->get_parameter("execution_velocity_ff_scale").as_double(),1.);
+  EXPECT_DOUBLE_EQ(node->get_parameter("execution_position_kp").as_double(),2.5);
+  EXPECT_EQ(node->get_parameter("execution_min_holding_rpm").as_int(),1);
+  EXPECT_EQ(node->get_parameter("execution_acceleration_codes").as_integer_array(),std::vector<int64_t>(6,135));
   const auto tolerance=node->get_parameter("execution_position_tolerance_rad").as_double_array();
   ASSERT_EQ(tolerance.size(),6u);EXPECT_DOUBLE_EQ(tolerance[0],mks_servo_can::kProgramPositionTolerance);
+}
+TEST_F(ProgramParameters, PositionCorrectionRejectsNegativeGainWithoutIo) {
+  auto options=rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("execution_position_kp",-1.0)});
+  auto node=std::make_shared<rclcpp::Node>("ptp_bad_position_gain",options);auto bus=runtime();
+  EXPECT_THROW(robot_can_diagnostics::ProgramApi api(node.get(),bus),std::invalid_argument);
 }
 TEST_F(ProgramParameters, LegacyAckDeadlineDoesNotCreateMotionAckGate) {
   auto options=rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("execution_ack_timeout_ms",20)});
   auto node=std::make_shared<rclcpp::Node>("ptp_bad_deadline",options);auto bus=runtime();
   EXPECT_NO_THROW(robot_can_diagnostics::ProgramApi api(node.get(),bus));
+}
+TEST_F(ProgramParameters, LegacyRevisionIsAcceptedForYamlCompatibilityWithoutIo) {
+  auto options=rclcpp::NodeOptions().parameter_overrides({rclcpp::Parameter("execution_configuration_revision","old-revision")});
+  auto node=std::make_shared<rclcpp::Node>("ptp_legacy_revision",options);auto bus=runtime();
+  EXPECT_NO_THROW(robot_can_diagnostics::ProgramApi api(node.get(),bus));
+  EXPECT_EQ(node->get_parameter("execution_configuration_revision").as_string(),"old-revision");
 }
 TEST_F(ProgramParameters, ToleranceMustContainSixPositiveFiniteValues) {
   for(const auto &values:{std::vector<double>{.1},std::vector<double>{.1,.1,.1,.1,.1,0}}) {

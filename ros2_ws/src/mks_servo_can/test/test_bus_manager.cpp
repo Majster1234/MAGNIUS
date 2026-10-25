@@ -142,7 +142,7 @@ TEST(BusManager, ProfileVelocityReachesAllDrivesAndInvalidVelocityBlocksSync) {
   ASSERT_EQ(h.bus->counts[0xf5],6u);
   for(unsigned i=1;i<=6;++i) {
     const auto &frame=h.bus->prepared_payloads.at(i);
-    EXPECT_EQ((frame[1]<<8)|frame[2],3);  // 0,15 rad/s = 1,43 RPM, zamiast maksimum osi.
+    EXPECT_EQ((frame[1]<<8)|frame[2],1);  // Pierwszy krok ditheringu dla 0,15 rad/s = 1,43 RPM.
   }
   command=h.batch(2); command.velocities_valid=true; command.velocities.fill(100);
   ASSERT_TRUE(h.manager->submit(command)); h.run(20);

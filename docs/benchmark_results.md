@@ -139,6 +139,92 @@ Automatyczne sprawdzenie warunków nie potwierdza identyczności zewnętrznego r
 
 ## Historia optymalizacji
 
+### 25.10.2026 — rewizja PTP po rzeczywistej zmianie konfiguracji
+
+Zakres: `CanBusManager::configure_program_authorization/prepare_program`,
+`require_configuration/configure` i zgodność dawnego parametru w `ProgramApi`.
+Cel funkcjonalny: PTP używa profilu po zakończonej transakcji, bez drugiej kopii
+UUID w YAML; przyjęty zapis lub ponowne uzgadnianie unieważnia gotowy program.
+Scenariusz `motion.ptp_revision`: bootstrap i skan sześciu atrap, przygotowanie
+starego planu, transakcja przełożeń 1..6 z ENABLE=0 i przygotowanie nowego planu
+po ENABLE=1. Bez wykonania programu i fizycznego CAN. Ten sam adapter i dane,
+300 cykli × 7 serii przed/po.
+
+| Miara na cykl | Przed | Po | Zmiana |
+| --- | ---: | ---: | ---: |
+| Mediana wall [µs] | 775,262 | 890,119 | +14,82% |
+| Min–max wall [µs] | 771,095–779,608 | 882,500–898,105 | — |
+| Mediana CPU [µs] | 775,228 | 888,186 | +14,57% |
+| Min–max CPU [µs] | 771,058–779,551 | 882,437–897,413 | — |
+
+i5-7500T, 4 CPU, powersave, Linux 6.8.0-138-generic, GCC 11.4.0,
+Release z zastanymi flagami benchmarków `-O1 -DNDEBUG`.
+Raporty/metadane/hashe: `log/ptp-revision-mechanism-20261025/{before,after,compare}.json`;
+runner potwierdził `comparable`. Przed poprawką drugie przygotowanie kończyło
+się odrzuceniem UUID, po poprawce kompiluje nowy program. Większy koszt obejmuje
+tę dodatkową pracę; nie jest pomiarem samego warunku ani poprawą płynności ruchu.
+Konstrukcji ROS `ProgramApi` nie mierzono czasowo; sprawdzono ją testem NoIo.
+Nie zmieniono cyklu okresowego CAN/ROS; CPU procesu produkcyjnego nie porównywano
+z powodu braku powtarzalnego obciążenia i braku wdrożenia do działającej usługi.
+Regresje na emulatorze obejmują kolejne przełożenia 0,5/1/3/5/12,5/50, offset,
+stary plan, blokadę PREPARE/COMMIT, FINISH, rollback, bootstrap, execution_enabled
+i nieważną kalibrację. Wyniki testów i ograniczenia wdrożenia: `AGENTS.md`.
+
+### 25.10.2026 — ponowny zapis niezmienionej konfiguracji
+
+Zakres: `Coordinator.begin/apply`; cel: zachowanie rewizji i autoryzacji PTP
+przy ponownym zapisie potwierdzonych, identycznych wartości z ważną kalibracją.
+Scenariusz `configuration.reapply`: sześć syntetycznych profili, nowa data
+snapshotu, prawdziwy Storage w prywatnym tempdir, atrapa transportu ROS bez CAN.
+Obie wersje: 40 cykli × 7 serii, ten sam adapter i dane.
+
+| Miara na cykl | Przed | Po | Spadek kosztu |
+| --- | ---: | ---: | ---: |
+| Mediana wall [µs] | 7308,212 | 496,868 | 93,20% |
+| Min–max wall [µs] | 6796,396–8101,825 | 483,789–507,417 | — |
+| Mediana CPU [µs] | 3154,356 | 496,966 | 84,25% |
+| Min–max CPU [µs] | 2501,806–3532,016 | 483,879–507,179 | — |
+
+i5-7500T, 4 CPU, governor powersave, Linux 6.8.0-138-generic,
+CPython 3.10.12 bez optymalizacji. JSON/metadane/hashe:
+`log/ptp-reapply-fix-20261025/{before,after,compare}.json`, wynik `comparable`.
+Zysk wynika z pominięcia niepotrzebnego tworzenia modelu, transakcji i zapisów
+fsync; Storage aktywnej kalibracji nadal jest sprawdzany. Nie jest to pomiar
+rzeczywistego RTT usług ani sterowania. Nie zmieniono cyklu okresowego procesu;
+CPU produkcyjnego procesu nie porównywano z powodu braku identycznego obciążenia
+żądaniami. 39 testów schema/storage/koordynatora i 1 integracyjny ROS w domenie
+130 zaliczone; build wyłącznie `robot_configuration`. Bez ruchu sprzętu.
+
+### 25.10.2026 — bramka konfiguracji fizycznego PTP
+
+Zakres tej poprawki: `MotionClient.prepare`, `MotionClient.execute`,
+`PlanningClient.context` i wspólny warunek `configuration_ready`.
+Celem jest dopuszczenie potwierdzonego `done`, z zachowaniem kontroli rewizji
+i odrzucania nieudanych/trwających transakcji; to poprawka funkcjonalna.
+Dodano scenariusz `motion.configuration`: cykl obejmuje context/prepare/execute
+dla tych samych stanów `idle`, `done`, `committing`, na atrapach usług.
+Wykonawca jest niedostępny, więc test nigdy nie wysyła celu ROS ani CAN.
+
+| Miara na cykl | Przed | Po | Zmiana |
+| --- | ---: | ---: | ---: |
+| Mediana wall [µs] | 269,949 | 468,315 | +73,48% |
+| Min–max wall [µs] | 266,972–271,629 | 464,168–474,279 | — |
+| Mediana CPU [µs] | 269,934 | 468,298 | +73,49% |
+| Min–max CPU [µs] | 266,960–271,625 | 464,142–474,260 | — |
+
+900 cykli × 7 serii; i5-7500T, 4 CPU, governor powersave,
+Linux 6.8.0-138-generic, CPython 3.10.12 bez optymalizacji.
+Raporty i hashe kodu: `log/ptp-configuration-fix-20261025/{before,after,compare}.json`;
+runner potwierdził `comparable`. Przed zmianą `done` kończył się wcześniejszym
+odrzuceniem, po zmianie wykonuje dalszą pracę i tworzy kontekst. Wzrost kosztu
+nie mierzy samego dodatkowego warunku ani pogorszenia cyklu sterowania.
+Nie zmieniano cykli okresowych ROS/CAN; CPU procesu produkcyjnego nie porównywano,
+bo brak identycznego obciążenia żądaniami. Testy poprawności: 41 testów bramek,
+przygotowania/startu i kontekstu oraz 1 integracyjny z plannerem w domenie 133,
+bez CAN. Build dotyczył wyłącznie `robot_web_bridge`.
+
+### Wcześniejsze pomiary
+
 Poniżej pomiary rzeczywistego kodu na atrapach wejść/wyjść. Wdrożenie narzędzia
 i jego testy techniczne nie są optymalizacją ROS ani pomiarem osiągów robota.
 Pomiary dodatku PTP dokumentują również narzut nowej funkcji; nie dowodzą poprawy płynności.
@@ -834,3 +920,75 @@ Weryfikacja: 109 testów CAN po ostatniej poprawce i testy 2 konsumentów w dome
 ROS 87, odseparowanej od działającego ROS 0. Suma zapisanych wyników 331 bez błędów
 zawiera też wcześniejsze wyniki niezmienianych pakietów; nie przypisujemy ich
 nowej sesji. Produkcja po testach active/fresh, 500k/TX1000, bez ruchu/fault.
+
+
+## 25.10.2026 — korekcja nadążania i Delta-Sigma RPM
+
+Zakres bieżącego zadania: `streaming_setpoint`, `compile_streaming_program`,
+`CanBusManager::schedule_program/schedule_motion/streaming_feedback_position`.
+Cel: usunięcie nadmiaru feed-forward i stałej kwantyzacji RPM, użycie referencji
+q/v/a dla rzeczywistego czasu wysyłania oraz świeżego sprzężenia w łagodnej
+korekcji pozycji. Dotychczasowy sampler kwintyczny zachowano. Kolejka shaft_trace
+była już bezblokująca i pasywna; nie przypisujemy jej optymalizacji tej zmianie.
+
+Przed edycją właściwego kodu zapisano źródła/hash i bazy can.stream4/6 oraz CPU.
+Stary motion.bus jest niezgodny z obecną polityką aktywacji i nie daje bazy;
+zachowano jego wynik error, bez porównania. Dodano działający adapter can.jtc
+i zmierzono go przed zmianą kodu. Adapters: can_schedule.cpp (PTP) oraz
+streaming_jtc.cpp + streaming_fixture.hpp (JTC), identyczne przed/po.
+
+Warunki: i5-7500T, Ubuntu22.04/kernel6.8.0-138, GCC11.4, C++17,
+Release -O1 -DNDEBUG, affinity0–3, magistrala emulowana1M. Rozgrzewka1 s,
+7 serii; liczba iteracji po zmianie pobrana z bazy. PTP: te same q=0→0,1→0 rad,
+2 s, przekładnia10, 2500 ticków1 ms/program, 4 lub6 osi; brak4/6 w wariancie4.
+JTC: sześć osi, q=0,05*sin(t), v=0,05*cos(t), dt10 ms, 10 ticków/cykl.
+Emulatory natychmiast przyjmują pozycję i nie modelują rampy/dynamiki MKS.
+Programowy acc PTP w adapterze jest jawnie1; pomiar nie jest odbiorem acc135.
+
+Runner potwierdził zgodność case/workload, iteracji, runtime i wszystkich hashy
+adaptera/harnessu dla każdej pary. Target JTC dodano po pierwszych bazach PTP;
+na czas porównań PTP przywrócono dokładnie ich pierwotny CMake (sprawdzony SHA),
+a następnie zachowano końcowy CMake z nowym targetem. Flagi i kod adaptera PTP
+nie zmieniły się. Biblioteki oraz binaria bazy zachowano oddzielnie.
+
+| Scenariusz | Iteracje | Mediana przed [µs] | Mediana po [µs] | Wzrost kosztu | Min–max przed / po [µs] | Mediana CPU przed→po [µs] |
+| --- | --- | ---: | ---: | ---: | --- | ---: |
+| can.stream4 | 200 × 7 | 1215.394 | 1309.874 | +7.77% | 1214.478–1224.185 / 1289.439–1323.843 | 1214.657→1309.846 |
+| can.stream6 | 200 × 7 | 1694.599 | 1822.609 | +7.55% | 1687.001–1701.897 / 1819.174–1857.886 | 1694.516→1822.440 |
+| can.jtc | 30000 × 7 | 8.610 | 8.755 | +1.69% | 8.547–8.762 / 8.699–8.954 | 8.609→8.754 |
+
+CPU procesów: te same trzy emulatory równolegle, PTP uruchamiany co3 s,
+1000 ticków/s, JTC100 zestawów/s. Procesy19 s, watch15 s/odstęp1 s.
+Nie uruchamiano produkcyjnego ruchu ani dodatkowych klientów CAN.
+
+| Proces | Średnie CPU [% jednego rdzenia] przed→po | Maksimum przed→po |
+| --- | ---: | ---: |
+| stream4 | 2.533→2.533 | 3.999→4.001 |
+| stream6 | 2.600→2.333 | 4.000→3.001 |
+| jtc | 0.667→0.600 | 2.000→1.998 |
+
+Wniosek: koszt obliczeniowy PTP wzrósł około7,6–7,8%, a JTC1,7%; to pogorszenie
+wydajności przy dodatkowym próbkowaniu/korekcji/ditheringu, nie optymalizacja CPU.
+Średnie obciążenie emulowanych procesów pozostało około2,3–2,6% dla PTP i0,6%
+dla JTC. Niewielkie spadki CPU nie świadczą o przyspieszeniu; rozdzielczość
+/proc i krótka obserwacja ograniczają wniosek. Mediany serii nie są jitterem
+pojedynczego F5, czasem na przewodzie ani gwarancją RT. Budżet ramek pozostaje
+26,58% dla6 osi1M, plus20 punktów rezerwy:46,58% z60%.
+
+Pełny build11 pakietów oraz colcon test:341 testów,0 błędów/0 failures/0 skipped.
+Sprawdzono średnią1,73/2,78 RPM w100 rzeczywiście nadanych emulowanych F5,
+korekcję obu kierunków, rzeczywisty czas17 ms, pośrednią pochodną, nieobecne4/6,
+trace bez nadawania oraz dotychczasowe STOP/BUS-OFF i brak pomiaru.
+Pierwsze wywołanie ctest bez środowiska ROS nie uruchomiło testów. Pierwszy
+colcon test bez jawnego install-base wczytał stare biblioteki; po wskazaniu
+nowego overlay oraz aktualizacji starego oczekiwania minimum3 RPM w teście
+planera pełny zestaw przeszedł. Nie są to nowe usterki transportu sprzętowego.
+
+Artefakty lokalne: log/streaming-smooth-20261025/, scope.json, before/after,
+workspace-build.txt, workspace-test-results-final.txt. Nowy overlay:
+install/streaming-smooth-ros. Produkcyjnej usługi nie restartowano i nie
+wykonano prób sprzętowych; fizyczna płynność wymaga osobnego odbioru.
+
+Końcowy pomiar CPU: `after/cpu-final.json`, porównanie `compare-cpu-final.json`
+(status comparable). Wstępne after/cpu.json miało inne nazwy executable przez
+symlinki; pomiar powtórzono z tymi samymi nazwami kopii binariów co w bazie.

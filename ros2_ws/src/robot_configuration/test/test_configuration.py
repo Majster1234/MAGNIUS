@@ -143,6 +143,76 @@ def test_apply_persists_only_confirmed_revision_and_rejects_conflicts(tmp_path):
     assert Storage(tmp_path).active() == coordinator.active
 
 
+@pytest.mark.parametrize('phase', ['idle', 'done'])
+def test_reapplying_same_values_preserves_revision_model_and_files(tmp_path, phase):
+    coordinator, storage, transport = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    coordinator.phase(phase, 'Gotowe', True)
+    previous = deepcopy(coordinator.active)
+    files = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.glob('*.json')}
+    calls, model = list(transport.calls), transport.model_xml
+    document = deepcopy(previous['document'])
+    document.update(name='Inny snapshot', created_at='2026-10-25T01:00:00Z')
+    # 50.0 i 50 mają ten sam sens fizyczny; zmiana metadanych też nie zmienia rewizji.
+    document['values']['joint.1.gear_ratio'] = 50.0
+    for _ in range(3):
+        coordinator.apply(*coordinator.begin(document, previous['revision']))
+        assert coordinator.active == previous == storage.active()
+        assert coordinator.operation['phase'] == 'done' and coordinator.operation['success'] is True
+        assert not coordinator.running and not transport.locked
+    assert transport.calls == calls and transport.model_xml == model
+    assert {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in tmp_path.glob('*.json')} == files
+    assert storage.journal() is None
+
+
+@pytest.mark.parametrize('key,value', [('joint.1.gear_ratio', 25), ('joint.1.zero_offset', 11),
+    ('joint.1.direction', 1), ('joint.1.velocity', 31), ('joint.1.acceleration', 61),
+    ('joint.1.lower', -179), ('joint.1.origin_x', 101), ('tool.tcp_y', 26),
+    ('tool.mass', 1), ('robot.name', 'Inny robot')])
+def test_actual_parameter_change_still_uses_new_revision_and_full_transaction(tmp_path, key, value):
+    coordinator, storage, transport = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    revision = coordinator.active['revision']; transport.calls.clear()
+    document = deepcopy(coordinator.active['document']); document['values'][key] = value
+    coordinator.apply(*coordinator.begin(document, revision))
+    assert coordinator.active['revision'] != revision
+    assert transport.calls == ['prepare', 'commit', 'finish']
+    assert storage.active()['revision'] == transport.revision == coordinator.active['revision']
+
+
+def test_no_change_still_checks_conflicts_and_serializes_requests(tmp_path):
+    coordinator, storage, transport = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    current = deepcopy(coordinator.active)
+    with pytest.raises(Conflict):
+        coordinator.begin(current['document'], 'initial')
+    args = coordinator.begin(current['document'], current['revision'])
+    with pytest.raises(Conflict):
+        coordinator.begin(current['document'], current['revision'])
+    coordinator.apply(*args)
+    assert coordinator.active == current and not coordinator.running
+    coordinator.phase('uncertain', 'Nieznany wynik')
+    with pytest.raises(Conflict):
+        coordinator.begin(current['document'], current['revision'])
+
+
+def test_same_values_do_not_skip_calibration_confirmation_or_recovery(tmp_path):
+    coordinator, storage, transport = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    current = deepcopy(coordinator.active)
+    storage.atomic('calibration.json', {'revision': current['revision'], 'invalid': [True] + [False]*5})
+    transport.calls.clear()
+    coordinator.apply(*coordinator.begin(current['document'], current['revision']))
+    assert coordinator.active['revision'] != current['revision']
+    assert transport.calls == ['prepare', 'commit', 'finish']
+    assert storage.calibration(coordinator.active['revision']) == [False]*6
+    current = deepcopy(coordinator.active)
+    coordinator.phase('failed', 'Przywrócono poprzedni profil', False)
+    transport.fail = 'prepare'
+    coordinator.apply(*coordinator.begin(current['document'], current['revision']))
+    assert coordinator.operation['phase'] == 'failed' and not coordinator.operation['success']
+
+
 @pytest.mark.parametrize('failure', ['model', 'commit', 'disk'])
 def test_failure_rolls_back_model_runtime_and_file(tmp_path, failure):
     coordinator, storage, transport = ready(tmp_path)

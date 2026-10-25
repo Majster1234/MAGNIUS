@@ -50,10 +50,11 @@ hardware_interface::CallbackReturn CanSystem::on_init(const hardware_interface::
         throw std::invalid_argument("Wymagane interfejsy position/velocity oraz joint_1–joint_6");
       config_.axes[i] = {static_cast<std::uint16_t>(integer(a, "can_id", 2047)), required(a, "gear_ratio"), required(a, "direction"),
           required(a, "zero_offset_rad"), required(a, "lower_rad"), required(a, "upper_rad"), required(a, "velocity_rad_s"),
-          required(a, "acceleration_rad_s2"), mks_servo_can::kProgramPositionTolerance, static_cast<std::uint8_t>(a.count("default_acc") ? integer(a,"default_acc",255) : 240)};
+          required(a, "acceleration_rad_s2"), mks_servo_can::kProgramPositionTolerance, static_cast<std::uint8_t>(a.count("default_acc") ? integer(a,"default_acc",255) : 135)};
       auto &axis=config_.axes[i];auto &stream=axis.streaming;stream.acceleration=axis.acceleration_code;
       if(a.count("lookahead_time_sec")) stream.lookahead_time_sec=required(a,"lookahead_time_sec");
       if(a.count("velocity_ff_scale")) stream.velocity_ff_scale=required(a,"velocity_ff_scale");
+      if(a.count("position_kp")) stream.position_kp=required(a,"position_kp");
       if(a.count("min_holding_rpm")) stream.min_holding_rpm=integer(a,"min_holding_rpm",3000);
       if(a.count("max_rpm")) stream.max_rpm=integer(a,"max_rpm",3000);
       if(a.count("encoder_cpr")) stream.encoder_cpr=integer(a,"encoder_cpr",16384);

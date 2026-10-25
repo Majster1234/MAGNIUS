@@ -38,7 +38,7 @@ SocketCAN ani innych kont. Magistrala musi mieć jednego nadawcę poleceń ruchu
 
 | Operacja | Okres | Zasada |
 | --- | --- | --- |
-| F5 uczestników |10 ms | aktualna faza q/v, lookahead 25 ms, FF 1,15, bez ACK/SYNC |
+| F5 uczestników |10 ms | aktualna faza q/v, lookahead85 ms, FF1, Kp2,5 i dithering RPM, bez ACK/SYNC |
 |31 w PTP/JTC |10 ms/oś | asynchroniczne zapytania, osobny RX/cache |
 |31 poza sterowaniem |40 ms/oś | dotychczasowa diagnostyka/JOG |
 | ENABLE/stall |100 ms | osobne znaczniki, jawny błąd przerywa |

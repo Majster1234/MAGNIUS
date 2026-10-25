@@ -1,4 +1,4 @@
-# Progi strumieniowania PTP — 24.10.2026
+# Progi strumieniowania PTP — 25.10.2026
 
 Obowiązuje nowy kontrakt [100 Hz bez ACK ruchu](motion_execution.md).
 Poprzednie ACK5/ACK10, 20 ms i pauzy pozycyjne są historycznymi wariantami
@@ -6,7 +6,7 @@ Poprzednie ACK5/ACK10, 20 ms i pauzy pozycyjne są historycznymi wariantami
 
 | Operacja | Aktualna zasada |
 | --- | --- |
-| Referencja/F5 | 10 ms, wspólna faza q/v, lookahead 25 ms i FF 1,15 |
+| Referencja/F5 | 10 ms, wspólna faza q/v, lookahead85 ms, FF1/Kp2,5/dithering |
 | Spóźnienie procesu | jedna aktualna klatka, pominięcie nieaktualnych, bez serii nadrabiania |
 | F5/F6/FE | bez ACK, timeoutu ACK i SYNC; CanRSP=Disable, 4A=0 |
 | Pozycje31 w ruchu | nominalnie 100 Hz/oś, RX w osobnym wątku |

@@ -103,7 +103,8 @@ def main():
     profile = ROOT/'config/local/execution.production.yaml'
     old_profile = profile.read_text(); (args.output/'execution-before.yaml').write_text(old_profile)
     settings = yaml.safe_load(old_profile); values = settings['/**']['ros__parameters']
-    values.update(execution_enabled=True, execution_configuration_revision=revision,
+    values.pop('execution_configuration_revision', None)  # UUID konfiguracji nie jest parametrem wykonawcy.
+    values.update(execution_enabled=True,
                   execution_min_holding_rpm=1, execution_max_rpm=max_rpm, execution_acceleration_codes=[1]*6)
     profile.write_text('# PTP stanowiska rozsprzęglonego: limity przegubów + acc1, bez automatycznego ruchu.\n'+yaml.safe_dump(settings, sort_keys=False, allow_unicode=True))
     (args.output/'configuration-after.json').write_text(json.dumps(result, ensure_ascii=False, indent=2))

@@ -12,7 +12,7 @@ void CanBusManager::configure_program_authorization(const BusConfig &a) {
       std::any_of(a.program_position_tolerance.begin(),a.program_position_tolerance.end(),
         [](double value){return !std::isfinite(value) || value<=0;}))
     throw std::invalid_argument("Streaming wymaga use_ack=false, pozycji 100 Hz i dodatnich tolerancji końca");
-  config_.program_enabled=a.program_enabled;config_.program_revision=a.program_revision;
+  config_.program_enabled=a.program_enabled;
   config_.program_position_period=kStreamingCycle;
   config_.program_position_tolerance=a.program_position_tolerance;
   config_.program_streaming=a.program_streaming;
@@ -37,8 +37,11 @@ void CanBusManager::update_motion_settings(const std::string &revision,bool allo
   motion_settings_revision_=revision;allow_missing_motion_=allow_missing;motion_settings_stamp_=now;
 }
 MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time now) {
-  if(!config_.program_enabled || config_.program_revision!=profile_.revision)
-    throw std::runtime_error("Wykonanie PTP wyłączone lub niezgodna rewizja konfiguracji");
+  if(!config_.program_enabled) throw std::runtime_error("Wykonanie PTP wyłączone");
+  // Rewizję wybiera zakończona transakcja konfiguracji, a nie kopia UUID w YAML.
+  // Sprawdzamy tę bramkę przed przejęciem sterowania od JTC.
+  if(!configuration_ready_ || configuration_locked_)
+    throw std::runtime_error("Konfiguracja nie jest uzgodniona; zakończ zapis lub uzgadnianie konfiguracji");
   if(p.revision!=profile_.revision || p.model_id.empty() || p.model_id!=motion_model_ || p.settings_revision!=motion_settings_revision_ ||
       now<motion_settings_stamp_ || now-motion_settings_stamp_>=1500ms)
     throw std::runtime_error("Nieaktualna konfiguracja lub ustawienia wykonania");
@@ -106,6 +109,7 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
   s.execution_key=key;s.busy=true;s.state="arming";s.message="Weryfikacja postoju i CanRSP=Disable";
   e.preparation_deadline=now+3s;e.setup_axis=e.setup_step=0;e.waiting=false;
   active_=true;source_=Source::program;stop_sent_=false;latest_.reset();
+  streaming_states_={};
   for(auto &pending:pending_) pending.used=false;
   manual_->invalidate_program_handover();return true;
 }
@@ -195,6 +199,15 @@ void CanBusManager::schedule_program(Time now) {
   const auto cost=participants*can_frame_bits(8);
   const auto budget=config_.bitrate*std::chrono::duration<double>(config_.cycle).count()*std::min(kPlannedUtilization,config_.utilization_limit);
   if(spent_bits_+cost>budget) {++stats_.deferred;s.state="waiting_budget";s.message="Oczekiwanie na budżet zestawu";return;}
+  // Referencja dla rzeczywistej chwili wysyłania, nie najbliższego starego węzła.
+  const auto point=program_reference(program,std::min(program.duration,std::chrono::duration<double>(elapsed).count()));
+  auto next_streaming=streaming_states_;
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    auto axis=config_.axes[j];axis.streaming=config_.program_streaming[j];
+    const auto sample=streaming_setpoint(axis,point.positions[j],point.velocities[j],next_streaming[j],
+        streaming_feedback_position(j,now),devices_[axis.address].microstep.value);
+    std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
+  }
   spent_bits_+=cost;
   if(e.started==Time{}) {
     e.started=now;
@@ -203,9 +216,10 @@ void CanBusManager::schedule_program(Time now) {
   }
   // Jedna aktualna klatka. Po opóźnieniu nie odtwarzamy kolejki starych celów.
   stats_.dropped_commands+=index-e.frame;
-  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) send_stream_payload(j,program.frames[index].payloads[j]);
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) send_stream_payload(j,stream_payloads_[j]);
+  streaming_states_=next_streaming;
   e.frame=index+1;e.last_sync=now;++stats_.committed;
-  s.state="running";s.message="Streaming pozycji/lookahead/velocity feed-forward 100 Hz";
+  s.state="running";s.message="Streaming 100 Hz: lookahead, korekcja pozycji i dithering RPM";
   if(e.frame==program.frames.size()) {s.state="settling";e.next_check=now;begin_program_check(now);}
 }
 }

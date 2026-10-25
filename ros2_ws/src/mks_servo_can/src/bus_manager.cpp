@@ -108,6 +108,16 @@ void CanBusManager::send_stream_payload(unsigned joint,const std::vector<std::ui
   transport_->send(config_.axes[joint].address,payload);++stats_.tx;
   trace_note("stream_point","bez ACK",config_.axes[joint].address,0xf5);
 }
+std::optional<double> CanBusManager::streaming_feedback_position(unsigned joint,Time now) const {
+  const auto &a=config_.axes[joint];const auto cached=transport_->position_feedback(a.address);
+  if(cached.valid) {
+    const Time stamp{std::chrono::nanoseconds(cached.timestamp_ns)};
+    if(now>=stamp && now-stamp<kProgramFeedbackTimeout) return position_to_joint(a,cached.pulses);
+  }
+  const auto &position=devices_[a.address].position;
+  if(position.fresh(now,kProgramFeedbackTimeout)) return position_to_joint(a,position.value);
+  return std::nullopt;
+}
 CanBusManager::~CanBusManager() = default;
 double CanBusManager::position_to_joint(const AxisConfig &axis, std::int64_t ticks) {
   return axis.direction * static_cast<double>(ticks) * (2 * kPi / 16384) / axis.gear_ratio + axis.offset;
@@ -203,7 +213,7 @@ bool CanBusManager::activate(Source source, Time now) {
     for(unsigned j=0;j<kAxes;++j) (void)streaming_setpoint(config_.axes[j],committed_positions_[j],0,devices_[config_.axes[j].address].microstep.value);
   } catch(const std::exception &e) { message_=e.what();return false; }
   active_ = true; source_ = source; last_command_ = now; lease_stamp_ = now; latest_.reset();
-  previous_velocity_.fill(0); last_sequence_ = 0; message_ = "Sterowanie aktywne"; return true;
+  previous_velocity_.fill(0);streaming_states_={}; last_sequence_ = 0; message_ = "Sterowanie aktywne"; return true;
 }
 bool CanBusManager::submit(const CommandBatch &batch) {
   if (executor_.status.busy || batch.source == Source::program) return false;
@@ -545,14 +555,17 @@ void CanBusManager::schedule_motion(Time now) {
   if(!batch.velocities_valid) {fault("Streaming wymaga pozycji i prędkości");return;}
   const double cost=kAxes*bits(8),budget=config_.bitrate*std::chrono::duration<double>(config_.cycle).count()*std::min(kPlannedUtilization,config_.utilization_limit);
   if(spent_bits_+cost>budget) {++stats_.deferred;latest_=batch;return;}
+  auto next_streaming=streaming_states_;
   for(unsigned j=0;j<kAxes;++j) {
     const auto &axis=config_.axes[j];
     if(!std::isfinite(batch.velocities[j]) || std::abs(batch.velocities[j])>axis.max_velocity+1e-6) {fault("Prędkość poza limitem osi");return;}
-    const auto sample=streaming_setpoint(axis,batch.positions[j],batch.velocities[j],devices_[axis.address].microstep.value);
+    const auto sample=streaming_setpoint(axis,batch.positions[j],batch.velocities[j],next_streaming[j],
+        streaming_feedback_position(j,now),devices_[axis.address].microstep.value);
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
   }
   spent_bits_+=cost;
   for(unsigned j=0;j<kAxes;++j) send_stream_payload(j,stream_payloads_[j]);
+  streaming_states_=next_streaming;
   committed_positions_=batch.positions;previous_velocity_=batch.velocities;last_command_=batch.created;
   motion_this_cycle_=true;++stats_.committed;
 }

@@ -85,7 +85,7 @@ struct BusConfig {
   std::array<AxisConfig, kAxes> axes{};
   unsigned manual_max_rpm{30};
   bool program_enabled{}, program_stop_verified{}, program_sync_verified{}, program_staged_reset_verified{};
-  std::string program_revision;
+  std::string program_revision;  // Stare API: pole ignorowane; obowiązuje zatwierdzony RobotProfile.
   std::chrono::milliseconds program_ack_timeout{kProgramAckTimeout}, program_position_period{kProgramPositionPeriod};
   std::array<double,kAxes> program_position_tolerance{
       kProgramPositionTolerance,kProgramPositionTolerance,kProgramPositionTolerance,
@@ -190,6 +190,7 @@ class CanBusManager {
   double mandatory_cycle_bits() const;
   double stream_cycle_bits(unsigned participants) const;
   void send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload);
+  std::optional<double> streaming_feedback_position(unsigned joint,Time now) const;
   bool feedback_good(Time now) const;
   void schedule_feedback(Time now);
   void schedule_background(Time now);
@@ -220,6 +221,7 @@ class CanBusManager {
   std::vector<std::uint8_t> query_payload_{0,0,0};
   const std::vector<std::uint8_t> sync_payload_{0x4b,0x4b};
   std::array<std::vector<std::uint8_t>,kAxes> stream_payloads_{};
+  std::array<StreamingState,kAxes> streaming_states_{};
   // Wyłącznie odczyty i konfiguracja. Ruch nigdy nie zajmuje slotu ACK.
   std::array<Pending, 4> pending_{};
   std::array<Time, 2048> quarantine_{};

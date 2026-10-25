@@ -313,5 +313,126 @@
     ],
     "workload": "Natywny PTP, STOP po 80 tickach, 50 ticków cleanup, pełny reset sesji, skan i 45000 ticków oraz ponowne przygotowanie ENABLE. Dane syntetyczne, bez sprzętu.",
     "technical_only": false
+  },
+  "can.jtc": {
+    "language": "cpp",
+    "target": "streaming_jtc",
+    "adapter_sources": [
+      "benchmarks/streaming_jtc.cpp",
+      "ros2_ws/src/mks_servo_can/test/streaming_fixture.hpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/bus_manager.cpp",
+        "symbols": [
+          "tick",
+          "schedule_feedback",
+          "schedule_background",
+          "reserve",
+          "start_scan",
+          "reset_session"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/program_bus.cpp",
+        "symbols": [
+          "schedule_program",
+          "prepare_program",
+          "execute_program"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/motion_executor.cpp",
+        "symbols": [
+          "compile_motion_program",
+          "program_reference"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/protocol.cpp",
+        "symbols": [
+          "request",
+          "validate_response"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/streaming_motion.cpp",
+        "symbols": [
+          "compile_streaming_program",
+          "streaming_setpoint",
+          "streaming_bus_utilization"
+        ]
+      }
+    ],
+    "workload": "JTC 6 osi, 1 Mbit/s, q=0.05*sin(t), v=0.05*cos(t), kroki10ms/10 tickow IO, emulowany CAN; bez sprzetu.",
+    "technical_only": false
+  },
+  "motion.configuration": {
+    "language": "python",
+    "module": "benchmarks.motion_configuration",
+    "adapter_sources": [
+      "benchmarks/motion_configuration.py"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/robot_web_bridge/robot_web_bridge/motion.py",
+        "symbols": [
+          "MotionClient.prepare",
+          "MotionClient.execute"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/robot_web_bridge/robot_web_bridge/planning.py",
+        "symbols": [
+          "PlanningClient.context"
+        ]
+      }
+    ],
+    "workload": "Trzy stany idle/done/committing; cykl = context, prepare i execute na atrapach usług (execute zatrzymany przed ROS goal). Bez HTTP/CAN/sprzętu.",
+    "technical_only": false
+  },
+  "configuration.reapply": {
+    "language": "python",
+    "module": "benchmarks.configuration_reapply",
+    "adapter_sources": [
+      "benchmarks/configuration_reapply.py"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/robot_configuration/robot_configuration/coordinator.py",
+        "symbols": [
+          "Coordinator.begin",
+          "Coordinator.apply"
+        ]
+      }
+    ],
+    "workload": "Ponowny zapis identycznych parametrów sześciu osi (tylko created_at inne), begin+apply, prawdziwy Storage w tempdir i atrapa ROS bez CAN.",
+    "technical_only": false
+  },
+  "motion.ptp_revision": {
+    "language": "cpp",
+    "target": "ptp_revision",
+    "adapter_sources": [
+      "benchmarks/ptp_revision.cpp",
+      "ros2_ws/src/mks_servo_can/test/streaming_fixture.hpp"
+    ],
+    "sources": [
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/program_bus.cpp",
+        "symbols": [
+          "CanBusManager::configure_program_authorization",
+          "CanBusManager::prepare_program"
+        ]
+      },
+      {
+        "path": "ros2_ws/src/mks_servo_can/src/configuration.cpp",
+        "symbols": [
+          "CanBusManager::configure",
+          "CanBusManager::require_configuration"
+        ]
+      }
+    ],
+    "workload": "Bootstrap i skan atrap 6 osi; prepare starego planu, transakcja przełożeń 1..6 z ENABLE=0, prepare nowej rewizji z ENABLE=1. Bez wykonania programu i fizycznego CAN; przed poprawką nowe prepare odrzucane.",
+    "technical_only": false
   }
 }

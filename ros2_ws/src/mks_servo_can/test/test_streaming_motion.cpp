@@ -26,17 +26,57 @@ TEST(StreamingCodec, Signed48ExtremesAndInvalidFrames) {
 }
 TEST(StreamingMath, LookaheadFeedForwardAndHoldingSpeed) {
   auto a=axis();const auto moving=streaming_setpoint(a,.2,1);
-  EXPECT_NEAR(moving.lookahead_position,.225,1e-12);EXPECT_EQ(moving.rpm,11);EXPECT_EQ(moving.bytes[3],240);
-  const auto holding=streaming_setpoint(a,.2,0);EXPECT_NEAR(holding.lookahead_position,.2,1e-12);EXPECT_EQ(holding.rpm,3);
+  EXPECT_NEAR(moving.lookahead_position,.285,1e-12);EXPECT_EQ(moving.rpm,9);EXPECT_EQ(moving.bytes[3],135);
+  const auto holding=streaming_setpoint(a,.2,0);EXPECT_NEAR(holding.lookahead_position,.2,1e-12);EXPECT_EQ(holding.rpm,1);
   EXPECT_EQ(holding.bytes[0],0xf5);EXPECT_NE(holding.rpm,0);
-  a.streaming.max_rpm=10;EXPECT_EQ(streaming_setpoint(a,.2,1).rpm,10);
+  a.streaming.max_rpm=8;EXPECT_EQ(streaming_setpoint(a,.2,1).rpm,8);
 }
 TEST(StreamingMath, GearDirectionOffsetAndMicrostepAreApplied) {
   auto a=axis();a.gear_ratio=10;a.direction=-1;a.offset=.1;
   const auto s=streaming_setpoint(a,.3,1);
-  EXPECT_LT(s.ticks,0);EXPECT_NEAR(s.ticks,std::llround(-.225*10*16384/(2*pi)),1);
+  EXPECT_LT(s.ticks,0);EXPECT_NEAR(s.ticks,std::llround(-.285*10*16384/(2*pi)),1);
   a.streaming.min_holding_rpm=3;
   EXPECT_EQ(streaming_setpoint(a,.3,0,128).rpm,24); // raw ×0,125 RPM
+}
+TEST(StreamingMath, DeltaSigmaTracksFractionalRpmOnIndependentAxes) {
+  auto a=axis();std::array<StreamingState,2> states{};
+  for(unsigned j=0;j<2;++j) {
+    const double desired=j ? 2.78 : 1.73;unsigned total=0,upper=0;
+    for(unsigned i=0;i<100;++i) {
+      const auto s=streaming_setpoint(a,0,desired*2*pi/60,states[j]);
+      EXPECT_GE(s.rpm,j ? 2u : 1u);EXPECT_LE(s.rpm,j ? 3u : 2u);
+      total+=s.rpm;upper+=s.rpm==(j ? 3 : 2);
+    }
+    EXPECT_NEAR(total/100.,desired,.02);EXPECT_EQ(upper,j ? 78u : 73u);
+  }
+}
+TEST(StreamingMath, SignedTrackingCorrectionSlowsLeadingAxisAndSpeedsLaggingAxis) {
+  auto a=axis();const double v=4.73*2*pi/60;
+  for(int direction:{-1,1}) {
+    double leading=0,lagging=0;StreamingState lead,lag;
+    for(unsigned i=0;i<100;++i) {
+      leading+=streaming_setpoint(a,0,direction*v,lead,direction*.02).rpm;
+      lagging+=streaming_setpoint(a,0,direction*v,lag,-direction*.02).rpm;
+    }
+    EXPECT_LT(leading/100.,4.73);EXPECT_GT(lagging/100.,4.73);
+    EXPECT_NEAR(leading/100.,4.73-.05*60/(2*pi),.02);
+    EXPECT_NEAR(lagging/100.,4.73+.05*60/(2*pi),.02);
+  }
+}
+TEST(StreamingMath, DitherResetsAtDirectionChangeAndHonorsHoldingAndLimits) {
+  auto a=axis();StreamingState state;const double v=1.73*2*pi/60;
+  EXPECT_EQ(streaming_setpoint(a,0,v,state).rpm,1);
+  EXPECT_EQ(streaming_setpoint(a,0,-v,state).rpm,1);
+  EXPECT_EQ(streaming_setpoint(a,0,0,state,100.).rpm,1);EXPECT_DOUBLE_EQ(state.rpm_dither_accum,0);
+  EXPECT_EQ(streaming_setpoint(a,0,.01,state).rpm,1);
+  a.streaming.max_rpm=2;for(unsigned i=0;i<100;++i) EXPECT_EQ(streaming_setpoint(a,0,1,state,-1.).rpm,2);
+  a.streaming.position_kp=-1;EXPECT_THROW(streaming_setpoint(a,0,v,state),std::invalid_argument);
+  a.streaming.position_kp=NAN;EXPECT_THROW(streaming_setpoint(a,0,v,state),std::invalid_argument);
+}
+TEST(StreamingMath, DitherWorksInMicrostepScaledUnitsWithoutStaleFeedbackCorrection) {
+  auto a=axis();StreamingState state;double total=0;
+  for(unsigned i=0;i<100;++i) total+=streaming_setpoint(a,0,1.73*2*pi/60,state,std::nullopt,128).rpm*.125;
+  EXPECT_NEAR(total/100.,1.73,.002);
 }
 TEST(StreamingMath, PhysicalLimitsAndSignedPositionClamp) {
   auto a=axis();a.upper=.3;const auto s=streaming_setpoint(a,.29,1);EXPECT_DOUBLE_EQ(s.lookahead_position,.3);

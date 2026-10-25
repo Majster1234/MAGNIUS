@@ -70,13 +70,15 @@ osi, opóźnień i obciążenia CAN; sama architektura nie gwarantuje płynnośc
 Uruchomienie, kontrakt API i zasady LAN: [panel diagnostyczny](web_status.md)
 oraz [README backendu](../ros2_ws/src/robot_web_bridge/README.md).
 
-## Pętla 100 Hz i asynchroniczny odbiór — 24.10.2026
+## Pętla 100 Hz i asynchroniczny odbiór — 25.10.2026
 
 Kontroler publikuje q/v co 10 ms. CanSystem eksportuje position i velocity w obu
 kierunkach. write przekazuje najnowszą próbkę atomową skrzynką do jednego
 CanBusManager; lokalny MotionExecutor ma wcześniej skompilowaną trajektorię.
-Wspólna funkcja streaming_setpoint wylicza q+v*0,025 s i prędkość wału z FF 1,15,
-przekładnią, kierunkiem i offsetem. F5 jest wysyłane bez oczekiwania na ACK,
+Wspólna funkcja streaming_setpoint wylicza q+v*0,085 s, FF1 i korekcję
+Kp2,5 ze świeżej pozycji; osobny residual każdej osi realizuje dithering RPM.
+Uwzględnia limity,
+przekładnię, kierunek i offset. F5 jest wysyłane bez oczekiwania na ACK,
 przy CanRSP=Disable i 4A=0; potem planowane są 31 nominalnie 100 Hz/oś.
 
 SocketCAN ma oddzielny wątek RX: O_NONBLOCK, poll 1 ms, atomowy cache int64/czas

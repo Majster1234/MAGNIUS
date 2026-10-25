@@ -45,6 +45,12 @@ TEST(CanSystem, PositionVelocityCommandsAreExportedWithoutCan) {
   const auto commands=plugin.export_command_interfaces();ASSERT_EQ(commands.size(),12u);
   EXPECT_EQ(commands[1].get_name(),"joint_1/velocity");EXPECT_EQ(commands[11].get_name(),"joint_6/velocity");
 }
+TEST(CanSystem, PositionCorrectionGainIsValidatedWithoutOpeningCan) {
+  auto info=example_info();info.joints[0].parameters["position_kp"]="-1";
+  robot_hardware::CanSystem rejected;EXPECT_EQ(rejected.on_init(info),hardware_interface::CallbackReturn::ERROR);
+  info.joints[0].parameters["position_kp"]="2.5";
+  robot_hardware::CanSystem accepted;EXPECT_EQ(accepted.on_init(info),hardware_interface::CallbackReturn::SUCCESS);
+}
 
 TEST(CanSystem, PositionAndVelocityStatesAndCommandsAreMandatory) {
   auto info=example_info();info.joints[0].state_interfaces.pop_back();robot_hardware::CanSystem plugin;

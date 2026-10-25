@@ -124,8 +124,57 @@ TEST(MotionProgram, UseAckAndInvalidPositionPeriodAreRejected) {
 TEST(MotionCompiler, StartAndEndHoldDoNotStopCommandOrAddLookaheadAtZeroVelocity) {
   auto axes=config().axes;std::array<uint16_t,6> steps;steps.fill(16);PreparedMotionProgram p;p.participating.fill(true);
   ProgramPoint a,b;b.seconds=1;b.positions.fill(.4);p.points={a,b};p=compile_streaming_program(p,axes,steps);
-  ASSERT_EQ(p.frames.size(),101u);EXPECT_EQ(p.mode,"streamed");EXPECT_EQ(p.frames[0].payloads[0][2],3);
-  EXPECT_EQ(p.frames.back().payloads[0],absolute_position_request(1,CanBusManager::joint_to_position(axes[0],.4),3,240));
+  ASSERT_EQ(p.frames.size(),101u);EXPECT_EQ(p.mode,"streamed");EXPECT_EQ(p.frames[0].payloads[0][2],1);
+  EXPECT_EQ(p.frames.back().payloads[0],absolute_position_request(1,CanBusManager::joint_to_position(axes[0],.4),1,135));
+}
+TEST(MotionProgram, LateTickInterpolatesAtActualTimeInsteadOfOldTenMillisecondNode) {
+  auto c=config();for(auto &s:c.program_streaming) s.position_kp=0;
+  Rig h(c);h.ready();auto reference=h.program(.2,1);reference.duration=1;h.execute(reference);
+  for(unsigned n=0;n<3000 && !h.port->counts[0xf5] && !h.bus->snapshot().fault;++n) h.run(1);
+  ASSERT_FALSE(h.bus->snapshot().fault);ASSERT_GT(h.port->counts[0xf5],0u);
+  const auto start=std::find_if(h.port->events.begin(),h.port->events.end(),[](const auto &e){return e.data[0]==0xf5;})->stamp;
+  h.now=start+17ms;h.port->now=h.now;const auto before=h.port->events.size();h.bus->tick(h.now);
+  const auto sent=std::find_if(h.port->events.begin()+before,h.port->events.end(),[](const auto &e){return e.axis==1 && e.data[0]==0xf5;});
+  ASSERT_NE(sent,h.port->events.end());auto a=c.axes[0];a.streaming=c.program_streaming[0];
+  const auto point=program_reference(reference,.017);const auto expected=streaming_setpoint(a,point.positions[0],point.velocities[0]);
+  EXPECT_TRUE(std::equal(sent->data.begin()+4,sent->data.begin()+7,expected.bytes.begin()+4));
+}
+TEST(MotionProgram, ActualWireRpmDithersAtOnePointSevenThreeAndTwoPointSevenEight) {
+  auto c=config();for(auto &a:c.axes) {a.gear_ratio=1;a.acceleration_code=135;}
+  for(auto &s:c.program_streaming) s.position_kp=0;
+  Rig h(c);h.ready();auto p=h.program();ProgramPoint a,b,m,end;b.seconds=.2;m.seconds=1.2;end.seconds=1.4;
+  for(unsigned j=0;j<6;++j) {
+    const double v=(j%2 ? 2.78 : 1.73)*2*3.14159265358979323846/60;
+    b.positions[j]=v*.1;b.velocities[j]=v;m.positions[j]=v*1.1;m.velocities[j]=v;end.positions[j]=v*1.2;
+  }
+  p.points={a,b,m,end};h.execute(p);h.run(1900);ASSERT_EQ(h.bus->program_status().state,"succeeded");
+  const auto start=std::find_if(h.port->events.begin(),h.port->events.end(),[](const auto &e){return e.data[0]==0xf5;})->stamp;
+  for(unsigned axis:{1u,2u}) {
+    unsigned total=0,count=0;
+    for(const auto &e:h.port->events) if(e.axis==axis && e.data[0]==0xf5 && e.stamp>=start+200ms && e.stamp<start+1200ms) {
+      const unsigned rpm=(e.data[1]<<8)|e.data[2];total+=rpm;++count;
+      EXPECT_GE(rpm,axis==1 ? 1u : 2u);EXPECT_LE(rpm,axis==1 ? 2u : 3u);EXPECT_EQ(e.data[3],135u);
+    }
+    ASSERT_EQ(count,100u);EXPECT_NEAR(total/100.,axis==1 ? 1.73 : 2.78,.02);
+  }
+}
+TEST(MotionProgram, FourAxesAndTraceDrainNeverQueryAbsentAxesDuringStreaming) {
+  Rig h;h.port->absent=4;h.port->extra_absent=6;h.ready();h.port->events.clear();h.execute(h.program(.2,1,true));
+  std::array<ShaftPositionSample,64> samples;
+  for(unsigned i=0;i<1500;++i) {
+    h.run(1);const auto tx=h.port->events.size();h.bus->drain_shaft_trace(samples.data(),samples.size());EXPECT_EQ(h.port->events.size(),tx);
+  }
+  EXPECT_EQ(h.bus->program_status().state,"succeeded");
+  for(const auto &e:h.port->events) EXPECT_TRUE(e.axis!=4 && e.axis!=6);
+  EXPECT_EQ(h.port->counts[0xf5],404u);
+}
+TEST(MotionCompiler, MultiPointReferencePreservesVelocityAcrossInternalKnot) {
+  PreparedMotionProgram p;p.duration=1;ProgramPoint a,m,b;m.seconds=.5;m.positions.fill(.2);m.velocities.fill(.4);b.seconds=1;b.positions.fill(.4);p.points={a,m,b};
+  for(double t:{.499,.5,.501}) {
+    const auto point=program_reference(p,t);EXPECT_NEAR(point.velocities[0],.4,1e-3);
+    const auto left=program_reference(p,t-1e-6),right=program_reference(p,t+1e-6);
+    EXPECT_NEAR((right.positions[0]-left.positions[0])/2e-6,point.velocities[0],1e-6);
+  }
 }
 TEST(MotionCompiler, RejectsBetweenPointOvershootAndNonfiniteSamples) {
   auto axes=config().axes;std::array<uint16_t,6> steps;steps.fill(16);PreparedMotionProgram p;p.participating.fill(true);

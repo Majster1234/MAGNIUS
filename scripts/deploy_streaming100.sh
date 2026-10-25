@@ -27,9 +27,12 @@ assert params['execution_enabled'] is False,'Wdrożenie wymaga execution_enabled
 assert params['execution_use_ack'] is False and params['execution_position_period_ms']==10
 with urllib.request.urlopen(f'http://{address}:8080/api/v1/manual/status',timeout=5) as r:manual=json.load(r)
 with urllib.request.urlopen(f'http://{address}:8080/api/v1/motion/status',timeout=5) as r:motion=json.load(r)
+with urllib.request.urlopen(f'http://{address}:8080/api/v1/configuration',timeout=5) as r:configuration=json.load(r)
 assert manual['fresh'] and not manual['busy'] and not manual['fault'],'Wymagany świeży stan bez ruchu i fault'
 assert not motion['busy'],'Program nadal działa'
-assert manual['configuration_revision']==params['execution_configuration_revision'],'Zmieniła się rewizja; odśwież profil'
+operation=configuration['operation']
+assert operation['phase'] in ('idle','done') and operation['success'] is True,'Konfiguracja nie jest uzgodniona'
+assert manual['configuration_revision']==configuration['active']['revision'],'Niezgodna rewizja konfiguracji i stanu osi'
 PY
 printf 'Nowy overlay: %s\nProfil: %s\nBitrate zachowany: %s; TX: %s → 1000\n' "$overlay" "$profile" "$bitrate" "$tx_before"
 echo 'Operacje: kopia konfiguracji, stop aplikacji, instalacja drop-in/CAN, daemon-reload, start i kontrola HTTP.'

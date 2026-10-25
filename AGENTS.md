@@ -46,9 +46,9 @@ Agent aktualizuje plik, bez hooka. Narzędziu bez obsługi AGENTS.md zleć odczy
 
 - Domyślnie przed każdym testem ruchu opisz oś, kierunek, prędkość, czas/zakres
   i zatrzymanie oraz uzyskaj zgodę użytkownika przed wykonaniem.
-- PTP streaming (24.10): 100 Hz, F5/F6/F7/FE bez ACK, bez SYNC (4A=0),
-  CanRSP/raporty wyłączone (8C00/00), SR_vFOC=05. Lookahead 25 ms, FF 1,15,
-  holding 3/max 2500 RPM, acc 240; limity mechaniczne nadal obowiązują.
+- PTP streaming (25.10, nowy build): 100 Hz, F5/F6/F7/FE bez ACK, bez SYNC (4A=0),
+  CanRSP/raporty wyłączone (8C00/00), SR_vFOC=05. Lookahead85 ms, FF1, Kp2,5,
+  dithering per oś, holding1/max2500 RPM, acc135; limity mechaniczne obowiązują.
   Odczyty PTP bez startu zapytań 4 ms przed F5; ruch nie czeka na odczyt.
   Tolerancja ±0,5° tylko na końcu (dwa pomiary >=100 ms); bez pauz pośrednich.
   CAN: razem60%, robot40%, osobne20 punktów dla przyszłego modułu.
@@ -59,6 +59,9 @@ Agent aktualizuje plik, bez hooka. Narzędziu bez obsługi AGENTS.md zleć odczy
   całego repozytorium, jeśli zadanie dotyczy małego fragmentu.
 - Wykonuj zlecone zadanie do końca. Rutynowe, odwracalne decyzje podejmuj samodzielnie;
   pytaj o brakujące dane, które istotnie zmieniają rozwiązanie.
+- Po zmianach buduj i wdrażaj właściwe pakiety do konfiguracji używanej przez usługę.
+  Restart może wykonać użytkownik; zawsze podaj w odpowiedzi komendę restartu
+  właściwej usługi i zaznacz, czy nowy build został już uruchomiony.
 - Zachowuj rozdzielenie protokołu MKS, transportu SocketCAN i adaptera ROS.
   Zależności deklaruj w `package.xml` i CMake wraz z korzystającą z nich implementacją.
 - Nie wymyślaj geometrii, CAN ID, bitrate, przełożeń, limitów ani wersji firmware.
@@ -112,7 +115,7 @@ nie raportuj dalszych kroków jako sukcesów. Dokumentacja wymaga kontroli treś
 
 ## Bieżący kontekst
 
-- 25.10: wdrożony panel: niebieski plan #4DA3FF i złota historia PTP #FFC857 z surowych przegubów/FK,20Hz/20k punktów. Kolejne PTP osobno; przerwy bez mostów; brakujące osie z pozycji startowych/jawny tor modelu. Wyczyść usuwa tylko złoto; historia lokalna, reset wyjście/model/rewizja. docs/robot_preview.md.
-- Typecheck/build,12 unit i3 Chromium OK; poprawiono synchronizację testu blur. Live LAN/odświeżenie:kolory/legenda/WebGL OK,0poleceń/0JS. HTTP200, PID88862/NRestarts0; bez restartu ROS/CAN/ruchu. Dowody:log/ptp-trails/20261024T221348Z/. Dalej:Ctrl+F5, PTP operatora.
-- Stan24.10: CAN1M/TX1000, test4osi4000 pozycji/0błędów; zero1/2/3/5 OK. Profil80°/s, holding1/max14/acc1, rewizja4061beb8c2c344a089e9a1d936d3ae32. docs/can_1m_results.md. Ruch80 nieodebrany sprzętowo; stare1RPM:1/2/4osiOK,86,38%±0,5°:docs/motion_hardware_results.md.
-- Otwarte:płynność/prędkość/acc240/JTC/6osi/TCP,STOP/F6=05,skoki,ROS/panel,JOG TCP/limity,IK/J4/J6,geometria/bazowanie,USB/BUS-OFF/watchdog,LAN2,oscylacje,LIN/blending,Three.js/licencja. Trace:docs/manual_control.md. Git feature/web-status; bez commit/push; flagi po pomiarach.
+- 25.10 build11 pakietów OK: install/ptp-revision-ros (Release/O1). Wdrożony na następny start przez przekierowanie install/streaming-smooth-ros/local_setup.bash; kopia i wyniki log/ptp-revision-build-20261025. Szczegóły/ograniczenia: docs/motion_execution.md.
+- Ta tura25.10: 13 testów na nowych bibliotekach OK (7 rewizji,6 ROS NoIo),11 prefixów/5 zależności/launch args OK. Bez ruchu/restartu. PID1388/NRestarts0 bez zmian. Dalej restart w postoju: sudo systemctl restart robot-web-status.service; potem prepare bez execute. Profil max500RPM/80°/s/3:1/acc135 bez zmian.
+- Rewizja PTP z profilu po FINISH; stare UUID YAML ignorowane, PREPARE/bootstrap unieważnia ready także po rollbacku. docs/configuration.md. Wcześniejsze71 testów i benchmark: log/ptp-revision-mechanism-20261025, docs/benchmark_results.md; nie odbiór sprzętu.
+- Otwarte: płynność/prędkość/acc135/JTC/6osi/TCP, STOP/F6=05/skoki, ROS/panel, JOG TCP/limity, IK/J4/J6, geometria/bazowanie, USB/BUS-OFF/watchdog, LAN2/oscylacje, LIN/blending, Three.js/licencja. Git feature/web-status; zachować cudze zmiany, bez commit/push. Flagi po pomiarach; ruch wymaga osobnej zgody.

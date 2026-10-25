@@ -1,5 +1,22 @@
 # Odbiór sprzętowy PTP
 
+## Nowy algorytm przeciw schodkowaniu — 25.10.2026
+
+Przygotowano źródła i overlay `install/streaming-smooth-ros`: lookahead85 ms,
+FF1, Kp2,5, dithering osobno na osi, holding1/acc135 i referencja dla rzeczywistego
+czasu wysyłania. Pełne testy workspace341/0 błędów; poniższe wcześniejsze próby
+sprzętowe nie stanowią odbioru tej zmiany. Nie restartowano produkcji i nie
+wykonywano nowego ruchu. Przebieg shaft_trace i rzeczywista płynność pozostają
+do osobnej próby. [Kontrakt i wdrożenie](motion_execution.md#zmiana-strumieniowania--25102026),
+[benchmarki emulatorów](benchmark_results.md).
+
+Obecna wcześniej uruchomiona produkcja miała już holding1/acc1, a nie3/240.
+Dla stałego1,73 RPM wyrażenie round(1,73×1,15) daje2 RPM. Prosty model
+horyzontu25 ms daje czas dogonienia około25×1,73/(2−1,73)=160 ms.
+Jest to hipoteza zgodna z podanymi przerwami150–180 ms, a nie pomiar ani dowód
+przyczyny. Załączone zadanie nie zawierało surowego CSV do ponownej analizy.
+
+
 ## Streaming 100 Hz na sprzęcie — 24.10.2026, wdrożenie i próby 1/2/4 osi
 
 Wdrożono produkcyjną usługę z `install/streaming100-ros`; `can0` zachowuje
