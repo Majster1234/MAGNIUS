@@ -93,6 +93,7 @@ struct Harness {
   void ready() { run(45000); ASSERT_FALSE(manager->snapshot().scanning); }
   CommandBatch batch(std::uint64_t sequence, double position = 0.001) const {
     CommandBatch batch;batch.velocities_valid=true; batch.positions.fill(position); batch.sequence = sequence;
+    batch.configuration_generation=manager->control_state().configuration_generation;
     batch.created = now; batch.expires = now + 19ms; batch.source = Source::trajectory; return batch;
   }
 };
@@ -301,4 +302,12 @@ TEST(BusManager, ScanQueriesExactlyTwentyAddressesAndExcludesBroadcast) {
   for(const auto &[address,opcode]:h.bus->trace) if(opcode==0x40) addresses.push_back(address);
   ASSERT_EQ(addresses.size(),20u);
   for(unsigned i=0;i<20;++i) EXPECT_EQ(addresses[i],i+1);
+}
+
+TEST(BusManager, RejectsOldConfigurationGenerationBeforeAcceptingCurrentCommand) {
+  Harness h;h.ready();ASSERT_TRUE(h.manager->activate(Source::trajectory,h.now));
+  auto batch=h.batch(1);ASSERT_GT(batch.configuration_generation,0u);--batch.configuration_generation;
+  EXPECT_FALSE(h.manager->submit(batch));EXPECT_EQ(h.bus->counts[0xf5],0u);
+  ++batch.configuration_generation;ASSERT_TRUE(h.manager->submit(batch));h.run(10);
+  EXPECT_EQ(h.bus->counts[0xf5],6u);
 }

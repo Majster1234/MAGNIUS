@@ -2,7 +2,7 @@
 
 W ekranie **Sterowanie ręczne**, przy dostępnej szerokości strony od 1180 px, panel 3D zajmuje lewą
 kolumnę kokpitu, obok tabeli JOG i TCP. Ramka ma preferowaną proporcję 4:3;
-przy niższym oknie może się skrócić. Pod nią znajduje się konsola zdarzeń.
+przy niższym oknie może się skrócić. Pod nią znajduje się Centrum komunikatów.
 Przy węższym obszarze, także po rozwinięciu menu, podgląd o wysokości 48dvh
 przechodzi nad sterowanie. Menu pozostaje dostępne jako pasek 68 px lub pełne 224 px.
 Scena 3D wykorzystuje całą szerokość swojego panelu;
@@ -70,8 +70,9 @@ Blisko konfiguracji osobliwej odpowiedni model otrzymuje żółtą, pulsującą 
 przy większej bliskości czerwoną, pulsującą szybciej. Łuna znajduje się w początku
 J5 dla ostrzeżenia nadgarstka J4–J6 albo J3 dla ostrzeżenia ramienia. Jej pozycja
 wynika z bieżących transformacji danego modelu URDF; nie jest przenoszona do TCP.
-Dymek **Robot**, **Cel** albo **Ruch** podaje rodzaj i obszar ostrzeżenia, a linia
-łączy go z punktem łuny. Przy pokrywających się modelach różne wysokości dymków
+Przestrzenny znacznik **!** i linia wskazują punkt łuny. Opis rodzaju ostrzeżenia
+oraz rozwiązanie pokazuje Centrum komunikatów, osobno dla **Robot**, **Cel**
+i **Symulacja**. Znacznik ma również etykietę dostępności i tooltip. Przy pokrywających się modelach różne wysokości dymków
 zachowują wspólny punkt kotwiczenia. Zmiana kamery i pozy przemieszcza je razem.
 J3 jest umownym miejscem prezentacji ostrzeżenia całego łańcucha; pełny Jacobian
 nie wyznacza pojedynczego fizycznego punktu osobliwości.
@@ -112,15 +113,13 @@ Poświaty korzystają z obecnego WebSocketu i nie zmieniają blokad JOG ani limi
 Zasoby tworzymy raz dla sześciu osi i zwalniamy po opuszczeniu modułu;
 pulsowanie korzysta z istniejącego limitu 30 FPS i zatrzymania przy ukrytej stronie.
 
-Pod podglądem znajduje się przewijana konsola zdarzeń (do 84 px wysokości).
-Wiersze mają wspólne ciemne tło; kolorowe lewe krawędzie i plakietki oznaczają
-informacje, ostrzeżenia i awarie. Obejmuje połączenie, świeżość danych, dostępność napędów,
-komunikaty sterownika, wynik przyjęcia operacji i błędy modelu. Czas HH:mm:ss.SSS
-jest czasem zaobserwowania zdarzenia przez przeglądarkę; dokładny zapis komunikacji
-CAN nadal zapewnia osobny moduł nagrywania. Konsola zachowuje najwyżej 100 wpisów
-po 800 znaków, wyłącznie w pamięci otwartego modułu. Powtarzane statusy 20 Hz nie
-tworzą nowych wpisów. Automatycznie śledzi koniec, dopóki użytkownik nie przewinie
-historii w górę; przewinięcie na dół przywraca śledzenie.
+Pod podglądem znajduje się [Centrum komunikatów](manual_control.md): aktualne
+problemy z opisem i rozwiązaniem oraz rozwijana historia do 100 zdarzeń.
+Historia pokazuje najnowsze wpisy na początku; wewnętrzne przewijanie nie przesuwa
+przycisku STOP. Czas HH:mm:ss.SSS jest czasem zaobserwowania zdarzenia przez
+przeglądarkę. Powtarzane snapshoty i procenty postępu nie tworzą wpisów. Aktywne
+warunki są niezależne od limitu historii. Oryginalny komunikat można rozwinąć
+w szczegółach technicznych; precyzyjny zapis CAN zapewnia osobny moduł nagrywania.
 
 W trybie planowania ramka podglądu jest niebieska. Panel „Ruch do celu TCP”
 znajduje się obok przycisków TCP po prawej stronie, poza sceną. Legenda
@@ -179,7 +178,7 @@ w ostatnio pokazanej pozycji; liczba jest oznaczona jako nieaktualna.
 Brakujące osie są przygaszone. Nagłówek podaje X/6 aktualnych osi; poza przy
 niekompletnych danych jest częściowa. Początkowe dopasowanie kamery uwzględnia
 pierwszą otrzymaną pozę. Dalsze dopasowanie następuje na żądanie operatora.
-Błąd URDF/WebGL trafia do konsoli i pozostawia tabelę pozycji oraz sterowanie dostępne.
+Błąd URDF/WebGL trafia do Centrum komunikatów i pozostawia tabelę pozycji oraz sterowanie dostępne.
 
 ## Planowanie lokalne
 

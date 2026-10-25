@@ -319,7 +319,8 @@
     "target": "streaming_jtc",
     "adapter_sources": [
       "benchmarks/streaming_jtc.cpp",
-      "ros2_ws/src/mks_servo_can/test/streaming_fixture.hpp"
+      "ros2_ws/src/mks_servo_can/test/streaming_fixture.hpp",
+      "benchmarks/streaming_accuracy.hpp"
     ],
     "sources": [
       {

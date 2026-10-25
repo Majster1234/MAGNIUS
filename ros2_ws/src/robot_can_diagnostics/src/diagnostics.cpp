@@ -72,6 +72,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         mks_servo_can::RobotProfile profile; profile.revision = req->configuration.revision;
         profile.changed = req->configuration.changed;
         profile.calibration_invalid = req->configuration.calibration_invalid;
+        profile.confirm_calibration = req->confirm_calibration;
         for (std::size_t i = 0; i < 6; ++i) {
           const auto &a = req->configuration.axes[i];
           if (a.axis != i + 1) { res->message = "Wymagane osie 1–6 w stałej kolejności"; return; }
@@ -82,6 +83,16 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
             req->operation_id, req->expected_revision, profile);
         res->accepted = result.accepted; res->message = result.message; res->revision = result.revision;
         res->operation_id = result.operation_id; res->stage = result.stage; res->locked = result.locked;
+        const auto &resolved=result.resolved_configuration;
+        res->resolved_configuration.revision=resolved.revision;
+        res->resolved_configuration.changed=resolved.changed;
+        res->resolved_configuration.calibration_invalid=resolved.calibration_invalid;
+        for(std::size_t i=0;i<6;++i) {
+          const auto &a=resolved.axes[i];auto &out=res->resolved_configuration.axes[i];
+          out.axis=i+1;out.configured=a.configured;out.gear_ratio=a.gear_ratio;out.direction=a.direction;
+          out.zero_offset_rad=a.offset;out.lower_rad=a.lower;out.upper_rad=a.upper;
+          out.velocity_rad_s=a.velocity;out.acceleration_rad_s2=a.acceleration;
+        }
       });
   publisher_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/robot/can/diagnostics", rclcpp::QoS(1));
   using Enable = robot_control_interfaces::srv::SetMotorEnable;

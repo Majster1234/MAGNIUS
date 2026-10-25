@@ -89,6 +89,8 @@ void BusRuntime::require_configuration() {
 }
 ConfigurationResult BusRuntime::configure(ConfigurationPhase phase, const std::string &operation,
     const std::string &expected, const RobotProfile &profile) {
-  std::lock_guard<std::mutex> guard(mutex_); return manager_.configure(phase, operation, expected, profile, Clock::now());
+  std::lock_guard<std::mutex> guard(mutex_);
+  const auto result=manager_.configure(phase, operation, expected, profile, Clock::now());
+  feedback_.publish(manager_.control_state());return result;
 }
 }  // namespace mks_servo_can

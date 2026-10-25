@@ -121,7 +121,8 @@ void ManualMotorController::configuration_changed(const std::array<bool, kAxes> 
   for (std::size_t i = 0; i < kAxes; ++i) if (changed[i]) {
     prepared_[i] = profile_verified_[i] = false;
     calibrated_[i] = bus_.profile_.axes[i].configured && !bus_.calibration_invalid_[i];
-    configuration_messages_[i] = calibrated_[i] ? "Wymagane przygotowanie i weryfikacja napędu" : "JOG wału — brak pełnej konfiguracji przegubu";
+    configuration_messages_[i] = calibrated_[i] ? "Wymagane przygotowanie i weryfikacja napędu" :
+        bus_.profile_.axes[i].configured ? "Odniesienie niepotwierdzone — potwierdź kalibrację osi" : "JOG wału — brak pełnej konfiguracji przegubu";
   }
 }
 bool ManualMotorController::configuration_stopped(unsigned axis, Time now) const {
@@ -383,7 +384,7 @@ ManualState ManualMotorController::snapshot(Time now) const {
     a.configuration_message = configuration_messages_[axis - 1];
     if (profile.configured) {
       a.joint_lower = profile.lower; a.joint_upper = profile.upper;
-      a.joint_position = {profile.direction * a.position.value * std::acos(-1.0) / 180 / profile.gear_ratio + profile.offset,
+      a.joint_position = {CanBusManager::position_to_joint(bus_.config_.axes[axis-1],d.position.value),
           a.position.stamp, a.position.valid && a.calibration_valid};
       const auto scale = microstep_[axis - 1] ? speed_scale(microstep_[axis - 1]) : 0;
       a.minimum_velocity = scale * 2 * std::acos(-1.0) / 60 / profile.gear_ratio;

@@ -9,6 +9,7 @@ uint64 issued_monotonic_ns
 string operation_id
 string expected_revision
 RobotConfiguration configuration
+bool[6] confirm_calibration
 ---
 bool accepted
 string message
@@ -16,3 +17,4 @@ string revision
 string operation_id
 string stage
 bool locked
+RobotConfiguration resolved_configuration

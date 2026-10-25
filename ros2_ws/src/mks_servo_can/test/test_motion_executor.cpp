@@ -136,7 +136,13 @@ TEST(MotionProgram, LateTickInterpolatesAtActualTimeInsteadOfOldTenMillisecondNo
   h.now=start+17ms;h.port->now=h.now;const auto before=h.port->events.size();h.bus->tick(h.now);
   const auto sent=std::find_if(h.port->events.begin()+before,h.port->events.end(),[](const auto &e){return e.axis==1 && e.data[0]==0xf5;});
   ASSERT_NE(sent,h.port->events.end());auto a=c.axes[0];a.streaming=c.program_streaming[0];
-  const auto point=program_reference(reference,.017);const auto expected=streaming_setpoint(a,point.positions[0],point.velocities[0]);
+  const auto point=program_reference(reference,.017);StreamingState state;
+  const auto expected=streaming_setpoint(a,point.positions[0],point.velocities[0],state,std::nullopt,16,
+      point.accelerations[0],reference.duration-.017);
+  const auto stale_point=program_reference(reference,.010);StreamingState stale_state;
+  const auto stale=streaming_setpoint(a,stale_point.positions[0],stale_point.velocities[0],stale_state,std::nullopt,16,
+      stale_point.accelerations[0],reference.duration-.010);
+  EXPECT_NE(expected.ticks,stale.ticks);
   EXPECT_TRUE(std::equal(sent->data.begin()+4,sent->data.begin()+7,expected.bytes.begin()+4));
 }
 TEST(MotionProgram, ActualWireRpmDithersAtOnePointSevenThreeAndTwoPointSevenEight) {

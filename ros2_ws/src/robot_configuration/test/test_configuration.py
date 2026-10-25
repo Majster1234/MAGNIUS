@@ -100,14 +100,21 @@ class Runtime:
     def __init__(self):
         self.revision = 'initial'; self.stage = 'boot'; self.locked = True; self.operation_id = ''
         self.previous = 'initial'; self.model_xml = ''; self.fail = ''; self.calls = []
+        self.invalid = [False]*6; self.offsets = {}; self.resolved = None
 
-    def control(self, phase, operation_id, state, changed, expected=''):
+    def control(self, phase, operation_id, state, changed, expected='', confirm=None):
         self.calls.append(phase)
         if self.fail == phase:
             raise TimeoutError('Brak odpowiedzi ' + phase)
         if phase in ('bootstrap', 'prepare'):
             self.previous = self.revision; self.operation_id = operation_id; self.locked = True
             self.stage = 'prepared'
+            axes=profiles(state['document'])
+            for i, offset in self.offsets.items(): axes[i]['zero_offset_rad']=offset
+            invalid=list(self.invalid)
+            for i, value in enumerate(confirm or [False]*6):
+                if value: invalid[i]=False
+            self.resolved=dict(revision=state['revision'],axes=axes,calibration_invalid=invalid)
             if phase == 'bootstrap':
                 self.revision = state['revision']; self.stage = 'committed'
         if phase == 'commit':
@@ -116,7 +123,7 @@ class Runtime:
             self.revision = self.previous; self.stage = 'rolled_back'; self.operation_id = operation_id; self.locked = True
         if phase == 'finish':
             self.stage = 'finished'; self.locked = False
-        return dict(revision=self.revision, stage=self.stage, operation_id=self.operation_id, locked=self.locked)
+        return dict(revision=self.revision, stage=self.stage, operation_id=self.operation_id, locked=self.locked, resolved_configuration=self.resolved)
 
     def model(self, xml):
         if self.fail == 'model':
@@ -202,7 +209,7 @@ def test_same_values_do_not_skip_calibration_confirmation_or_recovery(tmp_path):
     current = deepcopy(coordinator.active)
     storage.atomic('calibration.json', {'revision': current['revision'], 'invalid': [True] + [False]*5})
     transport.calls.clear()
-    coordinator.apply(*coordinator.begin(current['document'], current['revision']))
+    coordinator.apply(*coordinator.begin(current['document'], current['revision'], [1]))
     assert coordinator.active['revision'] != current['revision']
     assert transport.calls == ['prepare', 'commit', 'finish']
     assert storage.calibration(coordinator.active['revision']) == [False]*6
@@ -316,7 +323,7 @@ def test_reconcile_same_process_reloads_durable_revision_after_unknown_finish(tm
 def test_reconcile_rolled_back_runtime_overrides_candidate_file(tmp_path):
     coordinator, storage, transport = ready(tmp_path)
     previous = deepcopy(coordinator.active)
-    operation_id, _, candidate = coordinator.begin(configured(),'initial')
+    operation_id, _, candidate, _ = coordinator.begin(configured(),'initial')
     storage.atomic('pending.json', {'id':operation_id,'previous':previous,'candidate':candidate,'previous_calibration':[True,False,False,False,False,False]})
     storage.atomic('active.json', candidate)
     transport.operation_id = operation_id;transport.stage = 'rolled_back';transport.locked = True
@@ -336,3 +343,86 @@ def test_partial_motion_settings_are_separate_durable_and_migrate(tmp_path):
     assert store.set_system_settings(False)['allow_missing_motion'] is True
     with pytest.raises(ValueError):
         store.set_system_settings(allow_missing_motion='true')
+
+
+def test_resolved_offset_is_journaled_before_commit_and_persisted_for_restart(tmp_path):
+    coordinator, storage, transport = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    old = deepcopy(coordinator.active)
+    document = deepcopy(old['document']); document['values']['joint.1.gear_ratio'] = 25
+    transport.offsets[0] = math.radians(20)
+    original = transport.control
+    def control(phase, *args):
+        if phase == 'commit':
+            assert storage.journal()['candidate']['document']['values']['joint.1.zero_offset'] == pytest.approx(20)
+            assert storage.journal()['candidate_calibration'] == [False]*6
+        return original(phase, *args)
+    transport.control = control
+    coordinator.apply(*coordinator.begin(document, old['revision']))
+    assert coordinator.operation['success']
+    assert storage.active()['document']['values']['joint.1.zero_offset'] == pytest.approx(20)
+    assert document['values']['joint.1.zero_offset'] == 10  # Żądanie/snapshot pozostaje bez zmian.
+    restarted = Coordinator(Storage(tmp_path), transport); restarted.bootstrap()
+    assert restarted.operation['phase'] == 'idle'
+    assert restarted.active == coordinator.active
+
+
+def test_unconfirmed_axis_persists_and_noop_cannot_clear_it(tmp_path):
+    coordinator, storage, transport = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    document = deepcopy(coordinator.active['document']); document['values']['joint.1.gear_ratio'] = 25
+    transport.invalid[0] = True
+    coordinator.apply(*coordinator.begin(document, coordinator.active['revision']))
+    current = deepcopy(coordinator.active)
+    assert storage.calibration(current['revision'])[0]
+    coordinator.apply(*coordinator.begin(current['document'], current['revision']))
+    assert coordinator.active == current and coordinator.snapshot()['calibration_invalid'][0]
+    coordinator.apply(*coordinator.begin(current['document'], current['revision'], [1]))
+    assert not any(storage.calibration(coordinator.active['revision']))
+
+
+@pytest.mark.parametrize('bad', [[0], [7], [True], [1,1], '1', [1.0]])
+def test_calibration_confirmation_rejects_bad_axis_lists(tmp_path, bad):
+    coordinator, _, _ = ready(tmp_path)
+    with pytest.raises(ValueError, match='confirm_calibration_axes'):
+        coordinator.begin(configured(), 'initial', bad)
+
+
+@pytest.mark.parametrize('field,value', [('zero_offset', 20), ('direction', 1), ('confirm', 1)])
+def test_ratio_and_reference_changes_require_separate_writes(tmp_path, field, value):
+    coordinator, _, _ = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    document = deepcopy(coordinator.active['document']); document['values']['joint.1.gear_ratio'] = 25
+    if field != 'confirm': document['values']['joint.1.'+field] = value
+    with pytest.raises(ValueError, match='osobnych'):
+        coordinator.begin(document, coordinator.active['revision'], [1] if field == 'confirm' else [])
+
+
+def test_failure_after_resolution_rolls_back_original_offset_and_calibration(tmp_path):
+    coordinator, storage, transport = ready(tmp_path)
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    previous = deepcopy(coordinator.active)
+    document = deepcopy(previous['document']); document['values']['joint.1.gear_ratio'] = 25
+    transport.offsets[0] = math.radians(20); transport.fail = 'commit'
+    coordinator.apply(*coordinator.begin(document, previous['revision']))
+    assert coordinator.operation['phase'] == 'failed'
+    assert storage.active() == previous and not transport.locked
+    assert storage.active()['document']['values']['joint.1.zero_offset'] == 10
+
+
+def test_lost_finish_recovery_preserves_unconfirmed_calibration(tmp_path):
+    coordinator, storage, transport = ready(tmp_path)
+    transport.invalid[0] = True
+    original = transport.control; finishing = [False]
+    def control(phase, *args):
+        if phase == 'finish':
+            finishing[0] = True
+            raise TimeoutError('FINISH')
+        if phase == 'status' and finishing[0]: raise TimeoutError('STATUS')
+        return original(phase, *args)
+    transport.control = control
+    coordinator.apply(*coordinator.begin(configured(), 'initial'))
+    assert coordinator.operation['phase'] == 'uncertain' and storage.journal()['candidate_calibration'][0]
+    transport.control = original
+    coordinator.bootstrap()
+    assert coordinator.operation['phase'] == 'idle' and storage.calibration(coordinator.active['revision'])[0]

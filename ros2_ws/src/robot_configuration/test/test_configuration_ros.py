@@ -1,5 +1,6 @@
 """Rzeczywisty ROS/RSP i pliki, atrapiony właściciel sterowania, bez CAN i ruchu."""
 import json
+from copy import deepcopy
 import math
 import os
 from pathlib import Path
@@ -43,6 +44,9 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
             runtime.update(revision=runtime['previous'], stage='rolled_back')
         if phase == 3:
             runtime.update(stage='finished', locked=False)
+        response.resolved_configuration = deepcopy(request.configuration)
+        if phase == 0 and runtime.get('rebase'):
+            response.resolved_configuration.axes[0].zero_offset_rad = math.radians(20)
         response.accepted = True
         for key in ('revision','stage','locked','operation_id'):
             setattr(response,key,runtime[key])
@@ -127,6 +131,20 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
         assert len(profiles) == profile_count and runtime['revision'] == revision
         assert json.loads((tmp_path/'configuration/active.json').read_text()) == saved
         assert node.coordinator.transport.description == build_urdf(saved['document'], revision)
+        runtime['rebase'] = True
+        document['values']['joint.1.gear_ratio'] = 25
+        assert command('apply', document=document, expected_revision=revision)[0] == 202
+        deadline = time.monotonic()+5
+        while time.monotonic()<deadline:
+            _, state = command('status')
+            if state['operation']['phase'] in ('done','failed','uncertain'): break
+            time.sleep(.02)
+        assert state['operation']['phase'] == 'done', state
+        assert math.isclose(state['active']['document']['values']['joint.1.zero_offset'],20)
+        assert document['values']['joint.1.zero_offset'] == 10
+        saved=json.loads((tmp_path/'configuration/active.json').read_text())
+        assert saved == state['active']
+        assert not any(state['calibration_invalid'])
     finally:
         executor.shutdown(timeout_sec=3);thread.join(timeout=3)
         for item in (node,probe,server):item.destroy_node()

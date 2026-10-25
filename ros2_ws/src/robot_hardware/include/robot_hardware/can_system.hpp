@@ -7,6 +7,7 @@
 namespace robot_hardware {
 class CanSystem : public hardware_interface::SystemInterface {
  public:
+  explicit CanSystem(std::shared_ptr<mks_servo_can::BusRuntime> runtime = {}) : runtime_(std::move(runtime)) {}
   ~CanSystem() override;
   hardware_interface::CallbackReturn on_init(const hardware_interface::HardwareInfo &info) override;
   hardware_interface::CallbackReturn on_configure(const rclcpp_lifecycle::State &) override;
@@ -33,6 +34,7 @@ class CanSystem : public hardware_interface::SystemInterface {
   std::array<std::uint64_t,mks_servo_can::kAxes> previous_stamps_{};
   bool velocity_commands_{false};
   std::uint64_t sequence_{};
+  std::uint64_t configuration_generation_{};
   bool active_{false};
 };
 }  // namespace robot_hardware

@@ -11,14 +11,15 @@ import type { TcpHeld, TcpAxis, TcpFrame } from "./planningTcpJog";
 import { TcpControls } from "./TcpControls";
 import { PlanningTcpStep } from "./planningTcpStep";
 import type { MotionTrace } from "./previewMotionTrail";
-import { EventConsole, useEventConsole } from "./EventConsole";
+import { ControlMessageCenter, useControlMessages } from "./ControlMessageCenter";
+import { previewLimits } from "./previewLimits";
 import type { Axis, ManualState } from "./manualTypes";
 import type { ManualHeaderState } from "./AppShell";
 import type { MotionObservation } from "./motionStatus";
 
 function calibrationRepair(axis: Axis) {
     return axis.joint_configured && !axis.calibration_valid ?
-        `J${axis.axis}: nieważna kalibracja przegubu po zerowaniu wału. Wyłącz napęd przyciskiem „Wyłącz”. W zakładce „Konfiguracja” sprawdź i ustaw poprawny „Offset zera przegubu” dla J${axis.axis}, a następnie kliknij „Zapisz do ROS”, aby ponownie zatwierdzić kalibrację. Po zapisie możesz przygotować napęd przyciskiem „Załącz”. Do tego czasu pozycja dotyczy wału, a JOG przegubu jest zablokowany.` : undefined;
+        `J${axis.axis}: nieważne odniesienie przegubu. Pozycja dotyczy wału, JOG przegubu jest zablokowany. Opis i rozwiązanie: Centrum komunikatów.` : undefined;
 }
 
 export function MotorPosition({ axis, position, plannedPosition, stale = false, lower = -3600, upper = 3600, shaftFallback = false }: { axis: number; position: number | null; plannedPosition?: number | null; stale?: boolean; lower?: number; upper?: number; shaftFallback?: boolean }) {
@@ -56,7 +57,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const [state, setState] = useState<ManualState | null>(null);
     const [connected, setConnected] = useState(false);
     const [fresh, setFresh] = useState(false);
-    const { entries, notice } = useEventConsole();
+    const { entries, notice, condition, active, statuses } = useControlMessages();
     const [pending, setPending] = useState(false);
     const [held, setHeld] = useState<{ axis: number; direction: number } | null>(null);
     const [planning, setPlanning] = useState(false);
@@ -65,6 +66,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const [simulationPositions, setSimulationPositions] = useState<number[] | null>(null);
     const [motionTrace, setMotionTrace] = useState<MotionTrace | null>(null);
     const [execution, setExecution] = useState<MotionObservation | null>(null);
+    const [stopRobot,setStopRobot]=useState<(()=>void)|null>(null);
+    const registerStop=useCallback((action:(()=>void)|null)=>setStopRobot(()=>action),[]);
     const context = usePlanningContext();
     const simulationAllowed = !!context?.ignore_missing_drivers && connected;
     const [plan, setPlan] = useState(() => new PlanningJog().snapshot(performance.now()));
@@ -128,20 +131,36 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     }, [speedProfile]);
     const wasConnected = useRef(false);
     useEffect(() => {
-        notice({ source: "connection", severity: connected ? "info" : wasConnected.current ? "error" : "info",
+        notice({ source: "connection", severity: "info",context:"Połączenie",
             message: connected ? "Nawiązano połączenie z panelem sterowania." : wasConnected.current ? "Utracono połączenie z panelem. Ponawianie połączenia…" : "Łączenie z panelem sterowania…" });
+        condition("connection-issue",!connected && wasConnected.current?{source:"connection-issue",severity:"error",code:"connection",context:"Połączenie",message:"Utracono połączenie z panelem sterowania."}:null);
         if (connected) wasConnected.current = true;
-    }, [connected, notice]);
+    }, [connected, notice,condition]);
     useEffect(() => {
         if (!connected) return;
-        notice({ source: "freshness", severity: fresh ? "info" : "warning", message: fresh ? "Dane sterowania są aktualne." : "Dane sterowania nieaktualne — JOG zablokowany do powrotu pomiarów." });
+        condition("freshness",fresh?null:{source:"freshness",severity:"warning",code:"freshness",context:"Pomiary robota",message:"Dane sterowania nieaktualne — JOG zablokowany do powrotu pomiarów."});
         if (!fresh || !state) return;
-        notice({ source: "controller", severity: state.fault ? "error" : "info", message: state.fault ? `Awaria sterowania: ${state.message || "brak opisu"}` : state.message || "Sterowanie gotowe." });
+        const withoutFeedback=state.axes.filter(a=>a.available && (!a.position_known || !Number.isFinite(a.position_age_seconds) || (a.position_age_seconds ?? Infinity)>=.25 || (a.position_age_seconds ?? 0)<0 || (a.joint_configured && a.calibration_valid && !a.joint_position_known))).map(a=>`J${a.axis}`);
+        condition("axis-feedback",withoutFeedback.length?{source:"axis-feedback",severity:"warning",code:"freshness",context:"Pomiary osi",description:`Brakuje aktualnej pozycji osi: ${withoutFeedback.join(", ")}. Stan połączenia panelu nie potwierdza świeżości tych pomiarów.`,message:`Brak świeżej pozycji: ${withoutFeedback.join(", ")}.`}:null,"Zaktualizowano ocenę pomiarów dostępnych osi.");
+        condition("controller",state.fault?{source:"controller",severity:"error",code:"fault",context:"Robot fizyczny",message:state.message || "Brak opisu awarii"}:null);
+        if(!state.fault && state.message)notice({source:"controller-state",severity:"info",context:"Robot fizyczny",message:state.message});
         const available = state.axes.filter(axis => axis.available).map(axis => `J${axis.axis}`);
         const missing = state.axes.filter(axis => !axis.available).map(axis => `J${axis.axis}`);
-        notice({ source: "axes", severity: missing.length ? "warning" : "info", message: `Dostępne napędy: ${available.join(", ") || "brak"}.${missing.length ? ` Niedostępne: ${missing.join(", ")}.` : " Wszystkie osie połączone."}` });
-        for (const axis of state.axes) if (axis.configuration_message) notice({source:`profile-${axis.axis}`, severity:axis.joint_configured && (!axis.calibration_valid || !axis.prepared) ? "warning" : "info", message:`J${axis.axis}: ${axis.configuration_message}`});
-    }, [state, connected, fresh, notice]);
+        condition("axes",missing.length?{source:"axes",severity:"warning",code:"missing",context:"Robot fizyczny",description:`Nie dostarczają pozycji: ${missing.join(", ")}. Dostępne napędy: ${available.join(", ") || "brak"}.`,message:`Dostępne napędy: ${available.join(", ") || "brak"}. Niedostępne: ${missing.join(", ")}.`}:null);
+        const disabledAxes=state.axes.filter(a=>a.available && (!a.enable_known || !a.enabled)).map(a=>`J${a.axis}`);
+        condition("drive-enable",disabledAxes.length?{source:"drive-enable",severity:"warning",code:"enable",context:"Robot fizyczny",description:`Wyłączony lub nieznany ENABLE osi ${disabledAxes.join(", ")} uniemożliwia ich fizyczny ruch.`,message:`ENABLE wyłączony lub nieznany: ${disabledAxes.join(", ")}.`}:null);
+        for (const axis of state.axes) {
+            const invalid=axis.joint_configured && !axis.calibration_valid,unprepared=axis.joint_configured && axis.enabled && !axis.prepared;
+            condition(`profile-${axis.axis}`,invalid || unprepared?{source:`profile-${axis.axis}`,severity:"warning",code:invalid?"calibration":"profile",context:`Oś J${axis.axis}`,message:`J${axis.axis}: ${axis.configuration_message || (invalid?"Kalibracja nieważna":"Napęd nieprzygotowany")}`} :null);
+            const q=axis.joint_configured?axis.joint_position_known?axis.joint_position_degrees!:null:axis.position_known?axis.position_degrees:null;
+            const limits=previewLimits(axis,q,true);
+            for(const side of ["lower","upper"] as const) {
+                const limit=limits.find(l=>l.side===side);
+                condition(`limit-${axis.axis}-${side}`,limit?{source:`limit-${axis.axis}-${side}`,severity:limit.level==="exceeded"?"error":"warning",code:"limits",context:`Robot · J${axis.axis}`,title:limit.level==="exceeded"?"Przekroczony limit osi":"Blisko limitu osi",message:`J${axis.axis}: ${side==="lower"?"dolny":"górny"} limit ${limit.limitDegrees}° · ${limit.level==="exceeded"?"przekroczony":"zbliżenie"}.`}:null);
+            }
+        }
+    }, [state, connected, fresh, condition,notice]);
+    useEffect(()=>{condition("planner",planning && !context?.planner_available?{source:"planner",severity:"warning",code:"planner",context:"Planowanie",message:"Brak dostępnego kontekstu planowania."}:null,planning?undefined:"Zakończono lokalne planowanie.");},[planning,context?.planner_available,condition]);
     useEffect(() => {
         let closed = false, socket: WebSocket | null = null;
         let received = -Infinity;
@@ -154,8 +173,11 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         let reconnect: ReturnType<typeof setTimeout> | undefined;
         function connect() {
             socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/manual/ws`);
-            const jog = new JogControl(socket, () => performance.now(), (reason, axis) =>
-                report("client_stop", axis, ["release", "ack_timeout", "state_timeout", "socket_closed", "state_stale", "ack_rejected"].indexOf(reason)));
+            const jog = new JogControl(socket, () => performance.now(), (reason, axis) => {
+                report("client_stop", axis, ["release", "ack_timeout", "state_timeout", "socket_closed", "state_stale", "ack_rejected"].indexOf(reason));
+                if (reason !== "release") notice({source:"jog-stop",severity:"warning",code:reason === "ack_rejected"?"jog":reason === "socket_closed"?"connection":"freshness",context:`JOG · J${axis}`,
+                    title:"Przerwano podtrzymywanie JOG",message:`JOG J${axis}: ${reason}`,description:reason === "ack_timeout"?"Panel nie otrzymał na czas potwierdzenia komendy JOG. Wysłano żądanie zatrzymania; stan osi wymaga sprawdzenia.":"Utracono warunek podtrzymywania JOG. Wysłano żądanie zatrzymania; ruch nie zostanie wznowiony automatycznie."});
+            });
             control.current = jog;
             socket.onopen = () => { if (!closed) setConnected(true); };
             socket.onmessage = (event) => {
@@ -175,7 +197,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                         if (!planningMode.current) jog.stateReceived(data.state.fresh);
                     } else if (data.type === "ack") {
                         jog.ack(data.sequence, data.accepted);
-                        if (!data.accepted) notice({ source: "jog", severity: "warning", message: data.message || "Komenda JOG odrzucona." });
+                        if (!data.accepted || jog.holding) notice({source:"jog",severity:data.accepted?"info":"warning",code:data.accepted?undefined:"jog",context:"JOG fizyczny",message:data.accepted?"Komenda JOG przyjęta.":data.message || "Komenda JOG odrzucona."});
+                        if (data.accepted && jog.holding) notice({source:"jog-stop",severity:"info",context:"JOG fizyczny",message:"Potwierdzono podtrzymywanie nowego żądania JOG."});
                     }
                 } catch { if (!planningMode.current) jog.stop(); tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null); planningControl.current.disconnect(); setPlan(planningControl.current.snapshot(performance.now())); setFresh(false); }
             };
@@ -285,11 +308,12 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             const key = contextKey(context);
             if (tcpStepControl.current?.start(context, axis, direction, frame, speed, step, plan.positions,
                 () => tcpEnvironment.current.allowed && tcpEnvironment.current.key === key && !document.hidden && planningMode.current &&
-                    planningControl.current.snapshot(performance.now()).available.every(Boolean), performance.now())) setTcpHeld(tcpStepControl.current.held);
+                    planningControl.current.snapshot(performance.now()).available.every(Boolean), performance.now())) {setTcpHeld(tcpStepControl.current.held);notice({source:"tcp-step",severity:"info",context:"Cel TCP",message:"Uruchomiono impuls celu TCP w symulacji."});}
             return;
         }
         if (tcpControl.current?.start(context, axis, direction, frame, speed, performance.now())) {
             setTcpHeld(tcpControl.current.held);
+            notice({source:"tcp",severity:"info",context:"Cel TCP",message:"Uruchomiono edycję celu TCP w symulacji."});
         }
     }
     function jogSpeed(axis: Axis) {
@@ -309,11 +333,12 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         <header className="manual-header">
             <h1>Sterowanie ręczne</h1>
             <span className="manual-mode"><span aria-hidden="true" />{planning ? "PLANOWANIE · bliźniak" : "LIVE · robot fizyczny"}</span>
+            <button className="motion-stop" disabled={!stopRobot} onClick={()=>stopRobot?.()} title="Żądanie STOP fizycznego programu; stan potwierdza wykonawca">STOP robota</button>
         </header>
         <div className="manual-workspace"><div className="manual-observation">
-        <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
+        <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onCondition={condition} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
             simulationPositions={simulationPositions} motionTrace={motionTrace} execution={execution} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} />
-        <div className="manual-console-dock"><h2>Zdarzenia <span>Historia sterowania</span></h2><EventConsole entries={entries} /></div>
+        <ControlMessageCenter entries={entries} active={active} statuses={statuses}/>
         </div><div className="manual-controls-row"><div className="manual-table"><table><colgroup>
             <col className="manual-col-jog"/><col className="manual-col-axis"/><col/>
             <col className="manual-col-drive"/><col className="manual-col-zero"/><col className="manual-col-speed"/>
@@ -334,10 +359,11 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             </tr>)}
         </tbody></table></div>
         <div className="manual-tools"><TcpControls allowed={tcpAllowed && plan.activeAxis === 0} planning={planning} held={tcpHeld} stepAvailable={!!context?.tcp_step_available}
-            missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} />
+            missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} onNotice={notice} onCondition={condition}/>
+        <section className="motion-workflow" aria-label="Ruch PTP i LIN"><header className="motion-workflow-heading"><h2>Ruch PTP / LIN</h2><span className="badge planning-badge">Cel → program → ruch</span></header>
         {planning && <div className="manual-simulation"><CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}
-            showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={receivePhysicalPlan} onPreparedPreview={registerPreparedPreview} /></div>}
-        <div className="manual-simulation"><MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onStatus={setExecution} /></div>
+            showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={receivePhysicalPlan} onPreparedPreview={registerPreparedPreview} onNotice={notice} onCondition={condition}/></div>}
+        <MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onStatus={setExecution} onNotice={notice} onCondition={condition} onStopReady={registerStop}/></section>
         <aside className="can-note"><span className="manual-info-icon" aria-hidden="true">i</span><div><h2>{planning ? "Plan lokalny" : "Obsługa JOG"}</h2><p>{planning ? "JOG i TCP poruszają bliźniakiem. Fizyczny PTP/LIN wymaga osobnego przygotowania i zatwierdzenia. ENABLE i zerowanie są tu zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p></div></aside>
         </div></div></div>
     </section>;

@@ -44,7 +44,10 @@ def test_configuration_endpoints_forward_to_one_ros_owner_and_preserve_policy(tm
         assert asyncio.run(request(app, method, path, body, client='100.64.0.1'))[0] == 403
         assert asyncio.run(request(app, method, path, body, origin='http://foreign.example'))[0] == 403
         assert len(calls) == previous
-    assert calls[6] == ('apply', {'document': {'test': 1}, 'expected_revision': 'revision-1'})
+    assert calls[6] == ('apply', {'document': {'test': 1}, 'expected_revision': 'revision-1', 'confirm_calibration_axes': []})
+    assert asyncio.run(request(app, 'POST', '/api/v1/configuration/apply',
+                             {'document': {}, 'expected_revision': 'r', 'confirm_calibration_axes': [2, 5]}))[0] == 202
+    assert calls[-1][1]['confirm_calibration_axes'] == [2, 5]
     assert asyncio.run(request(app, 'POST', '/api/v1/configuration/apply', {'document': 'x' * 65536}))[0] == 413
     assert asyncio.run(request(app, 'POST', '/api/v1/configuration/apply', []))[0] == 422
 

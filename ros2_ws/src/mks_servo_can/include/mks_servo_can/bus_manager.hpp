@@ -67,6 +67,7 @@ struct CommandBatch {
   bool velocities_valid{false};
   Time created{}, expires{};
   std::uint64_t sequence{};
+  std::uint64_t configuration_generation{};
   Source source{Source::none};
 };
 struct BusConfig {
@@ -112,6 +113,9 @@ struct BusSnapshot {
 };
 struct ControlState {
   std::array<Sample<double>, kAxes> positions{};
+  std::array<JointConversion,kAxes> conversions{};
+  std::uint64_t configuration_generation{};
+  bool configuration_ready{};
   bool active{}, fault{}, program_owned{};
   Source source{Source::none};
 };
@@ -190,7 +194,7 @@ class CanBusManager {
   double mandatory_cycle_bits() const;
   double stream_cycle_bits(unsigned participants) const;
   void send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload);
-  std::optional<double> streaming_feedback_position(unsigned joint,Time now) const;
+  Sample<double> streaming_feedback_position(unsigned joint,Time now) const;
   bool feedback_good(Time now) const;
   void schedule_feedback(Time now);
   void schedule_background(Time now);
@@ -249,6 +253,10 @@ class CanBusManager {
   bool configuration_ready_{true}, configuration_locked_{false};
   bool configuration_bootstrap_{false}, scan_after_bootstrap_{true};
   std::array<bool, kAxes> calibration_invalid_{}, previous_calibration_invalid_{};
+  std::array<bool,kAxes> configuration_anchored_{};
+  std::array<std::int64_t,kAxes> configuration_ticks_{};
+  std::array<std::uint64_t,kAxes> configuration_segments_{};
+  std::uint64_t configuration_generation_{};
   std::string configuration_operation_, configuration_stage_{"finished"};
   std::array<std::string, 64> retired_configuration_operations_{};
   std::size_t retired_configuration_cursor_{};

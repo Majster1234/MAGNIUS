@@ -2,7 +2,7 @@
 const {chromium}=require('playwright');
 const {execFileSync}=require('child_process');
 const path=require('path'),assert=require('assert/strict'),fs=require('fs');
-const dist=path.resolve(__dirname,'../dist');
+const dist=path.resolve(process.env.ROBOT_WEB_DIST || path.join(__dirname,'../dist'));
 const schema=path.resolve(__dirname,'../../ros2_ws/src/robot_configuration');
 const empty=JSON.parse(execFileSync('python3',['-c','import sys,json;sys.path.insert(0,sys.argv[1]);from robot_configuration.schema import empty_document;print(json.dumps(empty_document()))',schema]));
 const clone=value=>JSON.parse(JSON.stringify(value));

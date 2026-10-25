@@ -9,12 +9,15 @@ export type PreviewContext = {
     tcp_step_available?: boolean;
 };
 export const contextKey = (context: PreviewContext | null) => context ? `${context.model_id}/${context.configuration_revision}/${context.settings_revision}` : "";
+export class PlanningRequestError extends Error {
+    constructor(message:string,readonly status:number){super(message);this.name="PlanningRequestError";}
+}
 export async function planningRequest(path: string, data?: unknown, method = "POST") {
     const result = await fetch(`/api/v1/${path}`, data === undefined ? { signal: AbortSignal.timeout(2500) } : {
         method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data), signal: AbortSignal.timeout(5000),
     });
     const answer = await result.json();
-    if (!result.ok) throw Error(answer.detail || "Operacja planowania niedostępna");
+    if (!result.ok) throw new PlanningRequestError(typeof answer.detail==="string"?answer.detail:"Operacja planowania niedostępna",result.status);
     return answer;
 }
 export function usePlanningContext() {

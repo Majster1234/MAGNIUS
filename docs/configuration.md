@@ -96,6 +96,12 @@ osie wymagają świeżego ENABLE=0 i potwierdzonego postoju z kolejnych pozycji.
 Odłączone osie mogą otrzymać profil, ale przygotowanie wymaga późniejszej weryfikacji.
 Napędy nie są wyłączane automatycznie.
 
+Zmiana przełożenia zachowuje bieżący kąt przez przeliczenie offsetu zera ze świeżej
+pozycji wału. Offset/kierunek i przełożenie na tej samej osi zmienia się osobno.
+Bez pomiaru nowy profil pozostaje z nieważną kalibracją; powrót komunikacji ani
+ponowny zapis nie zdejmują blokady. Panel udostępnia jawne potwierdzenie wybranych
+osi w postoju przy ENABLE=0. [Szczegóły, sprawdzenia i wdrożenie](gear_ratio_continuity.md).
+
 Transakcja obejmuje blokadę C++, potwierdzenie nowego opisu ROS, commit C++, zapis
 pliku i zwolnienie blokady. Operacje plikowe nie trafiają do pętli CAN. Błąd
 wycofuje poprzedni model i parametry. Niepotwierdzone wycofanie zachowuje blokadę
@@ -142,8 +148,9 @@ System nie zwiększa limitu ani nie zmienia przełożenia samoczynnie. Programow
 schodkowanie komend prędkości nie gwarantuje tego samego chwilowego ograniczenia
 przyspieszenia: firmware nadal wykonuje przejścia między dyskretnymi prędkościami.
 
-**Zeruj wał** unieważnia odniesienie osi; przed kolejnym ruchem trzeba ponownie
-zatwierdzić offset przy wyłączonym ENABLE. Stan trafia do `calibration.json`;
+**Zeruj wał** unieważnia odniesienie osi; przed kolejnym ruchem trzeba sprawdzić
+offset i jawnie potwierdzić odniesienie osi przy wyłączonym ENABLE. Sam zapis
+tych samych wartości nie usuwa blokady. Stan trafia do `calibration.json`;
 reset CAN go nie kasuje. Zapis nie wykonuje fizycznego dojazdu do zera.
 
 ## Interfejsy

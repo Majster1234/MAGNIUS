@@ -15,7 +15,7 @@ function setup(result = plan()) {
     const request = vi.fn(async (path: string) => path === "planning/tcp-step" ? { id: "j" } : path === "planning/plans/p" ? result : { status: "succeeded", plan_id: "p" });
     const step = new PlanningTcpStep(apply, error, request, () => now, callback => { frame = callback; return ++sequence; }, () => { frame = null; });
     return { step, apply, error, request, valid: () => valid, invalidate: () => { valid = false; },
-        tick: (time: number) => { now = time; const callback = frame; frame = null; callback?.(time); } };
+        tick: (time: number, stamp = time) => { now = time; const callback = frame; frame = null; callback?.(stamp); } };
 }
 it("czeka na anulowanie PTP, wykonuje jeden impuls z interpolacją 60 Hz i zatrzymuje się na celu", async () => {
     const s = setup();
@@ -57,4 +57,12 @@ it("anuluje spóźnione przyjęcie zadania po zatrzymaniu", async () => {
     step.start(context, "x", 1, "base", 10, 1, Array(6).fill(0), () => true, 0); step.pulse(50, true); step.stop();
     answer({ id: "late" }); await step.settled();
     expect(request).toHaveBeenCalledWith("planning/jobs/late", {}, "DELETE"); expect(apply).not.toHaveBeenCalled();
+});
+
+it("starszy znacznik pierwszej klatki RAF nie przerywa zatwierdzonego impulsu", async () => {
+    const s = setup(); s.step.start(context, "x", 1, "base", 10, 1, Array(6).fill(0), s.valid, 0);
+    s.step.pulse(50, true); await s.step.settled();
+    s.tick(16, -16); expect(s.step.held).not.toBeNull(); expect(s.apply).toHaveBeenCalledOnce();
+    s.tick(32, 0); expect(s.apply.mock.calls[1][0][0]).toBeGreaterThan(s.apply.mock.calls[0][0][0]);
+    s.tick(300); expect(s.step.held).toBeNull();
 });

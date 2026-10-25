@@ -173,7 +173,8 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     @app.post('/api/v1/configuration/apply')
     async def configuration_apply(request: Request):
         data = await configuration_body(request)
-        return await configuration_call('apply', document=data.get('document'), expected_revision=data.get('expected_revision'))
+        return await configuration_call('apply', document=data.get('document'), expected_revision=data.get('expected_revision'),
+                                        confirm_calibration_axes=data.get('confirm_calibration_axes', []))
 
     @app.post('/api/v1/configuration/reconcile')
     async def configuration_reconcile():

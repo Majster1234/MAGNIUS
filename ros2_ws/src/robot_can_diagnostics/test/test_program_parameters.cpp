@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 #include "robot_can_diagnostics/program_api.hpp"
+#include "robot_can_diagnostics/diagnostics.hpp"
+#include "../../mks_servo_can/test/streaming_fixture.hpp"
+#include <cmath>
 
 namespace {
 // Test parametryzacji API ROS nigdy nie otwiera ani nie uruchamia transportu.
@@ -83,4 +86,52 @@ TEST_F(ProgramParameters, PhysicalPtpAndLinReachAuthorizationButPreviewAndUnknow
     const auto response=future.get();EXPECT_FALSE(response->accepted);
     EXPECT_NE(response->message.find(kind<2 ? "wyłączone" : "Wymagany fizyczny plan"),std::string::npos)<<response->message;
   }
+}
+
+TEST_F(ProgramParameters, ConfigurationServiceResolvesOffsetWithoutDriverCommands) {
+  using namespace mks_servo_can;
+  class MemoryCan final : public Transport {
+   public:
+    streaming_test::Port port;
+    MemoryCan() {port.enabled.fill(false);port.positions.fill(4096);}
+    void open(const std::string &s) override {port.open(s);}
+    void close() override {port.close();}
+    bool is_open() const override {return port.is_open();}
+    void send(std::uint16_t axis,const std::vector<std::uint8_t> &data) override {port.now=Clock::now();port.send(axis,data);}
+    std::optional<Frame> receive() override {port.now=Clock::now();return port.receive();}
+  };
+  auto config=streaming_test::config();for(auto &a:config.axes) a.gear_ratio=1;
+  auto port=std::make_unique<MemoryCan>();auto *memory=port.get();
+  auto bus=std::make_shared<BusRuntime>(config,std::move(port));bus->start(false);
+  auto server=std::make_shared<robot_can_diagnostics::DiagnosticsNode>(bus,config);
+  auto probe=std::make_shared<rclcpp::Node>("configuration_continuity_probe");
+  using Configure=robot_control_interfaces::srv::ConfigureRobot;
+  auto client=probe->create_client<Configure>("/robot/configuration/control");
+  rclcpp::executors::SingleThreadedExecutor executor;executor.add_node(server);executor.add_node(probe);
+  auto request=std::make_shared<Configure::Request>();request->operation_id="boot";
+  auto &configuration=request->configuration;configuration.revision="before";configuration.changed.fill(true);
+  for(unsigned j=0;j<6;++j) {
+    auto &a=configuration.axes[j];a.axis=j+1;a.configured=true;a.gear_ratio=1;a.direction=1;
+    a.lower_rad=-2;a.upper_rad=2;a.velocity_rad_s=2;a.acceleration_rad_s2=100;
+  }
+  auto call=[&](uint8_t phase) {
+    request->phase=phase;request->issued_monotonic_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+    auto future=client->async_send_request(request);
+    EXPECT_EQ(executor.spin_until_future_complete(future,std::chrono::seconds(3)),rclcpp::FutureReturnCode::SUCCESS);
+    auto response=future.get();EXPECT_TRUE(response->accepted)<<response->message;return response;
+  };
+  call(Configure::Request::BOOTSTRAP);call(Configure::Request::FINISH);
+  const auto deadline=Clock::now()+std::chrono::seconds(3);
+  while(Clock::now()<deadline && !bus->manual_snapshot().axes[5].available) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  std::this_thread::sleep_for(std::chrono::milliseconds(180));
+  request->operation_id="ratio";request->expected_revision="before";configuration.revision="after";
+  configuration.changed.fill(false);configuration.changed[0]=true;configuration.axes[0].gear_ratio=3;
+  const auto prepared=call(Configure::Request::PREPARE);
+  EXPECT_EQ(prepared->resolved_configuration.revision,"after");
+  EXPECT_NEAR(prepared->resolved_configuration.axes[0].zero_offset_rad,std::acos(-1.)/3,1e-12);
+  EXPECT_FALSE(prepared->resolved_configuration.calibration_invalid[0]);
+  call(Configure::Request::COMMIT);call(Configure::Request::FINISH);
+  EXPECT_NEAR(bus->manual_snapshot().axes[0].joint_position.value,std::acos(-1.)/2,1e-12);
+  for(unsigned command:{0xf3u,0xf5u,0xf6u,0x92u}) EXPECT_EQ(memory->port.counts[command],0u);
+  bus->shutdown();executor.remove_node(probe);executor.remove_node(server);
 }

@@ -7,8 +7,9 @@ import type { Notice } from "./eventLog";
 import type { MotionTrace } from "./previewMotionTrail";
 import type { MotionObservation } from "./motionStatus";
 
-export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, simulationPositions = null, motionTrace = null, execution = null, simulationAllowed = false, expectedRevision, modelId, showMotionFrames = true }: {
+export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onCondition, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, simulationPositions = null, motionTrace = null, execution = null, simulationAllowed = false, expectedRevision, modelId, showMotionFrames = true }: {
     state: ManualState | null; usable: boolean; onNotice: (notice: Notice) => void; planning: boolean;
+    onCondition?:(key:string,value:Notice|null,resolution?:string)=>void;
     pending: boolean; physicalJogActive: boolean; plannedPositions: (number | null)[]; planningReady: boolean; onPlanningStart: () => void; onPlanningSync: () => void; onPlanningEnd: () => void;
     onModelStatus: (status: { ready: boolean; revision?: string }) => void;
     showMotionFrames?: boolean;
@@ -66,6 +67,9 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                             executionFrame: { state: sample.current.state === current ? current : null, usable: online,
                                 receivedAt: sample.current.receivedAt, sampleKey: sample.current.key,
                                 execution: input.current.execution, revision: revisionToLoad } };
+                    },(subject,result)=>{
+                        const warning=result && result.level!=="clear";
+                        onCondition?.(`singularity-${subject}`,warning?{source:`singularity-${subject}`,severity:"warning",code:"singularity",context:subject,title:result.level==="critical"?"Bardzo blisko osobliwości modelu":"Blisko osobliwości modelu",message:`${subject}: ${result.source==="wrist"?"nadgarstek J4–J6":"ramię"} · ${result.level}.`}:null,result?undefined:`${subject}: ocena osobliwości niedostępna — brak pełnej pozycji.`);
                     });
                     setMessage("");
                     onModelStatus({ ready: true, revision: revisionToLoad });
@@ -85,13 +89,14 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
         void load();
         const timer = setInterval(() => { if (!document.hidden) refresh(value => value + 1); }, 100);
         return () => { closed = true; abort.abort(); clearTimeout(retry); clearInterval(timer); scene.current?.dispose(); scene.current = null; };
-    }, [onNotice, onModelStatus, state?.configuration_revision, expectedRevision, modelId]);
+    }, [onNotice, onCondition, onModelStatus, state?.configuration_revision, expectedRevision, modelId]);
     const now = performance.now();
     const valid = Array.from({ length: 6 }, (_, i) => !!(usable && state?.axes[i]?.available && state.axes[i].position_known && (!state.axes[i].joint_configured || state.axes[i].joint_position_known) && pose.current.fresh(i, now)));
     const count = valid.filter(Boolean).length;
     const executionTrace = scene.current?.executionTrace();
+    useEffect(()=>{onCondition?.("model-trace-partial",executionTrace?.partial?{source:"model-trace-partial",severity:"warning",code:"partial",context:"Ślad modelu",message:"Tor modelu — niepełne pomiary. Historia śladu zawiera niepełny zestaw pozycji."}:null);},[executionTrace?.partial,onCondition]);
     const canStartPlanning = !message && (usable && count > 0 || simulationAllowed) && !pending && !physicalJogActive && !state?.busy;
-    return <section className="robot-preview" aria-label="Wizualizacja robota">
+    return <section className="robot-preview" aria-label="Wizualizacja robota" aria-busy={!!message}>
         <header><h2>Wizualizacja robota</h2><span className="badge warn">{modelKind === "configured" ? "Geometria konfiguracji" : "Geometria demonstracyjna"} · {state?.axes.some(axis => axis.joint_configured) ? "przełożenia osi" : "wały 1:1"}</span>
             {planning && <span className="badge planning-badge">Planowanie — JOG / TCP</span>}
             <span className={`preview-completeness ${count === 6 ? "complete" : "partial"}`}>{count === 6 ? "Pozycja kompletna — 6/6 osi" : `Pozycja częściowa — ${count}/6 osi`}</span>
@@ -100,10 +105,9 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
             <span className="trail-planned">Plan PTP/LIN</span><span className="trail-executed">Wykonane PTP</span>
             <button type="button" disabled={!executionTrace?.points} title="Usuwa złotą historię w tym panelu. Historia obejmuje do 20 000 punktów."
                 onClick={() => { scene.current?.clearExecutionTrace(); refresh(value => value + 1); }}>Wyczyść ślad</button>
-            {executionTrace?.partial && <span className="trail-partial" role="status">Tor modelu — niepełne pomiary</span>}
         </div>
         <div className="preview-body"><div className="preview-viewport" aria-label="Model 3D robota">
-            <div ref={host} className="preview-canvas" />{message && <p className="preview-overlay" role="status">{message}</p>}
+            <div ref={host} className="preview-canvas" />{message && <span className="preview-loading" aria-hidden="true">3D</span>}
             <button className="preview-home" type="button" aria-label="Dopasuj widok" title="Dopasuj widok" onClick={() => scene.current?.view("fit")} disabled={!!message}>
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 11 12 3l9 8M5 10v11h5v-7h4v7h5V10" /></svg>
             </button>

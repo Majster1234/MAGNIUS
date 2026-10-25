@@ -1,5 +1,5 @@
 import {expect,it} from "vitest";
-import {dirtyKeys,documentFromDraft,emptyDocument,fieldErrors,toDraft,validateDocument,withExample} from "./configurationData";
+import {dirtyKeys,documentFromDraft,emptyDocument,fieldErrors,mergeAppliedDraft,toDraft,validateDocument,withExample} from "./configurationData";
 it("zachowuje null, zero i jednostki JSON bez dodatkowej konwersji",()=>{
     const draft=toDraft(emptyDocument());draft['joint.1.origin_x']='125';draft['joint.1.origin_y']='0';draft['joint.1.origin_yaw']='90';
     const document=documentFromDraft(draft,'Robot testowy');
@@ -26,4 +26,13 @@ it("odrzuca złą wersję, jednostki, typy, zakresy i nazwy ram",()=>{
     }
     const draft=toDraft(emptyDocument());draft['joint.2.lower']='720';draft['joint.2.upper']='360';
     expect(fieldErrors(draft)['joint.2.upper']).toBeTruthy();
+});
+it("przyjmuje wyliczony offset bez utraty edycji wykonanych po wysłaniu konfiguracji",()=>{
+    const applied=emptyDocument();applied.values['joint.1.gear_ratio']=3;applied.values['joint.1.zero_offset']=60;
+    const submitted=toDraft(applied);submitted['joint.1.zero_offset']='0';
+    const current={...submitted,'joint.2.velocity':'12'};
+    const merged=mergeAppliedDraft(current,submitted,applied);
+    expect(merged['joint.1.zero_offset']).toBe('60');expect(merged['joint.2.velocity']).toBe('12');
+    expect(dirtyKeys(merged,applied)).toEqual(new Set(['joint.2.velocity']));
+    expect(mergeAppliedDraft({...current,'joint.1.zero_offset':'5'},submitted,applied)['joint.1.zero_offset']).toBe('5');
 });

@@ -8,8 +8,8 @@ wszystkich stron; przycisk w stopce rozwija menu. Wspólny pasek górny 48 px
 pokazuje ścieżkę, połączenie 20 Hz, nagrywanie, planowanie i sieć lokalną.
 Rozwijanie menu wywołuje przeliczenie rozmiaru sceny, bez zmiany połączenia JOG.
 Przy co najmniej 1180 px dostępnej szerokości obszaru strony panel używa kokpitu:
-[podgląd URDF 3D](robot_preview.md) i konsola po lewej, tabela osi po prawej,
-a pod tabelą TCP oraz panel „Ruch do celu TCP”. Ten ostatni nie zasłania sceny.
+[podgląd URDF 3D](robot_preview.md) i Centrum komunikatów po lewej, tabela osi po prawej,
+a pod tabelą TCP oraz wspólna karta „Ruch PTP / LIN”. Karta nie zasłania sceny.
 Informacja o planowaniu znajduje się w krótkim pasku pod kontrolkami.
 Ramka podglądu preferuje 4:3; węższy obszar (np. po rozwinięciu menu) układa
 podgląd nad sterowaniem. W niskim oknie prawa kolumna przewija się niezależnie.
@@ -29,12 +29,22 @@ obrysu pola. Krzyżaki TCP X/Y oraz Rx/Ry mają klawisze 44×44 px;
 Z+/Z− i Rz+/Rz− tworzą oddzielne pionowe kolumny po prawej stronie krzyżaków,
 także w trybie impulsowym.
 
-Konsola ma ciemne tło i do 84 px wysokości. Kolorowa lewa krawędź i plakietka
-wyróżniają informacje, ostrzeżenia i awarie, bez barwienia całych wierszy.
-Historia jest ograniczona do 100 wpisów i nie powiela tego samego statusu.
-Kolejne zmiany świeżości danych w odstępach poniżej 500 ms są grupowane
-w jednym wpisie z ostatnim stanem i licznikiem ×N. Awarie są osobnymi wpisami;
-logowanie nie opóźnia blokad JOG ani zatrzymań.
+**Centrum komunikatów** zastępuje konsolę i zbiera stan PTP/LIN, JOG, TCP,
+ENABLE, odniesienia osi, połączenia oraz modelu 3D. U góry pokazuje aktualne
+etapy, poniżej aktywne problemy, a w rozwijanej historii ostatnie 100 zdarzeń
+z czasem, poziomem, źródłem i kontekstem. Listy przewijają się wewnątrz karty.
+Każdy problem ma opis znaczenia, zalecane działanie i rozwijane szczegóły
+techniczne. Linki prowadzą do istniejącej konfiguracji lub diagnostyki;
+samo otwarcie komunikatu i zalecenia nie wykonuje operacji sterujących.
+
+Aktywny warunek (np. nieważne odniesienie J1) pozostaje widoczny niezależnie
+od limitu historii, aż nowy stan potwierdzi zmianę. Wynik ostatniej operacji
+jest opisany osobno: udane przygotowanie usuwa poprzedni błąd przygotowania,
+a historia pozostaje zachowana. Brak danych nie jest potwierdzeniem ustąpienia
+awarii. Procenty postępu aktualizują widok, bez dopisywania zdarzeń i ciągłych
+ogłoszeń czytnika ekranu. W scenie 3D pozostają znaczniki przestrzenne;
+opisy osobliwości z oznaczeniem Robot, Cel lub Symulacja trafiają do centrum.
+
 Do analizy zaniku danych służy [nagrywanie CAN/ROS/API/panelu](can_recording.md).
 Po zastosowaniu kompletnego profilu w [konfiguracji](configuration.md) wiersz osi
 przechodzi na pozycję przegubu i JOG w °/s z przełożeniem, kierunkiem, offsetem
@@ -46,9 +56,10 @@ Nie jest to pozycja przegubu: JOG przegubu pozostaje zablokowany do ponownego
 zatwierdzenia offsetu w konfiguracji. Cel bliźniaka pozostaje osobną wartością
 „Plan”; nie jest nanoszony na skalę wału. Brak odczytu CAN nadal oznacza „—”.
 Wiersz każdej osi z nieważną kalibracją ma czerwoną poświatę na krawędziach.
-Po najechaniu myszą tooltip opisuje naprawę: **Wyłącz** napęd, w **Konfiguracji**
-sprawdź i ustaw właściwy **Offset zera przegubu** tej osi, kliknij **Zapisz do ROS**,
-a po zatwierdzeniu ponownie przygotuj napęd przyciskiem **Załącz**.
+Krótka etykieta odsyła do Centrum komunikatów. Naprawa wymaga postoju i
+**ENABLE=0**: sprawdź fizyczną pozycję oraz offset w **Parametrach robota**,
+a następnie osobnym zapisem potwierdź odniesienie wskazanych osi. Ponowne
+pojawienie się napędu ani zwykły zapis profilu nie potwierdzają odniesienia.
 Kompaktowe wiersze zawierają wskaźnik pozycji wału między −3600° i +3600°,
 z zaznaczonym zerem. Wskaźnik służy wyłącznie do odczytu; nie zadaje ruchu.
 Przy braku pomiaru nie pokazuje punktu pozycji. Poza limitem punkt pozostaje
@@ -89,7 +100,7 @@ TCP i JOG zmieniają ten sam niebieski cel i jego znaczniki w tabeli. Gdy wybran
 PTP/LIN, rozpoczęcie edycji anuluje poprzednie obliczenia; TCP czeka na potwierdzenie
 anulowania. Po puszczeniu kierunku podgląd przelicza się ze stałego startu.
 Brak IK lub naruszenie limitów zatrzymuje TCP i zachowuje ostatni poprawny cel;
-przyczyna pojawia się w konsoli. Utrata fokusu, ukrycie karty, utrata połączenia lub
+przyczyna pojawia się w Centrum komunikatów. Utrata fokusu, ukrycie karty, utrata połączenia lub
 zmiana kontekstu zatrzymują edycję; spóźnione wyniki nie zmieniają celu.
 
 Bez ignorowania brakujących napędów TCP wymaga aktualnych pozycji sześciu osi,
@@ -336,13 +347,39 @@ Osobno otwarto działający panel LAN: nowy układ sterowania, statusy 20 Hz,
 ciemny przegląd i ekran CAN, bez błędów JavaScript. Zmiana plików statycznych
 nie wymagała restartu backendu. Nie wykonywano nowych prób ruchu ani testów ROS/C++.
 
-## Fizyczny PTP i niepełny zestaw napędów
+## Fizyczny PTP/LIN i niepełny zestaw napędów
 
-Fizyczny PTP ma odrębne przygotowanie, lokalny wykonawca C++ i jawne zatwierdzenie.
+Fizyczny PTP i LIN korzystają ze wspólnego lokalnego wykonawcy C++. Oba wymagają
+przygotowania i osobnego, jawnego zatwierdzenia.
 Ustawienie `allow_missing_motion` dopuszcza pominięcie nieobecnych napędów;
 nie potwierdza osiągnięcia TCP i nie zmienia ograniczeń osi uczestniczących.
 Obowiązujące zasady wykonania i odbioru: [motion_execution.md](motion_execution.md).
-Wcześniejsze opisy podglądu PTP/LIN nadal dotyczą symulacji; fizyczny LIN pozostaje zablokowany.
+Podgląd pozostaje symulacją. Ruch fizyczny jest osobną operacją, w karcie
+podzielonej na trzy etapy:
+
+1. **Podgląd PTP/LIN** — ustawienie celu JOG/TCP, wybór typu i parametrów z jednostkami.
+2. **Przygotowanie robota** — ponowne obliczenie od aktualnych pomiarów; podsumowanie
+   typu, osi, czasu, postępu oraz rozwijanych pozycji start → cel.
+3. **Zatwierdzenie i wykonanie** — osobny checkbox zgody i przycisk wykonania.
+
+Zmiana typu, celu lub parametrów unieważnia zgodę. Po zmianie PTP wybierz PTP
+ponownie; zmiana posuwu LIN przelicza podgląd. W obu przypadkach przygotuj
+program ponownie i sprawdź nowe podsumowanie. Powrót połączenia nie przywraca zgody.
+**Zatrzymaj podgląd** dotyczy animacji. Czerwony **STOP robota** jest osobną
+operacją w widocznym, przyklejonym nagłówku ekranu, także podczas przewijania.
+
+Panel wymaga statusu wykonawcy młodszego niż **750 ms**. Odpowiedzi poprzedniej
+operacji nie przywracają gotowości; przygotowanie jest dopasowywane przez `id`,
+identyfikator programu, wybrany podgląd i typ. Nieznany lub nieaktualny stan
+blokuje zatwierdzenie i wykonanie. Wynik startu utracony wskutek błędu sieci lub
+serwera jest **niepotwierdzony**: panel czeka na zgodny stan z `execution_key`
+lub uzgodnienie stanu po STOP, bez automatycznego ponawiania.
+
+Komunikat „żądanie STOP przyjęte” oznacza odpowiedź HTTP. Dopiero późniejszy
+odczyt stanu może potwierdzić nieaktywny program; także wtedy nie jest to pomiar
+zatrzymania wałów. Po utracie LAN lokalny program może nadal trwać.
+Ostrzeżenie **Próba LIN — tor TCP nie jest potwierdzony** opisuje świadomą próbę
+na niepełnym zestawie; nie potwierdza prostoliniowości fizycznego TCP.
 
 
 ### Ustawianie prędkości i przyspieszenia PTP

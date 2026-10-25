@@ -75,7 +75,10 @@ export class PlanningTcpStep {
                             Math.abs(point.velocities[i]) * 180 / Math.PI > active.context.profiles[i].velocity + 1e-5)))
                         throw Error("Nieprawidłowa trajektoria impulsu TCP; cel pozostał bez zmian.");
                     const total = pointTime(plan.trajectory.points.at(-1)!), epoch = this.clock(); let previous = epoch;
-                    const frame = (now: number) => {
+                    const frame = () => {
+                        // Znacznik RAF może poprzedzać zakończenie obliczeń w tej samej klatce.
+                        // Zegar próbki i początku musi pochodzić z tego samego odczytu bieżącego czasu.
+                        const now = this.clock();
                         if (!valid() || now < previous || now - previous > 150) { this.stop(); return; }
                         previous = now;
                         const seconds = Math.min(total, (now - epoch) / 1000);

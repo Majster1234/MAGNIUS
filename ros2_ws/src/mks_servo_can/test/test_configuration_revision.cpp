@@ -7,7 +7,7 @@ RobotProfile changed_profile(const Rig &h,const std::string &revision,double rat
   RobotProfile p;p.revision=revision;p.changed.fill(true);
   for(unsigned j=0;j<6;++j) {
     const auto &a=h.bus->config().axes[j];
-    p.axes[j]={true,ratio,a.direction,.1,a.lower,a.upper,a.max_velocity,a.max_acceleration};
+    p.axes[j]={true,ratio,a.direction,a.offset,a.lower,a.upper,a.max_velocity,a.max_acceleration};
   }
   return p;
 }

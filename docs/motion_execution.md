@@ -66,17 +66,36 @@ przez kwintyczną interpolację Hermite’a dla rzeczywistego czasu wysyłania,
 także przy spóźnieniu pomiędzy węzłami. Końce PTP muszą mieć v=0; nie zerujemy
 pochodnej w pośrednich punktach, gdy trajektoria przewiduje dalszy ruch.
 
-Dla każdej uczestniczącej osi:
+Poprawka dokładności i zachowania kątów po zmianie przełożeń znajduje się
+w `install/gear-ratio-continuity-ros`. Nowy panel korzysta z tego overlay jako underlay; szczegóły punktu startowego
+i restartu znajdują się w sekcji wdrożenia panelu na końcu dokumentu. Poprzedni `install/lin-ros`
+zachowuje liniowy lookahead i korekcję bez wieku RX.
+Wyniki symulacji, analizy dawnych nagrań i ograniczenia pomiaru opisuje
+[raport dokładności](streaming_accuracy.md).
+Zasady zmiany przełożeń i potwierdzania odniesienia:
+[zachowanie kątów](gear_ratio_continuity.md).
+
+Dla każdej uczestniczącej osi w nowym kodzie:
 
 ```text
-q_la = clamp(q + v * lookahead_time_sec, lower, upper)
+t_la = min(lookahead_time_sec, remaining_time_sec)
+t_kin = min(t_la, abs(v)/max(abs(a_ref), 1e-9)) if v*a_ref < 0 else t_la
+q_la = clamp(q + v*t_kin + 0.5*a_ref*t_kin², lower, upper)
 pulses = clamp(llround(direction * (q_la - zero_offset_rad) * gear_ratio * 16384 / (2π)), -8388608, 8388607)
-v_corr = position_kp * (q - q_actual) * sign(v)  # tylko świeży pomiar i v != 0
+age = clamp(actual_age_sec, 0, 0.05)
+error = q - v*age + 0.5*a_ref*age² - q_actual
+motion_sign = sign(v) if abs(v) > 1e-6 else (sign(error) if abs(error) > 0.0005 else 0)
+v_corr = position_kp * error * motion_sign  # tylko ważny pomiar
 v_eff = clamp(abs(v) * velocity_ff_scale + v_corr, 0, axis_max_velocity)
 rpm_float = min(v_eff * gear_ratio * 60 / (2π) / speed_scale, wire_max_rpm)
 rpm_int = floor(rpm_float + residual)
 residual = rpm_float + residual - rpm_int
 ```
+
+Wartość pomiaru i znacznik RX są pobierane razem. Wiek oznacza czas od RX,
+bez założenia o nieznanym opóźnieniu wewnętrznym napędu. Bez pomiaru korekcja
+wynosi zero. PTP/LIN przekazują przyspieszenie i pozostały czas programu;
+JTC przekazuje a_ref=0 i pełny lookahead, ponieważ nie zna tutaj końca trajektorii.
 
 Domyślnie lookahead=85 ms, FF=1,00, Kp=2,5 1/s, holding=1 RPM,
 max=2500 RPM i acc=135. Każda oś ma osobny akumulator ułamków RPM,
@@ -232,7 +251,7 @@ Nie uruchamiać drugiego właściciela CAN. Restart usługi wymaga osobnej zgody
 Ścieżki HTTP i akcji ROS pozostają bez zmian: prepare/status/prepared/execute/stop
 w `/api/v1/motion`, `/robot/planning/compute_physical_ptp`,
 `/robot/motion/execute_program`. Zamknięcie strony nie zatrzymuje lokalnego programu.
-Fizyczny LIN i blending pozostają przyszłe.
+Fizyczny LIN dodano 25.10.2026 (opis na początku dokumentu); blending pozostaje poza zakresem.
 
 Wyniki: [benchmarki](benchmark_results.md), [progi](ptp_timing_limits.md).
 Źródło: [instrukcja MKS CAN V1.0.9, §5.2.12 i rozdział 11](https://github.com/makerbase-motor/MKS-SERVO42D-57D/blob/master/User%20Manual/V1.0.9/MKS%20SERVO42%2657D_CAN%20User%20Manual%20V1.0.9.pdf).
@@ -489,3 +508,78 @@ bez wykonania programu. Osobna próba sprzętowa wymaga uzgodnienia osi, kierunk
 prędkości, zakresu i zatrzymania; testy emulatora nie potwierdzają rzeczywistego
 toru TCP. Pomiary programowe: [benchmark_results.md](benchmark_results.md),
 raporty testów: `log/lin-20261025`.
+
+## Panel sterowania i Centrum komunikatów — 25.10.2026
+
+PTP i LIN mają wspólną kartę z etapami **Podgląd**, **Przygotowanie robota** oraz
+**Zatwierdzenie i wykonanie**. Podsumowanie pokazuje typ, czas, postęp, uczestników
+i rozwijane pozycje start → cel. Szczegóły obsługi oraz znaczenie komunikatów:
+[sterowanie ręczne](manual_control.md#fizyczny-ptplin-i-niepełny-zestaw-napędów).
+STOP znajduje się w nagłówku poza przewijaną prawą kolumną; zatrzymanie animacji
+pozostaje oddzielną operacją.
+
+`ControlMessages` oddziela aktywne warunki od wyników operacji i historii
+`EventLog` (100 wpisów). Rozwiązanie warunku wymaga nowej oceny stanu;
+wyparcie wpisu z historii nie usuwa blokady. Katalog opisów pomaga operatorowi,
+a gotowość przycisków nadal wynika ze stanu i dotychczasowych bramek sterowania.
+Nieznany błąd pokazuje rzeczywisty tekst bez przypisywania przyczyny. Otwieranie
+szczegółów i linków do konfiguracji nie załącza napędów ani nie uruchamia ruchu.
+
+Status wykonania ma granicę świeżości 750 ms. Odpowiedzi sprzed rozpoczęcia
+nowszej operacji są odrzucane; gotowość wymaga zgodnego identyfikatora przygotowania,
+programu, podglądu i typu. Utrata świeżości lub zmiana planu kasuje lokalną zgodę.
+Błąd sieci, 5xx lub odpowiedź HTTP 408/499 podczas startu oznaczają wynik nieznany.
+Panel blokuje kolejny start do uzgodnienia stanu; zachowuje `execution_key`.
+Przyjęcie STOP przez HTTP i późniejsze potwierdzenie nieaktywnego wykonawcy są
+osobnymi zdarzeniami. Żadne z nich nie zastępuje pomiaru zatrzymania wałów.
+API HTTP/ROS oraz wykonawca CAN pozostają bez zmian.
+
+Regresja TCP wykryła wcześniejszy problem pierwszej klatki RAF: jej znacznik mógł
+poprzedzać chwilę zakończenia obliczeń, co przerywało poprawny impuls symulacji.
+Początek i kolejne próbki `PlanningTcpStep` korzystają teraz z bieżącego
+`performance.now()`; zatrzymanie przy przerwie ponad 150 ms lub utracie warunków
+pozostaje aktywne. Test jednostkowy obejmuje starszy znacznik RAF i późniejszą
+przerwę. Zmiana nie dotyczy zegara ani trajektorii fizycznego wykonawcy.
+
+Weryfikacja tej zmiany używa atrap HTTP/WebSocket bez ROS i CAN. Katalog,
+deduplikacja, trwałość warunków po 100 wpisach, świeżość, zgodność przygotowania
+oraz dotychczasowe JOG/TCP/ślady mają 86 zaliczonych testów w ośmiu plikach TS.
+Pięć scenariuszy Chromium zaliczono; kod znajduje się w `web/test/{control-center,motion,manual,cartesian,tcp}.browser.cjs`.
+Obejmują PTP/LIN, ponowienie po błędzie, starsze odpowiedzi statusu i przygotowania,
+zanik HTTP/WS, brakujące osie, niepotwierdzony start oraz opóźnione potwierdzenie STOP.
+Układ sprawdzany jest przy 1280×800, 1366×768, 1920×1080, rozwiniętym menu
+oraz powiększeniu strony 125%. Sprawdzenia klawiatury i ARIA obejmują zgodę,
+wykonanie, fokus STOP, etykiety pól oraz brak ogłoszeń każdego procentu postępu;
+nie wykonano odrębnej sesji z zewnętrznym czytnikiem ekranu.
+
+Build frontendu: Node 22 / TypeScript / Vite. Pakiet `robot_web_bridge` zbudowano
+w `install/motion-control-ui-ros` na `install/gear-ratio-continuity-ros`.
+Pozostałe biblioteki, także ciągłość przełożeń i poprawka F5, pochodzą z tego
+underlay; sprawdzono prefiksy, pola `ConfigureRobot` i `launch --show-args`.
+Frontend nie modyfikuje cykli ROS ani CAN, więc nie dodawano benchmarków CPU tych
+procesów. Pozostaje znane ostrzeżenie Vite o większym pakiecie Three.js.
+
+Artefakty sprawdzeń i kopie wdrożenia: `log/motion-control-ui-20261025/`.
+Nowy pakiet zawiera rzeczywisty plik `index.html` i zachowane wcześniejsze
+hashowane zasoby dla otwartych kart. Punkt startowy
+`install/streaming-smooth-ros/local_setup.bash` ładuje underlay przełożeń,
+a następnie panel. Kopia poprzedniego punktu i zasobów:
+`log/motion-control-ui-20261025/deployment/`.
+Przywrócenie poprzedniej wersji polega na odtworzeniu `local_setup.bash.before`
+w punkcie startowym; poprzedni katalog panelu nie jest nadpisywany.
+
+Nowy panel i pakiet backendu wchodzą razem przy restarcie. Restart pozostaje
+operatorowi w postoju:
+
+```bash
+sudo systemctl restart robot-web-status.service
+```
+
+Po restarcie odśwież panel i sprawdź stan oraz przygotowanie bez wykonania.
+Próba sprzętowa nadal wymaga osobnego uzgodnienia osi, kierunku, prędkości,
+zakresu oraz zatrzymania.
+
+Wdrożenie zweryfikowano również uruchamiając scenariusz centrum na zasobach
+z nowego prefiksu, nadal z atrapami API. PID usługi 66323, licznik restartów 0
+oraz konfiguracja CAN 1 Mbit/s / TX1000 były identyczne przed i po operacji.
+Nie restartowano usługi, nie otwierano fizycznego CAN ani nie wykonywano ruchu.

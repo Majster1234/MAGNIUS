@@ -41,7 +41,9 @@ python3 scripts/benchmark_ros.py compare --before log/benchmarks/python-before.j
 ```
 
 `technical.cpp` działa analogicznie. Runner konfiguruje i buduje wybrany target
-osobnym CMake w `build/benchmarks`, z `CMAKE_BUILD_TYPE=Release`. Kompilacja pozostaje
+osobnym CMake w `build/benchmarks`, z `CMAKE_BUILD_TYPE=Release`. Zmienna
+`ROBOT_BENCH_BUILD_DIR` pozwala wskazać izolowany katalog budowania benchmarków.
+Kompilacja pozostaje
 poza pomiarem. Narzędzia wymagane: Linux, Python 3.10+, a dla C++ CMake i kompilator
 C++17. Nie zmienia się standardowe budowanie workspace ani manifesty pakietów ROS.
 
@@ -1029,3 +1031,144 @@ wykonano prób sprzętowych; fizyczna płynność wymaga osobnego odbioru.
 Końcowy pomiar CPU: `after/cpu-final.json`, porównanie `compare-cpu-final.json`
 (status comparable). Wstępne after/cpu.json miało inne nazwy executable przez
 symlinki; pomiar powtórzono z tymi samymi nazwami kopii binariów co w bazie.
+
+## 25.10.2026 — dokładność streamingu, izolowany kandydat
+
+Zakres: `streaming_setpoint`, `compile_streaming_program`,
+`CanBusManager::streaming_feedback_position/schedule_motion/schedule_program`.
+Cel: predykcja drugiego rzędu, przycięcie horyzontu do końca programu, kompensacja
+wieku RX i aktywna korekcja Kp przy v≈0. Testowany kod nie został wdrożony do usługi.
+Analizator dostał pełne `trajectory_accuracy` i `schedule_accuracy`; szczegóły i wyniki
+nagrań: [streaming_accuracy.md](streaming_accuracy.md).
+
+Bazy zebrano przed zmianą implementacji. Adapter JTC ze stałą opcją symulacji i
+konfigurowalny katalog benchmarków przygotowano przed bazami i zachowano przed/po.
+Runner potwierdził `comparable`: identyczne scenariusze, iteracje, hashe adapterów,
+harnessu, skryptu, CMake i parametry runtime. Stan kodu/hash są w JSON każdego pomiaru.
+Nie uruchamiano całej kolekcji benchmarków.
+
+Warunki: Intel i5-7500T, 4 CPU/affinity0–3, Ubuntu22.04, kernel6.8.0-138, GCC11.4,
+governor powersave, Release `-O1 -DNDEBUG`, rozgrzewka1 s, siedem serii.
+JTC: 6 osi, q=0,05·sin(t), v=0,05·cos(t), 100 Hz komend, 1000 Hz emulowanego IO.
+PTP: `can.stream6`, 6 osi, ta sama trajektoria 0→0,1→0 rad/2 s i 2500 ticków IO
+na iterację. Emulatory zastępują sprzęt; wynik PTP obejmuje cały program, nie jeden F5.
+
+| Scenariusz | Iteracje × serie | Wall mediana przed→po [µs] | Zmiana kosztu | Wall min–max przed / po [µs] | CPU mediana przed→po [µs] |
+| --- | --- | ---: | ---: | --- | ---: |
+| can.jtc | 30000 × 7 | 8.868→9.100 | +2.62% | 8.802–8.960 / 9.003–9.332 | 8.868→9.084 |
+| can.stream6 | 200 × 7 | 1861.405→1893.198 | +1.71% | 1857.187–1881.812 / 1884.852–1905.497 | 1860.901→1892.750 |
+
+CPU min–max serii JTC: 8,801–8,959 µs przed / 9,002–9,266 µs po;
+PTP: 1857,007–1880,452 µs przed / 1884,748–1905,305 µs po.
+Wniosek: dodatkowe obliczenia zwiększyły koszt o 2,62% JTC i 1,71% PTP.
+Nie wykazano optymalizacji CPU. Mediany nie opisują jitteru pojedynczego cyklu ani transmisji CAN.
+
+CPU procesu przy porównywalnym obciążeniu: ten sam emulator JTC, 6 osi/100 Hz,
+IO1000 Hz, 3 niezależne odcinki po5 s w czasie rzeczywistym, bez równoległych buildów/testów.
+Czas CPU procesu potomnego z `resource.getrusage(RUSAGE_CHILDREN)` / czas monotoniczny;
+100% odpowiada jednemu rdzeniowi. Obserwacja obejmuje przygotowanie emulatora i zakończenie.
+Nie próbkowano GUI ani działającego procesu sprzętowego.
+
+| Wariant | CPU mediana [% rdzenia] | CPU min–max [% rdzenia] |
+| --- | ---: | ---: |
+| before | 0.6198 | 0.5497–0.6311 |
+| after | 0.6583 | 0.5660–0.6767 |
+
+Mediana CPU wzrosła o 0.0386 punktu procentowego (+6.23%).
+Krótki pomiar i nakładający się rozrzut nie pozwalają uznać tego za wzrost obciążenia
+produkcyjnego robota. Produkcyjnego CPU przed/po brak: kandydat nie został uruchomiony
+przez usługę, zgodnie z zakazem wdrożenia/restartu w tym zadaniu.
+
+Nowy deterministyczny benchmark `streaming_jtc --accuracy`: RMSE 4 osi 0,105593→0,030785°
+(−70,85%), 6 osi 0,104686→0,028232° (−73,03%); maksimum 0,195309→0,138626° (−29,02%).
+Settling w obu wariantach 0 ms po nominalnym końcu (już w pasmie ±0,5°, potwierdzone100 ms).
+Baseline to zamrożona implementacja sprzed zmiany w tym samym nowym modelu syntetycznym;
+brak wcześniejszego pomiaru tą metodą i brak sprzętowego pomiaru po zmianie.
+
+Budowanie benchmarków w izolowanym katalogu (poza pomiarem):
+
+```bash
+cmake -S benchmarks -B build/streaming-accuracy-ros/benchmarks \
+  -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG'
+cmake --build build/streaming-accuracy-ros/benchmarks --target streaming_jtc can_stream6 -j2
+export ROBOT_BENCH_BUILD_DIR="$PWD/build/streaming-accuracy-ros/benchmarks"
+python3 scripts/benchmark_ros.py run --case can.jtc \
+  --baseline log/streaming-accuracy-20261025/jtc-before.json --output log/benchmarks/jtc-next.json
+python3 scripts/benchmark_ros.py run --case can.stream6 \
+  --baseline log/streaming-accuracy-20261025/ptp-before.json --output log/benchmarks/ptp-next.json
+```
+
+Artefakty: `log/streaming-accuracy-20261025/{jtc,ptp}-{before,after,compare}.json`,
+`cpu-{before,after}.json`, `simulation.json`, raporty `hardware/`, `python-tests.xml`
+i `colcon-test-result.txt`. Build11 pakietów i 411 sprawdzeń colcon oraz 41 pytest OK.
+Wstępny build wykrył typy NAN/INFINITY w nowym teście; pierwsze testy stare oczekiwanie
+liniowego lookahead przy17 ms. Poprawiono i wykonano pełny build/test ponownie.
+Aktywny overlay, usługa i konfiguracja can0 nie zostały zmienione.
+
+## 25.10.2026 — ciągłość kątów przy zmianie przełożenia
+
+Zakres: transakcja konfiguracji, `control_state`, wspólna konwersja impulsów,
+generacja komend/stanu i odczyt `CanSystem`. Celem jest zachowanie bieżącego kąta
+po zmianie przełożenia oraz zgodność odczytów z aktualnym profilem.
+Poprawka obejmuje wcześniejszą predykcję F5; była już obecna w bazie tej tury.
+Opis: [gear_ratio_continuity.md](gear_ratio_continuity.md).
+
+Pomiary bazowe wykonano przed zmianą implementacji. Adapter JTC przygotowano przed bazą:
+przez zgodny helper przekazuje generację, jeśli API ją udostępnia. Przed zmianą helper
+nie miał generacji do przekazania. Po zmianie obejmuje odczyt generacji z `control_state`.
+Runner potwierdził `comparable` dla obu par: te same adaptery/hash, dane, iteracje,
+harness, CMake, kompilator i flagi. Nie mierzono całej kolekcji ani fizycznego CAN.
+
+Warunki: i5-7500T, Ubuntu22.04/kernel6.8.0-138, GCC11.4, Release `-O1 -DNDEBUG`,
+4 CPU/affinity0–3, governor powersave, rozgrzewka1 s, siedem serii.
+JTC:6 osi, q=0,05·sin(t), v=0,05·cos(t), 100 Hz komend i 1000 Hz wirtualnego IO.
+PTP6: trajektoria0→0,1→0 rad/2 s, 2500 ticków IO na iterację. PTP mierzy cały
+program emulatora, nie pojedynczy cykl F5. Nowa transakcja konfiguracji w przygotowaniu
+jest poza mierzonym cyklem; nie ma wcześniejszej bazy czasu jej nowych operacji.
+
+| Scenariusz | Iteracje × serie | Wall mediana przed→po [µs] | Zmiana kosztu | Wall min–max przed / po [µs] | CPU mediana przed→po [µs] |
+| --- | --- | ---: | ---: | --- | ---: |
+| can.jtc | 30000 × 7 | 8.977→8.974 | -0.03% | 8.942–9.038 / 8.942–9.079 | 8.975→8.974 |
+| can.stream6 | 200 × 7 | 1887.921→1866.835 | -1.12% | 1881.536–1903.839 / 1854.587–1893.054 | 1887.790→1866.656 |
+
+CPU min–max JTC:8,941–9,037 / 8,942–9,079 µs; PTP:1881,270–1903,725 /
+1854,471–1892,653 µs. Rozrzuty nakładają się; różnice median −0,03% JTC
+i −1,12% PTP nie dowodzą przyspieszenia. Nie mierzono czasu transmisji ani jitteru
+produkcji. Benchmark managera nie mierzy całego cyklu `ros2_control` i atomowej
+publikacji `BusRuntime`; dla tego odczytu nie ma osobnej bazy wydajności.
+
+CPU procesu emulatora JTC: ten sam scenariusz6 osi/100 Hz, 3 odcinki po5 s,
+bez równoległych buildów/testów. Czas potomka z `getrusage(RUSAGE_CHILDREN)`
+dzielony przez czas monotoniczny, obejmuje przygotowanie i zakończenie procesu.
+100% oznacza jeden rdzeń. Nie próbkowano GUI ani sprzętowego procesu produkcji.
+
+| Wariant | CPU mediana [% rdzenia] | Min–max [% rdzenia] |
+| --- | ---: | ---: |
+| before | 0.6323 | 0.6269–0.6905 |
+| after | 1.1149 | 0.9219–1.1259 |
+
+W tym pomiarze CPU wzrosło o 0.4826 punktu procentowego (+76.34%).
+To pogorszenie wyniku emulatora, którego nie ukrywamy. Krótki pomiar obejmuje
+narzut procesu i oczekiwania systemowe, podczas gdy koszt podprogramów pozostał
+zbliżony. Nie przypisujemy całej różnicy konkretnej funkcji ani procesowi produkcji.
+Brak CPU robota po zmianie: usługa nie była restartowana, nie wykonano ruchu.
+
+Uruchomienie (po rozdzieleniu baz i zmianie implementacji):
+
+```bash
+source /opt/ros/humble/setup.bash
+cmake -S benchmarks -B build/gear-ratio-continuity-ros/benchmarks \
+  -DCMAKE_BUILD_TYPE=Release '-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG'
+cmake --build build/gear-ratio-continuity-ros/benchmarks --target streaming_jtc can_stream6 -j2
+export ROBOT_BENCH_BUILD_DIR="$PWD/build/gear-ratio-continuity-ros/benchmarks"
+python3 scripts/benchmark_ros.py run --case can.jtc \
+  --baseline log/gear-ratio-continuity-20261025/jtc-before.json --output log/benchmarks/gear-jtc-next.json
+python3 scripts/benchmark_ros.py run --case can.stream6 \
+  --baseline log/gear-ratio-continuity-20261025/ptp-before.json --output log/benchmarks/gear-ptp-next.json
+```
+
+Zaliczone130 C++,89 Python/ROS,5 TS,2 Chromium. Ponowiona symulacja dokładności F5
+zachowała wyniki poprzedniej tury: RMSE patched4 osi0,0307846°,6 osi0,0282315°.
+Wyniki: `log/gear-ratio-continuity-20261025/{jtc,ptp}-{before,after,compare}.json`,
+`cpu-{before,after}.json`, `streaming-accuracy.json`, `verification.json` i raporty testów.
+Build11 pakietów oraz frontend wdrożono do osobnego overlay, bez restartu i ruchu.

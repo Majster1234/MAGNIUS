@@ -9,7 +9,7 @@ import { createExecutionTrail, type ExecutionFrame } from "./previewExecutionTra
 
 export type CameraView = "iso" | "front" | "side" | "top" | "fit";
 export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null; showMotionFrames?: boolean; executionFrame?: ExecutionFrame };
-export function createPreviewScene(host: HTMLElement, xml: string, frame: () => PoseFrame) {
+export function createPreviewScene(host: HTMLElement, xml: string, frame: () => PoseFrame, onAssessment?:(subject:string,result:Singularity|null)=>void) {
     const document = new DOMParser().parseFromString(xml, "application/xml");
     if (document.querySelector("parsererror, mesh, texture") || document.documentElement.tagName !== "robot")
         throw Error("Nieprawidłowy model URDF");
@@ -79,14 +79,14 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const singularities = [robot, twin, motion].map((subject, i) => {
         const element = window.document.createElement("span"); element.className = "preview-singularity"; element.hidden = true;
-        element.dataset.subject = ["robot", "target", "motion"][i]; element.setAttribute("role", "status"); host.append(element);
+        element.dataset.subject = ["robot", "target", "motion"][i]; element.setAttribute("role", "img"); host.append(element);
         element.style.setProperty("--singularity-offset", `${26 + i * 40}px`);
         const bubble = window.document.createElement("span"); bubble.className = "preview-singularity-bubble"; element.append(bubble);
         const marker = new THREE.Sprite(new THREE.SpriteMaterial({
             map: singularityTexture, color: 0xffc64d, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
         })); marker.renderOrder = 5; marker.visible = false; subject.joints.joint_5.add(marker);
         marker.scale.setScalar(.14);
-        return { subject, element, bubble, marker, name: ["Robot", "Cel", "Ruch"][i], key: "", result: null as Singularity | null, point: new THREE.Vector3() };
+        return { subject, element, bubble, marker, name: ["Robot", "Cel", "Symulacja"][i], key: "", assessmentKey:"", result: null as Singularity | null, point: new THREE.Vector3() };
     });
     const limitGlows = createLimitGlows(robot, host);
     let width = 1, height = 1, dirty = true, disposed = false, lastRender = -Infinity;
@@ -152,6 +152,8 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
             const next = complete ? values.join("/") : "unknown";
             if (next === indicator.key) continue;
             indicator.key = next; indicator.result = complete ? robotSingularity(indicator.subject) : null;
+            const assessmentKey=`${indicator.result?.level ?? "unknown"}/${indicator.result?.source ?? ""}`;
+            if(assessmentKey!==indicator.assessmentKey){indicator.assessmentKey=assessmentKey;onAssessment?.(indicator.name,indicator.result);}
             const warning = indicator.result && indicator.result.level !== "clear" ? indicator.result : null;
             indicator.marker.visible = !!warning; indicator.element.hidden = !warning;
             indicator.element.dataset.level = indicator.result?.level ?? "unknown";
@@ -162,7 +164,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
                 indicator.element.dataset.anchor = jointName; indicator.element.dataset.source = warning.source;
                 indicator.marker.material.color.setHex(color);
                 const text = `${indicator.name}: ${warning.level === "critical" ? "bardzo blisko osobliwości" : "blisko osobliwości"} · ${warning.source === "wrist" ? "nadgarstek J4–J6" : "ramię"}`;
-                if (indicator.bubble.textContent !== text) indicator.bubble.textContent = text;
+                indicator.bubble.textContent = "!";indicator.element.setAttribute("aria-label",text);
                 indicator.element.title = `Ocena modelu URDF; wskaźnik nadgarstka ${warning.wrist.toFixed(4)}, całego łańcucha ${warning.arm.toFixed(4)}`;
             }
             subjectMaterials.get(indicator.subject)?.forEach(({ axis, material }) => {

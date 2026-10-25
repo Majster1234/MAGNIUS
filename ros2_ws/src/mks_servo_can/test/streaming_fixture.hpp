@@ -7,6 +7,12 @@
 using namespace mks_servo_can;
 using namespace std::chrono_literals;
 namespace streaming_test {
+// Ten sam adapter benchmarku działa przed wprowadzeniem generacji i po nim.
+template<class B,class M> auto tag_generation(B &batch,const M &manager,int)
+    -> decltype(batch.configuration_generation=manager.control_state().configuration_generation,void()) {
+  batch.configuration_generation=manager.control_state().configuration_generation;
+}
+template<class B,class M> void tag_generation(B &,const M &,long) {}
 class Port final : public Transport {
  public:
   bool opened{},disconnected{},echo{},bad_response_mode{},bad_sync_mode{},bad_watchdog{};

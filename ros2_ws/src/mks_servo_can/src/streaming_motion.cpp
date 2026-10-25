@@ -12,6 +12,10 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,std::
 }
 StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,StreamingState &state,
     std::optional<double> actual,std::uint16_t microstep) {
+  return streaming_setpoint(a,q,v,state,actual,microstep,0.,a.streaming.lookahead_time_sec,0.);
+}
+StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,StreamingState &state,
+    std::optional<double> actual,std::uint16_t microstep,double a_ref,double remaining_time_sec,double actual_age_sec) {
   const auto &s=a.streaming;
   if(!std::isfinite(q) || !std::isfinite(v) || !std::isfinite(a.gear_ratio) || a.gear_ratio<=0 ||
       (a.direction!=1 && a.direction!=-1) || !std::isfinite(a.offset) ||
@@ -23,20 +27,29 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
       (actual && !std::isfinite(*actual)) || !std::isfinite(state.rpm_dither_accum) ||
       state.rpm_dither_accum<0 || state.rpm_dither_accum>=1 ||
       s.encoder_cpr!=16384 || !s.min_holding_rpm || s.max_rpm>3000 || s.max_rpm<s.min_holding_rpm ||
-      a.address<1 || a.address>2047)
+      a.address<1 || a.address>2047 || !std::isfinite(a_ref) || !std::isfinite(remaining_time_sec) || remaining_time_sec<0 ||
+      !std::isfinite(actual_age_sec) || actual_age_sec<0)
     throw std::invalid_argument("Nieprawidłowy profil/próbka streaming F5");
   const double scale=speed_scale(microstep),joint_to_rpm=a.gear_ratio*60/(2*pi);
   const auto maximum=std::min(3000L,static_cast<long>(std::floor(std::min<double>(s.max_rpm,a.max_velocity*joint_to_rpm)/scale+1e-9)));
   const auto minimum=static_cast<long>(std::ceil(s.min_holding_rpm/scale-1e-9));
   if(maximum<minimum || maximum>3000) throw std::invalid_argument("min_holding_rpm przekracza limit osi lub kwantyzację MKS");
   StreamingSetpoint out;
-  out.lookahead_position=std::clamp(q+v*s.lookahead_time_sec,a.lower,a.upper);
+  const double effective_la_time=std::clamp(std::min(s.lookahead_time_sec,remaining_time_sec),0.,s.lookahead_time_sec);
+  const double t_kin=v*a_ref<0 ? std::min(effective_la_time,std::abs(v)/std::max(std::abs(a_ref),1e-9)) : effective_la_time;
+  const double raw_lookahead=q+v*t_kin+.5*a_ref*t_kin*t_kin;
+  out.lookahead_position=std::clamp(raw_lookahead,a.lower,a.upper);
   const double pulses=a.direction*(out.lookahead_position-a.offset)*a.gear_ratio*s.encoder_cpr/(2*pi);
   if(!std::isfinite(pulses)) throw std::invalid_argument("Nieprzedstawialne impulsy streaming");
   out.ticks=static_cast<std::int32_t>(std::llround(std::clamp(pulses,-8388608.,8388607.)));
-  const int direction=(v>0)-(v<0);
+  const double clamped_age=std::clamp(actual_age_sec,0.,.05);
+  const double q_ref_at_sample=q-v*clamped_age+.5*a_ref*clamped_age*clamped_age;
+  const double pos_error=actual ? q_ref_at_sample-*actual : 0.;
+  constexpr double kDeadbandRad=.0005;
+  const int direction=std::abs(v)>1e-6 ? (v>0)-(v<0) :
+      (actual && std::abs(pos_error)>kDeadbandRad ? (pos_error>0)-(pos_error<0) : 0);
   if(direction!=state.direction) {state.rpm_dither_accum=0;state.direction=direction;}
-  const double correction=actual && direction ? s.position_kp*(q-*actual)*direction : 0.;
+  const double correction=actual && direction ? s.position_kp*pos_error*direction : 0.;
   const double effective=std::clamp(std::abs(v)*s.velocity_ff_scale+correction,0.,a.max_velocity);
   const double rpm=std::min(effective*joint_to_rpm/scale,static_cast<double>(maximum));
   if(rpm<minimum) {out.rpm=minimum;state.rpm_dither_accum=0;}
@@ -101,7 +114,8 @@ PreparedMotionProgram compile_streaming_program(PreparedMotionProgram p,const st
     ProgramFrame frame;frame.seconds=k*kStreamingCycleSeconds;
     const auto q=program_reference(p,std::min(p.duration,frame.seconds));
     for(unsigned j=0;j<6;++j) if(p.participating[j]) {
-      const auto sample=streaming_setpoint(axes[j],q.positions[j],q.velocities[j],states[j],std::nullopt,microsteps[j]);
+      const auto sample=streaming_setpoint(axes[j],q.positions[j],q.velocities[j],states[j],std::nullopt,microsteps[j],
+          q.accelerations[j],std::max(0.,p.duration-frame.seconds),0.);
       frame.payloads[j].assign(sample.bytes.begin(),sample.bytes.end());
     }
     p.frames.push_back(std::move(frame));

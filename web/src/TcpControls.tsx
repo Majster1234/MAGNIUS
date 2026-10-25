@@ -1,16 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { Notice } from "./eventLog";
 import type { TcpAxis, TcpFrame, TcpHeld } from "./planningTcpJog";
 import { TCP_STEPS } from "./planningTcpStep";
 
-export function TcpControls({ allowed, planning, missing, held, stepAvailable, start, stop }: {
+export function TcpControls({ allowed, planning, held, stepAvailable, start, stop, onNotice, onCondition }: {
     allowed: boolean; planning: boolean; missing: string[]; held: TcpHeld | null;
     stepAvailable: boolean;
     start: (axis: TcpAxis, direction: number, frame: TcpFrame, speed: number, step?: number) => void; stop: () => void;
+    onNotice?:(value:Notice)=>void;onCondition?:(key:string,value:Notice|null)=>void;
 }) {
     const [frame, setFrame] = useState<TcpFrame>("base");
     const [linear, setLinear] = useState(10), [angular, setAngular] = useState(5);
     const [mode, setMode] = useState("continuous"), [stepIndex, setStepIndex] = useState(1);
     const impulse = mode === "step", step = TCP_STEPS[stepIndex];
+    useEffect(()=>{
+        onNotice?.({source:"tcp-mode",severity:"info",context:"Cel TCP",message:!planning?"TCP działa w planowaniu lokalnym; fizyczny JOG TCP niedostępny.":impulse?held?.impulse?"Impuls TCP w toku":"Jedno naciśnięcie = jeden impuls TCP":"Przytrzymaj kierunek TCP. Puszczenie zatrzymuje cel symulacji."});
+        onCondition?.("tcp-availability",planning && (!allowed && !held || impulse && !stepAvailable)?{source:"tcp-availability",severity:"warning",context:"Cel TCP",title:"TCP czeka na gotowość planowania",message:impulse && !stepAvailable?"Planer ruchu impulsowego niedostępny.":"TCP wymaga aktualnego modelu i sześciu pozycji celu.",description:"Edycja TCP jest chwilowo niedostępna w bieżącym stanie panelu.",remedy:"Sprawdź model i komplet pozycji celu, zaczekaj na zakończenie JOG lub obliczeń. Symulowane odniesienia wymagają świadomie włączonego trybu planowania bez napędów."}:null);
+    },[allowed,planning,impulse,stepAvailable,held?.axis,held?.impulse,onNotice,onCondition]);
+    useEffect(()=>()=>onCondition?.("tcp-availability",null),[onCondition]);
     function activate(axis: TcpAxis, direction: number) { start(axis, direction, frame, ["x", "y", "z"].includes(axis) ? linear : angular, impulse ? step : undefined); }
     function release() { if (!impulse) stop(); }
     function button(axis: TcpAxis, direction: number, label: string, position: string) {
@@ -51,9 +58,6 @@ export function TcpControls({ allowed, planning, missing, held, stepAvailable, s
             <input id="tcp-step-size" aria-label="Wielkość impulsu TCP" type="range" min="0" max="4" step="1" value={stepIndex}
                 aria-valuetext={`${step} mm / ${step}°`} disabled={!!held} onChange={e => setStepIndex(Number(e.target.value))} />
             <div className="tcp-step-ticks" aria-hidden="true">{TCP_STEPS.map(value => <span key={value}>{value}</span>)}</div></div>}
-        <p className="tcp-message" role="status">{!planning ? `${missing.length ? `Brak napędów: ${missing.join(", ")}. ` : "Napędy 6/6. "}Wykonanie fizyczne TCP niedostępne.` :
-            impulse && !stepAvailable ? "Planer ruchu impulsowego niedostępny." :
-            !allowed && !held ? "TCP wymaga aktualnego modelu i sześciu pozycji celu. Bez napędów włącz ignorowanie braków w planowaniu." :
-            impulse ? <><span>{held?.impulse ? "Impuls w toku" : "Jedno naciśnięcie = jeden impuls"}</span><button type="button" className="tcp-step-stop" disabled={!held?.impulse} onClick={stop}>Zatrzymaj impuls</button></> : "Przytrzymaj kierunek. Puszczenie zatrzymuje cel."}</p>
+        {impulse && <div className="tcp-message"><button type="button" className="tcp-step-stop" disabled={!held?.impulse} onClick={stop}>Zatrzymaj impuls</button></div>}
     </section>;
 }

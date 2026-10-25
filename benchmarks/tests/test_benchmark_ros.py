@@ -332,7 +332,7 @@ class ProcessTests(unittest.TestCase):
 
 class CppHarnessTests(unittest.TestCase):
     def test_release_helper_and_result_verification(self):
-        build = bench.ROOT / 'build/benchmarks'
+        build = Path(os.environ.get('ROBOT_BENCH_BUILD_DIR', bench.ROOT / 'build/benchmarks')).resolve()
         configure = subprocess.run(['cmake', '-S', str(bench.ROOT / 'benchmarks'), '-B', str(build),
                                     '-DCMAKE_BUILD_TYPE=Release'], capture_output=True, text=True, timeout=120)
         self.assertEqual(configure.returncode, 0, configure.stdout + configure.stderr)

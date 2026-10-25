@@ -78,6 +78,7 @@ export function ConfigurationPage() {
     const replaceDraft = useCallback((next: Record<string,string>) => {setDraft(next);setNativeErrors({});}, []);
     const [stored, setStored] = useState(true);
     const [selectedAxis, setSelectedAxis] = useState(0);
+    const [confirmAxes, setConfirmAxes] = useState<number[]>([]);
     const {entries, notice} = useEventConsole();
     const hasLocal = useRef((() => {try { return sessionStorage.getItem(storageKey) !== null || sessionStorage.getItem(legacyStorageKey) !== null; } catch { return true; }})());
     const fileInput = useRef<HTMLInputElement>(null);
@@ -85,6 +86,8 @@ export function ConfigurationPage() {
     const dirty = dirtyKeys(draft, configuration.baseline), errors = {...fieldErrors(draft), ...nativeErrors}, invalid = Object.keys(errors).length > 0;
     const applying = configuration.status && !["idle", "done", "failed", "uncertain"].includes(configuration.status.operation.phase);
     const conflict = configuration.status && configuration.baseRevision !== configuration.status.active.revision;
+    const invalidCalibration = configuration.status?.calibration_invalid ?? [];
+    useEffect(() => {setConfirmAxes(previous => previous.filter(axis => invalidCalibration[axis-1]));}, [configuration.status]);
     useEffect(() => {
         try {
             sessionStorage.setItem(storageKey, JSON.stringify(draft));
@@ -162,6 +165,15 @@ export function ConfigurationPage() {
                 {configuration.status?.operation.phase === "uncertain" && <button onClick={configuration.reconcile} disabled={configuration.busy}>Uzgodnij stan ROS</button>}
             </div>
             {invalid && <p className="configuration-validation" role="status">Popraw {Object.keys(errors).length} pól: {Object.values(errors)[0]}</p>}
+            {invalidCalibration.some(Boolean) && <section aria-label="Potwierdzenie odniesienia osi">
+                <p>Te osie wymagają potwierdzenia odniesienia. Sprawdź fizyczną pozycję i zapisany offset. Potwierdzenie wymaga postoju i ENABLE=0; zapis dotyczy aktywnej konfiguracji.</p>
+                {invalidCalibration.map((value, i) => value && <label key={i}>
+                    <input type="checkbox" checked={confirmAxes.includes(i+1)} onChange={event => setConfirmAxes(previous => event.target.checked ? [...previous, i+1] : previous.filter(axis => axis !== i+1))}/>
+                    Potwierdzam odniesienie J{i+1}
+                </label>)}
+                <button disabled={!confirmAxes.length || !configuration.online || configuration.busy || !!applying || !!conflict || configuration.status?.operation.phase === "uncertain"}
+                    onClick={() => void configuration.confirmReference(confirmAxes)}>Potwierdź odniesienie wybranych osi</button>
+            </section>}
             <section className="machine-panel" aria-label="Dane maszynowe">
                 <div className="machine-toolbar"><h2>Dane maszynowe</h2>
                     <div className="machine-view-control">
@@ -179,7 +191,7 @@ export function ConfigurationPage() {
                         {Array.from({ length: 6 }, (_, index) => <td key={index}>{control(`joint.${index + 1}`, field, index + 1)}</td>)}
                     </tr>)}</tbody>
                 </table></div>
-                <p className="machine-note">{tableView === "geometry" ? "Translacja i rotacja względem poprzedniego członu." : "Przełożenie: obroty silnika na obrót przegubu. Limity dotyczą przegubu."}</p>
+                <p className="machine-note">{tableView === "geometry" ? "Translacja i rotacja względem poprzedniego członu." : "Zmiana przełożenia zachowuje bieżący kąt przez przeliczenie offsetu. Zmianę offsetu lub kierunku wykonaj osobno. Bez pomiaru odniesienie pozostaje niepotwierdzone."}</p>
             </section>
             <ConfigurationPreview draft={draft} view={tableView} selected={selectedAxis} nativeErrors={nativeErrors}/>
             <div className="settings-extras">

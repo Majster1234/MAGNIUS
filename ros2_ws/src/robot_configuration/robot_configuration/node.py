@@ -48,7 +48,7 @@ class RosTransport:
             raise TimeoutError(f'Brak potwierdzenia usługi {client.srv_name}; wynik wymaga uzgodnienia')
         return future.result()
 
-    def control(self, phase, operation_id, state, changed, expected=''):
+    def control(self, phase, operation_id, state, changed, expected='', confirm=None):
         request = ConfigureRobot.Request()
         request.phase = {'prepare': 0, 'commit': 1, 'rollback': 2, 'finish': 3, 'status': 4, 'bootstrap': 5}[phase]
         request.operation_id = operation_id; request.expected_revision = expected
@@ -58,10 +58,16 @@ class RosTransport:
         if phase == 'bootstrap':
             configuration.calibration_invalid = self.storage.calibration(state['revision'])
         request.configuration = configuration
+        request.confirm_calibration = confirm or [False] * 6
         result = self.call(self.client, request)
         if not result.accepted:
             raise RuntimeError(result.message)
-        return {key: getattr(result, key) for key in ('revision', 'operation_id', 'stage', 'locked')}
+        response = {key: getattr(result, key) for key in ('revision', 'operation_id', 'stage', 'locked')}
+        resolved = result.resolved_configuration
+        response['resolved_configuration'] = dict(revision=resolved.revision, calibration_invalid=list(resolved.calibration_invalid),
+            axes=[{key: getattr(axis, key) for key in ('axis', 'configured', 'gear_ratio', 'direction', 'zero_offset_rad',
+                  'lower_rad', 'upper_rad', 'velocity_rad_s', 'acceleration_rad_s2')} for axis in resolved.axes])
+        return response
 
     def model(self, xml):
         parameter = Parameter(name='robot_description', value=ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=xml))
@@ -130,6 +136,7 @@ class ConfigurationNode(Node):
         if snapshot['operation']['phase'] in ('idle', 'done', 'uncertain', 'failed'):
             active = snapshot['active']
             self.active_publisher.publish(RobotConfiguration(revision=active['revision'],
+                calibration_invalid=snapshot['calibration_invalid'],
                 axes=[JointConfiguration(**profile) for profile in profiles(active['document'])]))
 
     def command(self, request, response):
@@ -158,7 +165,7 @@ class ConfigurationNode(Node):
             elif operation == 'validate':
                 result = validate(data.get('document')); code = 200
             elif operation == 'apply':
-                args = self.coordinator.begin(data.get('document'), data.get('expected_revision'))
+                args = self.coordinator.begin(data.get('document'), data.get('expected_revision'), data.get('confirm_calibration_axes'))
                 self.worker = threading.Thread(target=self.coordinator.apply, args=args, name='configuration-apply', daemon=True)
                 self.worker.start()
                 result = self.coordinator.snapshot(); code = 202

@@ -7,7 +7,7 @@ export const configurationKeys = [...textKeys, "tool.mass", "tool.com_x", "tool.
 export type Values = Record<string, number | string | null>;
 export type Draft = Record<string, string>;
 export type ConfigurationDocument = { schema_version: 1; units: "mm-deg-kg"; name: string; created_at: string; values: Values };
-export type ConfigurationStatus = { active: { revision: string; document: ConfigurationDocument }; operation: { id: string; phase: string; message: string; success: boolean | null } };
+export type ConfigurationStatus = { active: { revision: string; document: ConfigurationDocument }; calibration_invalid?: boolean[]; operation: { id: string; phase: string; message: string; success: boolean | null } };
 export const demoTranslations = [[0, 0, 100], [0, 0, 100], [0, 0, 250], [220, 0, 0], [80, 0, 0], [60, 0, 0]];
 export const jointAxes = [[0, 0, 1], [0, 1, 0], [0, 1, 0], [1, 0, 0], [0, 1, 0], [1, 0, 0]];
 export function emptyDocument(): ConfigurationDocument {
@@ -67,6 +67,10 @@ export function validateDocument(value: unknown): ConfigurationDocument {
 }
 export function dirtyKeys(draft: Draft, baseline: ConfigurationDocument): Set<string> {
     return new Set(configurationKeys.filter(key => valueOf(key, draft[key] ?? "") !== baseline.values[key]));
+}
+export function mergeAppliedDraft(current: Draft, submitted: Draft, applied: ConfigurationDocument): Draft {
+    const resolved = toDraft(applied);
+    return Object.fromEntries(configurationKeys.map(key => [key, current[key] === submitted[key] ? resolved[key] : current[key]]));
 }
 export function withExample(draft: Draft): Draft {
     const next = {...draft};

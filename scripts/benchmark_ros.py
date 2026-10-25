@@ -187,7 +187,7 @@ def run_case(case_id, registry, context='offline', baseline=None):
         if not isinstance(target, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', target):
             raise ValueError('Nieprawidłowy target CMake')
         harness['benchmarks/CMakeLists.txt'] = digest_file('benchmarks/CMakeLists.txt')
-        build = ROOT / 'build/benchmarks'
+        build = Path(os.environ.get('ROBOT_BENCH_BUILD_DIR', ROOT / 'build/benchmarks')).resolve()
         command(['cmake', '-S', str(ROOT / 'benchmarks'), '-B', str(build),
                  '-DCMAKE_BUILD_TYPE=Release'], timeout=120)
         command(['cmake', '--build', str(build), '--config', 'Release', '--target', target], timeout=120)

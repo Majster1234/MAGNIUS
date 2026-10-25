@@ -1,4 +1,5 @@
 #include "harness.hpp"
+#include "streaming_accuracy.hpp"
 #include "../ros2_ws/src/mks_servo_can/test/streaming_fixture.hpp"
 #include <cmath>
 #include <cstdlib>
@@ -21,6 +22,7 @@ struct Cycle {
     batch.positions.fill(.05*std::sin(t));batch.velocities.fill(.05*std::cos(t));
     batch.velocities_valid=true;batch.created=h.now;batch.expires=h.now+20ms;batch.sequence=count;batch.source=Source::trajectory;
     h.port->events.clear();
+    tag_generation(batch,*h.bus,0);
     if(!h.bus->submit(batch)) throw std::runtime_error("JTC submit");
     h.run(10);
   }
@@ -28,6 +30,7 @@ struct Cycle {
 };
 }
 int main(int argc,char **argv) {
+  if(argc==2 && std::string(argv[1])=="--accuracy") return streaming_accuracy::report();
   if(const auto duration=std::getenv("CAN_BENCH_PTP_REALTIME_SECONDS")) {
     Cycle cycle;const auto start=Clock::now();auto due=start;
     while(std::chrono::duration<double>(Clock::now()-start).count()<std::stod(duration)) {

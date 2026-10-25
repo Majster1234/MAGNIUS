@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dirtyKeys, documentFromDraft, emptyDocument, toDraft, validateDocument, withExample, type ConfigurationDocument, type ConfigurationStatus, type Draft } from "./configurationData";
+import { dirtyKeys, documentFromDraft, emptyDocument, mergeAppliedDraft, toDraft, validateDocument, withExample, type ConfigurationDocument, type ConfigurationStatus, type Draft } from "./configurationData";
 import type { Notice } from "./eventLog";
 type Snapshot = {id: string; name: string; created_at: string};
 const revisionKey = "robot.configuration.base_revision.v1";
@@ -20,6 +20,7 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
     const [cursors, setCursors] = useState([""]);
     const current = useRef({draft, baseline, baseRevision, status}); current.current = {draft, baseline, baseRevision, status};
     const initial = useRef(true), ownOperation = useRef("");
+    const submitted = useRef<Draft | null>(null);
     const bindRevision = useCallback((revision: string) => {
         setBaseRevision(revision);
         try { sessionStorage.setItem(revisionKey, revision); } catch { /* szkic nadal działa w pamięci */ }
@@ -31,7 +32,11 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
             if (!hasLocal) setDraft(toDraft(document));
             if (!before.baseRevision || !hasLocal) bindRevision(data.active.revision);
             initial.current = false;
-        } else if (different && (ownOperation.current === data.operation.id || !dirtyKeys(before.draft, before.baseline).size)) {
+        } else if (ownOperation.current === data.operation.id && submitted.current && data.operation.phase === "done" && data.operation.success) {
+            setDraft(mergeAppliedDraft(before.draft, submitted.current, document));
+            submitted.current = null; ownOperation.current = "";
+            bindRevision(data.active.revision);
+        } else if (different && !dirtyKeys(before.draft, before.baseline).size) {
             if (!dirtyKeys(before.draft, before.baseline).size) setDraft(toDraft(document));
             bindRevision(data.active.revision);
         }
@@ -90,10 +95,15 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
         const url = URL.createObjectURL(blob), link = window.document.createElement('a');
         link.href = url;link.download = `robot-konfiguracja-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;link.click();setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
-    const apply = () => run(async () => {
-        const data = await api('/apply', {document:documentFromDraft(draft, name), expected_revision:baseRevision});
-        ownOperation.current = data.operation.id; receive(data);
+    const applyDocument = (document: ConfigurationDocument, confirmed: number[] = [], sentDraft: Draft = toDraft(document)) => run(async () => {
+        submitted.current = {...sentDraft}; ownOperation.current = "";
+        try {
+            const data = await api('/apply', {document, expected_revision:baseRevision, confirm_calibration_axes:confirmed});
+            ownOperation.current = data.operation.id; receive(data);
+        } catch (error) { submitted.current = null; throw error; }
     });
+    const apply = () => applyDocument(documentFromDraft(draft, name), [], draft);
+    const confirmReference = (axes: number[]) => status ? applyDocument(status.active.document, axes) : Promise.resolve();
     const reconcile = () => run(async () => {receive(await api('/reconcile', {}));});
     const loadActive = () => {if (status) replace(status.active.document);};
     const example = () => {
@@ -105,5 +115,5 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
         await refresh(updated.at(-1));setCursors(updated.length ? updated : [""]);
     });
     return {status, baseline, baseRevision, online, busy, items, selected, setSelected, name, setName, nextCursor, cursors,
-        saveSnapshot, loadSnapshot, deleteSnapshot, importFile, exportFile, apply, reconcile, loadActive, example, page};
+        saveSnapshot, loadSnapshot, deleteSnapshot, importFile, exportFile, apply, confirmReference, reconcile, loadActive, example, page};
 }

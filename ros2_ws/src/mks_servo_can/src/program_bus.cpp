@@ -204,8 +204,11 @@ void CanBusManager::schedule_program(Time now) {
   auto next_streaming=streaming_states_;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
     auto axis=config_.axes[j];axis.streaming=config_.program_streaming[j];
+    const auto feedback=streaming_feedback_position(j,now);
     const auto sample=streaming_setpoint(axis,point.positions[j],point.velocities[j],next_streaming[j],
-        streaming_feedback_position(j,now),devices_[axis.address].microstep.value);
+        feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,
+        point.accelerations[j],std::max(0.,program.duration-std::chrono::duration<double>(elapsed).count()),
+        feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.);
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
   }
   spent_bits_+=cost;

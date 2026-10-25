@@ -108,19 +108,19 @@ void CanBusManager::send_stream_payload(unsigned joint,const std::vector<std::ui
   transport_->send(config_.axes[joint].address,payload);++stats_.tx;
   trace_note("stream_point","bez ACK",config_.axes[joint].address,0xf5);
 }
-std::optional<double> CanBusManager::streaming_feedback_position(unsigned joint,Time now) const {
+Sample<double> CanBusManager::streaming_feedback_position(unsigned joint,Time now) const {
   const auto &a=config_.axes[joint];const auto cached=transport_->position_feedback(a.address);
   if(cached.valid) {
     const Time stamp{std::chrono::nanoseconds(cached.timestamp_ns)};
-    if(now>=stamp && now-stamp<kProgramFeedbackTimeout) return position_to_joint(a,cached.pulses);
+    if(now>=stamp && now-stamp<kProgramFeedbackTimeout) return {position_to_joint(a,cached.pulses),stamp,true};
   }
   const auto &position=devices_[a.address].position;
-  if(position.fresh(now,kProgramFeedbackTimeout)) return position_to_joint(a,position.value);
-  return std::nullopt;
+  if(position.fresh(now,kProgramFeedbackTimeout)) return {position_to_joint(a,position.value),position.stamp,true};
+  return {};
 }
 CanBusManager::~CanBusManager() = default;
 double CanBusManager::position_to_joint(const AxisConfig &axis, std::int64_t ticks) {
-  return axis.direction * static_cast<double>(ticks) * (2 * kPi / 16384) / axis.gear_ratio + axis.offset;
+  return JointConversion{axis.gear_ratio,axis.direction,axis.offset,axis.address,true}.position(ticks);
 }
 std::int32_t CanBusManager::joint_to_position(const AxisConfig &axis, double position) {
   const auto ticks = (position - axis.offset) * axis.gear_ratio / axis.direction * 16384 / (2 * kPi);
@@ -216,6 +216,7 @@ bool CanBusManager::activate(Source source, Time now) {
   previous_velocity_.fill(0);streaming_states_={}; last_sequence_ = 0; message_ = "Sterowanie aktywne"; return true;
 }
 bool CanBusManager::submit(const CommandBatch &batch) {
+  if(!configuration_ready_ || configuration_locked_ || batch.configuration_generation!=configuration_generation_) return false;
   if (executor_.status.busy || batch.source == Source::program) return false;
   if (!active_ || fault_ || batch.source != source_ || batch.sequence <= last_sequence_) return false;
   if (latest_) ++stats_.dropped_commands;
@@ -559,8 +560,10 @@ void CanBusManager::schedule_motion(Time now) {
   for(unsigned j=0;j<kAxes;++j) {
     const auto &axis=config_.axes[j];
     if(!std::isfinite(batch.velocities[j]) || std::abs(batch.velocities[j])>axis.max_velocity+1e-6) {fault("Prędkość poza limitem osi");return;}
+    const auto feedback=streaming_feedback_position(j,now);
     const auto sample=streaming_setpoint(axis,batch.positions[j],batch.velocities[j],next_streaming[j],
-        streaming_feedback_position(j,now),devices_[axis.address].microstep.value);
+        feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,
+        0.,axis.streaming.lookahead_time_sec,feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.);
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
   }
   spent_bits_+=cost;
@@ -617,9 +620,13 @@ BusSnapshot CanBusManager::snapshot() const {
 }
 ControlState CanBusManager::control_state() const {
   ControlState state; state.active = active_; state.fault = fault_; state.source = source_;state.program_owned=program_owned_;
+  state.configuration_generation=configuration_generation_;
+  state.configuration_ready=configuration_ready_ && !configuration_locked_;
   for (std::size_t i = 0; i < kAxes; ++i) {
     const auto &axis = config_.axes[i]; const auto &p = devices_[axis.address].position;
-    state.positions[i] = {axis.address ? position_to_joint(axis, p.value) : 0, p.stamp, p.valid};
+    const bool calibrated=manual_->calibration_valid(i+1);
+    state.conversions[i]={axis.gear_ratio,axis.direction,axis.offset,axis.address,calibrated};
+    state.positions[i] = {axis.address ? position_to_joint(axis, p.value) : 0, p.stamp, p.valid && calibrated && state.configuration_ready};
   }
   return state;
 }
