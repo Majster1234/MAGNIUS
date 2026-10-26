@@ -1,9 +1,10 @@
 export const controlKeys = ["gear_ratio", "direction", "zero_offset", "lower", "upper", "velocity", "acceleration"];
 export const originKeys = ["origin_x", "origin_y", "origin_z", "origin_roll", "origin_pitch", "origin_yaw"];
 export const tcpKeys = ["tcp_x", "tcp_y", "tcp_z", "tcp_roll", "tcp_pitch", "tcp_yaw"];
+export const tcpMotionKeys = ["max_linear_velocity", "max_angular_velocity", "linear_acceleration", "angular_acceleration"];
 export const textKeys = ["robot.name", "robot.base_frame", "robot.flange_frame", "tool.name", "tool.frame"];
 export const configurationKeys = [...textKeys, "tool.mass", "tool.com_x", "tool.com_y", "tool.com_z", ...tcpKeys.map(key => `tool.${key}`),
-    ...Array.from({length: 6}, (_, i) => [...originKeys, ...controlKeys].map(key => `joint.${i + 1}.${key}`)).flat()];
+    ...Array.from({length: 6}, (_, i) => [...originKeys, ...controlKeys].map(key => `joint.${i + 1}.${key}`)).flat(), ...tcpMotionKeys.map(key => `tcp.${key}`)];
 export type Values = Record<string, number | string | null>;
 export type Draft = Record<string, string>;
 export type ConfigurationDocument = { schema_version: 1; units: "mm-deg-kg"; name: string; created_at: string; values: Values };
@@ -14,7 +15,7 @@ export function emptyDocument(): ConfigurationDocument {
     return {schema_version: 1, units: "mm-deg-kg", name: "", created_at: new Date().toISOString(), values: Object.fromEntries(configurationKeys.map(key => [key, null]))};
 }
 export function toDraft(document: ConfigurationDocument): Draft {
-    return Object.fromEntries(configurationKeys.map(key => [key, document.values[key] === null ? "" : String(document.values[key])]));
+    return Object.fromEntries(configurationKeys.map(key => [key, document.values[key] == null ? "" : String(document.values[key])]));
 }
 export function valueOf(key: string, value: string): number | string | null {
     if (!value.trim()) return null;
@@ -29,9 +30,14 @@ export function fieldErrors(draft: Draft): Record<string, string> {
         if (!textKeys.includes(key)) {
             if (!Number.isFinite(value) || Math.abs(Number(value)) > 1e9) errors[key] = "Wymagana skończona liczba w zakresie ±1e9";
             if (["gear_ratio", "velocity", "acceleration"].includes(field!) && Number(value) <= 0) errors[key] = "Wartość musi być dodatnia";
+            if (key.startsWith("tcp.") && Number(value) <= 0) errors[key] = "Wartość musi być dodatnia";
             if (field === "direction" && value !== -1 && value !== 1) errors[key] = "Wybierz kierunek +1 albo −1";
             if (key === "tool.mass" && Number(value) < 0) errors[key] = "Masa nie może być ujemna";
         }
+    }
+    for (const [v, a] of [["max_linear_velocity", "linear_acceleration"], ["max_angular_velocity", "angular_acceleration"]]) {
+        if (Number(draft[`tcp.${v}`]) > 0 && Number(draft[`tcp.${a}`]) > 0 && Number(draft[`tcp.${v}`]) / Number(draft[`tcp.${a}`]) > 10)
+            errors[`tcp.${a}`] = "Profil wymaga hamowania dłuższego niż 10 s";
     }
     for (let axis = 1; axis <= 6; axis++) {
         const lo = `joint.${axis}.lower`, hi = `joint.${axis}.upper`;
@@ -57,16 +63,18 @@ export function validateDocument(value: unknown): ConfigurationDocument {
     const doc = value as ConfigurationDocument;
     if (Object.keys(doc).some(key => !["schema_version", "units", "name", "created_at", "values"].includes(key)) || doc.schema_version !== 1 || doc.units !== "mm-deg-kg") throw Error("Nieobsługiwana wersja lub jednostki snapshotu");
     if (typeof doc.name !== "string" || doc.name.length > 80 || typeof doc.created_at !== "string" || !/([zZ]|[+-]\d\d:\d\d)$/.test(doc.created_at) || !Number.isFinite(Date.parse(doc.created_at))) throw Error("Nieprawidłowa nazwa lub data snapshotu");
-    if (!doc.values || Array.isArray(doc.values) || Object.keys(doc.values).length !== configurationKeys.length || configurationKeys.some(key => !(key in doc.values))) throw Error("Nieprawidłowy zestaw pól snapshotu");
+    if (!doc.values || Array.isArray(doc.values) || Object.keys(doc.values).some(key => !configurationKeys.includes(key)) ||
+        configurationKeys.some(key => !key.startsWith("tcp.") && !(key in doc.values))) throw Error("Nieprawidłowy zestaw pól snapshotu");
+    const values = { ...Object.fromEntries(tcpMotionKeys.map(key => [`tcp.${key}`, null])), ...doc.values };
     for (const key of configurationKeys) {
-        const field = doc.values[key];
+        const field = values[key];
         if (field !== null && (textKeys.includes(key) ? typeof field !== "string" : typeof field !== "number" || !Number.isFinite(field))) throw Error(`Nieprawidłowa wartość ${key}`);
     }
-    const normalized = documentFromDraft(toDraft(doc), doc.name);
+    const normalized = documentFromDraft(toDraft({...doc, values}), doc.name);
     return {...normalized, created_at: doc.created_at};
 }
 export function dirtyKeys(draft: Draft, baseline: ConfigurationDocument): Set<string> {
-    return new Set(configurationKeys.filter(key => valueOf(key, draft[key] ?? "") !== baseline.values[key]));
+    return new Set(configurationKeys.filter(key => valueOf(key, draft[key] ?? "") !== (baseline.values[key] ?? null)));
 }
 export function mergeAppliedDraft(current: Draft, submitted: Draft, applied: ConfigurationDocument): Draft {
     const resolved = toDraft(applied);

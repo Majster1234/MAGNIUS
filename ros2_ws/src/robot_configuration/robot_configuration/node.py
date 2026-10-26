@@ -4,6 +4,7 @@ import fcntl
 import os
 from pathlib import Path
 import threading
+import math
 import time
 
 import rclpy
@@ -137,6 +138,10 @@ class ConfigurationNode(Node):
             active = snapshot['active']
             self.active_publisher.publish(RobotConfiguration(revision=active['revision'],
                 calibration_invalid=snapshot['calibration_invalid'],
+                tcp_jog_max_linear_velocity=(active['document']['values'].get('tcp.max_linear_velocity') or 0) / 1000,
+                tcp_jog_max_angular_velocity=math.radians(active['document']['values'].get('tcp.max_angular_velocity') or 0),
+                tcp_jog_linear_acceleration=(active['document']['values'].get('tcp.linear_acceleration') or 0) / 1000,
+                tcp_jog_angular_acceleration=math.radians(active['document']['values'].get('tcp.angular_acceleration') or 0),
                 axes=[JointConfiguration(**profile) for profile in profiles(active['document'])]))
 
     def command(self, request, response):

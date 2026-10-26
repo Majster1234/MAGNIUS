@@ -15,7 +15,8 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
   return streaming_setpoint(a,q,v,state,actual,microstep,0.,a.streaming.lookahead_time_sec,0.);
 }
 StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,StreamingState &state,
-    std::optional<double> actual,std::uint16_t microstep,double a_ref,double remaining_time_sec,double actual_age_sec) {
+    std::optional<double> actual,std::uint16_t microstep,double a_ref,double remaining_time_sec,double actual_age_sec,
+    std::optional<double> lookahead_position) {
   const auto &s=a.streaming;
   if(!std::isfinite(q) || !std::isfinite(v) || !std::isfinite(a.gear_ratio) || a.gear_ratio<=0 ||
       (a.direction!=1 && a.direction!=-1) || !std::isfinite(a.offset) ||
@@ -28,7 +29,8 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
       state.rpm_dither_accum<0 || state.rpm_dither_accum>=1 ||
       s.encoder_cpr!=16384 || !s.min_holding_rpm || s.max_rpm>3000 || s.max_rpm<s.min_holding_rpm ||
       a.address<1 || a.address>2047 || !std::isfinite(a_ref) || !std::isfinite(remaining_time_sec) || remaining_time_sec<0 ||
-      !std::isfinite(actual_age_sec) || actual_age_sec<0)
+      !std::isfinite(actual_age_sec) || actual_age_sec<0 ||
+      (lookahead_position && (!std::isfinite(*lookahead_position) || *lookahead_position<a.lower || *lookahead_position>a.upper)))
     throw std::invalid_argument("Nieprawidłowy profil/próbka streaming F5");
   const double scale=speed_scale(microstep),joint_to_rpm=a.gear_ratio*60/(2*pi);
   const auto maximum=std::min(3000L,static_cast<long>(std::floor(std::min<double>(s.max_rpm,a.max_velocity*joint_to_rpm)/scale+1e-9)));
@@ -39,6 +41,9 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
   const double t_kin=v*a_ref<0 ? std::min(effective_la_time,std::abs(v)/std::max(std::abs(a_ref),1e-9)) : effective_la_time;
   const double raw_lookahead=q+v*t_kin+.5*a_ref*t_kin*t_kin;
   out.lookahead_position=std::clamp(raw_lookahead,a.lower,a.upper);
+  // JOG TCP dostarcza punkt ze sprawdzonej drogi hamowania, również podczas
+  // rozruchu. Ekstrapolacja bieżącego przyspieszenia mogłaby przekroczyć impuls.
+  if(lookahead_position) out.lookahead_position=*lookahead_position;
   const double pulses=a.direction*(out.lookahead_position-a.offset)*a.gear_ratio*s.encoder_cpr/(2*pi);
   if(!std::isfinite(pulses)) throw std::invalid_argument("Nieprzedstawialne impulsy streaming");
   out.ticks=static_cast<std::int32_t>(std::llround(std::clamp(pulses,-8388608.,8388607.)));

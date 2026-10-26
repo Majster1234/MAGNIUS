@@ -59,11 +59,15 @@ struct AxisConfig {
   std::uint8_t acceleration_code{};
   StreamingParameters streaming{};
 };
-enum class Source { none, trajectory, jog, program };
+enum class Source { none, trajectory, jog, program, tcp_jog };
 enum class ResetMode { clear_discovery, preserve_discovery };
 struct CommandBatch {
   std::array<double, kAxes> positions{};
   std::array<double, kAxes> velocities{};
+  std::array<double, kAxes> accelerations{};
+  std::array<double, kAxes> lookahead_positions{};
+  double remaining_time_sec{};
+  std::uint64_t control_generation{};
   bool velocities_valid{false};
   Time created{}, expires{};
   std::uint64_t sequence{};
@@ -86,6 +90,7 @@ struct BusConfig {
   std::array<AxisConfig, kAxes> axes{};
   unsigned manual_max_rpm{30};
   bool program_enabled{}, program_stop_verified{}, program_sync_verified{}, program_staged_reset_verified{};
+  bool tcp_jog_enabled{};
   std::string program_revision;  // Stare API: pole ignorowane; obowiązuje zatwierdzony RobotProfile.
   std::chrono::milliseconds program_ack_timeout{kProgramAckTimeout}, program_position_period{kProgramPositionPeriod};
   std::array<double,kAxes> program_position_tolerance{
@@ -115,6 +120,7 @@ struct ControlState {
   std::array<Sample<double>, kAxes> positions{};
   std::array<JointConversion,kAxes> conversions{};
   std::uint64_t configuration_generation{};
+  std::uint64_t control_generation{};
   bool configuration_ready{};
   bool active{}, fault{}, program_owned{};
   Source source{Source::none};
@@ -134,6 +140,14 @@ class CanBusManager {
   bool start_scan();
   bool service_allowed() const;
   bool activate(Source source, Time now);
+  void configure_tcp_jog(bool enabled) { config_.tcp_jog_enabled=enabled; }
+  std::uint64_t begin_tcp_jog(const std::string &session,const std::string &revision,
+      const std::string &model,std::uint64_t sequence,Time issued,Time now);
+  bool tcp_jog_control(const std::string &session,std::uint64_t generation,std::uint64_t sequence,
+      Time issued,Time now,bool brake);
+  bool finish_tcp_jog(const std::string &session,std::uint64_t generation);
+  bool brake_tcp_jog(const std::string &session,std::uint64_t generation);
+  bool tcp_jog_available(Time now) const;
   bool submit(const CommandBatch &batch);
   void renew_source_lease(Source source, Time now);
   void stop(const std::string &reason);
@@ -240,6 +254,10 @@ class CanBusManager {
   unsigned scan_address_{1}, checked_{}, cursor_{1};
   bool scanning_{false}, active_{false}, fault_{false}, stop_sent_{false}, cycle_initialized_{false}, motion_this_cycle_{false}, feedback_recorded_{false};
   Source source_{Source::none};
+  std::string tcp_owner_;
+  std::uint64_t control_generation_{}, tcp_sequence_{};
+  Time tcp_lease_{}, tcp_started_{}, tcp_last_stop_{};
+  bool tcp_braking_{};
   double spent_bits_{}, background_bits_{};
   struct StopSequence {
     enum class Phase { idle, f7, zero, done } phase{Phase::idle};

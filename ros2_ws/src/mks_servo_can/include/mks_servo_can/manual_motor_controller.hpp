@@ -27,6 +27,8 @@ class ManualMotorController {
  public:
   explicit ManualMotorController(CanBusManager &bus) : bus_(bus) {}
   bool set_enable(unsigned axis, bool enabled, Time now);
+  bool set_enable_all(bool enabled, Time now);
+  bool group_reply(unsigned axis,const std::vector<std::uint8_t> &data,Time stamp);
   bool zero(unsigned axis, Time now);
   bool jog(JogAction action, unsigned axis, int direction, unsigned rpm,
            const std::string &session, std::uint64_t sequence, Time issued, Time now);
@@ -43,7 +45,7 @@ class ManualMotorController {
   std::uint16_t microstep(unsigned axis) const { return microstep_.at(axis-1); }
   bool prepared(unsigned axis) const { return prepared_.at(axis-1); }
   void invalidate_program_handover() { prepared_.fill(false); profile_verified_.fill(false); }
-  bool busy() const { return phase_ != Phase::idle; }
+  bool busy() const { return phase_ != Phase::idle || group_active_; }
   unsigned axis() const { return axis_; }
   bool fast_feedback(unsigned axis) const { return axis <= kAxes && axis && prepared_[axis - 1]; }
   ManualState snapshot(Time now) const;
@@ -56,6 +58,7 @@ class ManualMotorController {
     int expected{1};
   };
   bool begin(unsigned axis, Operation op, Time now);
+  void group_tick(Time now);
   void add(std::vector<std::uint8_t> data, std::size_t length = 3, int expected = 1);
   void stop(Time now, const std::string &reason);
   void fail(const std::string &message);
@@ -91,5 +94,9 @@ class ManualMotorController {
   Time next_trace_{};
   std::string owner_, message_{"Sterowanie ręczne gotowe"};
   std::uint64_t sequence_{};
+  bool group_active_{}, group_step_{}, group_enabled_{}, group_committing_{};
+  Time group_sent_{}, group_next_{};
+  unsigned group_axis_{};
+  std::array<bool,kAxes> group_targets_{}, group_done_{};
 };
 }  // namespace mks_servo_can

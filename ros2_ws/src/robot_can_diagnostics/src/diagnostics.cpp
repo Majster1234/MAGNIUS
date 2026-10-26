@@ -59,6 +59,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
     : Node("robot_can_diagnostics"), runtime_(std::move(runtime)), config_(config), restart_action_(std::move(restart_action)) {
   if(!restart_action_) restart_action_=restart_service;
   program_api_=std::make_shared<ProgramApi>(this,runtime_);
+  tcp_jog_api_=std::make_shared<TcpJogApi>(this,runtime_);
   runtime_->require_configuration();
   using Configure = robot_control_interfaces::srv::ConfigureRobot;
   configuration_ = create_service<Configure>("/robot/configuration/control",
@@ -117,6 +118,11 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
     res->message = res->accepted ? "Komenda JOG przyjęta" : "JOG odrzucony: ENABLE, świeżość danych, limit lub inny właściciel ruchu";
   });
   using JointJog = robot_control_interfaces::srv::JogJoint;
+  using EnableAll=robot_control_interfaces::srv::SetAllMotorsEnable;
+  enable_all_=create_service<EnableAll>("/robot/manual/enable_all",[this,fresh_request](std::shared_ptr<EnableAll::Request> req,std::shared_ptr<EnableAll::Response> res) {
+    res->accepted=!resetting_ && fresh_request(req->issued_monotonic_ns) && runtime_->manual_enable_all(req->enabled);
+    res->message=res->accepted ? "Zbiorcze ENABLE przyjęte; wynik potwierdzają stany napędów" : "Zbiorcze ENABLE odrzucone: wymagany postój, świeże pomiary i wolne sterowanie";
+  });
   joint_jog_ = create_service<JointJog>("/robot/manual/jog_joint", [this, fresh_request](std::shared_ptr<JointJog::Request> req, std::shared_ptr<JointJog::Response> res) {
     res->accepted = !resetting_ && req->action <= JointJog::Request::STOP && fresh_request(req->issued_monotonic_ns) &&
         runtime_->joint_jog(static_cast<mks_servo_can::JogAction>(req->action), req->axis, req->direction,

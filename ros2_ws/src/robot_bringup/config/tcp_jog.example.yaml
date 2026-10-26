@@ -1,0 +1,9 @@
+# Dodatkowy plik parametrów ROS. Samo wczytanie nie włącza JOG TCP.
+# Wartości null poniżej to brak danych; przed włączeniem uzupełnij i odkomentuj.
+/**:
+  ros__parameters:
+    tcp_jog_enabled: false
+    # tcp_jog_max_linear_velocity: null    # m/s
+    # tcp_jog_max_angular_velocity: null   # rad/s
+    # tcp_jog_linear_acceleration: null    # m/s²
+    # tcp_jog_angular_acceleration: null   # rad/s²

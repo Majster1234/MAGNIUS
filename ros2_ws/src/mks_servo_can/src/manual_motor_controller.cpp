@@ -61,7 +61,8 @@ bool ManualMotorController::ready(unsigned axis, Time now) const {
       d.stall.fresh(now, 300ms) && !d.stall.value && d.mode.valid && d.mode.value == 5;
 }
 bool ManualMotorController::begin(unsigned axis, Operation op, Time now) {
-  if (!axis || axis > kAxes || !bus_.configuration_ready_ || bus_.configuration_locked_ || busy() || bus_.active_ || bus_.fault_ || !bus_.transport_->is_open()) return false;
+  if (!axis || axis > kAxes || !bus_.configuration_ready_ || bus_.configuration_locked_ ||
+      (busy() && !(group_step_ && phase_==Phase::idle)) || bus_.active_ || bus_.fault_ || !bus_.transport_->is_open()) return false;
   const auto &d = bus_.devices_[axis];
   if (!d.detected || d.identity.model != Model::kServo42D || !d.position.fresh(now, 60ms)) return false;
   bus_.scanning_ = false;
@@ -76,7 +77,8 @@ void ManualMotorController::add(std::vector<std::uint8_t> data, std::size_t leng
   steps_[step_count_++] = {std::move(data), length, expected};
 }
 bool ManualMotorController::set_enable(unsigned axis, bool enabled, Time now) {
-  if (!enabled && busy()) {
+  if(group_active_ && !group_step_) return false;
+  if (!enabled && phase_!=Phase::idle) {
     if (axis != axis_ || (phase_ != Phase::starting && phase_ != Phase::moving && phase_ != Phase::stopping)) return false;
     disable_after_ = true; stop(now, "Hamowanie przed wyłączeniem ENABLE"); return true;
   }
@@ -103,6 +105,68 @@ bool ManualMotorController::set_enable(unsigned axis, bool enabled, Time now) {
     add(request(axis, 0x32), 4, 0); add(request(axis, 0xf1), 3, 1);
     add(enable_request(axis, false)); add(request(axis, 0x3a), 3, 0);
   }
+  return true;
+}
+bool ManualMotorController::set_enable_all(bool enabled, Time now) {
+  if(busy() || bus_.active_ || bus_.fault_ || bus_.scanning_ || !bus_.configuration_ready_ || bus_.configuration_locked_ || !bus_.transport_->is_open()) return false;
+  std::array<bool,kAxes> targets{};
+  for(unsigned j=0;j<kAxes;++j) {
+    const auto &device=bus_.devices_[j+1];
+    if(!device.detected) continue;
+    if(!device.position.fresh(now,60ms) || !position_stable(j+1,now,100ms)) return false;
+    targets[j]=true;
+  }
+  if(std::none_of(targets.begin(),targets.end(),[](bool value){return value;})) return false;
+  group_active_=true;group_enabled_=enabled;group_committing_=false;group_targets_=targets;group_done_.fill(false);group_axis_=0;
+  message_=enabled ? "Załączanie wszystkich dostępnych napędów" : "Wyłączanie wszystkich dostępnych napędów";
+  return true;
+}
+void ManualMotorController::group_tick(Time now) {
+  if(!group_active_ || phase_!=Phase::idle) return;
+  if(group_committing_) {
+    if(group_axis_) {
+      if(now>=operation_deadline_) {fail("Nie potwierdzono ENABLE J"+std::to_string(group_axis_)+"; sekwencja przerwana");return;}
+      const auto &enable=bus_.devices_[group_axis_].enable;
+      if(!enable.fresh(now,300ms) || enable.stamp<group_sent_ || enable.value!=group_enabled_) return;
+      group_done_[group_axis_-1]=true;group_axis_=0;
+    }
+    for(unsigned j=0;j<kAxes;++j) if(group_targets_[j] && !group_done_[j]) {
+      if(now<group_next_) return;
+      if(!bus_.devices_[j+1].position.fresh(now,60ms) || !position_stable(j+1,now,100ms)) {
+        fail("Zmiana lub utrata pozycji przed ENABLE J"+std::to_string(j+1)+"; sekwencja przerwana");return;
+      }
+      const double cost=2*can_frame_bits(3);
+      const double budget=bus_.config_.bitrate*std::chrono::duration<double>(bus_.config_.cycle).count()*std::min(kPlannedUtilization,bus_.config_.utilization_limit);
+      if(bus_.spent_bits_+cost>budget) return;
+      bus_.spent_bits_+=cost;group_axis_=j+1;group_sent_=now;group_next_=now+200ms;operation_deadline_=now+2s;
+      bus_.transport_->send(group_axis_,enable_request(group_axis_,group_enabled_));++bus_.stats_.tx;
+      bus_.next_enable_[group_axis_]={};
+      message_="Wysłano ENABLE J"+std::to_string(group_axis_)+"; potwierdzenie i odstęp 200 ms przed kolejną osią";
+      return;
+    }
+    group_active_=false;
+    message_=group_enabled_ ? "ENABLE potwierdzony dla wszystkich dostępnych napędów" : "Wyłączenie potwierdzone dla wszystkich dostępnych napędów";
+    return;
+  }
+  for(unsigned j=0;j<kAxes;++j) if(group_targets_[j] && !group_done_[j]) {
+    const auto &device=bus_.devices_[j+1];
+    if(device.enable.fresh(now,300ms) && device.enable.value==group_enabled_ && (!group_enabled_ || prepared_[j])) {group_done_[j]=true;continue;}
+    group_step_=true;const bool accepted=set_enable(j+1,group_enabled_,now);group_step_=false;
+    if(!accepted) fail("Przerwano zbiorcze ENABLE na J"+std::to_string(j+1)+"; sprawdź stan każdej osi");
+    else {
+      // Ostatnie F3/3A odkładamy do sekwencji z odstępem co najmniej 200 ms.
+      step_count_-=2;
+      message_="Przygotowanie zbiorczego ENABLE: J"+std::to_string(j+1);
+    }
+    return;
+  }
+  group_committing_=true;group_done_.fill(false);group_next_=now;group_axis_=0;
+  message_="Napędy przygotowane; sekwencja ENABLE co najmniej co 200 ms";
+}
+bool ManualMotorController::group_reply(unsigned axis,const std::vector<std::uint8_t> &data,Time stamp) {
+  if(!group_active_ || !group_committing_ || axis<1 || axis>kAxes || axis!=group_axis_ || stamp<group_sent_ ||
+      !validate_response(axis,data,0xf3,3).valid) return false;
+  if(data[1]!=1) fail("Napęd J"+std::to_string(axis)+" odrzucił zbiorcze ENABLE");
   return true;
 }
 bool ManualMotorController::zero(unsigned axis, Time now) {
@@ -209,16 +273,18 @@ void ManualMotorController::fail(const std::string &message) {
   if (phase_ != Phase::fault && axis_ && bus_.transport_->is_open()) {
     try { bus_.transport_->send(axis_, speed_request(axis_, false, 0)); ++bus_.stats_.tx; } catch (...) {}
   }
-  phase_ = Phase::fault; waiting_ = false; prepared_.fill(false); message_ = message;
+  group_active_=false;phase_ = Phase::fault; waiting_ = false; prepared_.fill(false); message_ = message;
   bus_.fault(message);
 }
 void ManualMotorController::transport_fault() {
+  group_active_=false;
   if (busy() && phase_ != Phase::fault) {
     phase_ = Phase::fault; prepared_.fill(false); message_ = "Utrata komunikacji — stan ruchu nieznany";
   }
 }
 void ManualMotorController::timeout() { fail("Brak potwierdzenia operacji ręcznej — wymagany reset CAN"); }
 void ManualMotorController::complete(Time) {
+  if(group_active_) group_done_[axis_-1]=true;
   if (operation_ == Operation::enable) {
     prepared_[axis_ - 1] = true;
     bus_.next_speed_[axis_] = bus_.next_motor_[axis_] = bus_.next_enable_[axis_] = bus_.next_stall_[axis_] = {};
@@ -233,7 +299,7 @@ void ManualMotorController::complete(Time) {
     stationary_anchor_[axis_ - 1].valid = jog_rest_anchor_[axis_ - 1].valid =
         velocity_previous_[axis_ - 1].valid = velocity_[axis_ - 1].valid = false;
   }
-  message_ = operation_ == Operation::zero ? "Pozycja zero potwierdzona" : "Operacja ENABLE potwierdzona";
+  message_ = group_active_ ? "Przygotowano napęd do zbiorczego ENABLE" : operation_ == Operation::zero ? "Pozycja zero potwierdzona" : "Operacja ENABLE potwierdzona";
   phase_ = Phase::idle; waiting_ = false;
 }
 void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time stamp) {
@@ -303,6 +369,7 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
 }
 void ManualMotorController::tick(Time now) {
   observe_positions(now);
+  group_tick(now);
   if (!busy() || phase_ == Phase::fault) return;
   if (now >= next_trace_) {
     const auto &d = bus_.devices_[axis_];
@@ -369,9 +436,10 @@ void ManualMotorController::tick(Time now) {
 ManualState ManualMotorController::snapshot(Time now) const {
   ManualState result; result.busy = busy() || bus_.active_ || bus_.configuration_locked_ || !bus_.configuration_ready_; result.fault = bus_.fault_;
   result.configuration_revision = bus_.profile_.revision;
-  result.axis = busy() ? axis_ : 0; result.max_rpm = bus_.config_.manual_max_rpm; result.message = message_;
+  result.axis = group_active_ ? 0 : busy() ? axis_ : 0; result.max_rpm = bus_.config_.manual_max_rpm; result.message = message_;
   result.operation = phase_ == Phase::fault ? "fault" : phase_ == Phase::stopping ? "stopping" :
       phase_ == Phase::starting || phase_ == Phase::moving ? "jog" : phase_ == Phase::sequence ? "operation" : "idle";
+  if(group_active_) result.operation=group_enabled_ ? "enable_all" : "disable_all";
   for (unsigned axis = 1; axis <= kAxes; ++axis) {
     auto &a = result.axes[axis - 1]; const auto &d = bus_.devices_[axis];
     a.axis = axis; a.available = !bus_.fault_ && bus_.transport_->is_open() && d.detected &&

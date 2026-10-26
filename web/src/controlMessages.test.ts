@@ -10,6 +10,11 @@ it("nie przypisuje nieznanemu błędowi niepotwierdzonej przyczyny",()=>{
     const n=describeControlNotice({source:"motion-prepare",severity:"error",message:"Nieznany błąd #42"});
     expect(n.description).toContain("nie została jednoznacznie");expect(n.context).toBe("Robot fizyczny");expect(n.details).toContain("#42");expect(n.remedy).toContain("stan");
 });
+it("pokazuje przyczynę awarii właściciela w widocznym opisie",()=>{
+    const n=describeControlNotice({source:"controller",code:"fault",severity:"error",message:"Awaryjne przerwanie JOG TCP przez panel/most"});
+    expect(n.title).toBe("Awaria sterowania");
+    expect(n.description).toContain("Awaryjne przerwanie JOG TCP przez panel/most");
+});
 it("aktywna blokada przeżywa limit historii i wymaga jawnie potwierdzonej zmiany warunku",()=>{
     const store=new ControlMessages();
     store.condition("calibration-1",{source:"calibration-1",severity:"warning",code:"calibration",message:"J1"});

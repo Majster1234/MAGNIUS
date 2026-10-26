@@ -2,6 +2,7 @@
 #include <future>
 #include <functional>
 #include "robot_can_diagnostics/program_api.hpp"
+#include "robot_can_diagnostics/tcp_jog_api.hpp"
 #include "mks_servo_can/bus_runtime.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
@@ -10,6 +11,7 @@
 #include "robot_control_interfaces/msg/manual_state.hpp"
 #include "robot_control_interfaces/msg/shaft_trace_batch.hpp"
 #include "robot_control_interfaces/srv/set_motor_enable.hpp"
+#include "robot_control_interfaces/srv/set_all_motors_enable.hpp"
 #include "robot_control_interfaces/srv/zero_motor.hpp"
 #include "robot_control_interfaces/srv/jog_motor.hpp"
 #include "robot_control_interfaces/srv/jog_joint.hpp"
@@ -30,6 +32,7 @@ class DiagnosticsNode : public rclcpp::Node {
   std::shared_ptr<mks_servo_can::BusRuntime> runtime_;
   mks_servo_can::BusConfig config_;
   std::shared_ptr<ProgramApi> program_api_;
+  std::shared_ptr<TcpJogApi> tcp_jog_api_;
   bool resetting_{false};
   mks_servo_can::Time last_manual_publish_{};
   std::string reset_error_;
@@ -45,6 +48,7 @@ class DiagnosticsNode : public rclcpp::Node {
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr preview_publisher_;
   std::array<mks_servo_can::Time, mks_servo_can::kAxes> last_preview_{};
   rclcpp::Service<robot_control_interfaces::srv::SetMotorEnable>::SharedPtr enable_;
+  rclcpp::Service<robot_control_interfaces::srv::SetAllMotorsEnable>::SharedPtr enable_all_;
   rclcpp::Service<robot_control_interfaces::srv::ZeroMotor>::SharedPtr zero_;
   rclcpp::Service<robot_control_interfaces::srv::JogMotor>::SharedPtr jog_;
   rclcpp::Service<robot_control_interfaces::srv::JogJoint>::SharedPtr joint_jog_;

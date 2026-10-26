@@ -14,6 +14,7 @@ add_library(${PROJECT_NAME} SHARED
   src/program_bus.cpp
   src/motion_sample.cpp
   src/streaming_motion.cpp
+  src/tcp_jog.cpp
   src/manual_motor_controller.cpp
   src/bus_runtime.cpp)
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
@@ -57,6 +58,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_streaming_motion ${PROJECT_NAME})
   ament_add_gtest(test_socketcan_async test/test_socketcan_async.cpp)
   target_link_libraries(test_socketcan_async ${PROJECT_NAME})
+  ament_add_gtest(test_tcp_jog test/test_tcp_jog.cpp)
+  target_link_libraries(test_tcp_jog ${PROJECT_NAME})
+  ament_add_gtest(test_enable_all test/test_enable_all.cpp)
+  target_link_libraries(test_enable_all ${PROJECT_NAME})
 endif()
 
 install(FILES README.md DESTINATION share/${PROJECT_NAME})

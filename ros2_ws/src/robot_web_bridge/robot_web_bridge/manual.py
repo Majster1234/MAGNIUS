@@ -13,6 +13,16 @@ class ManualStore:
         self.state = None
         self.stamp = None
         self.stamp_ns = None
+        self.tcp_state = None
+        self.tcp_stamp = None
+
+    def update_tcp(self, message):
+        fields = ('ready', 'busy', 'state', 'message', 'axis', 'direction', 'frame', 'impulse',
+                  'progress', 'requested_step', 'velocity', 'max_linear_velocity', 'max_angular_velocity',
+                  'model_id', 'configuration_revision', 'generation')
+        with self.lock:
+            self.tcp_state = {key: getattr(message, key) for key in fields}
+            self.tcp_stamp = message.monotonic_ns / 1e9
 
     def update(self, message):
         state = {'busy': message.busy, 'fault': message.fault,
@@ -49,6 +59,7 @@ class ManualStore:
             age = None if self.stamp is None else self.clock() - self.stamp
             state = deepcopy(self.state)
             stamp_ns = self.stamp_ns
+            tcp_state, tcp_stamp = deepcopy(self.tcp_state), self.tcp_stamp
         # Dwa asynchroniczne cykle 20 Hz: opóźnienie publikacji nie jest utratą CAN.
         # Terminy ruchu nadal sprawdza C++ bezpośrednio na pomiarach CAN.
         fresh = age is not None and 0 <= age < 0.5
@@ -60,6 +71,11 @@ class ManualStore:
         state.update(fresh=fresh, age_seconds=age, recording=recording(),
                      state_monotonic_ns=None if stamp_ns is None else str(stamp_ns),
                      server_monotonic_ns=str(time.monotonic_ns()))
+        if tcp_state is not None:
+            tcp_fresh = tcp_stamp is not None and 0 <= self.clock() - tcp_stamp < .25
+            tcp_state['fresh'] = tcp_fresh
+            tcp_state['ready'] = tcp_fresh and tcp_state['ready']
+            state['tcp_jog'] = tcp_state
         for axis in state['axes']:
             elapsed = max(0, age or 0)
             for field, known, limit in (('position_age_seconds', 'position_known', .25),
@@ -79,8 +95,8 @@ class ManualStore:
 
 class ManualRosClient:
     def __init__(self, node):
-        from robot_control_interfaces.srv import JogMotor, JogJoint, SetMotorEnable, ZeroMotor
-        self.types = {'enable': SetMotorEnable, 'zero': ZeroMotor, 'jog': JogMotor, 'jog_joint': JogJoint}
+        from robot_control_interfaces.srv import JogMotor, JogJoint, JogTcp, SetMotorEnable, SetAllMotorsEnable, ZeroMotor
+        self.types = {'enable': SetMotorEnable, 'enable_all': SetAllMotorsEnable, 'zero': ZeroMotor, 'jog': JogMotor, 'jog_joint': JogJoint, 'jog_tcp': JogTcp}
         self.clients = {name: node.create_client(kind, '/robot/manual/' + name)
                         for name, kind in self.types.items()}
         self.pending = 0

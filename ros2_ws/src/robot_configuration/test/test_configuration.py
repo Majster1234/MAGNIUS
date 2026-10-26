@@ -17,6 +17,26 @@ def configured(axis=1):
     return document
 
 
+def test_tcp_limits_migrate_legacy_snapshots_and_validate_without_changing_joint_calibration():
+    from robot_configuration.schema import TCP_MOTION, changed_axes
+    legacy = configured()
+    for key in TCP_MOTION:
+        del legacy['values'][f'tcp.{key}']
+    migrated = validate(legacy)
+    assert all(migrated['values'][f'tcp.{key}'] is None for key in TCP_MOTION)
+    updated = deepcopy(migrated)
+    updated['values'].update({'tcp.max_linear_velocity': 100, 'tcp.linear_acceleration': 50,
+                             'tcp.max_angular_velocity': 30, 'tcp.angular_acceleration': 60})
+    assert validate(updated)['values']['tcp.max_linear_velocity'] == 100
+    assert changed_axes(migrated, updated) == [False] * 6
+    updated['values']['tcp.linear_acceleration'] = 5
+    with pytest.raises(ValueError, match='10 s'):
+        validate(updated)
+    updated['values']['tcp.linear_acceleration'] = 0
+    with pytest.raises(ValueError):
+        validate(updated)
+
+
 def test_system_setting_is_atomic_shared_and_independent_of_robot(tmp_path):
     first = Storage(tmp_path)
     revision = first.active()['revision']
@@ -76,6 +96,22 @@ def test_urdf_uses_same_origins_rpy_tcp_and_continuous_joints():
     assert root.find("joint[@name='tool_fixed']/origin").attrib['xyz'] == '0.08 0.025 0'
     assert len([joint for joint in root.findall('joint') if joint.attrib['type'] == 'continuous']) == 6
     assert root.find('.//mesh') is None
+
+
+def test_physical_tcp_requires_all_geometry_and_explicit_tool_transform():
+    from robot_configuration.schema import ORIGIN, TCP
+    document = configured()
+    for axis in range(1, 7):
+        for key in ORIGIN:
+            document['values'][f'joint.{axis}.{key}'] = 0
+    root = ET.fromstring(build_urdf(document, 'r'))
+    assert root.attrib['model_kind'] == 'configured'
+    assert root.attrib['tcp_configured'] == 'false'
+    for key in TCP:
+        document['values'][f'tool.{key}'] = 0
+    assert ET.fromstring(build_urdf(document, 'r')).attrib['tcp_configured'] == 'true'
+    document['values']['joint.6.origin_roll'] = None
+    assert ET.fromstring(build_urdf(document, 'r')).attrib['tcp_configured'] == 'false'
 
 
 def test_storage_pagination_restart_delete_and_invalid_files(tmp_path):

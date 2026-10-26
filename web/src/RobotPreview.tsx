@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ManualState } from "./manualTypes";
 import { PreviewPose } from "./previewPose";
 import { previewLimits } from "./previewLimits";
@@ -21,12 +21,16 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     const scene = useRef<ReturnType<typeof createPreviewScene> | null>(null);
     const pose = useRef(new PreviewPose());
     const poseRevision = useRef(state?.configuration_revision);
-    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames }); input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames };
+    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames });
     const sample = useRef<{ state: ManualState | null; receivedAt: number; key: string }>({ state: null, receivedAt: -Infinity, key: "" });
     const sampleSequence = useRef(0);
-    useEffect(() => {
-        sample.current = { state, receivedAt: performance.now(), key: state?.state_monotonic_ns || String(++sampleSequence.current) };
-    }, [state]);
+    // Scena czyta spójny, zatwierdzony stan razem ze znacznikiem próbki przed
+    // następną klatką. useEffect zostawiał okno z nowym stanem i starym stampem.
+    useLayoutEffect(() => {
+        if (sample.current.state !== state)
+            sample.current = { state, receivedAt: performance.now(), key: state?.state_monotonic_ns || String(++sampleSequence.current) };
+        input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames };
+    });
     const [message, setMessage] = useState("Wczytywanie modelu z ROS…");
     const [modelKind, setModelKind] = useState("partial-demo");
     const [, refresh] = useState(0);
@@ -102,7 +106,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
             <span className={`preview-completeness ${count === 6 ? "complete" : "partial"}`}>{count === 6 ? "Pozycja kompletna — 6/6 osi" : `Pozycja częściowa — ${count}/6 osi`}</span>
         </header>
         <div className="preview-trail-legend" aria-label="Ślady TCP">
-            <span className="trail-planned">Plan PTP/LIN</span><span className="trail-executed">Wykonane PTP</span>
+            <span className="trail-planned">Plan PTP/LIN</span><span className="trail-executed">Wykonane PTP/LIN</span>
             <button type="button" disabled={!executionTrace?.points} title="Usuwa złotą historię w tym panelu. Historia obejmuje do 20 000 punktów."
                 onClick={() => { scene.current?.clearExecutionTrace(); refresh(value => value + 1); }}>Wyczyść ślad</button>
         </div>

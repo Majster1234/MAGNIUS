@@ -62,16 +62,20 @@ export function createExecutionTrail(scene: THREE.Scene, robot: URDFRobot, capac
             if (run !== nextRun) {
                 run = nextRun; close(); stamp = ""; mask = ""; lastSampleAt = lastGoodAt = -Infinity;
             }
+            // Jedna próbka jest renderowana wielokrotnie. Jej starzenie się między
+            // klatkami nie jest nowym pomiarem ani powodem do rozcinania historii.
+            // Rzeczywistą przerwę odbioru wykrywają limity czasu ramki i lastGoodAt.
+            if (stamp === frame.sampleKey) return false;
             const age = (now - frame.receivedAt) / 1000;
             const known = state.axes.map(axis => axis.available && axis.position_known && axis.joint_configured &&
                 axis.calibration_valid && axis.joint_position_known && Number.isFinite(axis.joint_position_degrees) &&
                 typeof axis.position_age_seconds === "number" && Number.isFinite(axis.position_age_seconds) &&
                 axis.position_age_seconds >= 0 && axis.position_age_seconds + age < .25);
             if (status.participating.some((yes, i) => yes && !known[i])) { close(); return false; }
+            if (now - lastSampleAt < 50) return false;
             const nextMask = known.map(Boolean).join("/");
             if (mask !== nextMask || now - lastGoodAt >= 250) close();
             mask = nextMask;
-            if (stamp === frame.sampleKey || now - lastSampleAt < 50) return false;
             stamp = frame.sampleKey; lastSampleAt = lastGoodAt = now;
             const angles = known.map((yes, i) => yes ? state.axes[i].joint_position_degrees! * Math.PI / 180 : status.start_positions[i]);
             angles.forEach((angle, i) => reference.setJointValue(`joint_${i + 1}`, angle));

@@ -1,5 +1,15 @@
 import {expect,it} from "vitest";
 import {dirtyKeys,documentFromDraft,emptyDocument,fieldErrors,mergeAppliedDraft,toDraft,validateDocument,withExample} from "./configurationData";
+it("migruje stare snapshoty bez limitów TCP do null i waliduje nowy profil",()=>{
+    const legacy=emptyDocument();for(const key of Object.keys(legacy.values)) if(key.startsWith('tcp.')) delete legacy.values[key];
+    const normalized=validateDocument(legacy);expect(normalized.values['tcp.max_linear_velocity']).toBeNull();
+    const draft=toDraft(normalized);expect(dirtyKeys(draft,legacy).size).toBe(0);
+    draft['tcp.max_linear_velocity']='100';draft['tcp.linear_acceleration']='5';
+    expect(fieldErrors(draft)['tcp.linear_acceleration']).toContain('10 s');
+    draft['tcp.linear_acceleration']='50';draft['tcp.max_angular_velocity']='30';draft['tcp.angular_acceleration']='60';
+    expect(fieldErrors(draft)).toEqual({});expect(documentFromDraft(draft).values['tcp.max_linear_velocity']).toBe(100);
+    draft['tcp.angular_acceleration']='0';expect(fieldErrors(draft)['tcp.angular_acceleration']).toBeDefined();
+});
 it("zachowuje null, zero i jednostki JSON bez dodatkowej konwersji",()=>{
     const draft=toDraft(emptyDocument());draft['joint.1.origin_x']='125';draft['joint.1.origin_y']='0';draft['joint.1.origin_yaw']='90';
     const document=documentFromDraft(draft,'Robot testowy');

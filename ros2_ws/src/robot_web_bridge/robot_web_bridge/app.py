@@ -234,6 +234,14 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     async def motor_enable(axis: int, body: EnableBody):
         return await motor_action('enable', axis, enabled=body.enabled)
 
+    @app.post('/api/v1/manual/enable-all')
+    async def motors_enable_all(body: EnableBody):
+        require_manual()
+        accepted, message = await manual_action('enable_all', enabled=body.enabled)
+        if not accepted:
+            raise HTTPException(status_code=409, detail=message)
+        return JSONResponse({'accepted': True, 'message': message}, status_code=202, headers={'Cache-Control': 'no-store'})
+
     @app.post('/api/v1/manual/axes/{axis}/zero')
     async def motor_zero(axis: int):
         return await motor_action('zero', axis)
@@ -251,6 +259,9 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
         active_axis = 0
         active_space = 'motor'
         active_revision = ''
+        tcp_active = False
+        tcp_generation = 0
+        tcp_started_at = 0.
         send_lock = asyncio.Lock()
         stopped = False
         close_reason = 'completed'
@@ -261,15 +272,21 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                 await asyncio.wait_for(websocket.send_json(body), timeout=.1)
 
         async def publish():
+            nonlocal tcp_active
             while not stopped:
                 state = manual_store.snapshot()
+                tcp_status = state.get('tcp_jog', {})
+                if tcp_active and tcp_status.get('fresh') and not tcp_status.get('busy') and (
+                        tcp_status.get('generation', 0) > tcp_generation or
+                        tcp_status.get('ready') and time.monotonic() - tcp_started_at >= .5):
+                    tcp_active = False
                 begin = time.monotonic_ns()
                 await send({'type': 'state', 'state': state})
                 trace('ws_state_sent', connection=connection, duration_ns=time.monotonic_ns() - begin, state=state)
                 await asyncio.sleep(.05)
 
         async def commands():
-            nonlocal last_sequence, active_axis, active_space, active_revision, close_reason, close_code
+            nonlocal last_sequence, active_axis, active_space, active_revision, close_reason, close_code, tcp_active
             rate_limit = JogRateLimit()
             previous_trace = 0.0
             while not stopped:
@@ -301,6 +318,9 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                                 fields['state_monotonic_ns'] = stamp
                             trace('browser_' + cmd['event'], connection=connection, **fields)
                         continue
+                    if cmd.get('space') == 'tcp':
+                        await tcp_command(cmd, rate_limit)
+                        continue
                     action, axis, sequence = cmd['action'], cmd['axis'], cmd['sequence']
                     direction, rpm = cmd.get('direction', 0), cmd.get('rpm', 0)
                     space = cmd.get('space', 'motor')
@@ -326,6 +346,9 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                     trace('ws_command_rejected', connection=connection, reason=close_reason)
                     return
                 last_sequence = sequence
+                if tcp_active and action != 'stop':
+                    await send({'type': 'ack', 'sequence': sequence, 'accepted': False, 'message': 'Zakończ JOG TCP przed sterowaniem osią'})
+                    continue
                 trace('ws_command_received', connection=connection, action=action, axis=axis,
                       sequence=sequence, direction=direction, rpm=rpm)
                 if action == 'start' and active_axis and active_axis != axis:
@@ -342,6 +365,47 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                     active_axis = 0
                 await send({'type': 'ack', 'sequence': sequence, 'accepted': accepted, 'message': message})
 
+        async def tcp_command(cmd, rate_limit):
+            nonlocal last_sequence, tcp_active, tcp_generation, tcp_started_at
+            import math
+            action, sequence = cmd.get('action'), cmd.get('sequence')
+            if action not in ('start', 'keepalive', 'stop') or type(sequence) is not int or not last_sequence < sequence < 2**53:
+                raise ValueError('Nieprawidłowa komenda TCP')
+            if action != 'stop' and not rate_limit.allow(time.monotonic()):
+                raise ValueError('Przekroczony limit komend TCP')
+            last_sequence = sequence
+            emergency = cmd.get('emergency', False)
+            if type(emergency) is not bool:
+                raise ValueError('Nieprawidłowy STOP TCP')
+            values = dict(axis=0, direction=0, frame='base', impulse=False, emergency=emergency, velocity=0., step=0., model_id='', revision='')
+            if action == 'start':
+                tcp_status = manual_store.snapshot().get('tcp_jog', {})
+                if tcp_status.get('fresh') and tcp_status.get('ready') and not tcp_status.get('busy'):
+                    tcp_active = False
+                axis, frame = cmd.get('axis'), cmd.get('frame')
+                direction, impulse = cmd.get('direction'), cmd.get('impulse')
+                velocity, step = cmd.get('velocity'), cmd.get('step')
+                if axis not in ('x', 'y', 'z', 'rx', 'ry', 'rz') or frame not in ('base', 'tool') or type(direction) is not int or direction not in (-1, 1) or type(impulse) is not bool:
+                    raise ValueError('Nieprawidłowy kierunek TCP')
+                if any(type(v) not in (int, float) or not math.isfinite(v) for v in (velocity, step)) or velocity <= 0 or (step <= 0 if impulse else step != 0):
+                    raise ValueError('Nieprawidłowy profil TCP')
+                if any(not isinstance(cmd.get(key), str) or not 0 < len(cmd[key]) <= 64 for key in ('model_id', 'revision')):
+                    raise ValueError('Nieprawidłowa rewizja TCP')
+                if active_axis or tcp_active:
+                    await send({'type': 'tcp_ack', 'sequence': sequence, 'accepted': False, 'message': 'Poprzedni ruch nadal trwa'})
+                    return
+                values.update(axis=('x', 'y', 'z', 'rx', 'ry', 'rz').index(axis), direction=direction, frame=frame,
+                              impulse=impulse, velocity=float(velocity), step=float(step), model_id=cmd['model_id'], revision=cmd['revision'])
+                # Zachowaj sesję także przy utracie odpowiedzi START.
+                tcp_active = True
+                tcp_generation = tcp_status.get('generation', 0)
+                tcp_started_at = time.monotonic()
+            accepted, message = await manual_action('jog_tcp', action={'start': 0, 'keepalive': 1, 'stop': 2}[action],
+                                                    session=session, sequence=sequence, **values)
+            # Przyjęcie STOP nie potwierdza postoju. publish() zwalnia sesję
+            # dopiero po statusie; rozłączenie w trakcie hamowania zleca STOP awaryjny.
+            await send({'type': 'tcp_ack', 'sequence': sequence, 'accepted': accepted, 'message': message})
+
         tasks = [asyncio.create_task(publish()), asyncio.create_task(commands())]
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -357,6 +421,12 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            if tcp_active:
+                try:
+                    await asyncio.wait_for(manual_action('jog_tcp', action=2, axis=0, direction=0, frame='base', impulse=False,
+                        emergency=True, velocity=0., step=0., model_id='', revision='', session=session, sequence=last_sequence+1), timeout=.1)
+                except (asyncio.TimeoutError, RuntimeError, OSError):
+                    pass
             if active_axis:
                 try:
                     values = {'velocity_rad_s': 0., 'revision': active_revision} if active_space == 'joint' else {'rpm': 0}

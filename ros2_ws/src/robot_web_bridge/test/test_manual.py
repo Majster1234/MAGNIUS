@@ -50,6 +50,45 @@ def test_manual_display_never_overrides_controller_rejection_or_fault():
     assert not result['axes'][1]['available']
 
 
+def test_tcp_status_expires_without_claiming_robot_stopped():
+    now = [10.]
+    store = ManualStore(lambda: now[0]); store.update(state())
+    store.update_tcp(SimpleNamespace(monotonic_ns=10_000_000_000, ready=True, busy=True, state='running', message='Ruch',
+        axis=0, direction=1, frame='base', impulse=False, progress=.1, requested_step=0., velocity=.01,
+        max_linear_velocity=.02, max_angular_velocity=.1, model_id='m', configuration_revision='r', generation=1))
+    assert store.snapshot()['tcp_jog']['fresh']
+    now[0] = 10.25
+    assert not store.snapshot()['tcp_jog']['fresh']
+    assert not store.snapshot()['tcp_jog']['ready']
+    assert store.snapshot()['tcp_jog']['busy']
+
+
+@pytest.mark.parametrize('disconnect', [False, True])
+def test_tcp_ws_uses_si_session_and_stop_on_release_or_disconnect(manual_app, disconnect):
+    app, calls = manual_app
+    async def scenario():
+        incoming = asyncio.Queue()
+        await incoming.put({'type': 'websocket.connect'})
+        await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(space='tcp', action='start', sequence=1,
+            axis='rx', direction=-1, frame='tool', impulse=True, velocity=.05, step=.1, model_id='model', revision='r'))})
+        if not disconnect:
+            await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(space='tcp', action='stop', sequence=2))})
+        async def send(event):
+            if event['type'] == 'websocket.send':
+                data = json.loads(event['text'])
+                if data['type'] == 'tcp_ack' and data['sequence'] == (1 if disconnect else 2):
+                    await incoming.put({'type': 'websocket.disconnect', 'code': 1000})
+        await asyncio.wait_for(app(scope('websocket', '/api/v1/manual/ws'), incoming.get, send), 1.)
+    asyncio.run(scenario())
+    assert [operation for operation, _ in calls] == ['jog_tcp'] * (2 if disconnect else 3)
+    first, last = calls[0][1], calls[-1][1]
+    assert first['velocity'] == .05 and first['step'] == .1 and first['axis'] == 3 and first['frame'] == 'tool'
+    assert first['session'] == last['session'] and last['sequence'] == (2 if disconnect else 3)
+    assert last['action'] == 2 and last['emergency']
+    if not disconnect:
+        assert calls[1][1]['action'] == 2 and not calls[1][1]['emergency']
+
+
 @pytest.fixture
 def manual_app(tmp_path):
     store = StatusStore('192.168.1.69', 8080, 'enp2s0', '192.168.1.0/24')
@@ -59,6 +98,35 @@ def manual_app(tmp_path):
         calls.append((operation, values))
         return True, 'Przyjęte'
     return create_app(store, tmp_path, manual_store=monitor, manual_action=action), calls
+
+
+@pytest.mark.parametrize('velocity,step,impulse', [(.015, 0, False), (1, 0, False), (.015, 1, True)])
+def test_tcp_ws_json_numbers_become_ros_double_without_closing_socket(manual_app, velocity, step, impulse):
+    app, calls = manual_app
+    async def scenario():
+        incoming = asyncio.Queue()
+        await incoming.put({'type': 'websocket.connect'})
+        await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(space='tcp', action='start', sequence=1,
+            axis='x', direction=1, frame='base', impulse=impulse, velocity=velocity, step=step, model_id='model', revision='r'))})
+        async def send(event):
+            if event['type'] != 'websocket.send':
+                return
+            data = json.loads(event['text'])
+            if data['type'] != 'tcp_ack':
+                return
+            assert data['accepted']
+            if data['sequence'] < 3:
+                await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(space='tcp',
+                    action='keepalive' if data['sequence'] == 1 else 'stop', sequence=data['sequence'] + 1))})
+            else:
+                await incoming.put({'type': 'websocket.disconnect', 'code': 1000})
+        await asyncio.wait_for(app(scope('websocket', '/api/v1/manual/ws'), incoming.get, send), 1.)
+    asyncio.run(scenario())
+    for operation, values in calls:
+        assert operation == 'jog_tcp'
+        assert type(values['velocity']) is float and type(values['step']) is float
+    assert calls[0][1]['velocity'] == velocity and calls[0][1]['step'] == step
+    assert [values['action'] for _, values in calls[:3]] == [0, 1, 2]
 
 
 async def post(app, path, body):
@@ -80,6 +148,15 @@ def test_manual_http_validates_axis_and_enable_type(manual_app):
     assert asyncio.run(post(app, '/api/v1/manual/axes/0/enable', {'enabled': True})) == 422
     assert asyncio.run(post(app, '/api/v1/manual/axes/1/enable', {'enabled': 'true'})) == 422
     assert asyncio.run(post(app, '/api/v1/manual/axes/2/zero', {})) == 202
+
+
+def test_enable_all_is_one_typed_operation_and_rejects_non_boolean(manual_app):
+    app, calls = manual_app
+    for enabled in (True, False):
+        assert asyncio.run(post(app, '/api/v1/manual/enable-all', {'enabled': enabled})) == 202
+        assert calls[-1] == ('enable_all', {'enabled': enabled})
+    assert len(calls) == 2
+    assert asyncio.run(post(app, '/api/v1/manual/enable-all', {'enabled': 'true'})) == 422
 
 
 @pytest.mark.parametrize('path', ['/api/v1/manual/status', '/api/v1/manual/axes/1/enable'])

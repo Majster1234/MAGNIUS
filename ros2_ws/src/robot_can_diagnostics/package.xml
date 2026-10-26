@@ -9,7 +9,10 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>diagnostic_msgs</depend>
   <depend>mks_servo_can</depend>
+  <depend>robot_kinematics</depend>
+  <depend>tinyxml2</depend>
   <depend>rclcpp</depend>
+  <depend>rcl_interfaces</depend>
   <depend>rclcpp_action</depend>
   <depend>openssl</depend>
   <depend>std_srvs</depend>

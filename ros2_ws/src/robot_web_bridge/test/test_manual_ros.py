@@ -6,7 +6,7 @@ import time
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from robot_control_interfaces.srv import SetMotorEnable, ZeroMotor, JogMotor, JogJoint
+from robot_control_interfaces.srv import SetMotorEnable, SetAllMotorsEnable, ZeroMotor, JogMotor, JogJoint, JogTcp
 from robot_web_bridge.manual import ManualRosClient
 
 
@@ -23,7 +23,7 @@ def test_manual_client_uses_typed_ros_and_fresh_monotonic_time(monkeypatch):
         response.message = 'Potwierdzenie atrapy'
         return response
     services = [server.create_service(kind, '/robot/manual/' + name, reply)
-                for name, kind in (('enable', SetMotorEnable), ('zero', ZeroMotor), ('jog', JogMotor), ('jog_joint', JogJoint))]
+                for name, kind in (('enable', SetMotorEnable), ('enable_all', SetAllMotorsEnable), ('zero', ZeroMotor), ('jog', JogMotor), ('jog_joint', JogJoint), ('jog_tcp', JogTcp))]
     client = ManualRosClient(caller)
     executor = SingleThreadedExecutor()
     executor.add_node(caller); executor.add_node(server)
@@ -48,6 +48,40 @@ def test_manual_client_uses_typed_ros_and_fresh_monotonic_time(monkeypatch):
         assert received[0].axis == 4 and received[0].enabled
         assert received[-1].session == 'test-panel' and received[-1].sequence == 4
         assert received[-2].velocity_rad_s == .2 and received[-2].revision == 'revision-1'
+        assert asyncio.run(client('jog_tcp', action=JogTcp.Request.STOP, emergency=True, session='tcp', sequence=5))[0]
+        assert received[-1].emergency and received[-1].session == 'tcp'
+        # Liczby JSON z przeglądarki: step=0 i velocity=1 nie są Python float.
+        # Sprawdzamy cały adapter WS -> rzeczywisty typ ROS, nadal bez transportu CAN.
+        import json
+        from pathlib import Path
+        from robot_web_bridge.app import create_app
+        from robot_web_bridge.manual import ManualStore
+        from robot_web_bridge.status import StatusStore
+        from test_bridge import scope
+        app = create_app(StatusStore('192.168.1.69', 8080, 'enp2s0', '192.168.1.0/24'),
+                         Path('/tmp'), manual_store=ManualStore(), manual_action=client)
+        first_tcp = len(received)
+        async def websocket_scenario():
+            incoming = asyncio.Queue()
+            await incoming.put({'type': 'websocket.connect'})
+            await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(space='tcp', action='start', sequence=1,
+                axis='x', direction=1, frame='base', impulse=False, velocity=1, step=0, model_id='m', revision='r'))})
+            async def send(event):
+                if event['type'] != 'websocket.send':
+                    return
+                data = json.loads(event['text'])
+                if data['type'] != 'tcp_ack':
+                    return
+                assert data['accepted']
+                if data['sequence'] < 3:
+                    await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(space='tcp',
+                        action='keepalive' if data['sequence'] == 1 else 'stop', sequence=data['sequence'] + 1))})
+                else:
+                    await incoming.put({'type': 'websocket.disconnect', 'code': 1000})
+            await asyncio.wait_for(app(scope('websocket', '/api/v1/manual/ws'), incoming.get, send), 2.)
+        asyncio.run(websocket_scenario())
+        assert [r.action for r in received[first_tcp:first_tcp + 3]] == [0, 1, 2]
+        assert received[first_tcp].velocity == 1.0 and received[first_tcp].step == 0.0
     finally:
         executor.shutdown(timeout_sec=2)
         thread.join(timeout=2)

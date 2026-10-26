@@ -11,7 +11,7 @@ export class JogControl {
     private sentAt = 0;
     private stateAt = -Infinity;
     constructor(private socket: JogSocket, private clock: () => number = () => performance.now(),
-        private onStop?: (reason: StopReason, axis: number) => void) {}
+        private onStop?: (reason: StopReason, axis: number) => void, private nextSequence?: () => number) {}
     get holding() { return this.held !== null; }
     stateReceived(fresh: boolean) { this.stateAt = fresh ? this.clock() : -Infinity; if (!fresh) this.stop("state_stale"); }
     start(axis: number, direction: number, rpm: number, revision?: string) {
@@ -21,7 +21,7 @@ export class JogControl {
     }
     private send(action: JogCommand["action"]) {
         if (!this.held || this.socket.readyState !== 1) return;
-        const sequence = ++this.sequence;
+        const sequence = this.nextSequence ? this.nextSequence() : ++this.sequence;
         this.socket.send(JSON.stringify({ ...this.held, action, sequence }));
         this.pending = sequence; this.sentAt = this.clock();
     }

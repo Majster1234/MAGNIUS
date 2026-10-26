@@ -1,0 +1,17 @@
+uint64 monotonic_ns
+bool ready
+bool busy
+string state
+string message
+uint8 axis
+int8 direction
+string frame
+bool impulse
+float64 progress
+float64 requested_step
+float64 velocity
+float64 max_linear_velocity
+float64 max_angular_velocity
+string model_id
+string configuration_revision
+uint64 generation

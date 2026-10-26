@@ -12,7 +12,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
    position_known:true,position_age_seconds:0,position_degrees:0,speed_known:true,speed_rpm:0,can_jog:true,can_zero:true,motion:'zatrzymany',
    joint_configured:true,calibration_valid:true,joint_position_known:true,joint_position_degrees:[0,-20,25,0,30,0][i],
    joint_lower_degrees:-180,joint_upper_degrees:180,jog_min_velocity_degrees_s:0,jog_max_velocity_degrees_s:80}))};
- let motion={program_id:'',state:'idle',mode:'streamed',message:'',execution_key:'',participating:[true,true,true,false,true,false],tcp_verified:false,
+ let motion={program_id:'',state:'idle',mode:'streamed',motion_type:'PTP',message:'',execution_key:'',participating:[true,true,true,false,true,false],tcp_verified:false,
   busy:false,progress:0,duration:3,elapsed:0,start_positions:state.axes.map(a=>a.joint_position_degrees*Math.PI/180),target_positions:Array(6).fill(.3)};
  const timer=setInterval(()=>{
   if(advancing)state.axes[0].joint_position_degrees+=1;
@@ -64,15 +64,19 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   motion={...motion,program_id:'p1',execution_key:'k1',state:'running',busy:true};advancing=true;
   await page.waitForFunction(()=>JSON.parse(document.querySelector('.robot-preview canvas').dataset.executionTrace).points>=6);
   assert.equal((await trace()).color,'#ffc857');assert((await trace()).partial);assert((await trace()).visible);
-  await page.getByText('Tor modelu — niepełne pomiary',{exact:true}).waitFor();
+  const ptpSegments=(await trace()).segments;await delay(600);
+  assert.equal((await trace()).segments,ptpSegments,'Kolejne próbki PTP tworzą ciągłą linię');
+  await page.locator('.control-issue[data-source="model-trace-partial"]').waitFor();
   assert((await blue()).visible,'Plan i historia są widoczne jednocześnie');
   const colors=await page.locator('.preview-trail-legend').evaluate(el=>[...el.querySelectorAll('.trail-planned,.trail-executed')].map(s=>getComputedStyle(s,'::before').backgroundColor));
   assert.deepEqual(colors,['rgb(77, 163, 255)','rgb(255, 200, 87)']);
   await page.screenshot({path:'/tmp/robot-ptp-trails.png',fullPage:true});
   motion={...motion,state:'succeeded',busy:false};await delay(450);const completed=await trace();await delay(250);
   assert.equal((await trace()).points,completed.points,'Sukces zamraża historię mimo kolejnych odczytów');
-  motion={...motion,program_id:'p2',execution_key:'k2',state:'running',busy:true};
+  motion={...motion,program_id:'p2',execution_key:'k2',motion_type:'LIN',state:'running',busy:true};
   await page.waitForFunction(old=>JSON.parse(document.querySelector('.robot-preview canvas').dataset.executionTrace).segments>old,completed.segments);
+  const linSegments=(await trace()).segments;await delay(600);
+  assert.equal((await trace()).segments,linSegments,'Kolejne próbki LIN tworzą ciągłą linię');
   state.axes[0].joint_position_known=false;await delay(150);const gap=await trace();await delay(150);assert.equal((await trace()).points,gap.points);
   state.axes[0].joint_position_known=true;
   await page.waitForFunction(old=>JSON.parse(document.querySelector('.robot-preview canvas').dataset.executionTrace).segments>old,gap.segments);

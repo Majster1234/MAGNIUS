@@ -10,6 +10,7 @@ import { PlanningTcpJog } from "./planningTcpJog";
 import type { TcpHeld, TcpAxis, TcpFrame } from "./planningTcpJog";
 import { TcpControls } from "./TcpControls";
 import { PlanningTcpStep } from "./planningTcpStep";
+import { PhysicalTcpJog } from "./physicalTcpJog";
 import type { MotionTrace } from "./previewMotionTrail";
 import { ControlMessageCenter, useControlMessages } from "./ControlMessageCenter";
 import { previewLimits } from "./previewLimits";
@@ -80,6 +81,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const tcpEnvironment = useRef({ allowed: false, key: "" });
     const tcpContextKey = useRef("");
     const tcpControl = useRef<PlanningTcpJog | null>(null);
+    const physicalTcp = useRef<PhysicalTcpJog | null>(null);
+    const [physicalTcpBusy, setPhysicalTcpBusy] = useState(false);
     const tcpStepControl = useRef<PlanningTcpStep | null>(null);
     if (!tcpControl.current) tcpControl.current = new PlanningTcpJog(positions => {
         const applied = planningControl.current.preview(positions);
@@ -109,6 +112,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const modelReady = previewModel.ready && previewModel.revision === expectedRevision;
     const tcpAllowed = planning && connected && modelReady && plan.ready && !!context && !pending && !state?.busy &&
         plan.available.every(Boolean) && plan.positions.every(q => q !== null && Number.isFinite(q));
+    const liveTcpAllowed = !planning && connected && fresh && modelReady && !pending && !state?.busy &&
+        !physicalTcpBusy && !!state?.tcp_jog?.fresh && state.tcp_jog.ready && !state.tcp_jog.busy;
     tcpEnvironment.current = { allowed: tcpAllowed, key: contextKey(context) };
     const applyMotionPreview = useCallback((positions: number[] | null, trace?: MotionTrace | null) => {
         setSimulationPositions(planningMode.current ? positions : null);
@@ -172,12 +177,17 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         }
         let reconnect: ReturnType<typeof setTimeout> | undefined;
         function connect() {
+            let commandSequence = 0;
+            const nextCommandSequence = () => ++commandSequence;
             socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/manual/ws`);
             const jog = new JogControl(socket, () => performance.now(), (reason, axis) => {
                 report("client_stop", axis, ["release", "ack_timeout", "state_timeout", "socket_closed", "state_stale", "ack_rejected"].indexOf(reason));
                 if (reason !== "release") notice({source:"jog-stop",severity:"warning",code:reason === "ack_rejected"?"jog":reason === "socket_closed"?"connection":"freshness",context:`JOG · J${axis}`,
                     title:"Przerwano podtrzymywanie JOG",message:`JOG J${axis}: ${reason}`,description:reason === "ack_timeout"?"Panel nie otrzymał na czas potwierdzenia komendy JOG. Wysłano żądanie zatrzymania; stan osi wymaga sprawdzenia.":"Utracono warunek podtrzymywania JOG. Wysłano żądanie zatrzymania; ruch nie zostanie wznowiony automatycznie."});
-            });
+            }, nextCommandSequence);
+            const liveTcp = new PhysicalTcpJog(socket, nextCommandSequence, () => performance.now(), message =>
+                notice({ source: "tcp-live", severity: "warning", context: "JOG TCP LIVE", message }));
+            physicalTcp.current = liveTcp;
             control.current = jog;
             socket.onopen = () => { if (!closed) setConnected(true); };
             socket.onmessage = (event) => {
@@ -192,17 +202,21 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                             lastReported = now; signature = nextSignature;
                         }
                         received = now; latestState.current = data.state;
+                        liveTcp.receive(data.state.tcp_jog, data.state.fresh);
                         if (planningControl.current.receive(data.state, now)) notice({ source: "planning", severity: "warning", message: "Plan unieważniony przez zmianę konfiguracji. Skopiuj ponownie pozycję robota." });
                         setPlan(planningControl.current.snapshot(now)); setState(data.state); setFresh(data.state.fresh);
                         if (!planningMode.current) jog.stateReceived(data.state.fresh);
+                    } else if (data.type === "tcp_ack") {
+                        liveTcp.ack(data.sequence, data.accepted, data.message);
                     } else if (data.type === "ack") {
                         jog.ack(data.sequence, data.accepted);
                         if (!data.accepted || jog.holding) notice({source:"jog",severity:data.accepted?"info":"warning",code:data.accepted?undefined:"jog",context:"JOG fizyczny",message:data.accepted?"Komenda JOG przyjęta.":data.message || "Komenda JOG odrzucona."});
                         if (data.accepted && jog.holding) notice({source:"jog-stop",severity:"info",context:"JOG fizyczny",message:"Potwierdzono podtrzymywanie nowego żądania JOG."});
                     }
-                } catch { if (!planningMode.current) jog.stop(); tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null); planningControl.current.disconnect(); setPlan(planningControl.current.snapshot(performance.now())); setFresh(false); }
+                } catch { liveTcp.stop(true); if (!planningMode.current) jog.stop(); tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null); planningControl.current.disconnect(); setPlan(planningControl.current.snapshot(performance.now())); setFresh(false); }
             };
             socket.onclose = () => {
+                liveTcp.stop(true);
                 if (!planningMode.current) jog.stop();
                 tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null);
                 planningControl.current.disconnect(); setPlan(planningControl.current.snapshot(performance.now()));
@@ -211,6 +225,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             socket.onerror = () => socket?.close();
         }
         const stop = (event?: Event) => {
+            physicalTcp.current?.stop(!!event && event.type !== "pointerup");
             if (!planningMode.current) control.current?.stop(); tcpControl.current?.stop();
             if (event?.type !== "pointerup") tcpStepControl.current?.stop();
             setTcpHeld(tcpStepControl.current?.held ?? null); planningControl.current.stop(); setPlan(planningControl.current.snapshot(performance.now())); setHeld(null);
@@ -221,6 +236,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         document.addEventListener("visibilitychange", visibility);
         const timer = setInterval(() => {
             const now = performance.now();
+            if (document.hidden || !modelStatus.current.ready || modelStatus.current.revision !== expectedModelRevision.current) physicalTcp.current?.stop(true);
+            physicalTcp.current?.pulse();setPhysicalTcpBusy(!!physicalTcp.current?.busy);
             if (!planningMode.current) control.current?.pulse();
             if (document.hidden || !modelStatus.current.ready || modelStatus.current.revision !== expectedModelRevision.current) planningControl.current.stop();
             planningControl.current.tick(now); setPlan(planningControl.current.snapshot(now));
@@ -231,20 +248,20 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                     modelStatus.current.ready && modelStatus.current.revision === expectedModelRevision.current,
                 tcpPlannerReady.current);
             tcpStepControl.current?.pulse(now, tcpPlannerReady.current);
-            setTcpHeld(tcpControl.current?.held ?? tcpStepControl.current?.held ?? null);
+            setTcpHeld(physicalTcp.current?.held ?? tcpControl.current?.held ?? tcpStepControl.current?.held ?? null);
             if (!control.current?.holding && planningControl.current.activeAxis === 0) setHeld(null);
             if (now - received >= MANUAL_STATE_TIMEOUT_MS) { if (!planningMode.current) control.current?.stop("state_timeout"); setFresh(false); }
         }, 50);
         connect();
         return () => {
-            closed = true; clearInterval(timer); clearTimeout(reconnect); stop(); planningControl.current.end(); socket?.close(); control.current = null;
+            closed = true; clearInterval(timer); clearTimeout(reconnect); physicalTcp.current?.stop(true); stop(); planningControl.current.end(); socket?.close(); control.current = null; physicalTcp.current = null;
             window.removeEventListener("blur", stop); window.removeEventListener("pagehide", stop);
             window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop);
             document.removeEventListener("visibilitychange", visibility);
         };
     }, [notice]);
     function beginPlanning() {
-        if (planningMode.current || !modelReady || !connected || (!simulationAllowed && (!latestState.current || !fresh)) || latestState.current?.busy || pending || control.current?.holding) return;
+        if (planningMode.current || physicalTcp.current?.busy || !modelReady || !connected || (!simulationAllowed && (!latestState.current || !fresh)) || latestState.current?.busy || pending || control.current?.holding) return;
         if (!planningControl.current.begin(performance.now())) return;
         planningMode.current = true; setPlan(planningControl.current.snapshot(performance.now())); setPlanning(true); setHeld(null);
         notice({ source: "planning", severity: "info", message: "Włączono planowanie lokalne. JOG i TCP poruszają wyłącznie bliźniakiem 3D." });
@@ -263,7 +280,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         notice({ source: "planning", severity: "info", message: "Zakończono planowanie lokalne. Fizyczny JOG pozostaje zatrzymany." });
     }
     async function operation(axis: number, name: "enable" | "zero", enabled?: boolean) {
-        if (planningMode.current) return;
+        if (planningMode.current || physicalTcp.current?.busy || latestState.current?.tcp_jog?.busy) return;
         control.current?.stop(); setPending(true);
         try {
             const result = await fetch(`/api/v1/manual/axes/${axis}/${name}`, {
@@ -276,11 +293,22 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         } catch (failure) { notice({ source: `operation-${axis}`, severity: "error", message: `J${axis}: ${failure instanceof Error ? failure.message : "Brak odpowiedzi backendu"}` }); }
         finally { setPending(false); }
     }
+    async function allEnable(enabled: boolean) {
+        if(planningMode.current || pending || physicalTcp.current?.busy || latestState.current?.busy || !fresh || !connected) return;
+        control.current?.stop();setPending(true);
+        try {
+            const response=await fetch('/api/v1/manual/enable-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+            const body=await response.json();
+            if(!response.ok) throw Error(body.detail || 'Zbiorcze ENABLE odrzucone');
+            notice({source:'enable-all',severity:'info',context:'Wszystkie napędy',message:body.message});
+        } catch(error) {notice({source:'enable-all',severity:'warning',context:'Wszystkie napędy',message:error instanceof Error?error.message:'Brak potwierdzenia zbiorczego ENABLE'});}
+        finally {setPending(false);}
+    }
     function arrow(axis: Axis, direction: number) {
         const locallyHeld = held?.axis === axis.axis && held.direction === direction;
         const disabled = planning ? !!tcpHeld || !modelReady || !plan.ready || !plan.available[axis.axis - 1] || pending ||
             (locallyHeld ? plan.activeAxis !== axis.axis : !planningControl.current.canStart(axis.axis, direction, speeds[axis.axis - 1], performance.now())) :
-            !locallyHeld && (!fresh || !connected || !axis.can_jog || pending);
+            !locallyHeld && (!fresh || !connected || !axis.can_jog || pending || physicalTcpBusy || !!state?.tcp_jog?.busy);
         const stopJog = () => { if (planningMode.current) planningControl.current.stop(); else control.current?.stop(); setPlan(planningControl.current.snapshot(performance.now())); setHeld(null); };
         return <button className="jog-arrow" aria-label={`JOG J${axis.axis} ${direction > 0 ? "prawo" : "lewo"}`}
             disabled={disabled}
@@ -300,8 +328,15 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             onPointerUp={stopJog} onPointerCancel={stopJog} onLostPointerCapture={stopJog}
             onContextMenu={(event) => event.preventDefault()}>{direction > 0 ? "→" : "←"}</button>;
     }
-    function stopTcp() { tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null); }
+    function stopTcp(emergency = false) { physicalTcp.current?.stop(emergency); tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null); }
     function startTcp(axis: TcpAxis, direction: number, frame: TcpFrame, speed: number, step?: number) {
+        if (!planningMode.current) {
+            if (!liveTcpAllowed || control.current?.holding) return;
+            if (physicalTcp.current?.start(axis, direction, frame, speed, step)) {
+                setTcpHeld(physicalTcp.current.held);setPhysicalTcpBusy(true);
+            } else notice({ source: "tcp-live", severity: "warning", context: "JOG TCP LIVE", message: "Start TCP odrzucony: sprawdź aktualny stan i prędkość." });
+            return;
+        }
         if (!tcpAllowed || !context || planningControl.current.activeAxis || control.current?.holding || tcpControl.current?.held || tcpStepControl.current?.busy) return;
         tcpPlannerReady.current = false;
         if (step !== undefined) {
@@ -332,8 +367,12 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     return <section className={`manual-screen ${planning ? "mode-planning" : "mode-live"}`} data-usable={usable} aria-label="Sterowanie ręczne">
         <header className="manual-header">
             <h1>Sterowanie ręczne</h1>
+            <div className="manual-enable-all" role="group" aria-label="ENABLE wszystkich napędów">
+                <button className="secondary-button" disabled={planning || !usable || pending || !!state?.busy || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(true)}>Załącz wszystkie</button>
+                <button className="secondary-button" disabled={planning || !usable || pending || !!state?.busy || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(false)}>Wyłącz wszystkie</button>
+            </div>
             <span className="manual-mode"><span aria-hidden="true" />{planning ? "PLANOWANIE · bliźniak" : "LIVE · robot fizyczny"}</span>
-            <button className="motion-stop" disabled={!stopRobot} onClick={()=>stopRobot?.()} title="Żądanie STOP fizycznego programu; stan potwierdza wykonawca">STOP robota</button>
+            <button className="motion-stop" disabled={!stopRobot && !physicalTcpBusy && !state?.tcp_jog?.busy} onClick={()=>{physicalTcp.current?.stop(true);stopRobot?.();}} title="Żądanie STOP robota; postój wymaga potwierdzenia pomiarami">STOP robota</button>
         </header>
         <div className="manual-workspace"><div className="manual-observation">
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onCondition={condition} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
@@ -358,7 +397,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                 <td>{jogSpeed(axis)}</td>
             </tr>)}
         </tbody></table></div>
-        <div className="manual-tools"><TcpControls allowed={tcpAllowed && plan.activeAxis === 0} planning={planning} held={tcpHeld} stepAvailable={!!context?.tcp_step_available}
+        <div className="manual-tools"><TcpControls key={planning ? "plan" : "live"} allowed={planning ? tcpAllowed && plan.activeAxis === 0 : liveTcpAllowed} planning={planning} held={tcpHeld} stepAvailable={planning ? !!context?.tcp_step_available : true}
+            liveStatus={state?.tcp_jog} busy={!planning && (physicalTcpBusy || !!state?.tcp_jog?.busy)}
             missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} onNotice={notice} onCondition={condition}/>
         <section className="motion-workflow" aria-label="Ruch PTP i LIN"><header className="motion-workflow-heading"><h2>Ruch PTP / LIN</h2><span className="badge planning-badge">Cel → program → ruch</span></header>
         {planning && <div className="manual-simulation"><CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}

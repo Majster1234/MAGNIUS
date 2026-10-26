@@ -13,6 +13,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SolveIK.srv" "action/ComputeCartesianPath.action"
   "action/ComputePreviewMotion.action"
   "srv/JogJoint.srv" "srv/ConfigureRobot.srv" "srv/ConfigurationCommand.srv"
+  "srv/JogTcp.srv" "msg/TcpJogStatus.msg"
+  "srv/SetAllMotorsEnable.srv"
   "msg/MotionSettings.msg" "msg/MotionProgramStatus.msg"
   "srv/PrepareMotionProgram.srv" "srv/GetMotionProgram.srv" "action/ExecuteMotionProgram.action" "action/ComputePhysicalPtp.action"
   "action/ComputePhysicalMotion.action"

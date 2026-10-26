@@ -37,6 +37,12 @@ const toolFields: Field[] = [
     ...transformFields("tcp"),
     ...["X", "Y", "Z"].map(axis => ({ key: `com_${axis.toLowerCase()}`, label: `Środek masy ${axis}`, numeric: true, unit: "mm" })),
 ];
+const tcpMotionFields: Field[] = [
+    {key:"max_linear_velocity",label:"Maksymalna prędkość przesuwu TCP",numeric:true,min:0,unit:"mm/s"},
+    {key:"max_angular_velocity",label:"Maksymalna prędkość obrotu TCP",numeric:true,min:0,unit:"°/s"},
+    {key:"linear_acceleration",label:"Przyspieszenie i hamowanie przesuwu TCP",numeric:true,min:0,unit:"mm/s²"},
+    {key:"angular_acceleration",label:"Przyspieszenie i hamowanie obrotu TCP",numeric:true,min:0,unit:"°/s²"},
+];
 // v1: metry i radiany; v2: milimetry i stopnie. Wersja zapobiega podwójnemu przeliczeniu.
 const storageKey = "robot.configuration.draft.v2";
 const legacyStorageKey = "robot.configuration.draft.v1";
@@ -44,6 +50,7 @@ const draftFields: Record<string, Field> = Object.fromEntries([
     ...robotFields.map(field => [`robot.${field.key}`, field]),
     ...Array.from({ length: 6 }, (_, index) => [...jointFields, ...geometryFields].map(field => [`joint.${index + 1}.${field.key}`, field])).flat(),
     ...toolFields.map(field => [`tool.${field.key}`, field]),
+    ...tcpMotionFields.map(field => [`tcp.${field.key}`, field]),
 ]);
 const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, ""]));
 function legacyValue(value: string, field: Field) {
@@ -195,6 +202,7 @@ export function ConfigurationPage() {
             </section>
             <ConfigurationPreview draft={draft} view={tableView} selected={selectedAxis} nativeErrors={nativeErrors}/>
             <div className="settings-extras">
+                <SettingsCard title="Fizyczny JOG TCP — wymagane limity" description="Uzupełnij cztery dodatnie wartości dla rzeczywistego robota i wybierz Zapisz do ROS. Puste pole oznacza brak danych i blokuje fizyczny TCP. Wymagane są również kompletna geometria, sześć składników TCP narzędzia oraz sześć skalibrowanych osi.">{fields("tcp", tcpMotionFields)}</SettingsCard>
                 <SettingsCard title="Dane robota" description="Nazwy i układy odniesienia wspólne dla modelu.">{fields("robot", robotFields)}</SettingsCard>
                 <SettingsCard title="Narzędzie i TCP" description="TCP względem kołnierza; środek masy w układzie narzędzia.">{fields("tool", toolFields)}</SettingsCard>
             </div>

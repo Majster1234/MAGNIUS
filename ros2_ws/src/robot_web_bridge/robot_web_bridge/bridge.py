@@ -24,6 +24,7 @@ from .planning import PlanningClient
 from .motion import MotionClient
 from .trace import trace, recording
 from robot_control_interfaces.msg import ManualState
+from robot_control_interfaces.msg import TcpJogStatus
 from robot_control_interfaces.msg import ShaftTraceBatch
 from .shaft_trace import ShaftTraceStore
 from std_srvs.srv import Trigger
@@ -67,6 +68,7 @@ def main(args=None):
         node.create_subscription(String, '/robot/preview/robot_description', description_store.update,
                                  QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         manual_action = ManualRosClient(node)
+        node.create_subscription(TcpJogStatus, '/robot/manual/tcp_status', manual_store.update_tcp, QoSProfile(depth=1))
         configuration_action = ConfigurationClient(node)
         planning_client = PlanningClient(node, description_store, manual_store, configuration_action)
         motion_client = MotionClient(node, planning_client, configuration_action)

@@ -1,0 +1,6521 @@
+[
+  {
+    "iteration": 1,
+    "axis": "x",
+    "frame": "base",
+    "velocity_m_s": 0.002,
+    "step_m": 0.01,
+    "max_seconds": 10,
+    "started_at": "2026-10-26T16:48:04.009830+00:00",
+    "accepted": true,
+    "start_message": "JOG TCP uruchomiony",
+    "stop_confirmed": true,
+    "stop_reason": "Odrzucenie komendy: Brak pasującego wykonania JOG TCP",
+    "measured_fk": {
+      "delta_tcp_mm": [
+        3.6821266757792737,
+        -0.04737985188702367,
+        0.07137123109807186
+      ],
+      "orientation_delta_degrees": 0.08287074497046443,
+      "joint_delta_degrees": [
+        -0.010986328125,
+        0.8503417968750001,
+        -0.8723144531250001,
+        0.010986328125,
+        0.035156250000007105,
+        -0.0966796875
+      ],
+      "max_observed_transverse_mm": 0.6674617610564495
+    },
+    "max_progress_m": 0.0038200000000000083,
+    "duration_until_terminal_s": 2.137015443999985,
+    "parameters": null,
+    "outcome": "ended_early_or_failed",
+    "before": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.10986328125,
+          "position_age_seconds": 0.05993665699998678,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.05993665699998678,
+          "enable_age_seconds": 0.10571302799998678,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.010986328125,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.0439453125,
+          "position_age_seconds": 0.06944369399998679,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.06944369399998679,
+          "enable_age_seconds": 0.07527823499998679,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.00439453125,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -0.02197265625,
+          "position_age_seconds": 0.05950151099998678,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.05950151099998678,
+          "enable_age_seconds": 0.04658376599998678,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.002197265625,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -0.0439453125,
+          "position_age_seconds": 0.06893433199998678,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.06893433199998678,
+          "enable_age_seconds": 0.03700604199998678,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.00439453125,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 604.951171875,
+          "position_age_seconds": 0.05977845899998678,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.05977845899998678,
+          "enable_age_seconds": 0.1336786459999868,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 60.49511718749999,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.68115234375,
+          "position_age_seconds": 0.06925561199998678,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.06925561199998678,
+          "enable_age_seconds": 0.09025062899998679,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.068115234375,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.03593305499998678,
+      "recording": false,
+      "state_monotonic_ns": "606557116588",
+      "server_monotonic_ns": "606593235224",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "ready",
+        "message": "JOG TCP gotowy",
+        "axis": 1,
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 8.025e-05,
+        "requested_step": 0.001,
+        "velocity": 0.0020099999999999996,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 3,
+        "fresh": true
+      }
+    },
+    "after": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "position_age_seconds": 0.042864240000074924,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.042864240000074924,
+          "enable_age_seconds": 0.05845186000007492,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.0,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 8.54736328125,
+          "position_age_seconds": 0.07300868900007493,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.07300868900007493,
+          "enable_age_seconds": 0.04815596300007492,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.8547363281250001,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -8.7451171875,
+          "position_age_seconds": 0.04295129500007493,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.04295129500007493,
+          "enable_age_seconds": 0.10723961100007492,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.8745117187500001,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.06591796875,
+          "position_age_seconds": 0.07268916100007491,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.07268916100007491,
+          "enable_age_seconds": 0.10420509200007493,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.006591796875,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 605.302734375,
+          "position_age_seconds": 0.04316342800007492,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.04316342800007492,
+          "enable_age_seconds": 0.09418715300007492,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 60.5302734375,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -0.28564453125,
+          "position_age_seconds": 0.05310173600007492,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.05310173600007492,
+          "enable_age_seconds": 0.04313766100007492,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.028564453125,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.03902562000007492,
+      "recording": false,
+      "state_monotonic_ns": "609157368801",
+      "server_monotonic_ns": "609196971618",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "stopped",
+        "message": "Zatrzymanie TCP potwierdzone; impuls zakończony wcześniej: Obliczenia anulowane lub model zmieniony",
+        "axis": 0,
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 0.0038200000000000083,
+        "requested_step": 0.01,
+        "velocity": 0.002,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 4,
+        "fresh": true
+      }
+    },
+    "status_transitions": [
+      {
+        "t_s": 0.0008490409999240001,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "ready",
+          "message": "JOG TCP gotowy",
+          "axis": 1,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 8.025e-05,
+          "requested_step": 0.001,
+          "velocity": 0.0020099999999999996,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 3,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 0.05288099699998838,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "running",
+          "message": "JOG TCP w ruchu",
+          "axis": 0,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 6.000000000000001e-05,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 4,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 1.9805343719999655,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "settling",
+          "message": "Oczekiwanie na pomiarowe potwierdzenie postoju TCP",
+          "axis": 0,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.0038200000000000083,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 4,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 2.137015443999985,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "stopped",
+          "message": "Zatrzymanie TCP potwierdzone; impuls zakończony wcześniej: Obliczenia anulowane lub model zmieniony",
+          "axis": 0,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.0038200000000000083,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 4,
+          "fresh": true
+        }
+      }
+    ],
+    "sent_commands": [
+      {
+        "t_s": 0.00012032899996938795,
+        "space": "tcp",
+        "action": "start",
+        "sequence": 1,
+        "emergency": false,
+        "axis": "x",
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "velocity": 0.002,
+        "step": 0.01,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "revision": "2f1186d77ba44f838f65e261aeabd866"
+      },
+      {
+        "t_s": 0.051332076999983656,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 2,
+        "emergency": false
+      },
+      {
+        "t_s": 0.10514102199999797,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 3,
+        "emergency": false
+      },
+      {
+        "t_s": 0.15657706199999666,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 4,
+        "emergency": false
+      },
+      {
+        "t_s": 0.21005113299997902,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 5,
+        "emergency": false
+      },
+      {
+        "t_s": 0.2634328529999266,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 6,
+        "emergency": false
+      },
+      {
+        "t_s": 0.31515628899990134,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 7,
+        "emergency": false
+      },
+      {
+        "t_s": 0.3663945409999769,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 8,
+        "emergency": false
+      },
+      {
+        "t_s": 0.4180224129999033,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 9,
+        "emergency": false
+      },
+      {
+        "t_s": 0.46989366899993,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 10,
+        "emergency": false
+      },
+      {
+        "t_s": 0.5213412869999274,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 11,
+        "emergency": false
+      },
+      {
+        "t_s": 0.5755559959999346,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 12,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6266517229998954,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 13,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6776669169998968,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 14,
+        "emergency": false
+      },
+      {
+        "t_s": 0.7295281349998959,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 15,
+        "emergency": false
+      },
+      {
+        "t_s": 0.7798064139999497,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 16,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8333518189999722,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 17,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8840205969999033,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 18,
+        "emergency": false
+      },
+      {
+        "t_s": 0.935616677999974,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 19,
+        "emergency": false
+      },
+      {
+        "t_s": 0.9870327109999835,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 20,
+        "emergency": false
+      },
+      {
+        "t_s": 1.0380091429999538,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 21,
+        "emergency": false
+      },
+      {
+        "t_s": 1.0886707589999105,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 22,
+        "emergency": false
+      },
+      {
+        "t_s": 1.1388810939999985,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 23,
+        "emergency": false
+      },
+      {
+        "t_s": 1.1918891669999994,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 24,
+        "emergency": false
+      },
+      {
+        "t_s": 1.2449668519999477,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 25,
+        "emergency": false
+      },
+      {
+        "t_s": 1.2957803369999965,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 26,
+        "emergency": false
+      },
+      {
+        "t_s": 1.3469204069999705,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 27,
+        "emergency": false
+      },
+      {
+        "t_s": 1.401120854999931,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 28,
+        "emergency": false
+      },
+      {
+        "t_s": 1.4526186929999767,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 29,
+        "emergency": false
+      },
+      {
+        "t_s": 1.5039098919999105,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 30,
+        "emergency": false
+      },
+      {
+        "t_s": 1.5553798139999344,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 31,
+        "emergency": false
+      },
+      {
+        "t_s": 1.6071232139998983,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 32,
+        "emergency": false
+      },
+      {
+        "t_s": 1.6588424459999942,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 33,
+        "emergency": false
+      },
+      {
+        "t_s": 1.710725115999935,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 34,
+        "emergency": false
+      },
+      {
+        "t_s": 1.7644541969999636,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 35,
+        "emergency": false
+      },
+      {
+        "t_s": 1.8161001029999397,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 36,
+        "emergency": false
+      },
+      {
+        "t_s": 1.8672538339999392,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 37,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9225331829999277,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 38,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9728818019999608,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 39,
+        "emergency": false
+      },
+      {
+        "t_s": 2.0267217589999973,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 40,
+        "emergency": false
+      },
+      {
+        "t_s": 2.0783542549999083,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 41,
+        "emergency": false
+      },
+      {
+        "t_s": 2.0810911099999885,
+        "space": "tcp",
+        "action": "stop",
+        "sequence": 42,
+        "emergency": true
+      }
+    ]
+  },
+  {
+    "iteration": 2,
+    "axis": "y",
+    "frame": "base",
+    "velocity_m_s": 0.002,
+    "step_m": 0.04,
+    "max_seconds": 25.0,
+    "started_at": "2026-10-26T17:51:55.507351+00:00",
+    "accepted": true,
+    "start_message": "JOG TCP uruchomiony",
+    "stop_confirmed": true,
+    "stop_reason": "Odrzucenie komendy: Brak pasującego wykonania JOG TCP",
+    "measured_fk": {
+      "delta_tcp_mm": [
+        -0.040383481248018605,
+        39.74059505510923,
+        -0.06955583805162702
+      ],
+      "orientation_delta_degrees": 0.116359961420185,
+      "joint_delta_degrees": [
+        7.569580078124999,
+        0.6064453125,
+        -0.608642578125,
+        -9.9931640625,
+        0.705322265625,
+        12.41455078125
+      ],
+      "max_observed_transverse_mm": 0.46014139566857765
+    },
+    "max_progress_m": 0.03999999999999871,
+    "duration_until_terminal_s": 20.314116536000256,
+    "parameters": {
+      "parameters": [
+        "tcp_jog_ik_position_tolerance",
+        "tcp_jog_ik_orientation_tolerance"
+      ],
+      "previous": [
+        1e-09,
+        1e-08
+      ],
+      "applied": [
+        1e-08,
+        1e-07
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "monotonic_ns": 3486808084851
+    },
+    "outcome": "completed",
+    "before": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -0.02197265625,
+          "position_age_seconds": 0.029537028000340956,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.029537028000340956,
+          "enable_age_seconds": 0.08640728200034095,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.002197265625,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "position_age_seconds": 0.018855558000340954,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.018855558000340954,
+          "enable_age_seconds": 0.020904857000340955,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.0,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "position_age_seconds": 0.029008436000340955,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.029008436000340955,
+          "enable_age_seconds": 0.09294320800034095,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.0,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -0.02197265625,
+          "position_age_seconds": 0.019330507000340957,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.019330507000340957,
+          "enable_age_seconds": 0.045362887000340954,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.002197265625,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 369.7998046875,
+          "position_age_seconds": 0.029213228000340957,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.029213228000340957,
+          "enable_age_seconds": 0.09311510300034095,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 36.97998046874999,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "position_age_seconds": 0.039639714000340956,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.039639714000340956,
+          "enable_age_seconds": 0.03567694200034095,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.0,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.016178986000340956,
+      "recording": false,
+      "state_monotonic_ns": "4438074967031",
+      "server_monotonic_ns": "4438091319489",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "ready",
+        "message": "JOG TCP gotowy",
+        "axis": 1,
+        "direction": -1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 0.019999878820312476,
+        "requested_step": 0.02,
+        "velocity": 0.01701,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 10,
+        "fresh": true
+      }
+    },
+    "after": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 75.673828125,
+          "position_age_seconds": 0.04153302799943819,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.04153302799943819,
+          "enable_age_seconds": 0.1044555119994382,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 7.567382812499999,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 6.064453125,
+          "position_age_seconds": 0.011760345999438196,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.011760345999438196,
+          "enable_age_seconds": 0.04369061899943819,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.6064453125,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -6.08642578125,
+          "position_age_seconds": 0.04106851399943819,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.04106851399943819,
+          "enable_age_seconds": 0.027144717999438194,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.608642578125,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -99.95361328125,
+          "position_age_seconds": 0.011328730999438194,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.011328730999438194,
+          "enable_age_seconds": 0.031371780999438194,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -9.995361328125,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 376.85302734375,
+          "position_age_seconds": 0.041406335999438194,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.041406335999438194,
+          "enable_age_seconds": 0.017634197999438196,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 37.68530273437499,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 124.1455078125,
+          "position_age_seconds": 0.011918903999438195,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.011918903999438195,
+          "enable_age_seconds": 0.059897271999438194,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 12.41455078125,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.008778128999438195,
+      "recording": false,
+      "state_monotonic_ns": "4458875052690",
+      "server_monotonic_ns": "4458884444624",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "stopped",
+        "message": "Zatrzymanie TCP potwierdzone",
+        "axis": 1,
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 0.03999999999999871,
+        "requested_step": 0.04,
+        "velocity": 0.002,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 11,
+        "fresh": true
+      }
+    },
+    "status_transitions": [
+      {
+        "t_s": 0.000517658000717347,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "ready",
+          "message": "JOG TCP gotowy",
+          "axis": 1,
+          "direction": -1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.019999878820312476,
+          "requested_step": 0.02,
+          "velocity": 0.01701,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 10,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 0.05195991600066918,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "running",
+          "message": "JOG TCP w ruchu",
+          "axis": 1,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 2e-05,
+          "requested_step": 0.04,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 11,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 20.147785327000747,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "settling",
+          "message": "Oczekiwanie na pomiarowe potwierdzenie postoju TCP",
+          "axis": 1,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.03999999999999871,
+          "requested_step": 0.04,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 11,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 20.314116536000256,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "stopped",
+          "message": "Zatrzymanie TCP potwierdzone",
+          "axis": 1,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.03999999999999871,
+          "requested_step": 0.04,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 11,
+          "fresh": true
+        }
+      }
+    ],
+    "sent_commands": [
+      {
+        "t_s": 0.00011833900043711765,
+        "space": "tcp",
+        "action": "start",
+        "sequence": 1,
+        "emergency": false,
+        "axis": "y",
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "velocity": 0.002,
+        "step": 0.04,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "revision": "2f1186d77ba44f838f65e261aeabd866"
+      },
+      {
+        "t_s": 0.05067017900000792,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 2,
+        "emergency": false
+      },
+      {
+        "t_s": 0.10443821700027911,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 3,
+        "emergency": false
+      },
+      {
+        "t_s": 0.15600967299997137,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 4,
+        "emergency": false
+      },
+      {
+        "t_s": 0.20884839500013186,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 5,
+        "emergency": false
+      },
+      {
+        "t_s": 0.25910368300083064,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 6,
+        "emergency": false
+      },
+      {
+        "t_s": 0.3137531120000858,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 7,
+        "emergency": false
+      },
+      {
+        "t_s": 0.3656613920002201,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 8,
+        "emergency": false
+      },
+      {
+        "t_s": 0.4194208900007652,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 9,
+        "emergency": false
+      },
+      {
+        "t_s": 0.46961326000018744,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 10,
+        "emergency": false
+      },
+      {
+        "t_s": 0.5223658260001685,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 11,
+        "emergency": false
+      },
+      {
+        "t_s": 0.5737893590003296,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 12,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6274394970005233,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 13,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6807727949999389,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 14,
+        "emergency": false
+      },
+      {
+        "t_s": 0.733551694000198,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 15,
+        "emergency": false
+      },
+      {
+        "t_s": 0.7871751709999444,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 16,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8387544560000606,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 17,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8901873980003074,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 18,
+        "emergency": false
+      },
+      {
+        "t_s": 0.9426365100007388,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 19,
+        "emergency": false
+      },
+      {
+        "t_s": 0.9947414080006638,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 20,
+        "emergency": false
+      },
+      {
+        "t_s": 1.048960709000312,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 21,
+        "emergency": false
+      },
+      {
+        "t_s": 1.10316099100055,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 22,
+        "emergency": false
+      },
+      {
+        "t_s": 1.1575940950006043,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 23,
+        "emergency": false
+      },
+      {
+        "t_s": 1.211622733000695,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 24,
+        "emergency": false
+      },
+      {
+        "t_s": 1.2622397680006543,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 25,
+        "emergency": false
+      },
+      {
+        "t_s": 1.3150905130005413,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 26,
+        "emergency": false
+      },
+      {
+        "t_s": 1.3671547180001653,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 27,
+        "emergency": false
+      },
+      {
+        "t_s": 1.4211029110001618,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 28,
+        "emergency": false
+      },
+      {
+        "t_s": 1.4755404360003013,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 29,
+        "emergency": false
+      },
+      {
+        "t_s": 1.5300211720004881,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 30,
+        "emergency": false
+      },
+      {
+        "t_s": 1.584445207000499,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 31,
+        "emergency": false
+      },
+      {
+        "t_s": 1.6387069550000888,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 32,
+        "emergency": false
+      },
+      {
+        "t_s": 1.6917200310008411,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 33,
+        "emergency": false
+      },
+      {
+        "t_s": 1.7464788490005958,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 34,
+        "emergency": false
+      },
+      {
+        "t_s": 1.797124106999945,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 35,
+        "emergency": false
+      },
+      {
+        "t_s": 1.848453212000095,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 36,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9013528380000935,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 37,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9562871540001652,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 38,
+        "emergency": false
+      },
+      {
+        "t_s": 2.010104640999998,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 39,
+        "emergency": false
+      },
+      {
+        "t_s": 2.061042538000038,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 40,
+        "emergency": false
+      },
+      {
+        "t_s": 2.115227288000824,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 41,
+        "emergency": false
+      },
+      {
+        "t_s": 2.1697262320003574,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 42,
+        "emergency": false
+      },
+      {
+        "t_s": 2.221027339000102,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 43,
+        "emergency": false
+      },
+      {
+        "t_s": 2.272255681000388,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 44,
+        "emergency": false
+      },
+      {
+        "t_s": 2.325652442000319,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 45,
+        "emergency": false
+      },
+      {
+        "t_s": 2.376929311000822,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 46,
+        "emergency": false
+      },
+      {
+        "t_s": 2.42996971499997,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 47,
+        "emergency": false
+      },
+      {
+        "t_s": 2.4818242979999923,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 48,
+        "emergency": false
+      },
+      {
+        "t_s": 2.536585706000551,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 49,
+        "emergency": false
+      },
+      {
+        "t_s": 2.587651652000204,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 50,
+        "emergency": false
+      },
+      {
+        "t_s": 2.641452947000289,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 51,
+        "emergency": false
+      },
+      {
+        "t_s": 2.6956295890004185,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 52,
+        "emergency": false
+      },
+      {
+        "t_s": 2.7476794220001466,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 53,
+        "emergency": false
+      },
+      {
+        "t_s": 2.8004862620000495,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 54,
+        "emergency": false
+      },
+      {
+        "t_s": 2.8545934320000015,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 55,
+        "emergency": false
+      },
+      {
+        "t_s": 2.908640631000708,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 56,
+        "emergency": false
+      },
+      {
+        "t_s": 2.9601135570001134,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 57,
+        "emergency": false
+      },
+      {
+        "t_s": 3.013495750000402,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 58,
+        "emergency": false
+      },
+      {
+        "t_s": 3.065437086000202,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 59,
+        "emergency": false
+      },
+      {
+        "t_s": 3.1205083250006282,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 60,
+        "emergency": false
+      },
+      {
+        "t_s": 3.1731420300002355,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 61,
+        "emergency": false
+      },
+      {
+        "t_s": 3.2260271530003592,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 62,
+        "emergency": false
+      },
+      {
+        "t_s": 3.278279119000217,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 63,
+        "emergency": false
+      },
+      {
+        "t_s": 3.3310851680007545,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 64,
+        "emergency": false
+      },
+      {
+        "t_s": 3.3825295230008123,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 65,
+        "emergency": false
+      },
+      {
+        "t_s": 3.4373302260000855,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 66,
+        "emergency": false
+      },
+      {
+        "t_s": 3.4919914300007804,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 67,
+        "emergency": false
+      },
+      {
+        "t_s": 3.545735469000647,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 68,
+        "emergency": false
+      },
+      {
+        "t_s": 3.5976445740006966,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 69,
+        "emergency": false
+      },
+      {
+        "t_s": 3.650426561000131,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 70,
+        "emergency": false
+      },
+      {
+        "t_s": 3.702052657999957,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 71,
+        "emergency": false
+      },
+      {
+        "t_s": 3.754414837000695,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 72,
+        "emergency": false
+      },
+      {
+        "t_s": 3.8060651949999738,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 73,
+        "emergency": false
+      },
+      {
+        "t_s": 3.8576782440004536,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 74,
+        "emergency": false
+      },
+      {
+        "t_s": 3.909947705000377,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 75,
+        "emergency": false
+      },
+      {
+        "t_s": 3.960721747000207,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 76,
+        "emergency": false
+      },
+      {
+        "t_s": 4.0111629850007375,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 77,
+        "emergency": false
+      },
+      {
+        "t_s": 4.064750552000078,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 78,
+        "emergency": false
+      },
+      {
+        "t_s": 4.116470571000718,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 79,
+        "emergency": false
+      },
+      {
+        "t_s": 4.166677696000079,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 80,
+        "emergency": false
+      },
+      {
+        "t_s": 4.2211042960007035,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 81,
+        "emergency": false
+      },
+      {
+        "t_s": 4.274700661000679,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 82,
+        "emergency": false
+      },
+      {
+        "t_s": 4.327534594000099,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 83,
+        "emergency": false
+      },
+      {
+        "t_s": 4.381313562000287,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 84,
+        "emergency": false
+      },
+      {
+        "t_s": 4.435359363000316,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 85,
+        "emergency": false
+      },
+      {
+        "t_s": 4.4865347280001515,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 86,
+        "emergency": false
+      },
+      {
+        "t_s": 4.539529606000542,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 87,
+        "emergency": false
+      },
+      {
+        "t_s": 4.59344352700009,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 88,
+        "emergency": false
+      },
+      {
+        "t_s": 4.646715024000514,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 89,
+        "emergency": false
+      },
+      {
+        "t_s": 4.697897211000054,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 90,
+        "emergency": false
+      },
+      {
+        "t_s": 4.7509412980007255,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 91,
+        "emergency": false
+      },
+      {
+        "t_s": 4.8044666880005025,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 92,
+        "emergency": false
+      },
+      {
+        "t_s": 4.856964118000178,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 93,
+        "emergency": false
+      },
+      {
+        "t_s": 4.911499087000266,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 94,
+        "emergency": false
+      },
+      {
+        "t_s": 4.965271961000326,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 95,
+        "emergency": false
+      },
+      {
+        "t_s": 5.020189335000396,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 96,
+        "emergency": false
+      },
+      {
+        "t_s": 5.073854379000295,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 97,
+        "emergency": false
+      },
+      {
+        "t_s": 5.125140149000799,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 98,
+        "emergency": false
+      },
+      {
+        "t_s": 5.177569551000488,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 99,
+        "emergency": false
+      },
+      {
+        "t_s": 5.2314516290007305,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 100,
+        "emergency": false
+      },
+      {
+        "t_s": 5.285383654000725,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 101,
+        "emergency": false
+      },
+      {
+        "t_s": 5.335973967999962,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 102,
+        "emergency": false
+      },
+      {
+        "t_s": 5.390165077000347,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 103,
+        "emergency": false
+      },
+      {
+        "t_s": 5.443102431000625,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 104,
+        "emergency": false
+      },
+      {
+        "t_s": 5.498094911000408,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 105,
+        "emergency": false
+      },
+      {
+        "t_s": 5.550117370000407,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 106,
+        "emergency": false
+      },
+      {
+        "t_s": 5.602752229000544,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 107,
+        "emergency": false
+      },
+      {
+        "t_s": 5.6529121450003,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 108,
+        "emergency": false
+      },
+      {
+        "t_s": 5.706019207000281,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 109,
+        "emergency": false
+      },
+      {
+        "t_s": 5.756411226000637,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 110,
+        "emergency": false
+      },
+      {
+        "t_s": 5.811276876000193,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 111,
+        "emergency": false
+      },
+      {
+        "t_s": 5.863745113000732,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 112,
+        "emergency": false
+      },
+      {
+        "t_s": 5.914661639000769,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 113,
+        "emergency": false
+      },
+      {
+        "t_s": 5.966632383000615,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 114,
+        "emergency": false
+      },
+      {
+        "t_s": 6.0198886830003175,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 115,
+        "emergency": false
+      },
+      {
+        "t_s": 6.074264238000069,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 116,
+        "emergency": false
+      },
+      {
+        "t_s": 6.126315642000009,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 117,
+        "emergency": false
+      },
+      {
+        "t_s": 6.1798130690003745,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 118,
+        "emergency": false
+      },
+      {
+        "t_s": 6.2315579989999605,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 119,
+        "emergency": false
+      },
+      {
+        "t_s": 6.285543577000681,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 120,
+        "emergency": false
+      },
+      {
+        "t_s": 6.335598399999981,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 121,
+        "emergency": false
+      },
+      {
+        "t_s": 6.38758242700078,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 122,
+        "emergency": false
+      },
+      {
+        "t_s": 6.439323759000217,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 123,
+        "emergency": false
+      },
+      {
+        "t_s": 6.49113988299996,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 124,
+        "emergency": false
+      },
+      {
+        "t_s": 6.541893261000041,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 125,
+        "emergency": false
+      },
+      {
+        "t_s": 6.593169041000692,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 126,
+        "emergency": false
+      },
+      {
+        "t_s": 6.6455638030001865,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 127,
+        "emergency": false
+      },
+      {
+        "t_s": 6.697053051000694,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 128,
+        "emergency": false
+      },
+      {
+        "t_s": 6.748269135000555,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 129,
+        "emergency": false
+      },
+      {
+        "t_s": 6.799639861000287,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 130,
+        "emergency": false
+      },
+      {
+        "t_s": 6.851406556000256,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 131,
+        "emergency": false
+      },
+      {
+        "t_s": 6.904398846000731,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 132,
+        "emergency": false
+      },
+      {
+        "t_s": 6.95563721400049,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 133,
+        "emergency": false
+      },
+      {
+        "t_s": 7.007677985000555,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 134,
+        "emergency": false
+      },
+      {
+        "t_s": 7.061122796000745,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 135,
+        "emergency": false
+      },
+      {
+        "t_s": 7.115471290000642,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 136,
+        "emergency": false
+      },
+      {
+        "t_s": 7.169525521000651,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 137,
+        "emergency": false
+      },
+      {
+        "t_s": 7.223901451000529,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 138,
+        "emergency": false
+      },
+      {
+        "t_s": 7.275435127000492,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 139,
+        "emergency": false
+      },
+      {
+        "t_s": 7.326661241000693,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 140,
+        "emergency": false
+      },
+      {
+        "t_s": 7.381800365000345,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 141,
+        "emergency": false
+      },
+      {
+        "t_s": 7.4359079290006775,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 142,
+        "emergency": false
+      },
+      {
+        "t_s": 7.4884730940002555,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 143,
+        "emergency": false
+      },
+      {
+        "t_s": 7.543133314999977,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 144,
+        "emergency": false
+      },
+      {
+        "t_s": 7.597476308000296,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 145,
+        "emergency": false
+      },
+      {
+        "t_s": 7.648994230999961,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 146,
+        "emergency": false
+      },
+      {
+        "t_s": 7.702217992999977,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 147,
+        "emergency": false
+      },
+      {
+        "t_s": 7.756666331000815,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 148,
+        "emergency": false
+      },
+      {
+        "t_s": 7.807205136999983,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 149,
+        "emergency": false
+      },
+      {
+        "t_s": 7.858850724000149,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 150,
+        "emergency": false
+      },
+      {
+        "t_s": 7.910950540000158,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 151,
+        "emergency": false
+      },
+      {
+        "t_s": 7.962349641999936,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 152,
+        "emergency": false
+      },
+      {
+        "t_s": 8.016554398000153,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 153,
+        "emergency": false
+      },
+      {
+        "t_s": 8.071017087000655,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 154,
+        "emergency": false
+      },
+      {
+        "t_s": 8.125035324000237,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 155,
+        "emergency": false
+      },
+      {
+        "t_s": 8.179190727000787,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 156,
+        "emergency": false
+      },
+      {
+        "t_s": 8.230381285000476,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 157,
+        "emergency": false
+      },
+      {
+        "t_s": 8.28298155900029,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 158,
+        "emergency": false
+      },
+      {
+        "t_s": 8.334031928000513,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 159,
+        "emergency": false
+      },
+      {
+        "t_s": 8.389032689000487,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 160,
+        "emergency": false
+      },
+      {
+        "t_s": 8.440150522000295,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 161,
+        "emergency": false
+      },
+      {
+        "t_s": 8.494842218000485,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 162,
+        "emergency": false
+      },
+      {
+        "t_s": 8.54726471000049,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 163,
+        "emergency": false
+      },
+      {
+        "t_s": 8.602236651000567,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 164,
+        "emergency": false
+      },
+      {
+        "t_s": 8.653845319000538,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 165,
+        "emergency": false
+      },
+      {
+        "t_s": 8.704592441000386,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 166,
+        "emergency": false
+      },
+      {
+        "t_s": 8.75644383800045,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 167,
+        "emergency": false
+      },
+      {
+        "t_s": 8.806589180000628,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 168,
+        "emergency": false
+      },
+      {
+        "t_s": 8.85807750100048,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 169,
+        "emergency": false
+      },
+      {
+        "t_s": 8.908420673000364,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 170,
+        "emergency": false
+      },
+      {
+        "t_s": 8.963007216000733,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 171,
+        "emergency": false
+      },
+      {
+        "t_s": 9.017322596000668,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 172,
+        "emergency": false
+      },
+      {
+        "t_s": 9.071451002000686,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 173,
+        "emergency": false
+      },
+      {
+        "t_s": 9.125379895000151,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 174,
+        "emergency": false
+      },
+      {
+        "t_s": 9.179561109000133,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 175,
+        "emergency": false
+      },
+      {
+        "t_s": 9.233548635000261,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 176,
+        "emergency": false
+      },
+      {
+        "t_s": 9.28502304200083,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 177,
+        "emergency": false
+      },
+      {
+        "t_s": 9.336950139000692,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 178,
+        "emergency": false
+      },
+      {
+        "t_s": 9.390315992000069,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 179,
+        "emergency": false
+      },
+      {
+        "t_s": 9.445261285000015,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 180,
+        "emergency": false
+      },
+      {
+        "t_s": 9.499052400000437,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 181,
+        "emergency": false
+      },
+      {
+        "t_s": 9.551717490000556,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 182,
+        "emergency": false
+      },
+      {
+        "t_s": 9.605657615000382,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 183,
+        "emergency": false
+      },
+      {
+        "t_s": 9.659982730000593,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 184,
+        "emergency": false
+      },
+      {
+        "t_s": 9.714286656000695,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 185,
+        "emergency": false
+      },
+      {
+        "t_s": 9.768737685000815,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 186,
+        "emergency": false
+      },
+      {
+        "t_s": 9.819987372000469,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 187,
+        "emergency": false
+      },
+      {
+        "t_s": 9.872417677000158,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 188,
+        "emergency": false
+      },
+      {
+        "t_s": 9.924068971999986,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 189,
+        "emergency": false
+      },
+      {
+        "t_s": 9.974939469000674,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 190,
+        "emergency": false
+      },
+      {
+        "t_s": 10.028224659999978,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 191,
+        "emergency": false
+      },
+      {
+        "t_s": 10.07843117900029,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 192,
+        "emergency": false
+      },
+      {
+        "t_s": 10.132146802000534,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 193,
+        "emergency": false
+      },
+      {
+        "t_s": 10.18497197600027,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 194,
+        "emergency": false
+      },
+      {
+        "t_s": 10.23959837000075,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 195,
+        "emergency": false
+      },
+      {
+        "t_s": 10.291132070000458,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 196,
+        "emergency": false
+      },
+      {
+        "t_s": 10.342616061000626,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 197,
+        "emergency": false
+      },
+      {
+        "t_s": 10.398559897000268,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 198,
+        "emergency": false
+      },
+      {
+        "t_s": 10.449428816000363,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 199,
+        "emergency": false
+      },
+      {
+        "t_s": 10.502695290000702,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 200,
+        "emergency": false
+      },
+      {
+        "t_s": 10.55766569500065,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 201,
+        "emergency": false
+      },
+      {
+        "t_s": 10.612518414000078,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 202,
+        "emergency": false
+      },
+      {
+        "t_s": 10.662711573000706,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 203,
+        "emergency": false
+      },
+      {
+        "t_s": 10.71312943400062,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 204,
+        "emergency": false
+      },
+      {
+        "t_s": 10.767546936000144,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 205,
+        "emergency": false
+      },
+      {
+        "t_s": 10.817612040000313,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 206,
+        "emergency": false
+      },
+      {
+        "t_s": 10.867749622000701,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 207,
+        "emergency": false
+      },
+      {
+        "t_s": 10.919769289000214,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 208,
+        "emergency": false
+      },
+      {
+        "t_s": 10.97240524300014,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 209,
+        "emergency": false
+      },
+      {
+        "t_s": 11.028701611000542,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 210,
+        "emergency": false
+      },
+      {
+        "t_s": 11.08023883000078,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 211,
+        "emergency": false
+      },
+      {
+        "t_s": 11.130632272000184,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 212,
+        "emergency": false
+      },
+      {
+        "t_s": 11.183872943000097,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 213,
+        "emergency": false
+      },
+      {
+        "t_s": 11.23519130600016,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 214,
+        "emergency": false
+      },
+      {
+        "t_s": 11.287578314000712,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 215,
+        "emergency": false
+      },
+      {
+        "t_s": 11.338768175000041,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 216,
+        "emergency": false
+      },
+      {
+        "t_s": 11.39368723700045,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 217,
+        "emergency": false
+      },
+      {
+        "t_s": 11.443752514000153,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 218,
+        "emergency": false
+      },
+      {
+        "t_s": 11.497534785000425,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 219,
+        "emergency": false
+      },
+      {
+        "t_s": 11.549703667000358,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 220,
+        "emergency": false
+      },
+      {
+        "t_s": 11.604180197999995,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 221,
+        "emergency": false
+      },
+      {
+        "t_s": 11.657769762000498,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 222,
+        "emergency": false
+      },
+      {
+        "t_s": 11.712567153000236,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 223,
+        "emergency": false
+      },
+      {
+        "t_s": 11.764509406000798,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 224,
+        "emergency": false
+      },
+      {
+        "t_s": 11.81913084000007,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 225,
+        "emergency": false
+      },
+      {
+        "t_s": 11.871245705000547,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 226,
+        "emergency": false
+      },
+      {
+        "t_s": 11.925187159000416,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 227,
+        "emergency": false
+      },
+      {
+        "t_s": 11.975989369000672,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 228,
+        "emergency": false
+      },
+      {
+        "t_s": 12.027413091000199,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 229,
+        "emergency": false
+      },
+      {
+        "t_s": 12.079811543000687,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 230,
+        "emergency": false
+      },
+      {
+        "t_s": 12.13419788400006,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 231,
+        "emergency": false
+      },
+      {
+        "t_s": 12.187970377000056,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 232,
+        "emergency": false
+      },
+      {
+        "t_s": 12.238041159000204,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 233,
+        "emergency": false
+      },
+      {
+        "t_s": 12.290762289000668,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 234,
+        "emergency": false
+      },
+      {
+        "t_s": 12.341881713000475,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 235,
+        "emergency": false
+      },
+      {
+        "t_s": 12.392777109000235,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 236,
+        "emergency": false
+      },
+      {
+        "t_s": 12.445785677000458,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 237,
+        "emergency": false
+      },
+      {
+        "t_s": 12.498532975000671,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 238,
+        "emergency": false
+      },
+      {
+        "t_s": 12.551949469000647,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 239,
+        "emergency": false
+      },
+      {
+        "t_s": 12.604821892000473,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 240,
+        "emergency": false
+      },
+      {
+        "t_s": 12.658516570000756,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 241,
+        "emergency": false
+      },
+      {
+        "t_s": 12.708938368999952,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 242,
+        "emergency": false
+      },
+      {
+        "t_s": 12.762062065999999,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 243,
+        "emergency": false
+      },
+      {
+        "t_s": 12.816469726000832,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 244,
+        "emergency": false
+      },
+      {
+        "t_s": 12.868880271000307,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 245,
+        "emergency": false
+      },
+      {
+        "t_s": 12.923608261000481,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 246,
+        "emergency": false
+      },
+      {
+        "t_s": 12.977960100000018,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 247,
+        "emergency": false
+      },
+      {
+        "t_s": 13.028832359000262,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 248,
+        "emergency": false
+      },
+      {
+        "t_s": 13.083537163000074,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 249,
+        "emergency": false
+      },
+      {
+        "t_s": 13.133618010000646,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 250,
+        "emergency": false
+      },
+      {
+        "t_s": 13.184451340000123,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 251,
+        "emergency": false
+      },
+      {
+        "t_s": 13.234941629000787,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 252,
+        "emergency": false
+      },
+      {
+        "t_s": 13.287730693999947,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 253,
+        "emergency": false
+      },
+      {
+        "t_s": 13.340877351000017,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 254,
+        "emergency": false
+      },
+      {
+        "t_s": 13.39352805100043,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 255,
+        "emergency": false
+      },
+      {
+        "t_s": 13.447346071000538,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 256,
+        "emergency": false
+      },
+      {
+        "t_s": 13.500903505000679,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 257,
+        "emergency": false
+      },
+      {
+        "t_s": 13.551763997000307,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 258,
+        "emergency": false
+      },
+      {
+        "t_s": 13.603863607000676,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 259,
+        "emergency": false
+      },
+      {
+        "t_s": 13.658705524000652,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 260,
+        "emergency": false
+      },
+      {
+        "t_s": 13.708789195000463,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 261,
+        "emergency": false
+      },
+      {
+        "t_s": 13.763087326999994,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 262,
+        "emergency": false
+      },
+      {
+        "t_s": 13.817816675000358,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 263,
+        "emergency": false
+      },
+      {
+        "t_s": 13.872943088000284,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 264,
+        "emergency": false
+      },
+      {
+        "t_s": 13.926931919000708,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 265,
+        "emergency": false
+      },
+      {
+        "t_s": 13.980950488999952,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 266,
+        "emergency": false
+      },
+      {
+        "t_s": 14.034121391000554,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 267,
+        "emergency": false
+      },
+      {
+        "t_s": 14.086779019999994,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 268,
+        "emergency": false
+      },
+      {
+        "t_s": 14.13698449200001,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 269,
+        "emergency": false
+      },
+      {
+        "t_s": 14.191642120000324,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 270,
+        "emergency": false
+      },
+      {
+        "t_s": 14.242613736000749,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 271,
+        "emergency": false
+      },
+      {
+        "t_s": 14.294987818000664,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 272,
+        "emergency": false
+      },
+      {
+        "t_s": 14.345736264000152,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 273,
+        "emergency": false
+      },
+      {
+        "t_s": 14.397456048000095,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 274,
+        "emergency": false
+      },
+      {
+        "t_s": 14.449375365000378,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 275,
+        "emergency": false
+      },
+      {
+        "t_s": 14.504082985999958,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 276,
+        "emergency": false
+      },
+      {
+        "t_s": 14.554648037000334,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 277,
+        "emergency": false
+      },
+      {
+        "t_s": 14.606388935000723,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 278,
+        "emergency": false
+      },
+      {
+        "t_s": 14.658680594000543,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 279,
+        "emergency": false
+      },
+      {
+        "t_s": 14.71037228700061,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 280,
+        "emergency": false
+      },
+      {
+        "t_s": 14.763442948000375,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 281,
+        "emergency": false
+      },
+      {
+        "t_s": 14.815377081000406,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 282,
+        "emergency": false
+      },
+      {
+        "t_s": 14.867106536000392,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 283,
+        "emergency": false
+      },
+      {
+        "t_s": 14.918759299000158,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 284,
+        "emergency": false
+      },
+      {
+        "t_s": 14.969987110000147,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 285,
+        "emergency": false
+      },
+      {
+        "t_s": 15.021710643000006,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 286,
+        "emergency": false
+      },
+      {
+        "t_s": 15.07465374200001,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 287,
+        "emergency": false
+      },
+      {
+        "t_s": 15.127268481000101,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 288,
+        "emergency": false
+      },
+      {
+        "t_s": 15.177552101999936,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 289,
+        "emergency": false
+      },
+      {
+        "t_s": 15.228102901000057,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 290,
+        "emergency": false
+      },
+      {
+        "t_s": 15.280139665000206,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 291,
+        "emergency": false
+      },
+      {
+        "t_s": 15.333201335000012,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 292,
+        "emergency": false
+      },
+      {
+        "t_s": 15.384685254000033,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 293,
+        "emergency": false
+      },
+      {
+        "t_s": 15.438108014000136,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 294,
+        "emergency": false
+      },
+      {
+        "t_s": 15.492275925000285,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 295,
+        "emergency": false
+      },
+      {
+        "t_s": 15.544023660000676,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 296,
+        "emergency": false
+      },
+      {
+        "t_s": 15.597845206000784,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 297,
+        "emergency": false
+      },
+      {
+        "t_s": 15.652202383000258,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 298,
+        "emergency": false
+      },
+      {
+        "t_s": 15.706276054000227,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 299,
+        "emergency": false
+      },
+      {
+        "t_s": 15.75957662500059,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 300,
+        "emergency": false
+      },
+      {
+        "t_s": 15.813492190000034,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 301,
+        "emergency": false
+      },
+      {
+        "t_s": 15.863877714999944,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 302,
+        "emergency": false
+      },
+      {
+        "t_s": 15.918011614000534,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 303,
+        "emergency": false
+      },
+      {
+        "t_s": 15.972054084000774,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 304,
+        "emergency": false
+      },
+      {
+        "t_s": 16.02546545000041,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 305,
+        "emergency": false
+      },
+      {
+        "t_s": 16.07570097900043,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 306,
+        "emergency": false
+      },
+      {
+        "t_s": 16.126186991000395,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 307,
+        "emergency": false
+      },
+      {
+        "t_s": 16.176263304000713,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 308,
+        "emergency": false
+      },
+      {
+        "t_s": 16.2276324150007,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 309,
+        "emergency": false
+      },
+      {
+        "t_s": 16.28019503700034,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 310,
+        "emergency": false
+      },
+      {
+        "t_s": 16.330274871000256,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 311,
+        "emergency": false
+      },
+      {
+        "t_s": 16.38246216600055,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 312,
+        "emergency": false
+      },
+      {
+        "t_s": 16.436033988999952,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 313,
+        "emergency": false
+      },
+      {
+        "t_s": 16.486061893000624,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 314,
+        "emergency": false
+      },
+      {
+        "t_s": 16.538212873000703,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 315,
+        "emergency": false
+      },
+      {
+        "t_s": 16.59159949000059,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 316,
+        "emergency": false
+      },
+      {
+        "t_s": 16.642072593000194,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 317,
+        "emergency": false
+      },
+      {
+        "t_s": 16.696915156000614,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 318,
+        "emergency": false
+      },
+      {
+        "t_s": 16.74695876700025,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 319,
+        "emergency": false
+      },
+      {
+        "t_s": 16.800191520000226,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 320,
+        "emergency": false
+      },
+      {
+        "t_s": 16.85109271500005,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 321,
+        "emergency": false
+      },
+      {
+        "t_s": 16.905938062000132,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 322,
+        "emergency": false
+      },
+      {
+        "t_s": 16.95988729200053,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 323,
+        "emergency": false
+      },
+      {
+        "t_s": 17.014009133999934,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 324,
+        "emergency": false
+      },
+      {
+        "t_s": 17.067893215000367,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 325,
+        "emergency": false
+      },
+      {
+        "t_s": 17.12157740300063,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 326,
+        "emergency": false
+      },
+      {
+        "t_s": 17.176351146000343,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 327,
+        "emergency": false
+      },
+      {
+        "t_s": 17.230477525000424,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 328,
+        "emergency": false
+      },
+      {
+        "t_s": 17.28341107200049,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 329,
+        "emergency": false
+      },
+      {
+        "t_s": 17.336167002000366,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 330,
+        "emergency": false
+      },
+      {
+        "t_s": 17.386339594000674,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 331,
+        "emergency": false
+      },
+      {
+        "t_s": 17.439324124999985,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 332,
+        "emergency": false
+      },
+      {
+        "t_s": 17.492649531000097,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 333,
+        "emergency": false
+      },
+      {
+        "t_s": 17.54635897300068,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 334,
+        "emergency": false
+      },
+      {
+        "t_s": 17.5976229350008,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 335,
+        "emergency": false
+      },
+      {
+        "t_s": 17.6481268360003,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 336,
+        "emergency": false
+      },
+      {
+        "t_s": 17.701750019999963,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 337,
+        "emergency": false
+      },
+      {
+        "t_s": 17.752690158000405,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 338,
+        "emergency": false
+      },
+      {
+        "t_s": 17.804662422000547,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 339,
+        "emergency": false
+      },
+      {
+        "t_s": 17.855737061000582,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 340,
+        "emergency": false
+      },
+      {
+        "t_s": 17.90834789300061,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 341,
+        "emergency": false
+      },
+      {
+        "t_s": 17.962562403999982,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 342,
+        "emergency": false
+      },
+      {
+        "t_s": 18.016663547000462,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 343,
+        "emergency": false
+      },
+      {
+        "t_s": 18.071061416000703,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 344,
+        "emergency": false
+      },
+      {
+        "t_s": 18.125783890000093,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 345,
+        "emergency": false
+      },
+      {
+        "t_s": 18.18026541600011,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 346,
+        "emergency": false
+      },
+      {
+        "t_s": 18.23176211000009,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 347,
+        "emergency": false
+      },
+      {
+        "t_s": 18.283266196000113,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 348,
+        "emergency": false
+      },
+      {
+        "t_s": 18.334568491000027,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 349,
+        "emergency": false
+      },
+      {
+        "t_s": 18.386452396000095,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 350,
+        "emergency": false
+      },
+      {
+        "t_s": 18.43823215900011,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 351,
+        "emergency": false
+      },
+      {
+        "t_s": 18.489439246000074,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 352,
+        "emergency": false
+      },
+      {
+        "t_s": 18.543647854000483,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 353,
+        "emergency": false
+      },
+      {
+        "t_s": 18.593820546000643,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 354,
+        "emergency": false
+      },
+      {
+        "t_s": 18.645678646000306,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 355,
+        "emergency": false
+      },
+      {
+        "t_s": 18.697720355000456,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 356,
+        "emergency": false
+      },
+      {
+        "t_s": 18.75234399100009,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 357,
+        "emergency": false
+      },
+      {
+        "t_s": 18.80543519100047,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 358,
+        "emergency": false
+      },
+      {
+        "t_s": 18.8571407670006,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 359,
+        "emergency": false
+      },
+      {
+        "t_s": 18.90903462999995,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 360,
+        "emergency": false
+      },
+      {
+        "t_s": 18.960681681000096,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 361,
+        "emergency": false
+      },
+      {
+        "t_s": 19.013876919000722,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 362,
+        "emergency": false
+      },
+      {
+        "t_s": 19.065799529000287,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 363,
+        "emergency": false
+      },
+      {
+        "t_s": 19.11882222800068,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 364,
+        "emergency": false
+      },
+      {
+        "t_s": 19.173676994000743,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 365,
+        "emergency": false
+      },
+      {
+        "t_s": 19.2238532880001,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 366,
+        "emergency": false
+      },
+      {
+        "t_s": 19.276107720000255,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 367,
+        "emergency": false
+      },
+      {
+        "t_s": 19.330650952000724,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 368,
+        "emergency": false
+      },
+      {
+        "t_s": 19.38071257499996,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 369,
+        "emergency": false
+      },
+      {
+        "t_s": 19.434256501000164,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 370,
+        "emergency": false
+      },
+      {
+        "t_s": 19.48573190800016,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 371,
+        "emergency": false
+      },
+      {
+        "t_s": 19.537205621000794,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 372,
+        "emergency": false
+      },
+      {
+        "t_s": 19.592375785000513,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 373,
+        "emergency": false
+      },
+      {
+        "t_s": 19.64331752399994,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 374,
+        "emergency": false
+      },
+      {
+        "t_s": 19.695490765000613,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 375,
+        "emergency": false
+      },
+      {
+        "t_s": 19.749636509000084,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 376,
+        "emergency": false
+      },
+      {
+        "t_s": 19.802681639000184,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 377,
+        "emergency": false
+      },
+      {
+        "t_s": 19.85618417800015,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 378,
+        "emergency": false
+      },
+      {
+        "t_s": 19.911338341000373,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 379,
+        "emergency": false
+      },
+      {
+        "t_s": 19.961482871000044,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 380,
+        "emergency": false
+      },
+      {
+        "t_s": 20.016435197000646,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 381,
+        "emergency": false
+      },
+      {
+        "t_s": 20.067917138000666,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 382,
+        "emergency": false
+      },
+      {
+        "t_s": 20.11887319000016,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 383,
+        "emergency": false
+      },
+      {
+        "t_s": 20.173868143000618,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 384,
+        "emergency": false
+      },
+      {
+        "t_s": 20.22805017600058,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 385,
+        "emergency": false
+      },
+      {
+        "t_s": 20.280729957000403,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 386,
+        "emergency": false
+      },
+      {
+        "t_s": 20.295145423000577,
+        "space": "tcp",
+        "action": "stop",
+        "sequence": 387,
+        "emergency": true
+      }
+    ]
+  },
+  {
+    "iteration": 3,
+    "axis": "z",
+    "frame": "base",
+    "velocity_m_s": 0.002,
+    "step_m": 0.01,
+    "max_seconds": 10.0,
+    "started_at": "2026-10-26T18:15:15.365202+00:00",
+    "accepted": true,
+    "start_message": "JOG TCP uruchomiony",
+    "stop_confirmed": true,
+    "stop_reason": "Odrzucenie komendy: Brak pasującego wykonania JOG TCP",
+    "measured_fk": {
+      "delta_tcp_mm": [
+        -0.035719735306694034,
+        -0.22727067812584184,
+        9.897377589258127
+      ],
+      "orientation_delta_degrees": 0.11801663355473895,
+      "joint_delta_degrees": [
+        -0.021972656249999112,
+        0.03295898437499989,
+        -1.931396484375,
+        0.369140625,
+        1.896240234375,
+        -0.6108398437499982
+      ],
+      "max_observed_transverse_mm": 0.32940144925730513
+    },
+    "max_progress_m": 0.009999999999999929,
+    "duration_until_terminal_s": 5.237382502000401,
+    "parameters": {
+      "parameters": [
+        "tcp_jog_ik_position_tolerance",
+        "tcp_jog_ik_orientation_tolerance"
+      ],
+      "previous": [
+        1e-08,
+        1e-07
+      ],
+      "applied": [
+        1e-07,
+        1e-06
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "monotonic_ns": 5829506360201
+    },
+    "outcome": "completed",
+    "before": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 75.673828125,
+          "position_age_seconds": 0.02723144799941553,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.02723144799941553,
+          "enable_age_seconds": 0.11968650299941552,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 7.567382812499999,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 6.064453125,
+          "position_age_seconds": 0.03651229799941553,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.03651229799941553,
+          "enable_age_seconds": 0.07855427099941553,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.6064453125,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -6.08642578125,
+          "position_age_seconds": 0.026747254999415528,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.026747254999415528,
+          "enable_age_seconds": 0.07068381399941553,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -0.608642578125,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -99.9755859375,
+          "position_age_seconds": 0.037069243999415524,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.037069243999415524,
+          "enable_age_seconds": 0.11998515799941553,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -9.99755859375,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 376.8310546875,
+          "position_age_seconds": 0.02645167799941553,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.02645167799941553,
+          "enable_age_seconds": 0.10696698699941552,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 37.68310546875,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 124.16748046875,
+          "position_age_seconds": 0.03627834099941553,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.03627834099941553,
+          "enable_age_seconds": 0.05229230399941553,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 12.416748046875,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.025455739999415528,
+      "recording": false,
+      "state_monotonic_ns": "5837923400644",
+      "server_monotonic_ns": "5837949038023",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "stopped",
+        "message": "Zatrzymanie TCP potwierdzone",
+        "axis": 1,
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 0.03999999999999871,
+        "requested_step": 0.04,
+        "velocity": 0.002,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 11,
+        "fresh": true
+      }
+    },
+    "after": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 75.4541015625,
+          "position_age_seconds": 0.05674295099990201,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.05674295099990201,
+          "enable_age_seconds": 0.129472484999902,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 7.54541015625,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 6.39404296875,
+          "position_age_seconds": 0.046776929999902,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.046776929999902,
+          "enable_age_seconds": 0.06352660199990201,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.6394042968749999,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -25.400390625,
+          "position_age_seconds": 0.057254333999902006,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.057254333999902006,
+          "enable_age_seconds": 0.13526647299990202,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -2.5400390625,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -96.2841796875,
+          "position_age_seconds": 0.066511454999902,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.066511454999902,
+          "enable_age_seconds": 0.085743117999902,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -9.62841796875,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 395.79345703125,
+          "position_age_seconds": 0.057431798999902,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.057431798999902,
+          "enable_age_seconds": 0.07944012799990201,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 39.579345703125,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 118.05908203125,
+          "position_age_seconds": 0.047471625999902005,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.047471625999902005,
+          "enable_age_seconds": 0.09748827399990201,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 11.805908203125002,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.036286741999902006,
+      "recording": false,
+      "state_monotonic_ns": "5843623455986",
+      "server_monotonic_ns": "5843660342276",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "stopped",
+        "message": "Zatrzymanie TCP potwierdzone",
+        "axis": 2,
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 0.009999999999999929,
+        "requested_step": 0.01,
+        "velocity": 0.002,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 12,
+        "fresh": true
+      }
+    },
+    "status_transitions": [
+      {
+        "t_s": 0.0005265569998300634,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "stopped",
+          "message": "Zatrzymanie TCP potwierdzone",
+          "axis": 1,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.03999999999999871,
+          "requested_step": 0.04,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 11,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 0.05451234900010604,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "running",
+          "message": "JOG TCP w ruchu",
+          "axis": 2,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 5e-06,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 12,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 5.115974604999792,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "settling",
+          "message": "Oczekiwanie na pomiarowe potwierdzenie postoju TCP",
+          "axis": 2,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.009999999999999929,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 12,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 5.237382502000401,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "stopped",
+          "message": "Zatrzymanie TCP potwierdzone",
+          "axis": 2,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.009999999999999929,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 12,
+          "fresh": true
+        }
+      }
+    ],
+    "sent_commands": [
+      {
+        "t_s": 0.00011801100026787026,
+        "space": "tcp",
+        "action": "start",
+        "sequence": 1,
+        "emergency": false,
+        "axis": "z",
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "velocity": 0.002,
+        "step": 0.01,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "revision": "2f1186d77ba44f838f65e261aeabd866"
+      },
+      {
+        "t_s": 0.051239628000075754,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 2,
+        "emergency": false
+      },
+      {
+        "t_s": 0.10458951900000102,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 3,
+        "emergency": false
+      },
+      {
+        "t_s": 0.1577872079997178,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 4,
+        "emergency": false
+      },
+      {
+        "t_s": 0.20849514699966676,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 5,
+        "emergency": false
+      },
+      {
+        "t_s": 0.2614543509998839,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 6,
+        "emergency": false
+      },
+      {
+        "t_s": 0.31341603500004567,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 7,
+        "emergency": false
+      },
+      {
+        "t_s": 0.36501661500005866,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 8,
+        "emergency": false
+      },
+      {
+        "t_s": 0.4177720520001458,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 9,
+        "emergency": false
+      },
+      {
+        "t_s": 0.47108308200040483,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 10,
+        "emergency": false
+      },
+      {
+        "t_s": 0.5241937789996882,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 11,
+        "emergency": false
+      },
+      {
+        "t_s": 0.5753641250003056,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 12,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6259568080004101,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 13,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6787990239999999,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 14,
+        "emergency": false
+      },
+      {
+        "t_s": 0.7337159340004291,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 15,
+        "emergency": false
+      },
+      {
+        "t_s": 0.7871254459996635,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 16,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8370629979999649,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 17,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8905730759997823,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 18,
+        "emergency": false
+      },
+      {
+        "t_s": 0.9448981590003314,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 19,
+        "emergency": false
+      },
+      {
+        "t_s": 0.9994732679997469,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 20,
+        "emergency": false
+      },
+      {
+        "t_s": 1.0503770389996134,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 21,
+        "emergency": false
+      },
+      {
+        "t_s": 1.101988696999797,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 22,
+        "emergency": false
+      },
+      {
+        "t_s": 1.1538030689998777,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 23,
+        "emergency": false
+      },
+      {
+        "t_s": 1.2083458600000085,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 24,
+        "emergency": false
+      },
+      {
+        "t_s": 1.2634310579996963,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 25,
+        "emergency": false
+      },
+      {
+        "t_s": 1.3169130679998489,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 26,
+        "emergency": false
+      },
+      {
+        "t_s": 1.3709300359996632,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 27,
+        "emergency": false
+      },
+      {
+        "t_s": 1.4239265639998848,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 28,
+        "emergency": false
+      },
+      {
+        "t_s": 1.4785052340002949,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 29,
+        "emergency": false
+      },
+      {
+        "t_s": 1.5324764209999557,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 30,
+        "emergency": false
+      },
+      {
+        "t_s": 1.58278607200009,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 31,
+        "emergency": false
+      },
+      {
+        "t_s": 1.6345522450001226,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 32,
+        "emergency": false
+      },
+      {
+        "t_s": 1.6891469259999212,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 33,
+        "emergency": false
+      },
+      {
+        "t_s": 1.7394633619996966,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 34,
+        "emergency": false
+      },
+      {
+        "t_s": 1.7927291530004368,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 35,
+        "emergency": false
+      },
+      {
+        "t_s": 1.8471829979998802,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 36,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9002232299999378,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 37,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9518478330001017,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 38,
+        "emergency": false
+      },
+      {
+        "t_s": 2.0051333390001673,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 39,
+        "emergency": false
+      },
+      {
+        "t_s": 2.0601063379999687,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 40,
+        "emergency": false
+      },
+      {
+        "t_s": 2.1115784920002625,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 41,
+        "emergency": false
+      },
+      {
+        "t_s": 2.1661575899997842,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 42,
+        "emergency": false
+      },
+      {
+        "t_s": 2.217613480000182,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 43,
+        "emergency": false
+      },
+      {
+        "t_s": 2.2707951330003198,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 44,
+        "emergency": false
+      },
+      {
+        "t_s": 2.3212371649997294,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 45,
+        "emergency": false
+      },
+      {
+        "t_s": 2.372536052000214,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 46,
+        "emergency": false
+      },
+      {
+        "t_s": 2.4241841390003174,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 47,
+        "emergency": false
+      },
+      {
+        "t_s": 2.476135799000076,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 48,
+        "emergency": false
+      },
+      {
+        "t_s": 2.5284387330002573,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 49,
+        "emergency": false
+      },
+      {
+        "t_s": 2.580083636999916,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 50,
+        "emergency": false
+      },
+      {
+        "t_s": 2.632413715000439,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 51,
+        "emergency": false
+      },
+      {
+        "t_s": 2.6853152749999936,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 52,
+        "emergency": false
+      },
+      {
+        "t_s": 2.7380237449997367,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 53,
+        "emergency": false
+      },
+      {
+        "t_s": 2.792928892999953,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 54,
+        "emergency": false
+      },
+      {
+        "t_s": 2.8444658569997046,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 55,
+        "emergency": false
+      },
+      {
+        "t_s": 2.8957773610000004,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 56,
+        "emergency": false
+      },
+      {
+        "t_s": 2.949280374999944,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 57,
+        "emergency": false
+      },
+      {
+        "t_s": 3.001633791999666,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 58,
+        "emergency": false
+      },
+      {
+        "t_s": 3.053418264999891,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 59,
+        "emergency": false
+      },
+      {
+        "t_s": 3.105146488999708,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 60,
+        "emergency": false
+      },
+      {
+        "t_s": 3.1585560339999574,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 61,
+        "emergency": false
+      },
+      {
+        "t_s": 3.2125455040004454,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 62,
+        "emergency": false
+      },
+      {
+        "t_s": 3.2675548580000395,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 63,
+        "emergency": false
+      },
+      {
+        "t_s": 3.321533868000188,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 64,
+        "emergency": false
+      },
+      {
+        "t_s": 3.3715717599998243,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 65,
+        "emergency": false
+      },
+      {
+        "t_s": 3.4245903569999427,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 66,
+        "emergency": false
+      },
+      {
+        "t_s": 3.4782707869999285,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 67,
+        "emergency": false
+      },
+      {
+        "t_s": 3.5296699959999387,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 68,
+        "emergency": false
+      },
+      {
+        "t_s": 3.583486458999687,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 69,
+        "emergency": false
+      },
+      {
+        "t_s": 3.6352177150001808,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 70,
+        "emergency": false
+      },
+      {
+        "t_s": 3.687483159000294,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 71,
+        "emergency": false
+      },
+      {
+        "t_s": 3.739329975000146,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 72,
+        "emergency": false
+      },
+      {
+        "t_s": 3.793730725000387,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 73,
+        "emergency": false
+      },
+      {
+        "t_s": 3.844394368000394,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 74,
+        "emergency": false
+      },
+      {
+        "t_s": 3.8986189549996197,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 75,
+        "emergency": false
+      },
+      {
+        "t_s": 3.9503695820003486,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 76,
+        "emergency": false
+      },
+      {
+        "t_s": 4.00452519800001,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 77,
+        "emergency": false
+      },
+      {
+        "t_s": 4.059638634999828,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 78,
+        "emergency": false
+      },
+      {
+        "t_s": 4.111858672999915,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 79,
+        "emergency": false
+      },
+      {
+        "t_s": 4.164676254000369,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 80,
+        "emergency": false
+      },
+      {
+        "t_s": 4.218513490000078,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 81,
+        "emergency": false
+      },
+      {
+        "t_s": 4.272888520000379,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 82,
+        "emergency": false
+      },
+      {
+        "t_s": 4.326805857000181,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 83,
+        "emergency": false
+      },
+      {
+        "t_s": 4.381540147999658,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 84,
+        "emergency": false
+      },
+      {
+        "t_s": 4.43423557099959,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 85,
+        "emergency": false
+      },
+      {
+        "t_s": 4.485096241999599,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 86,
+        "emergency": false
+      },
+      {
+        "t_s": 4.5388287599998876,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 87,
+        "emergency": false
+      },
+      {
+        "t_s": 4.591602479999892,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 88,
+        "emergency": false
+      },
+      {
+        "t_s": 4.643434556999637,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 89,
+        "emergency": false
+      },
+      {
+        "t_s": 4.696637670999735,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 90,
+        "emergency": false
+      },
+      {
+        "t_s": 4.7507522300002165,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 91,
+        "emergency": false
+      },
+      {
+        "t_s": 4.804425282000011,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 92,
+        "emergency": false
+      },
+      {
+        "t_s": 4.858896921999985,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 93,
+        "emergency": false
+      },
+      {
+        "t_s": 4.913420290000431,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 94,
+        "emergency": false
+      },
+      {
+        "t_s": 4.966738570999951,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 95,
+        "emergency": false
+      },
+      {
+        "t_s": 5.018957244000376,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 96,
+        "emergency": false
+      },
+      {
+        "t_s": 5.06993136500023,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 97,
+        "emergency": false
+      },
+      {
+        "t_s": 5.121224137000354,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 98,
+        "emergency": false
+      },
+      {
+        "t_s": 5.171884641999895,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 99,
+        "emergency": false
+      },
+      {
+        "t_s": 5.223780829000134,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 100,
+        "emergency": false
+      },
+      {
+        "t_s": 5.2380154250004125,
+        "space": "tcp",
+        "action": "stop",
+        "sequence": 101,
+        "emergency": true
+      }
+    ]
+  },
+  {
+    "iteration": 4,
+    "axis": "x",
+    "frame": "base",
+    "velocity_m_s": 0.002,
+    "step_m": 0.01,
+    "max_seconds": 10.0,
+    "started_at": "2026-10-26T18:15:48.843541+00:00",
+    "accepted": true,
+    "start_message": "JOG TCP uruchomiony",
+    "stop_confirmed": true,
+    "stop_reason": "Odrzucenie komendy: Brak pasującego wykonania JOG TCP",
+    "measured_fk": {
+      "delta_tcp_mm": [
+        9.97180198951847,
+        -0.2891878816228752,
+        -0.3754714858307806
+      ],
+      "orientation_delta_degrees": 0.14094509860674911,
+      "joint_delta_degrees": [
+        -0.2680664062499991,
+        2.282958984375,
+        -2.291748046875,
+        0.2570800781249982,
+        0.032958984375,
+        -0.474609375
+      ],
+      "max_observed_transverse_mm": 1.081276956502549
+    },
+    "max_progress_m": 0.009999999999999929,
+    "duration_until_terminal_s": 5.214407322000625,
+    "parameters": {
+      "parameters": [
+        "tcp_jog_ik_position_tolerance",
+        "tcp_jog_ik_orientation_tolerance"
+      ],
+      "previous": [
+        1e-07,
+        1e-06
+      ],
+      "applied": [
+        1e-06,
+        1e-05
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "monotonic_ns": 5856491465101
+    },
+    "outcome": "completed",
+    "before": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 75.43212890625,
+          "position_age_seconds": 0.02538401199999828,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.02538401199999828,
+          "enable_age_seconds": 0.04235290799999828,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 7.543212890624999,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 6.39404296875,
+          "position_age_seconds": 0.014667458999998278,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.014667458999998278,
+          "enable_age_seconds": 0.08269929899999828,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 0.6394042968749999,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -25.400390625,
+          "position_age_seconds": 0.02471158199999828,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.02471158199999828,
+          "enable_age_seconds": 0.05670579199999828,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -2.5400390625,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -96.26220703125,
+          "position_age_seconds": 0.03539485099999828,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.03539485099999828,
+          "enable_age_seconds": 0.09136906199999828,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -9.626220703124998,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 395.771484375,
+          "position_age_seconds": 0.025285217999998277,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.025285217999998277,
+          "enable_age_seconds": 0.08419547199999827,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 39.5771484375,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 118.037109375,
+          "position_age_seconds": 0.014543486999998278,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.014543486999998278,
+          "enable_age_seconds": 0.011691028999998278,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 11.8037109375,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.003891801999998279,
+      "recording": false,
+      "state_monotonic_ns": "5871423370973",
+      "server_monotonic_ns": "5871427433649",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "stopped",
+        "message": "Zatrzymanie TCP potwierdzone",
+        "axis": 2,
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 0.009999999999999929,
+        "requested_step": 0.01,
+        "velocity": 0.002,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 12,
+        "fresh": true
+      }
+    },
+    "after": {
+      "busy": false,
+      "fault": false,
+      "active_axis": 0,
+      "max_rpm": 30,
+      "operation": "idle",
+      "message": "Operacja ENABLE potwierdzona",
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 72.75146484375,
+          "position_age_seconds": 0.047281116999771534,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.047281116999771534,
+          "enable_age_seconds": 0.09813700199977154,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 7.275146484375,
+          "joint_lower_degrees": -171.0,
+          "joint_upper_degrees": 171.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": false,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 29.2236328125,
+          "position_age_seconds": 0.03739918599977154,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.03739918599977154,
+          "enable_age_seconds": 0.12932469699977153,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 2.92236328125,
+          "joint_lower_degrees": -200.0,
+          "joint_upper_degrees": 29.999999999999996,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -48.31787109375,
+          "position_age_seconds": 0.047950805999771536,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.047950805999771536,
+          "enable_age_seconds": 0.11690046199977154,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -4.831787109375,
+          "joint_lower_degrees": -196.0,
+          "joint_upper_degrees": 57.00000000000001,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": -93.69140625,
+          "position_age_seconds": 0.038023441999771534,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.038023441999771534,
+          "enable_age_seconds": 0.03906220799977154,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": -9.369140625,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 396.10107421875,
+          "position_age_seconds": 0.04781599399977154,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.04781599399977154,
+          "enable_age_seconds": 0.07589673099977154,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 39.610107421875,
+          "joint_lower_degrees": -100.0,
+          "joint_upper_degrees": 100.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "prepared": true,
+          "can_jog": true,
+          "can_zero": true,
+          "motion": "zatrzymany",
+          "enable_known": true,
+          "enabled": true,
+          "position_known": true,
+          "position_degrees": 113.291015625,
+          "position_age_seconds": 0.037902065999771535,
+          "speed_known": true,
+          "speed_rpm": 0.0,
+          "speed_age_seconds": 0.037902065999771535,
+          "enable_age_seconds": 0.09485633399977153,
+          "joint_configured": true,
+          "calibration_valid": true,
+          "joint_position_known": true,
+          "configuration_message": "JOG przegubu — profil zweryfikowany",
+          "joint_position_degrees": 11.3291015625,
+          "joint_lower_degrees": -180.0,
+          "joint_upper_degrees": 180.0,
+          "jog_min_velocity_degrees_s": 0.6,
+          "jog_max_velocity_degrees_s": 17.999999999999996
+        }
+      ],
+      "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+      "fresh": true,
+      "age_seconds": 0.036256825999771536,
+      "recording": false,
+      "state_monotonic_ns": "5877073326117",
+      "server_monotonic_ns": "5877109772609",
+      "tcp_jog": {
+        "ready": true,
+        "busy": false,
+        "state": "stopped",
+        "message": "Zatrzymanie TCP potwierdzone",
+        "axis": 0,
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "progress": 0.009999999999999929,
+        "requested_step": 0.01,
+        "velocity": 0.002,
+        "max_linear_velocity": 0.1,
+        "max_angular_velocity": 1.7453292519943295,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+        "generation": 13,
+        "fresh": true
+      }
+    },
+    "status_transitions": [
+      {
+        "t_s": 0.0005327440003384254,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "stopped",
+          "message": "Zatrzymanie TCP potwierdzone",
+          "axis": 2,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.009999999999999929,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 12,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 0.05257994100065844,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "running",
+          "message": "JOG TCP w ruchu",
+          "axis": 0,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 4e-05,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 13,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 5.038466084000902,
+        "status": {
+          "ready": false,
+          "busy": true,
+          "state": "settling",
+          "message": "Oczekiwanie na pomiarowe potwierdzenie postoju TCP",
+          "axis": 0,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.009999999999999929,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 13,
+          "fresh": true
+        }
+      },
+      {
+        "t_s": 5.214407322000625,
+        "status": {
+          "ready": true,
+          "busy": false,
+          "state": "stopped",
+          "message": "Zatrzymanie TCP potwierdzone",
+          "axis": 0,
+          "direction": 1,
+          "frame": "base",
+          "impulse": true,
+          "progress": 0.009999999999999929,
+          "requested_step": 0.01,
+          "velocity": 0.002,
+          "max_linear_velocity": 0.1,
+          "max_angular_velocity": 1.7453292519943295,
+          "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+          "configuration_revision": "2f1186d77ba44f838f65e261aeabd866",
+          "generation": 13,
+          "fresh": true
+        }
+      }
+    ],
+    "sent_commands": [
+      {
+        "t_s": 0.00010188000032940181,
+        "space": "tcp",
+        "action": "start",
+        "sequence": 1,
+        "emergency": false,
+        "axis": "x",
+        "direction": 1,
+        "frame": "base",
+        "impulse": true,
+        "velocity": 0.002,
+        "step": 0.01,
+        "model_id": "e10d3ed16fb70237ed17bf694cef5fb33e93af2b4bc2807c8479b4b436292d8b",
+        "revision": "2f1186d77ba44f838f65e261aeabd866"
+      },
+      {
+        "t_s": 0.05060259000038059,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 2,
+        "emergency": false
+      },
+      {
+        "t_s": 0.10429688100066414,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 3,
+        "emergency": false
+      },
+      {
+        "t_s": 0.15801565700076026,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 4,
+        "emergency": false
+      },
+      {
+        "t_s": 0.2089110780007104,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 5,
+        "emergency": false
+      },
+      {
+        "t_s": 0.25966046000030474,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 6,
+        "emergency": false
+      },
+      {
+        "t_s": 0.31198473800031934,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 7,
+        "emergency": false
+      },
+      {
+        "t_s": 0.3642253770003663,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 8,
+        "emergency": false
+      },
+      {
+        "t_s": 0.41434023400051956,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 9,
+        "emergency": false
+      },
+      {
+        "t_s": 0.46658545100035553,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 10,
+        "emergency": false
+      },
+      {
+        "t_s": 0.5196498470004371,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 11,
+        "emergency": false
+      },
+      {
+        "t_s": 0.572516860000178,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 12,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6251034490005623,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 13,
+        "emergency": false
+      },
+      {
+        "t_s": 0.6758125080004902,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 14,
+        "emergency": false
+      },
+      {
+        "t_s": 0.7305240210007469,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 15,
+        "emergency": false
+      },
+      {
+        "t_s": 0.784213448000628,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 16,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8382365030001893,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 17,
+        "emergency": false
+      },
+      {
+        "t_s": 0.8925527820001662,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 18,
+        "emergency": false
+      },
+      {
+        "t_s": 0.9428720040004919,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 19,
+        "emergency": false
+      },
+      {
+        "t_s": 0.9960542220005664,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 20,
+        "emergency": false
+      },
+      {
+        "t_s": 1.047358013000121,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 21,
+        "emergency": false
+      },
+      {
+        "t_s": 1.0985198620001029,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 22,
+        "emergency": false
+      },
+      {
+        "t_s": 1.1502713020008741,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 23,
+        "emergency": false
+      },
+      {
+        "t_s": 1.202582813000845,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 24,
+        "emergency": false
+      },
+      {
+        "t_s": 1.2527444940005807,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 25,
+        "emergency": false
+      },
+      {
+        "t_s": 1.303154000000177,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 26,
+        "emergency": false
+      },
+      {
+        "t_s": 1.3559068140002637,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 27,
+        "emergency": false
+      },
+      {
+        "t_s": 1.4084798140002022,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 28,
+        "emergency": false
+      },
+      {
+        "t_s": 1.4634227150008883,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 29,
+        "emergency": false
+      },
+      {
+        "t_s": 1.513589260000117,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 30,
+        "emergency": false
+      },
+      {
+        "t_s": 1.5639383460002136,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 31,
+        "emergency": false
+      },
+      {
+        "t_s": 1.615238027000487,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 32,
+        "emergency": false
+      },
+      {
+        "t_s": 1.6662805910000316,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 33,
+        "emergency": false
+      },
+      {
+        "t_s": 1.7174709030005033,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 34,
+        "emergency": false
+      },
+      {
+        "t_s": 1.7692725850001807,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 35,
+        "emergency": false
+      },
+      {
+        "t_s": 1.8203351490001296,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 36,
+        "emergency": false
+      },
+      {
+        "t_s": 1.8718737580002198,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 37,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9269899880000594,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 38,
+        "emergency": false
+      },
+      {
+        "t_s": 1.9812469110001985,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 39,
+        "emergency": false
+      },
+      {
+        "t_s": 2.034843548000026,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 40,
+        "emergency": false
+      },
+      {
+        "t_s": 2.0854163200001494,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 41,
+        "emergency": false
+      },
+      {
+        "t_s": 2.1375073090002843,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 42,
+        "emergency": false
+      },
+      {
+        "t_s": 2.1901204730002064,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 43,
+        "emergency": false
+      },
+      {
+        "t_s": 2.2415219200001957,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 44,
+        "emergency": false
+      },
+      {
+        "t_s": 2.294332244000543,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 45,
+        "emergency": false
+      },
+      {
+        "t_s": 2.344897137000771,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 46,
+        "emergency": false
+      },
+      {
+        "t_s": 2.3983471990004546,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 47,
+        "emergency": false
+      },
+      {
+        "t_s": 2.4513465720001477,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 48,
+        "emergency": false
+      },
+      {
+        "t_s": 2.5059024530000897,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 49,
+        "emergency": false
+      },
+      {
+        "t_s": 2.5579551240007277,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 50,
+        "emergency": false
+      },
+      {
+        "t_s": 2.6106802060003247,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 51,
+        "emergency": false
+      },
+      {
+        "t_s": 2.661048923000635,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 52,
+        "emergency": false
+      },
+      {
+        "t_s": 2.713532932000817,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 53,
+        "emergency": false
+      },
+      {
+        "t_s": 2.7654512330000216,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 54,
+        "emergency": false
+      },
+      {
+        "t_s": 2.81757426600052,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 55,
+        "emergency": false
+      },
+      {
+        "t_s": 2.8706911430008404,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 56,
+        "emergency": false
+      },
+      {
+        "t_s": 2.921509439000147,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 57,
+        "emergency": false
+      },
+      {
+        "t_s": 2.973298537000119,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 58,
+        "emergency": false
+      },
+      {
+        "t_s": 3.0260849510004846,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 59,
+        "emergency": false
+      },
+      {
+        "t_s": 3.0794334520005577,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 60,
+        "emergency": false
+      },
+      {
+        "t_s": 3.1316582680001375,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 61,
+        "emergency": false
+      },
+      {
+        "t_s": 3.1844391080003334,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 62,
+        "emergency": false
+      },
+      {
+        "t_s": 3.238223611000649,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 63,
+        "emergency": false
+      },
+      {
+        "t_s": 3.290260820000185,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 64,
+        "emergency": false
+      },
+      {
+        "t_s": 3.342744323000261,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 65,
+        "emergency": false
+      },
+      {
+        "t_s": 3.3958497530002205,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 66,
+        "emergency": false
+      },
+      {
+        "t_s": 3.448482258000695,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 67,
+        "emergency": false
+      },
+      {
+        "t_s": 3.5023618880004506,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 68,
+        "emergency": false
+      },
+      {
+        "t_s": 3.5533936730007554,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 69,
+        "emergency": false
+      },
+      {
+        "t_s": 3.6067558010008725,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 70,
+        "emergency": false
+      },
+      {
+        "t_s": 3.659929545000523,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 71,
+        "emergency": false
+      },
+      {
+        "t_s": 3.712886492000507,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 72,
+        "emergency": false
+      },
+      {
+        "t_s": 3.7679811560001326,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 73,
+        "emergency": false
+      },
+      {
+        "t_s": 3.819150123000327,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 74,
+        "emergency": false
+      },
+      {
+        "t_s": 3.8742152510003507,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 75,
+        "emergency": false
+      },
+      {
+        "t_s": 3.9276913140001852,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 76,
+        "emergency": false
+      },
+      {
+        "t_s": 3.9804879290004465,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 77,
+        "emergency": false
+      },
+      {
+        "t_s": 4.033545693000633,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 78,
+        "emergency": false
+      },
+      {
+        "t_s": 4.0881604890000744,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 79,
+        "emergency": false
+      },
+      {
+        "t_s": 4.138535330000195,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 80,
+        "emergency": false
+      },
+      {
+        "t_s": 4.191774032000467,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 81,
+        "emergency": false
+      },
+      {
+        "t_s": 4.24593182100034,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 82,
+        "emergency": false
+      },
+      {
+        "t_s": 4.300100435000786,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 83,
+        "emergency": false
+      },
+      {
+        "t_s": 4.354195594000885,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 84,
+        "emergency": false
+      },
+      {
+        "t_s": 4.408242846000576,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 85,
+        "emergency": false
+      },
+      {
+        "t_s": 4.463381667000249,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 86,
+        "emergency": false
+      },
+      {
+        "t_s": 4.513619787000607,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 87,
+        "emergency": false
+      },
+      {
+        "t_s": 4.566634262000662,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 88,
+        "emergency": false
+      },
+      {
+        "t_s": 4.620345732000715,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 89,
+        "emergency": false
+      },
+      {
+        "t_s": 4.67481512500035,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 90,
+        "emergency": false
+      },
+      {
+        "t_s": 4.728330210000422,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 91,
+        "emergency": false
+      },
+      {
+        "t_s": 4.78166879300079,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 92,
+        "emergency": false
+      },
+      {
+        "t_s": 4.835877333000099,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 93,
+        "emergency": false
+      },
+      {
+        "t_s": 4.88930749300016,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 94,
+        "emergency": false
+      },
+      {
+        "t_s": 4.944431177000297,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 95,
+        "emergency": false
+      },
+      {
+        "t_s": 4.995175697000377,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 96,
+        "emergency": false
+      },
+      {
+        "t_s": 5.048967686000651,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 97,
+        "emergency": false
+      },
+      {
+        "t_s": 5.099285562000659,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 98,
+        "emergency": false
+      },
+      {
+        "t_s": 5.15365154400024,
+        "space": "tcp",
+        "action": "keepalive",
+        "sequence": 99,
+        "emergency": false
+      },
+      {
+        "t_s": 5.165073447000395,
+        "space": "tcp",
+        "action": "stop",
+        "sequence": 100,
+        "emergency": true
+      }
+    ]
+  }
+]

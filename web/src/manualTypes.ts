@@ -7,6 +7,7 @@ export type Axis = {
     jog_min_velocity_degrees_s?: number; jog_max_velocity_degrees_s?: number; configuration_message?: string;
 };
 export type ManualState = {
+    tcp_jog?: import("./physicalTcpJog").TcpJogStatus;
     fresh: boolean; busy: boolean; fault: boolean; recording?: boolean; active_axis: number;
     max_rpm: number; operation: string; message: string; axes: Axis[];
     configuration_revision?: string;

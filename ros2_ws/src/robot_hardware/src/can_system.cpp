@@ -178,7 +178,7 @@ hardware_interface::return_type CanSystem::read(const rclcpp::Time &, const rclc
   return hardware_interface::return_type::OK;
 }
 hardware_interface::return_type CanSystem::write(const rclcpp::Time &, const rclcpp::Duration &) {
-  if (!active_ || state_.program_owned) return hardware_interface::return_type::OK;
+  if (!active_ || state_.program_owned || state_.source==mks_servo_can::Source::tcp_jog) return hardware_interface::return_type::OK;
   if (state_.fault) return hardware_interface::return_type::ERROR;
   mks_servo_can::CommandBatch batch; batch.positions = commands_; batch.sequence = ++sequence_;
   batch.configuration_generation=state_.configuration_generation;

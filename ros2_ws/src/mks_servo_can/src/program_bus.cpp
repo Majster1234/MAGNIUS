@@ -25,18 +25,20 @@ void CanBusManager::configure_program_authorization(const BusConfig &a) {
 }
 void CanBusManager::update_motion_model(const std::string &model) {
   if(model==motion_model_) return;
-  if(executor_.status.busy) fault("Model robota zmienił się podczas wykonania");
+  if(executor_.status.busy || source_==Source::tcp_jog) fault("Model robota zmienił się podczas wykonania");
   else if(executor_.status.state=="ready") { executor_.status.state="invalidated";executor_.status.message="Model zmienił się; przelicz program"; }
   motion_model_=model;
 }
 void CanBusManager::update_motion_settings(const std::string &revision,bool allow_missing,Time now) {
   if(revision.empty() || revision.size()>64) return;
+  if(source_==Source::tcp_jog && revision!=motion_settings_revision_) fault("Ustawienia zmieniły się podczas JOG TCP");
   if(revision!=motion_settings_revision_ && executor_.status.state=="ready") {
     executor_.status.state="invalidated";executor_.status.message="Ustawienia zmieniły się; przygotuj program ponownie";
   }
   motion_settings_revision_=revision;allow_missing_motion_=allow_missing;motion_settings_stamp_=now;
 }
 MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time now) {
+  if(source_==Source::tcp_jog) throw std::runtime_error("Zakończ JOG TCP przed przygotowaniem programu");
   if(!config_.program_enabled) throw std::runtime_error("Wykonanie PTP/LIN wyłączone");
   // Rewizję wybiera zakończona transakcja konfiguracji, a nie kopia UUID w YAML.
   // Sprawdzamy tę bramkę przed przejęciem sterowania od JTC.

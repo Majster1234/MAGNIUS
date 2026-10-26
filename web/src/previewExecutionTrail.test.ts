@@ -104,6 +104,27 @@ it("powtórzenia i próbki powyżej20 Hz nie powiększają bufora; luka rozdziel
     trail.update(duplicate, 150); expect(trail.snapshot().points).toBe(2);
     trail.update(sample(500, 90), 500); expect(trail.snapshot()).toMatchObject({ points: 3, edges: 1, segments: 2 });
 });
+it.each(["PTP", "LIN"] as const)("%s: kolejne klatki tej samej próbki nie rozcinają śladu przed następnym pomiarem", motionType => {
+    const { trail } = fixture();
+    const first = sample(0), second = sample(50, 10);
+    for (const frame of [first, second]) {
+        frame.execution!.status.motion_type = motionType;
+        frame.state!.axes.forEach(axis => { axis.position_age_seconds = .24; });
+    }
+    trail.update(first, 0);
+    // Pomiar był świeży w chwili zapisu, ale starzeje się w pętli renderowania.
+    for (const time of [8, 16, 32, 48]) trail.update(first, time);
+    trail.update(second, 50);
+    expect(trail.snapshot()).toMatchObject({ points: 2, edges: 1, segments: 1 });
+});
+it("zmiana dostępności osi w próbce pominiętej przez limit 20 Hz nie rozcina śladu", () => {
+    const { trail } = fixture();
+    const first = sample(0), skipped = sample(25, 5), next = sample(50, 10);
+    for (const frame of [first, skipped, next]) frame.execution!.status.participating[3] = false;
+    skipped.state!.axes[3].available = false;
+    trail.update(first, 0); trail.update(skipped, 25); trail.update(next, 50);
+    expect(trail.snapshot()).toMatchObject({ points: 2, edges: 1, segments: 1, partial: false });
+});
 it("czyszczenie podczas PTP czeka na nową próbkę i nie łączy starej historii", () => {
     const { trail } = fixture(); trail.update(sample(0), 0); trail.update(sample(50, 10), 50);
     trail.clear(); expect(trail.snapshot()).toMatchObject({ points: 0, visible: false, partial: false });

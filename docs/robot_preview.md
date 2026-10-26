@@ -37,7 +37,7 @@ pozostają niezmienione. Źródłem nie jest wygładzona pozycja widocznego mode
 ani pozycja zadana przez planner. Niebieski plan i złota historia mogą być
 widoczne jednocześnie; legenda jest stale dostępna nad sceną.
 
-Zapis obejmuje wyłącznie trwające wykonania PTP rozróżnione przez `program_id`
+Zapis obejmuje wyłącznie trwające wykonania PTP/LIN rozróżnione przez `program_id`
 i `execution_key`. Przygotowanie, animacja podglądu i fizyczny JOG nie rozpoczynają
 historii. Kolejne wykonania dodają osobne odcinki, bez linii łączących koniec
 jednego z początkiem następnego. Sukces, błąd i STOP zachowują zgromadzony tor;
@@ -46,16 +46,31 @@ wyjście z trybu planowania także go nie usuwa.
 Przy brakujących osiach nieuczestniczących w programie FK przyjmuje ich kąty
 startowe z tego programu. Złoty ślad ma wtedy jawne oznaczenie **„Tor modelu —
 niepełne pomiary”**. Nie jest potwierdzeniem fizycznego TCP. Utrata pomiaru
-uczestniczącej osi, utrata statusu PTP lub przerwa w odbiorze rozdziela tor:
+uczestniczącej osi, utrata statusu wykonania lub przerwa w odbiorze rozdziela tor:
 po odzyskaniu danych powstaje nowy odcinek, bez interpolowania luki. Zmiana
 zestawu dostępnych pomiarów także rozdziela odcinki.
 
 Istniejący strumień WebSocket dostarcza pomiary; zapis ma limit 20 Hz i pomija
-powtórzenia. Pomiar przegubu musi być młodszy niż 250 ms, a ostatni status PTP
+powtórzenia. Pomiar przegubu musi być młodszy niż 250 ms, a ostatni status wykonania
 niż 750 ms. Nie powstają dodatkowe zapytania HTTP, usługi ROS ani ramki CAN.
 Renderowanie i pobieranie statusu zachowują dotychczasowe częstotliwości.
 Historia obejmuje tylko próbki obserwowane przez otwarty widok, nie odtwarza
 ruchu sprzed jego otwarcia ani z czasu ukrycia karty.
+
+Scena otrzymuje stan i znacznik jego odbioru razem, w `useLayoutEffect`, przed
+kolejną klatką animacji. Powtórne renderowanie już zapisanej próbki nie rozcina
+historii po wygaśnięciu jej wieku; długa przerwa odbioru nadal rozdziela tor.
+Zmiana zestawu dostępnych osi nieuczestniczących rozdziela tor dopiero dla
+próbki przyjętej do zapisu, a nie pominiętej przez limit 20 Hz.
+
+Weryfikacja poprawki przerw (25.10.2026): trzy nowe scenariusze regresji
+odtworzyły problem przed zmianą i przeszły po niej. `npm run build`, 132 testy
+jednostkowe oraz `trails.browser.cjs` przeszły. Test Chromium sprawdził ciągłość
+PTP i LIN, przerwy po utracie enkodera/statusu, czyszczenie i historię; korzystał
+wyłącznie z atrap HTTP/WebSocket i nie wysłał poleceń sterowania.
+Nowy frontend skopiowano do katalogu `web` pakietu `robot_web_bridge` w aktywnej
+nakładce `install/motion-control-ui-ros`; zgodność strony i zasobów potwierdzono
+przez HTTP GET. Usługa nie wymagała restartu; otwarte karty należy odświeżyć.
 
 **„Wyczyść ślad”** usuwa wyłącznie złotą historię. Podczas PTP zbieranie wznawia
 się od kolejnej poprawnej próbki. Bufor mieści maksymalnie 20 000 punktów;

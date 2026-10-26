@@ -196,12 +196,13 @@ bool CanBusManager::feedback_good(Time now) const {
 }
 bool CanBusManager::activate(Source source, Time now) {
   if (!configuration_ready_ || configuration_locked_) return false;
-  if (config_.source_lease_required) {
+  if (config_.source_lease_required && source!=Source::tcp_jog) {
     if (source_ == Source::none || now < lease_stamp_ || now - lease_stamp_ >= config_.source_lease_timeout) return false;
     source = source_;
   }
   if (program_owned_ || executor_.status.busy || source == Source::program) return false;
-  if (active_ || manual_->busy() || scanning_ || fault_ || source == Source::none || !config_.motion_enabled ||
+  if (active_ || manual_->busy() || scanning_ || fault_ || source == Source::none ||
+      (!config_.motion_enabled && !(source==Source::tcp_jog && config_.tcp_jog_enabled)) ||
       !transport_->is_open() || !feedback_good(now)) return false;
   for (std::size_t i = 0; i < kAxes; ++i) {
     committed_positions_[i] = position_to_joint(config_.axes[i], devices_[config_.axes[i].address].position.value);
@@ -219,10 +220,12 @@ bool CanBusManager::submit(const CommandBatch &batch) {
   if(!configuration_ready_ || configuration_locked_ || batch.configuration_generation!=configuration_generation_) return false;
   if (executor_.status.busy || batch.source == Source::program) return false;
   if (!active_ || fault_ || batch.source != source_ || batch.sequence <= last_sequence_) return false;
+  if(source_==Source::tcp_jog && batch.control_generation!=control_generation_) return false;
   if (latest_) ++stats_.dropped_commands;
   latest_ = batch; last_sequence_ = batch.sequence; return true;
 }
 void CanBusManager::renew_source_lease(Source source, Time now) {
+  if(source_==Source::tcp_jog || source==Source::tcp_jog) return;
   if (fault_ || program_owned_ || executor_.status.busy) return;
   if (!active_) { source_ = source; lease_stamp_ = now; return; }
   if (source == Source::none) { fault("Źródło sterowania zwolniło uprawnienie ruchu"); return; }
@@ -241,7 +244,7 @@ void CanBusManager::fault(const std::string &message) {
   }
   fault_ = true; active_ = false; scanning_ = false; message_ = message;
   manual_->transport_fault();
-  latest_.reset(); source_ = Source::none; ++stats_.errors;
+  latest_.reset(); source_ = Source::none; tcp_owner_.clear();tcp_last_stop_=last_tick_;++stats_.errors;
   for (auto &p : pending_) p.used = false;
   if (was_active) { config_.program_staged_reset_verified=false;emergency_stop(); }
 }
@@ -415,6 +418,7 @@ void CanBusManager::receive(Time now) {
         continue;
       }
     }
+    if(manual_->group_reply(frame->address,frame->data,stamp)) continue;
     auto matched = false;
     for (auto &p : pending_) {
       if (!p.used || p.address != frame->address || frame->data.empty() || p.command != frame->data.front()) continue;
@@ -474,7 +478,8 @@ void CanBusManager::start_cycle(Time now) {
 }
 void CanBusManager::schedule_feedback(Time now) {
   if(active_) {
-    if(source_==Source::program && !program_query_window(now,executor_.started)) return;
+    if((source_==Source::program || source_==Source::tcp_jog) &&
+        !program_query_window(now,source_==Source::tcp_jog ? tcp_started_ : executor_.started)) return;
     for(unsigned j=0;j<kAxes;++j) {
       if(source_==Source::program && !executor_.status.participating[j]) continue;
       const auto address=config_.axes[j].address;
@@ -498,12 +503,12 @@ void CanBusManager::schedule_feedback(Time now) {
   }
 }
 void CanBusManager::schedule_background(Time now) {
-  if(active_ && source_==Source::program) {
-    if(!program_query_window(now,executor_.started)) return;
+  if(active_ && (source_==Source::program || source_==Source::tcp_jog)) {
+    if(!program_query_window(now,source_==Source::tcp_jog ? tcp_started_ : executor_.started)) return;
     while(diagnostic_transactions_<kDiagnosticTransactionsPerCycle) {
       Time oldest=now+std::chrono::hours(1);Time *due=nullptr;
       std::uint16_t selected{};Kind selected_kind{};std::chrono::milliseconds period{};
-      for(unsigned j=0;j<kAxes;++j) if(executor_.status.participating[j]) {
+      for(unsigned j=0;j<kAxes;++j) if(source_==Source::tcp_jog || executor_.status.participating[j]) {
         const auto address=config_.axes[j].address;
         if(!can_send(address,now)) continue;
         auto consider=[&](Kind kind,Time &next,std::chrono::milliseconds interval) {
@@ -547,7 +552,9 @@ void CanBusManager::schedule_background(Time now) {
   }
 }
 void CanBusManager::schedule_motion(Time now) {
-  if(config_.source_lease_required && (now<lease_stamp_ || now-lease_stamp_>=config_.source_lease_timeout)) {fault("Utrata źródła trajektorii");return;}
+  const bool tcp=source_==Source::tcp_jog;
+  if(tcp && !tcp_braking_ && (now<tcp_lease_ || now-tcp_lease_>=std::chrono::milliseconds(200))) {fault("Brak podtrzymania JOG TCP");return;}
+  if(!tcp && config_.source_lease_required && (now<lease_stamp_ || now-lease_stamp_>=config_.source_lease_timeout)) {fault("Utrata źródła trajektorii");return;}
   if(now-last_command_>=config_.command_timeout) {fault("Brak świeżej komendy sterowania");return;}
   if(!feedback_good(now)) {fault("Brak świeżej pozycji/ENABLE lub awaria napędu");return;}
   if(!latest_ || motion_this_cycle_) return;
@@ -560,10 +567,20 @@ void CanBusManager::schedule_motion(Time now) {
   for(unsigned j=0;j<kAxes;++j) {
     const auto &axis=config_.axes[j];
     if(!std::isfinite(batch.velocities[j]) || std::abs(batch.velocities[j])>axis.max_velocity+1e-6) {fault("Prędkość poza limitem osi");return;}
+    if(tcp && (!std::isfinite(batch.accelerations[j]) || std::abs(batch.accelerations[j])>axis.max_acceleration+1e-6 ||
+        !std::isfinite(batch.remaining_time_sec) || batch.remaining_time_sec<0)) {fault("Nieprawidłowe hamowanie TCP");return;}
     const auto feedback=streaming_feedback_position(j,now);
+    if(tcp && feedback.valid) {
+      const double quantization=kPi/(axis.streaming.encoder_cpr*axis.gear_ratio);
+      if(!std::isfinite(feedback.value) || feedback.value<axis.lower-quantization-1e-9 || feedback.value>axis.upper+quantization+1e-9) {
+        fault("Pomiar JOG TCP poza limitem mechanicznym J"+std::to_string(j+1));return;
+      }
+    }
     const auto sample=streaming_setpoint(axis,batch.positions[j],batch.velocities[j],next_streaming[j],
         feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,
-        0.,axis.streaming.lookahead_time_sec,feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.);
+        tcp ? batch.accelerations[j] : 0.,tcp ? batch.remaining_time_sec : axis.streaming.lookahead_time_sec,
+        feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.,
+        tcp ? std::optional<double>(batch.lookahead_positions[j]) : std::nullopt);
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
   }
   spent_bits_+=cost;
@@ -621,6 +638,7 @@ BusSnapshot CanBusManager::snapshot() const {
 ControlState CanBusManager::control_state() const {
   ControlState state; state.active = active_; state.fault = fault_; state.source = source_;state.program_owned=program_owned_;
   state.configuration_generation=configuration_generation_;
+  state.control_generation=control_generation_;
   state.configuration_ready=configuration_ready_ && !configuration_locked_;
   for (std::size_t i = 0; i < kAxes; ++i) {
     const auto &axis = config_.axes[i]; const auto &p = devices_[axis.address].position;

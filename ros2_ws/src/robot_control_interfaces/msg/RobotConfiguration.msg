@@ -2,3 +2,7 @@ string revision
 JointConfiguration[6] axes
 bool[6] changed
 bool[6] calibration_invalid
+float64 tcp_jog_max_linear_velocity
+float64 tcp_jog_max_angular_velocity
+float64 tcp_jog_linear_acceleration
+float64 tcp_jog_angular_acceleration

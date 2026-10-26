@@ -30,7 +30,8 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &axis,double position,doub
     StreamingState &state,std::optional<double> actual_position=std::nullopt,std::uint16_t microstep=16);
 StreamingSetpoint streaming_setpoint(const AxisConfig &axis,double position,double velocity,
     StreamingState &state,std::optional<double> actual_position,std::uint16_t microstep,
-    double reference_acceleration,double remaining_time_sec,double actual_age_sec=0.0);
+    double reference_acceleration,double remaining_time_sec,double actual_age_sec=0.0,
+    std::optional<double> lookahead_position=std::nullopt);
 // Pełny koszt: F5 i asynchroniczne pozycje 100 Hz oraz zachowana diagnostyka.
 double streaming_bus_utilization(unsigned axes,unsigned bitrate);
 PreparedMotionProgram compile_streaming_program(PreparedMotionProgram program,

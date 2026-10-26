@@ -16,7 +16,7 @@ from ament_index_python.packages import get_package_prefix
 from sensor_msgs.msg import JointState
 from tf2_msgs.msg import TFMessage
 from robot_control_interfaces.srv import ConfigureRobot, ConfigurationCommand
-from robot_control_interfaces.msg import MotionSettings
+from robot_control_interfaces.msg import MotionSettings, RobotConfiguration
 from robot_configuration.node import ConfigurationNode
 from robot_configuration.schema import empty_document, build_urdf
 
@@ -55,6 +55,8 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
     node = ConfigurationNode()
     client = probe.create_client(ConfigurationCommand,'/robot/configuration/command')
     motion_settings = []
+    active_configurations = []
+    probe.create_subscription(RobotConfiguration, '/robot/configuration/active', lambda value: active_configurations.append(value), 10)
     probe.create_subscription(MotionSettings, '/robot/motion/settings', lambda value: motion_settings.append(value), 10)
     transforms = {}
     probe.create_subscription(TFMessage,'/robot/preview/tf',lambda message:transforms.update({item.child_frame_id:item for item in message.transforms}),10)
@@ -91,6 +93,8 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
         for key,value in dict(gear_ratio=50,direction=-1,zero_offset=10,lower=-180,upper=180,velocity=30,acceleration=60).items():
             document['values'][f'joint.1.{key}']=value
         document['values']['joint.1.origin_x']=123
+        document['values'].update({'tcp.max_linear_velocity':100,'tcp.max_angular_velocity':30,
+                                 'tcp.linear_acceleration':500,'tcp.angular_acceleration':60})
         code,snapshot=command('create',document=document);assert code==201
         assert command('get',id=snapshot['id'])[1]['values']['joint.1.origin_x']==123
         assert command('status')[1]['active']['revision']=='initial','Snapshot nie stosuje konfiguracji'
@@ -102,6 +106,14 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
             time.sleep(.1)
         assert state['operation']['phase']=='done',state
         revision=state['active']['revision']
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline and not any(value.revision==revision for value in active_configurations):
+            time.sleep(.02)
+        active_tcp=next(value for value in reversed(active_configurations) if value.revision==revision)
+        assert active_tcp.tcp_jog_max_linear_velocity==.1
+        assert active_tcp.tcp_jog_max_angular_velocity==math.radians(30)
+        assert active_tcp.tcp_jog_linear_acceleration==.5
+        assert active_tcp.tcp_jog_angular_acceleration==math.radians(60)
         assert revision==runtime['revision'] and not runtime['locked']
         assert profiles[-1].axes[0].velocity_rad_s==math.radians(30)
         assert profiles[-1].axes[0].zero_offset_rad==math.radians(10)

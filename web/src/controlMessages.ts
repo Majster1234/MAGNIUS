@@ -39,10 +39,12 @@ export function describeControlNotice(notice: Notice): Notice {
             notice.source.startsWith("jog") || notice.source.startsWith("tcp")?"jog":undefined;
     }
     const item=code?help[code]:undefined;
+    const description=code==="fault" && notice.message.trim()
+        ? `Właściciel sterowania zgłosił awarię: ${notice.message}` : item?.description;
     const context=notice.context ?? (notice.source.startsWith("motion")?"Robot fizyczny":notice.source.startsWith("simulation")?"Symulacja":
         notice.source.startsWith("tcp")?"Cel TCP":notice.source.startsWith("profile-")?`Oś J${notice.source.slice(8)}`:"Sterowanie");
     return {...notice,code,context,title:notice.title ?? item?.title ?? (notice.severity==="info"?notice.message:"Operacja sterowania nie powiodła się"),
-        description:notice.description ?? item?.description ?? (notice.severity==="info"?notice.message:`${notice.message} Przyczyna nie została jednoznacznie rozpoznana.`),
+        description:notice.description ?? description ?? (notice.severity==="info"?notice.message:`${notice.message} Przyczyna nie została jednoznacznie rozpoznana.`),
         remedy:notice.remedy ?? item?.remedy ?? (notice.severity==="info"?undefined:"Sprawdź aktualny stan właściwej operacji i szczegóły techniczne. Przed ponowieniem ruchu wyjaśnij przyczynę odrzucenia."),
         details:notice.details ?? (notice.severity!=="info"?notice.message:undefined),href:notice.href ?? item?.href};
 }

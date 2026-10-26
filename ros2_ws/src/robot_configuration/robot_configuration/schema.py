@@ -11,10 +11,12 @@ MAX_BYTES = 65536
 CONTROL = ('gear_ratio', 'direction', 'zero_offset', 'lower', 'upper', 'velocity', 'acceleration')
 ORIGIN = ('origin_x', 'origin_y', 'origin_z', 'origin_roll', 'origin_pitch', 'origin_yaw')
 TCP = ('tcp_x', 'tcp_y', 'tcp_z', 'tcp_roll', 'tcp_pitch', 'tcp_yaw')
+TCP_MOTION = ('max_linear_velocity', 'max_angular_velocity', 'linear_acceleration', 'angular_acceleration')
 TEXT = ('robot.name', 'robot.base_frame', 'robot.flange_frame', 'tool.name', 'tool.frame')
 KEYS = (*TEXT, 'tool.mass', 'tool.com_x', 'tool.com_y', 'tool.com_z',
         *(f'tool.{key}' for key in TCP),
-        *(f'joint.{axis}.{key}' for axis in range(1, 7) for key in (*ORIGIN, *CONTROL)))
+        *(f'joint.{axis}.{key}' for axis in range(1, 7) for key in (*ORIGIN, *CONTROL)),
+        *(f'tcp.{key}' for key in TCP_MOTION))
 DEMO = ((0, 0, 100), (0, 0, 100), (0, 0, 250), (220, 0, 0), (80, 0, 0), (60, 0, 0))
 AXES = ((0, 0, 1), (0, 1, 0), (0, 1, 0), (1, 0, 0), (0, 1, 0), (1, 0, 0))
 
@@ -34,9 +36,13 @@ def validate(document):
     if type(document.get('schema_version')) is not int or document['schema_version'] != VERSION or document.get('units') != UNITS:
         raise ValueError('Nieobsługiwana wersja lub jednostki snapshotu; wymagane mm-deg-kg, wersja 1')
     values = document.get('values')
-    if not isinstance(values, dict) or set(values) != set(KEYS):
+    required = set(KEYS) - {f'tcp.{key}' for key in TCP_MOTION}
+    if not isinstance(values, dict) or set(values) - set(KEYS) or required - set(values):
         raise ValueError('Snapshot musi zawierać komplet znanych pól; nieznane dane zapisuj jako null')
     result = deepcopy(document)
+    for key in TCP_MOTION:
+        result['values'].setdefault(f'tcp.{key}', None)
+    values = result['values']
     for key, value in values.items():
         if value is None:
             continue
@@ -50,6 +56,8 @@ def validate(document):
             field = key.rsplit('.', 1)[-1]
             if field in ('gear_ratio', 'velocity', 'acceleration') and value <= 0:
                 raise ValueError(f'{key}: wartość musi być dodatnia')
+            if key.startswith('tcp.') and value <= 0:
+                raise ValueError(f'{key}: wartość musi być dodatnia')
             if field == 'direction' and value not in (-1, 1):
                 raise ValueError(f'{key}: kierunek musi wynosić +1 albo -1')
             if key == 'tool.mass' and value < 0:
@@ -58,6 +66,10 @@ def validate(document):
         lower, upper = (values[f'joint.{axis}.{key}'] for key in ('lower', 'upper'))
         if lower is not None and upper is not None and lower >= upper:
             raise ValueError(f'J{axis}: dolny limit musi być mniejszy od górnego')
+    for velocity, acceleration in (('max_linear_velocity', 'linear_acceleration'), ('max_angular_velocity', 'angular_acceleration')):
+        v, a = values[f'tcp.{velocity}'], values[f'tcp.{acceleration}']
+        if v is not None and a is not None and v / a > 10:
+            raise ValueError('Profil TCP wymaga hamowania dłuższego niż 10 s')
     name = document.get('name', '')
     if not isinstance(name, str) or len(name) > 80:
         raise ValueError('Nazwa snapshotu: do 80 znaków')
@@ -92,7 +104,7 @@ def profiles(document):
 
 def changed_axes(previous, candidate):
     a, b = previous['values'], candidate['values']
-    common = any(a[key] != b[key] for key in KEYS if not key.startswith('joint.'))
+    common = any(a.get(key) != b.get(key) for key in KEYS if not key.startswith(('joint.', 'tcp.')))
     return [common or any(a[f'joint.{axis}.{key}'] != b[f'joint.{axis}.{key}'] for key in (*ORIGIN, *CONTROL))
             for axis in range(1, 7)]
 
@@ -107,7 +119,8 @@ def build_urdf(document, revision):
     values = document['values']
     complete = all(values[f'joint.{axis}.{key}'] is not None for axis in range(1, 7) for key in ORIGIN)
     root = ET.Element('robot', name=values['robot.name'] or 'configured_preview',
-                      configuration_revision=revision, model_kind='configured' if complete else 'partial-demo')
+                      configuration_revision=revision, model_kind='configured' if complete else 'partial-demo',
+                      tcp_configured='true' if complete and all(values[f'tool.{key}'] is not None for key in TCP) else 'false')
     names = [values['robot.base_frame'] or 'base_link', *[f'link_{i}' for i in range(1, 6)],
              values['robot.flange_frame'] or 'link_6', values['tool.frame'] or 'tool0']
     translations, rotations = [], []
