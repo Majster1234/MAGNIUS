@@ -74,6 +74,12 @@ struct CommandBatch {
   std::uint64_t configuration_generation{};
   Source source{Source::none};
 };
+struct TcpStreamingSnapshot {
+  std::array<double,6> reference{}, target{}, shaft_rpm{};
+  Time reference_created{};
+  std::uint64_t generation{};
+  bool command_available{};
+};
 struct BusConfig {
   std::string interface{"can0"};
   unsigned bitrate{500000};
@@ -148,9 +154,10 @@ class CanBusManager {
   bool finish_tcp_jog(const std::string &session,std::uint64_t generation);
   bool brake_tcp_jog(const std::string &session,std::uint64_t generation);
   bool tcp_jog_available(Time now) const;
+  TcpStreamingSnapshot tcp_streaming_snapshot() const;
   bool submit(const CommandBatch &batch);
   void renew_source_lease(Source source, Time now);
-  void stop(const std::string &reason);
+  void stop(const std::string &reason, bool critical = true);
   void clear_fault();
   void reset_session(ResetMode mode = ResetMode::clear_discovery);
   BusSnapshot snapshot() const;
@@ -198,7 +205,8 @@ class CanBusManager {
   void expire(Time now);
   bool decode(Pending &pending, const Frame &frame, Time stamp);
   void next_scan(std::uint16_t address);
-  void fault(const std::string &message);
+  void fault(const std::string &message, bool critical = true);
+  void disable_enable_after_fault();
   void emergency_stop();
   void send_zero_stop(Time now);
   Time current_time(Time fallback) const;
@@ -210,6 +218,7 @@ class CanBusManager {
   void send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload);
   Sample<double> streaming_feedback_position(unsigned joint,Time now) const;
   bool feedback_good(Time now) const;
+  std::string feedback_failure_reason(Time now) const;
   void schedule_feedback(Time now);
   void schedule_background(Time now);
   void schedule_motion(Time now);

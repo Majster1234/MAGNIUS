@@ -1,5 +1,6 @@
 #pragma once
 #include "mks_servo_can/bus_manager.hpp"
+#include "mks_servo_can/idle_enable_monitor.hpp"
 
 namespace mks_servo_can {
 struct ManualAxisState {
@@ -41,7 +42,7 @@ class ManualMotorController {
   void reply(const std::vector<std::uint8_t> &data, Time stamp);
   void timeout();
   void transport_fault();
-  void abort(const std::string &reason) { fail(reason); }
+  void abort(const std::string &reason, bool critical = true) { fail(reason, critical); }
   std::uint16_t microstep(unsigned axis) const { return microstep_.at(axis-1); }
   bool prepared(unsigned axis) const { return prepared_.at(axis-1); }
   void invalidate_program_handover() { prepared_.fill(false); profile_verified_.fill(false); }
@@ -59,9 +60,10 @@ class ManualMotorController {
   };
   bool begin(unsigned axis, Operation op, Time now);
   void group_tick(Time now);
+  void idle_tick(Time now);
   void add(std::vector<std::uint8_t> data, std::size_t length = 3, int expected = 1);
   void stop(Time now, const std::string &reason);
-  void fail(const std::string &message);
+  void fail(const std::string &message, bool critical = true);
   bool stopped(unsigned axis, Time now, std::chrono::milliseconds window = std::chrono::milliseconds(60)) const;
   bool jog_stopped(unsigned axis, Time now) const;
   bool position_stable(unsigned axis, Time now, std::chrono::milliseconds window = std::chrono::milliseconds(100)) const;
@@ -98,5 +100,7 @@ class ManualMotorController {
   Time group_sent_{}, group_next_{};
   unsigned group_axis_{};
   std::array<bool,kAxes> group_targets_{}, group_done_{};
+  IdleEnableMonitor idle_monitor_;
+  bool idle_disable_{};
 };
 }  // namespace mks_servo_can

@@ -80,3 +80,51 @@ TEST(TcpJog, ConfiguredIkToleranceStillBoundsMeasuredCartesianPathAndJointDynami
     EXPECT_THROW(TcpJog(model(),start,filled(2),filled(10),request),std::invalid_argument);
   }
 }
+
+#include "robot_kinematics/feedback_alignment.hpp"
+TEST(TcpJerk, EndpointAndEverySampleRespectVelocityAccelerationAndJerk) {
+  for(double length:{.000001,.001,.01,.04}) {
+    const auto profile=JerkProfile::move(.002,.1,.5,length);ScalarSample previous;
+    for(unsigned k=0;k<10000;++k) {
+      const auto s=profile.sample(k*.01);
+      EXPECT_LE(s.velocity,.002+1e-12);EXPECT_GE(s.velocity,-1e-12);
+      EXPECT_LE(std::abs(s.acceleration),.1+1e-12);EXPECT_LE(std::abs(s.jerk),.5+1e-6);
+      EXPECT_LE(std::abs(s.acceleration-previous.acceleration)/.01,.5+1e-6);
+      EXPECT_LE(s.position,length+1e-12);EXPECT_GE(s.position,previous.position-1e-12);
+      previous=s;if(s.done)break;
+    }
+    EXPECT_TRUE(previous.done);EXPECT_NEAR(previous.position,length,1e-12);
+    EXPECT_DOUBLE_EQ(previous.velocity,0);EXPECT_DOUBLE_EQ(previous.acceleration,0);
+  }
+  const auto p=JerkProfile::move(.002,.1,.5,.01);
+  EXPECT_GT(p.sample(.02).acceleration,0);EXPECT_LT(p.sample(.02).velocity,.002);
+  EXPECT_GT(p.braking_at(),.12);
+}
+TEST(TcpJerk, ReleasingAtEveryRampPhaseKeepsMonotonicJerkLimitedStop) {
+  const auto moving=JerkProfile::move(.002,.1,.5,.01);
+  for(double time:{.01,.03,.07,.11,.14,1.,5.02,5.08,5.12}) {
+    const auto from=moving.sample(time);const auto p=JerkProfile::stop(from.velocity,from.acceleration,.1,.5);
+    auto previous=from;previous.position=0;
+    for(unsigned k=1;k<1000;++k) {
+      const auto s=p.sample(k*.01);EXPECT_GE(s.position,previous.position-1e-12);EXPECT_GE(s.velocity,-1e-12);
+      EXPECT_LE(std::abs(s.acceleration-previous.acceleration)/.01,.5+1e-6);
+      previous=s;if(s.done)break;
+    }
+    EXPECT_TRUE(previous.done);EXPECT_DOUBLE_EQ(previous.velocity,0);EXPECT_DOUBLE_EQ(previous.acceleration,0);
+    EXPECT_LE(from.position+previous.position,.01+1e-10);
+  }
+}
+TEST(TcpFeedback, AligningDifferentEncoderTimesRemovesApparentFkError) {
+  Joints velocity{.1,.2,0,0,0,0},raw=start;
+  std::array<double,6> times{.985,.993,1,1,1,1};
+  for(unsigned j=0;j<6;++j)raw[j]-=velocity[j]*(1-times[j]);
+  const auto aligned=align_feedback(raw,velocity,times,1);
+  EXPECT_GT((model().fk(raw).translation()-model().fk(start).translation()).norm(),1e-6);
+  EXPECT_LT((model().fk(aligned.positions).translation()-model().fk(start).translation()).norm(),1e-12);
+  for(bool warning:aligned.warning)EXPECT_FALSE(warning);
+  times[0]=.94;velocity[1]=NAN;
+  const auto stale=align_feedback(raw,velocity,times,1);
+  EXPECT_TRUE(stale.warning[0]);EXPECT_TRUE(stale.warning[1]);EXPECT_DOUBLE_EQ(stale.positions[0],raw[0]);EXPECT_DOUBLE_EQ(stale.positions[1],raw[1]);
+  times[0]=.97;velocity[0]=1;
+  EXPECT_NEAR(align_feedback(raw,velocity,times,1).positions[0],raw[0]+.020,1e-12);
+}

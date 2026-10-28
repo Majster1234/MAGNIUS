@@ -4,6 +4,17 @@
 #include <algorithm>
 
 namespace mks_servo_can {
+TcpStreamingSnapshot CanBusManager::tcp_streaming_snapshot() const {
+  TcpStreamingSnapshot out;out.reference=committed_positions_;out.reference_created=last_command_;out.generation=control_generation_;
+  out.command_available=source_==Source::tcp_jog && last_command_>tcp_started_;
+  for(unsigned j=0;j<6;++j) {
+    const auto &data=stream_payloads_[j];const auto raw=(std::uint32_t(data[4])<<16)|(std::uint32_t(data[5])<<8)|data[6];
+    const auto ticks=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : static_cast<std::int32_t>(raw);
+    out.target[j]=position_to_joint(config_.axes[j],ticks);
+    out.shaft_rpm[j]=(((data[1]&0x0f)<<8)|data[2])*speed_scale(devices_[config_.axes[j].address].microstep.value);
+  }
+  return out;
+}
 bool CanBusManager::tcp_jog_available(Time now) const {
   if(!config_.tcp_jog_enabled || !configuration_ready_ || configuration_locked_ || scanning_ || active_ || fault_ ||
       manual_->busy() || executor_.status.busy || executor_.status.state=="ready" || !transport_->is_open() || !feedback_good(now) ||

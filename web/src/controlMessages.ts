@@ -41,10 +41,13 @@ export function describeControlNotice(notice: Notice): Notice {
     const item=code?help[code]:undefined;
     const description=code==="fault" && notice.message.trim()
         ? `Właściciel sterowania zgłosił awarię: ${notice.message}` : item?.description;
+    const primaryReason=notice.message.split("; reguła awarii krytycznej:")[0].split("; nie wysłano ENABLE=0:")[0];
+    const axes=code==="fault" ? [...new Set(primaryReason.match(/\bJ[1-6]\b/g) ?? [])] : [];
+    const title=code==="fault" && axes.length ? `${item!.title} · ${axes.join(", ")}` : item?.title;
     const context=notice.context ?? (notice.source.startsWith("motion")?"Robot fizyczny":notice.source.startsWith("simulation")?"Symulacja":
         notice.source.startsWith("tcp")?"Cel TCP":notice.source.startsWith("profile-")?`Oś J${notice.source.slice(8)}`:"Sterowanie");
-    return {...notice,code,context,title:notice.title ?? item?.title ?? (notice.severity==="info"?notice.message:"Operacja sterowania nie powiodła się"),
-        description:notice.description ?? description ?? (notice.severity==="info"?notice.message:`${notice.message} Przyczyna nie została jednoznacznie rozpoznana.`),
+    return {...notice,code,context,title:notice.title ?? title ?? (notice.severity==="info"?notice.message:"Operacja sterowania nie powiodła się"),
+        description:notice.description ?? description ?? notice.message,
         remedy:notice.remedy ?? item?.remedy ?? (notice.severity==="info"?undefined:"Sprawdź aktualny stan właściwej operacji i szczegóły techniczne. Przed ponowieniem ruchu wyjaśnij przyczynę odrzucenia."),
         details:notice.details ?? (notice.severity!=="info"?notice.message:undefined),href:notice.href ?? item?.href};
 }

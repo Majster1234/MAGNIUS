@@ -462,3 +462,34 @@ def test_lost_finish_recovery_preserves_unconfirmed_calibration(tmp_path):
     transport.control = original
     coordinator.bootstrap()
     assert coordinator.operation['phase'] == 'idle' and storage.calibration(coordinator.active['revision'])[0]
+
+
+def test_critical_fault_policy_migration_and_strict_boolean():
+    from robot_configuration.schema import CRITICAL_FAULT_POLICY, changed_axes
+    legacy = configured()
+    del legacy['values'][CRITICAL_FAULT_POLICY]
+    migrated = validate(legacy)
+    assert migrated['values'][CRITICAL_FAULT_POLICY] is True
+    disabled = deepcopy(migrated)
+    disabled['values'][CRITICAL_FAULT_POLICY] = False
+    assert validate(disabled)['values'][CRITICAL_FAULT_POLICY] is False
+    assert changed_axes(migrated, disabled) == [False] * 6
+    for invalid in (None, 0, 1, 'false', 'true'):
+        disabled['values'][CRITICAL_FAULT_POLICY] = invalid
+        with pytest.raises(ValueError, match='true albo false'):
+            validate(disabled)
+
+
+def test_critical_fault_policy_requires_can_confirmation():
+    from robot_configuration.schema import CRITICAL_FAULT_POLICY
+    from robot_configuration.resolution import resolve
+    previous = {'revision': 'before', 'document': validate(configured())}
+    candidate = deepcopy(previous)
+    candidate['revision'] = 'after'
+    candidate['document']['values'][CRITICAL_FAULT_POLICY] = False
+    response = {'resolved_configuration': {'revision': 'after', 'axes': profiles(candidate['document']),
+                'calibration_invalid': [False] * 6, 'disable_enable_on_critical_fault': False}}
+    assert resolve(previous, candidate, response)[0]['document']['values'][CRITICAL_FAULT_POLICY] is False
+    response['resolved_configuration']['disable_enable_on_critical_fault'] = True
+    with pytest.raises(RuntimeError, match='CAN nie potwierdził reguły'):
+        resolve(previous, candidate, response)

@@ -1,5 +1,6 @@
 #include "mks_servo_can/manual_motor_controller.hpp"
 #include "mks_servo_can/trace.hpp"
+#include "mks_servo_can/diagnostic_message.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -65,6 +66,7 @@ bool ManualMotorController::begin(unsigned axis, Operation op, Time now) {
       (busy() && !(group_step_ && phase_==Phase::idle)) || bus_.active_ || bus_.fault_ || !bus_.transport_->is_open()) return false;
   const auto &d = bus_.devices_[axis];
   if (!d.detected || d.identity.model != Model::kServo42D || !d.position.fresh(now, 60ms)) return false;
+  if(!group_active_) idle_disable_=false;
   bus_.scanning_ = false;
   axis_ = axis; operation_ = op; phase_ = Phase::sequence;
   step_ = step_count_ = 0; waiting_ = false; disable_after_ = false; retry_at_ = {};
@@ -117,6 +119,7 @@ bool ManualMotorController::set_enable_all(bool enabled, Time now) {
     targets[j]=true;
   }
   if(std::none_of(targets.begin(),targets.end(),[](bool value){return value;})) return false;
+  idle_disable_=false;
   group_active_=true;group_enabled_=enabled;group_committing_=false;group_targets_=targets;group_done_.fill(false);group_axis_=0;
   message_=enabled ? "Załączanie wszystkich dostępnych napędów" : "Wyłączanie wszystkich dostępnych napędów";
   return true;
@@ -257,7 +260,7 @@ bool ManualMotorController::jog_impl(JogAction action, unsigned axis, int direct
 void ManualMotorController::stop(Time now, const std::string &reason) {
   if (phase_ == Phase::stopping || phase_ == Phase::fault || phase_ == Phase::idle) return;
   trace_note("manual_stop", reason, axis_);
-  phase_ = Phase::stopping; message_ = reason; last_stop_ = now;
+  phase_ = Phase::stopping; message_ = axis_diagnostic_label(axis_,axis_)+": "+reason; last_stop_ = now;
   waiting_ = stop_sent_ = false;
   const auto &speed = bus_.devices_[axis_].speed;
   const auto rpm = std::max<double>(rpm_, speed.valid ? std::abs(speed.value) : 0);
@@ -267,14 +270,16 @@ void ManualMotorController::stop(Time now, const std::string &reason) {
   for (auto &p : bus_.pending_) if (p.used && p.address == axis_) p.used = false;
   bus_.quarantine_[axis_] = {};
 }
-void ManualMotorController::fail(const std::string &message) {
+void ManualMotorController::fail(const std::string &message, bool critical) {
   trace_note("manual_fault", message, axis_);
   // Jeden ostatni STOP, potem cisza całej magistrali: diagnostyka nie maskuje 98H.
   if (phase_ != Phase::fault && axis_ && bus_.transport_->is_open()) {
     try { bus_.transport_->send(axis_, speed_request(axis_, false, 0)); ++bus_.stats_.tx; } catch (...) {}
   }
-  group_active_=false;phase_ = Phase::fault; waiting_ = false; prepared_.fill(false); message_ = message;
-  bus_.fault(message);
+  const auto reason = !group_active_ && axis_ ?
+      "J"+std::to_string(axis_)+" (CAN ID "+std::to_string(axis_)+"): "+message : message;
+  group_active_=false;phase_ = Phase::fault; waiting_ = false; prepared_.fill(false); message_ = reason;
+  bus_.fault(reason, critical);
 }
 void ManualMotorController::transport_fault() {
   group_active_=false;
@@ -282,7 +287,11 @@ void ManualMotorController::transport_fault() {
     phase_ = Phase::fault; prepared_.fill(false); message_ = "Utrata komunikacji — stan ruchu nieznany";
   }
 }
-void ManualMotorController::timeout() { fail("Brak potwierdzenia operacji ręcznej — wymagany reset CAN"); }
+void ManualMotorController::timeout() {
+  const auto command=step_<step_count_ && !steps_[step_].data.empty() ?
+      "; kod komendy="+std::to_string(steps_[step_].data.front()) : std::string{};
+  fail("Brak potwierdzenia operacji ręcznej"+command+" — wymagany reset CAN");
+}
 void ManualMotorController::complete(Time) {
   if(group_active_) group_done_[axis_-1]=true;
   if (operation_ == Operation::enable) {
@@ -323,7 +332,7 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
     value = 0;
   }
   if (data[0] == 0x31 && s.expected == 0 && std::abs(value) <= 3) value = 0;
-  if (s.expected >= 0 && value != s.expected) { fail("Napęd nie potwierdził warunku operacji: " + std::to_string(data[0])); return; }
+  if (s.expected >= 0 && value != s.expected) { fail("Napęd nie potwierdził warunku operacji; kod komendy=" + std::to_string(data[0])+", oczekiwano="+std::to_string(s.expected)+", otrzymano="+std::to_string(value)); return; }
   if (s.expected == -2 && value != 1 && value != 2) { fail("Napęd odrzucił komendę prędkości"); return; }
   // ACK zmiany zera rozpoczyna segment również wtedy, gdy późniejszy pomiar
   // nie potwierdzi tolerancji operacji. Trace zachowuje rzeczywiste ticki.
@@ -367,8 +376,32 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
     else complete(stamp);
   }
 }
+void ManualMotorController::idle_tick(Time now) {
+  bool eligible=!busy() && !bus_.active_ && !bus_.executor_.status.busy && !bus_.scanning_ &&
+      !bus_.fault_ && bus_.configuration_ready_ && !bus_.configuration_locked_ && bus_.transport_->is_open();
+  std::array<std::int64_t,kAxes> positions{};
+  unsigned enabled_mask=0;
+  for(unsigned j=0;j<kAxes;++j) {
+    const auto &device=bus_.devices_[j+1];
+    eligible=eligible && device.detected && device.identity.model==Model::kServo42D &&
+        device.position.fresh(now,IdleEnableMonitor::observation_gap) && device.enable.fresh(now,300ms);
+    positions[j]=device.position.value;
+    if(device.enable.valid && device.enable.value) enabled_mask|=1u<<j;
+  }
+  if(!idle_monitor_.observe(now,positions,eligible,enabled_mask)) return;
+  // Zwykła sekwencja wyłączania wymaga również bieżącego, stabilnego postoju.
+  // Gdy chwilowo nie można jej rozpocząć, nie udajemy, że ENABLE już wyłączono.
+  if(!set_enable_all(false,now)) return;
+  idle_disable_=true;idle_monitor_.reset();
+  if(bus_.executor_.status.state=="ready") {
+    bus_.executor_.status.state="invalidated";
+    bus_.executor_.status.message="Program wymaga przygotowania po automatycznym wyłączeniu ENABLE z powodu bezczynności";
+  }
+  trace_note("idle_enable_off_requested","60 min bez ruchu wałów ponad 2 stopnie");
+}
 void ManualMotorController::tick(Time now) {
   observe_positions(now);
+  idle_tick(now);
   group_tick(now);
   if (!busy() || phase_ == Phase::fault) return;
   if (now >= next_trace_) {
@@ -381,14 +414,25 @@ void ManualMotorController::tick(Time now) {
     next_trace_ = now + 20ms;
   }
   if (phase_ == Phase::starting || phase_ == Phase::moving) {
-    if (now < lease_ || now - lease_ >= 200ms) stop(now, "Brak podtrzymania JOG — hamowanie");
+    if (now < lease_ || now - lease_ >= 200ms) stop(now, "Brak podtrzymania JOG — hamowanie; wiek KEEPALIVE="+diagnostic_number(std::chrono::duration<double,std::milli>(now-lease_).count())+" ms, limit < 200 ms");
     else if (!ready(axis_, now) || !bus_.devices_[axis_].speed.fresh(now, 100ms) ||
         !bus_.devices_[axis_].motor_state.fresh(now, 150ms)) {
       const auto &d = bus_.devices_[axis_];
-      const auto ms = [now](const auto &s) { return s.valid ? std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now - s.stamp).count()) : "brak"; };
-      stop(now, "Nieaktualne dane/ENABLE/stall: pozycja=" + ms(d.position) + " ms, prędkość=" + ms(d.speed) +
-        " ms, stan=" + ms(d.motor_state) + " ms, ENABLE=" + ms(d.enable) + " ms/" + std::to_string(d.enable.value) +
-        ", stall=" + ms(d.stall) + " ms/" + std::to_string(d.stall.value));
+      std::string reason;
+      const auto add=[&reason](const std::string &text) {if(!reason.empty())reason+="; ";reason+=text;};
+      if(!d.detected) add("napęd niewykryty");
+      if(!prepared_[axis_-1]) add("napęd nieprzygotowany");
+      if(d.identity.model!=Model::kServo42D) add("nieobsługiwany model napędu");
+      if(!d.position.fresh(now,60ms)) add(sample_diagnostic(d.position,now,60ms,"pozycja"));
+      if(!d.enable.fresh(now,300ms)) add(sample_diagnostic(d.enable,now,300ms,"ENABLE"));
+      else if(!d.enable.value) add("ENABLE=0 — napęd wyłączony");
+      if(!d.stall.fresh(now,300ms)) add(sample_diagnostic(d.stall,now,300ms,"stan stall"));
+      else if(d.stall.value) add("stall=1 — zgłoszone zablokowanie wału");
+      if(!d.mode.valid) add("brak potwierdzonego trybu pracy");
+      else if(d.mode.value!=5) add("tryb pracy="+std::to_string(d.mode.value)+", wymagany SR_vFOC=5");
+      if(!d.speed.fresh(now,100ms)) add(sample_diagnostic(d.speed,now,100ms,"prędkość wału"));
+      if(!d.motor_state.fresh(now,150ms)) add(sample_diagnostic(d.motor_state,now,150ms,"stan ruchu F1"));
+      stop(now, reason);
     }
     else {
       const auto &v = velocity_[axis_ - 1];
@@ -409,7 +453,7 @@ void ManualMotorController::tick(Time now) {
     // Wymagamy pomiarów po nadaniu STOP, nigdy samego upływu czasu.
     if (stop_sent_ && jog_stopped(axis_, now) && d.position.stamp >= stop_at_ + 60ms &&
         d.speed.stamp > stop_at_ && d.motor_state.stamp > stop_at_) {
-      phase_ = Phase::idle; last_stop_ = now; owner_.clear(); message_ = "Zatrzymanie potwierdzone";
+      phase_ = Phase::idle; last_stop_ = now; owner_.clear(); message_ = "Zatrzymanie potwierdzone; powód: "+message_;
       trace_note("manual_stop_confirmed", "", axis_);
       if (disable_after_) { disable_after_ = false; set_enable(axis_, false, now); }
     }
@@ -436,8 +480,9 @@ void ManualMotorController::tick(Time now) {
 ManualState ManualMotorController::snapshot(Time now) const {
   ManualState result; result.busy = busy() || bus_.active_ || bus_.configuration_locked_ || !bus_.configuration_ready_; result.fault = bus_.fault_;
   result.configuration_revision = bus_.profile_.revision;
-  result.axis = group_active_ ? 0 : busy() ? axis_ : 0; result.max_rpm = bus_.config_.manual_max_rpm; result.message = message_;
-  result.operation = phase_ == Phase::fault ? "fault" : phase_ == Phase::stopping ? "stopping" :
+  result.axis = group_active_ ? 0 : busy() ? axis_ : 0; result.max_rpm = bus_.config_.manual_max_rpm; result.message = bus_.fault_ ? bus_.message_ : message_;
+  if(!bus_.fault_ && idle_disable_) result.message="Automatyczne wyłączenie ENABLE: 60 min bez ruchu wałów > 2°; "+result.message;
+  result.operation = bus_.fault_ || phase_ == Phase::fault ? "fault" : phase_ == Phase::stopping ? "stopping" :
       phase_ == Phase::starting || phase_ == Phase::moving ? "jog" : phase_ == Phase::sequence ? "operation" : "idle";
   if(group_active_) result.operation=group_enabled_ ? "enable_all" : "disable_all";
   for (unsigned axis = 1; axis <= kAxes; ++axis) {

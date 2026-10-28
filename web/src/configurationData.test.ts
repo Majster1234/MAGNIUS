@@ -46,3 +46,14 @@ it("przyjmuje wyliczony offset bez utraty edycji wykonanych po wysłaniu konfigu
     expect(dirtyKeys(merged,applied)).toEqual(new Set(['joint.2.velocity']));
     expect(mergeAppliedDraft({...current,'joint.1.zero_offset':'5'},submitted,applied)['joint.1.zero_offset']).toBe('5');
 });
+
+it("migruje regułę awarii do true i zapisuje świadome wyłączenie jako boolean",()=>{
+    const key="safety.disable_enable_on_critical_fault", legacy=emptyDocument();delete legacy.values[key];
+    const normalized=validateDocument(legacy);expect(normalized.values[key]).toBe(true);
+    const draft=toDraft(normalized);expect(dirtyKeys(draft,legacy).size).toBe(0);
+    draft[key]="false";
+    expect(dirtyKeys(draft,legacy).has(key)).toBe(true);
+    expect(documentFromDraft(draft).values[key]).toBe(false);
+    expect(validateDocument(documentFromDraft(draft)).values[key]).toBe(false);
+    for(const invalid of [null,0,1,"false"]) expect(()=>validateDocument({...normalized,values:{...normalized.values,[key]:invalid}})).toThrow();
+});

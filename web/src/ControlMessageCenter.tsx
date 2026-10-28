@@ -9,7 +9,8 @@ export function useControlMessages() {
     return {entries:store.log.entries,active:store.active,statuses:store.statuses,notice,condition};
 }
 function Explanation({notice}:{notice:Notice}) {
-    return <><p>{notice.description ?? notice.message}</p>{notice.remedy && <p className="message-remedy"><strong>Co zrobić:</strong> {notice.remedy}</p>}
+    const showReason=notice.description && notice.message.trim() && !notice.description.includes(notice.message);
+    return <>{showReason && <p className="message-reason"><strong>Powód:</strong> {notice.message}</p>}<p>{notice.description ?? notice.message}</p>{notice.remedy && <p className="message-remedy"><strong>Co zrobić:</strong> {notice.remedy}</p>}
         {notice.href && <a className="message-link" href={notice.href}>Otwórz {notice.href==="#config"?"konfigurację":notice.href==="#can"?"magistralę CAN":"diagnostykę"} →</a>}
         {notice.details && <details><summary>Szczegóły techniczne</summary><pre>{notice.details}</pre></details>}</>;
 }

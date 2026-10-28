@@ -110,7 +110,7 @@ hardware_interface::CallbackReturn CanSystem::on_activate(const rclcpp_lifecycle
   active_=true;sequence_=0;return hardware_interface::CallbackReturn::SUCCESS;
 }
 hardware_interface::CallbackReturn CanSystem::on_deactivate(const rclcpp_lifecycle::State &) {
-  active_ = false; runtime_->stop("Dezaktywacja kontrolera — wymagany reset przed wznowieniem");
+  active_ = false; runtime_->stop("Dezaktywacja kontrolera — wymagany reset przed wznowieniem",false);
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 void CanSystem::shutdown() {

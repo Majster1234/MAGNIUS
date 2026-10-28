@@ -87,7 +87,7 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
       [this](const rclcpp_action::GoalUUID &,std::shared_ptr<const Action::Goal> goal) {
         if(handle_ || !runtime_->execute_program(goal->program_id,goal->execution_key)) return rclcpp_action::GoalResponse::REJECT;
         return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
-      },[this](std::shared_ptr<Handle>) { runtime_->stop("Anulowanie programu operatora");return rclcpp_action::CancelResponse::ACCEPT; },
+      },[this](std::shared_ptr<Handle>) { runtime_->stop("Anulowanie programu operatora",false);return rclcpp_action::CancelResponse::ACCEPT; },
       [this](std::shared_ptr<Handle> handle) { handle_=handle; });
   timer_=node->create_wall_timer(std::chrono::milliseconds(50),[this] {
     if(!handle_) return;

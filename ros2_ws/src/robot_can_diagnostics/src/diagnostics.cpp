@@ -74,6 +74,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         profile.changed = req->configuration.changed;
         profile.calibration_invalid = req->configuration.calibration_invalid;
         profile.confirm_calibration = req->confirm_calibration;
+        profile.disable_enable_on_critical_fault = req->configuration.disable_enable_on_critical_fault;
         for (std::size_t i = 0; i < 6; ++i) {
           const auto &a = req->configuration.axes[i];
           if (a.axis != i + 1) { res->message = "Wymagane osie 1–6 w stałej kolejności"; return; }
@@ -86,6 +87,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         res->operation_id = result.operation_id; res->stage = result.stage; res->locked = result.locked;
         const auto &resolved=result.resolved_configuration;
         res->resolved_configuration.revision=resolved.revision;
+        res->resolved_configuration.disable_enable_on_critical_fault=resolved.disable_enable_on_critical_fault;
         res->resolved_configuration.changed=resolved.changed;
         res->resolved_configuration.calibration_invalid=resolved.calibration_invalid;
         for(std::size_t i=0;i<6;++i) {
@@ -148,7 +150,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
   }
   stop_ = create_service<std_srvs::srv::Trigger>("/robot/motion/stop",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-        runtime_->stop("Żądanie zatrzymania operatora");
+        runtime_->stop("Żądanie zatrzymania operatora",false);
         response->success = true; response->message = "Zatrzymanie zlecone; wymagany reset przed wznowieniem";
       });
   scan_ = create_service<std_srvs::srv::Trigger>("/robot/can/scan",

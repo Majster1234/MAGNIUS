@@ -199,3 +199,161 @@ API i odczyt aktywnego panelu w Chromium potwierdziły nowy frontend, gotowość
 komendy ruchu ani żądania HTTP zapisującego dane. W tej korekcie nie wykonano
 nowych prób fizycznych — licznik pozostaje 4/6. Poprawka jest aktywna; operator
 powinien odświeżyć otwartą kartę (Ctrl+F5). Kolejny restart usługi nie jest potrzebny.
+## Poprawki płynności i dokładności — Fazy I–V, Próby 5–6
+
+**Odbiór sprzętowy niezaliczony. Wykorzystano 6/6 prób.** Próba 5 zakończyła
+pełny impuls i potwierdzony postój, ale przekroczyła cele dokładności. Próba 6
+została przerwana awarią właściciela CAN. Operator następnie potwierdził fizyczny
+postój wszystkich napędów. Nie kasowano awarii ani nie wykonywano kolejnego ruchu.
+Poniższy stan zastępuje wcześniejsze informacje o liczniku 4/6 i gotowości.
+
+### Faza I: co można odtworzyć z Próby 4
+
+Przed zmianą kodu przeanalizowano oryginalny zapis Próby 4. Zawiera 97 aktywnych
+pakietów WS, lecz nie zawiera referencji przegubów ani ich znaczników czasu.
+Uchyb śledzenia, lag i wkład `J*(q_ref-q_meas)` są zatem **niewyznaczalne**;
+nie zastępowano brakującej referencji interpolacją między pozycjami końcowymi.
+
+| Oś | Maks. odstęp od najświeższego odczytu osi [ms] | Maks. wiek odczytu przy odbiorze WS [ms] | Uchyb / lag / wkład osi |
+| --- | ---: | ---: | --- |
+| J1 | 11,656 | 60,966 | brak referencji |
+| J2 | 11,135 | 62,264 | brak referencji |
+| J3 | 10,828 | 59,710 | brak referencji |
+| J4 | 36,223 | 61,463 | brak referencji |
+| J5 | 32,899 | 58,384 | brak referencji |
+| J6 | 29,252 | 78,575 | brak referencji |
+
+Maksymalny rozrzut RX w pojedynczej próbce wynosił 36,223 ms; trzy pakiety
+przekraczały 20 ms, żaden 50 ms. Tabela została przedstawiona przed edycjami.
+
+### Fazy II–III: implementacja i sprawdzenia
+
+- Generator TCP korzysta z analitycznego profilu o ograniczonym jerku, z dokładnym
+  końcem drogi i zerową prędkością/przyspieszeniem. Fazy są dopasowane do cyklu
+  10 ms przez zmniejszenie efektywnego jerku; wcześniejsze puszczenie wykorzystuje
+  sprawdzoną drogę hamowania. Orientacja korzysta z tego samego postępu drogi.
+- Diagnostyczne FK zapisuje zarówno surowe kąty, jak i kąty ekstrapolowane do
+  wspólnego czasu. Ekstrapolacja ma ograniczenie ±20 ms; wiek ponad 50 ms albo
+  nieważna prędkość powodują użycie surowej pozycji i ostrzeżenie.
+- Streaming TCP wylicza prędkości F5 z różnic kolejnych referencji i korekcji
+  pozycji (FF=1, Kp=2,5), z przełożeniami i limitami każdej osi. Aktywna oś nie
+  otrzymuje zerowej prędkości przez zaokrąglenie. Dotychczasowy tor PTP/LIN
+  zachowano osobno.
+- Dodano parametry `tcp_jog_max_jerk` w (0, 10] m/s³ oraz
+  `joint_stop_tolerance_deg` w [0,02, 1,0]°. Zmiany są blokowane podczas ruchu;
+  NaN/Inf i wartości poza zakresem są odrzucane. Osiągnięcie celu nadal wymaga
+  dwóch świeżych zestawów pomiarów oddalonych o ≥100 ms i 0 RPM. Zatrzymanie poza
+  tolerancją przez ≥300 ms emituje dokładne uchyby osi, zamiast udawać ukończenie.
+- Telemetria 100 Hz zawiera sesję/generację, rzeczywistą referencję zatwierdzoną
+  przez IO, cele F5/RPM, kąty i prędkości, znaczniki RX, surowe/zsynchronizowane
+  FK, profil drogi oraz czas obliczeń. Odbiornik rejestrujący nie steruje robotem.
+
+Zbudowano wyłącznie `mks_servo_can`, `robot_kinematics`, `robot_motion_planner`
+i `robot_can_diagnostics`, jawnie w Release, do aktywnej
+`install/tcp-jog-fix-ros`. Wynik colcon: **204 wyniki, 0 błędów, 0 porażek,
+0 pominięć** (licznik obejmuje wpisy CTest). Sprawdzono profil i hamowanie,
+proporcję prędkości F5 1:5, brak zerowego RPM aktywnej osi, wyrównanie czasu FK,
+walidację parametrów oraz poprawny JSON rzeczywistej telemetrii.
+Nie budowano frontendu.
+
+Odtworzenie offline użyło rzeczywistego modelu i pozycji startowej Próby 4:
+514 próbek, referencja dokładnie 10 mm, błąd końca drogi 0, maksymalny czas
+obliczeń próbki 0,192075 ms <7 ms. Rozbieg trwał 140 ms (14 cykli) zamiast
+20 ms profilu trapezowego; efektywne maksimum przyspieszenia 28,571 mm/s²,
+jerku 408,163 mm/s³, poniżej limitów 100 i 500. Maksymalny błąd pozycji IK
+wyniósł 5,443e-7 m. To sprawdzenie generatora, nie dokładności napędów.
+
+Operator wykonał wymagany restart usługi; potwierdzono aktywną nakładkę i PID
+usługi 24929. Po restarcie operator przygotował napędy przyciskiem „Załącz
+wszystkie”. Przed każdą próbą sprawdzono dostępność/kalibrację/ENABLE sześciu osi,
+świeżość, 0 RPM, gotowość TCP, brak konkurencyjnego ruchu i parametry ROS.
+Aktywne i zapisane w YAML: IK 1e-6 m / 1e-5 rad, jerk 0,5 m/s³,
+końcowa tolerancja ±0,10°. Limitów mechanicznych ani watchdogów nie luzowano.
+
+### Faza IV: ruch wyłącznie przez panel operatorski
+
+Operator osobno zatwierdził pełne karty Prób 5 i 6. Przyciski X+ i X− rzeczywistego
+panelu uruchomiono zdarzeniami wskaźnika w Chromium; nie wysyłano poleceń ruchu
+bezpośrednio przez skrypt WS/ROS/CAN. Obie karty: Baza, impuls 10 mm, 2 mm/s,
+100 mm/s², 500 mm/s³, timeout 10 s, KEEPALIVE 50 ms, IK 1e-6 m / 1e-5 rad.
+Warunki STOP: uchyb >1,25°, ruch przeciwny >0,5°, utrata podtrzymania lub
+świeżości CAN, przekroczenie budżetu obliczeń 7 ms, timeout albo STOP operatora.
+
+| Pomiar | Próba 4: +X przed | Próba 5: +X po | Zmiana względem 4 |
+| --- | ---: | ---: | ---: |
+| Czas od START panelu/WS do statusu postoju [s] | 5,214 | 5,341 | +2,43% |
+| Zmiana orientacji FK [°] | 0,14095 | 0,06871 | −51,25% |
+| Niedojazd X [mm] | 0,02820 | 0,22853 | +710,45% |
+| Końcowa norma YZ [mm]; cel <0,10 | 0,47393 | 0,29577 | −37,59% |
+| Maks. norma YZ surowego FK [mm]; cel <0,25 | 1,08128 | 0,92658 | −14,31% |
+| Maks. norma YZ zsynchronizowanego FK [mm]; cel <0,25 | brak danych | 1,03349 | niewyznaczalna |
+
+**To porównanie obserwacji, nie izolowany pomiar efektu kodu:** pozycje początkowe
+różniły się, podobnie jak częstotliwość zapisów (około 20 Hz WS w Próbie 4,
+100 Hz telemetrii w Próbie 5). Zsynchronizowane maksimum Próby 5 jest o 11,54%
+większe od surowego; nie potwierdzono poprawy pomiaru przez ekstrapolację.
+
+Próba 5: pełne 10 mm referencji, FK z pomiarów ΔX/Y/Z =
++9,77147/−0,10721/+0,27565 mm. Postój potwierdzony pomiarami i 0 RPM, bez awarii
+właściciela i błędów łącza CAN. Czas od startu generatora do zdarzenia postoju
+5,25551 s (inna granica pomiaru niż czas panelu w tabeli). Zapisano 526 próbek,
+bez strat bufora, dwa ostrzeżenia synchronizacji; maksymalny rozrzut RX 50,286 ms,
+maksymalny czas obliczeń 1,561826 ms.
+
+| Oś | Maks. uchyb śledzenia [°] | Estymata laga [ms] | Maks. osobny wkład w normę YZ [mm] |
+| --- | ---: | ---: | ---: |
+| J1 | 0,10680 | nieidentyfikowalna | 0,79207 |
+| J2 | 0,08581 | +14 | 0,99634 |
+| J3 | 0,06864 | −42 | 0,58793 |
+| J4 | 0,05262 | nieidentyfikowalna | 0,08960 |
+| J5 | 0,03899 | nieidentyfikowalna | 0,07544 |
+| J6 | 0,10520 | nieidentyfikowalna | ≈0 |
+
+Uchyb porównuje interpolowaną referencję IO w czasie odczytu danej osi z surowym
+pomiarem. Lag to dopasowanie MSE w zakresie ±300 ms, krok 1 ms; wyniki na brzegu
+zakresu odrzucono jako nieidentyfikowalne. Pozostałe są jedynie estymatami,
+obciążonymi offsetem i kwantyzacją; ujemna wartość nie dowodzi fizycznego
+wyprzedzenia sterowania. Wkład osi to osobne maksimum normy kolumny Jacobianu
+pomnożonej przez uchyb `q_ref-q_sync`; maksima z różnych chwil nie sumują się do
+maksimum całej trajektorii.
+
+**Próba 6 (−X): przerwanie po 0,048879 s**, pięć próbek, ostatnia referencja
+0,008503 mm zamiast 10 mm. API zgłosiło „JOG TCP utracił sterowanie lub
+konfigurację”. Odczyt `/robot/can/diagnostics` potwierdził pierwotny komunikat
+właściciela: **„Brak świeżej pozycji/ENABLE lub awaria napędu”**. W ostatniej
+próbce wiek pozycji J3 wynosił 56,132 ms, prędkość J3 była nieważna, a rozrzut
+RX wynosił 52,072 ms. Przy następnym cyklu pozycja przekraczałaby domyślny próg
+60 ms. Wskazuje to na świeżość J3; ogólny warunek właściciela obejmuje również
+ENABLE/stall/tryb, więc sam komunikat nie rozstrzyga wszystkich składników.
+Maksymalny czas obliczeń wynosił 0,096687 ms; nie odnotowano przekroczenia 7 ms.
+
+Panel wykrył awarię i uruchomił „STOP robota”. Diagnostyka właściciela wskazuje
+„STOP wysłano bez ACK; postój wymaga pomiaru”. Po zatrzaśnięciu awarii IO nie
+odświeża danych, wszystkie osie mają nieznaną prędkość/dostępność. Tekst
+„Zatrzymanie potwierdzone” z osobnego stanu ręcznego nie stanowi świeżego
+potwierdzenia 0 RPM tej próby. Hostowy licznik błędów RX/TX/bus-off pozostał 0;
+nie oznacza to prawidłowej świeżości danych napędów.
+
+### Faza V: domknięcie i stan końcowy
+
+**Zwalidowany błąd domknięcia +X/−X: niewyznaczalny.** Powrót nie został wykonany,
+a po awarii brak świeżego zestawu pomiarów przy postoju. Ostatnia próbka przed
+awarią pozostaje oddalona od początku Próby 5 o +9,53997/−0,11582/+0,59119 mm
+(norma 9,55898 mm). Odpowiadające różnice J1–J6 wynoszą
+−0,15381°/+2,19067°/−2,41040°/−0,15820°/+0,13623°/+0,28345°.
+Są to **ostatnie obserwowane wartości asynchroniczne**, a nie wynik pomiaru
+końcowego domknięcia ani wykonania zadanego powrotu.
+
+Operator potwierdził: „Potwierdzam, wszystkie napędy fizycznie stoją”.
+Awaria pozostaje zatrzaśnięta; nie resetowano CAN, nie przełączano ponownie
+ENABLE i nie wykonywano dodatkowych przejazdów. Limit **6/6 prób wykorzystany**.
+Nie należy traktować tego stanu jako gotowości do ruchu ani pozytywnego odbioru
+fizycznego TCP. Dalsza diagnostyka odczytów/ENABLE i nowe próby wymagają osobnego
+etapu oraz nowych zgód na opisany ruch.
+
+[Trwałe dane sześciu prób](tcp_jog_test_data_2026-10-26.json) zachowują wcześniejsze
+cztery rekordy oraz pełną telemetrię, komunikaty obserwowane przez panel, parametry,
+wyniki obliczeń i diagnostykę właściciela dla Prób 5–6. W rekordzie 6 pomiarowe
+`stop_confirmed` pozostaje `false`, potwierdzenie operatora jest zapisane osobno,
+a zwalidowane domknięcie ma wartość `null`.
+Porównanie i ograniczenia pomiarów: [benchmark](benchmark_results.md#jog-tcp--płynność-i-dokładność-26102026).

@@ -13,10 +13,11 @@ ORIGIN = ('origin_x', 'origin_y', 'origin_z', 'origin_roll', 'origin_pitch', 'or
 TCP = ('tcp_x', 'tcp_y', 'tcp_z', 'tcp_roll', 'tcp_pitch', 'tcp_yaw')
 TCP_MOTION = ('max_linear_velocity', 'max_angular_velocity', 'linear_acceleration', 'angular_acceleration')
 TEXT = ('robot.name', 'robot.base_frame', 'robot.flange_frame', 'tool.name', 'tool.frame')
+CRITICAL_FAULT_POLICY = 'safety.disable_enable_on_critical_fault'
 KEYS = (*TEXT, 'tool.mass', 'tool.com_x', 'tool.com_y', 'tool.com_z',
         *(f'tool.{key}' for key in TCP),
         *(f'joint.{axis}.{key}' for axis in range(1, 7) for key in (*ORIGIN, *CONTROL)),
-        *(f'tcp.{key}' for key in TCP_MOTION))
+        *(f'tcp.{key}' for key in TCP_MOTION), CRITICAL_FAULT_POLICY)
 DEMO = ((0, 0, 100), (0, 0, 100), (0, 0, 250), (220, 0, 0), (80, 0, 0), (60, 0, 0))
 AXES = ((0, 0, 1), (0, 1, 0), (0, 1, 0), (1, 0, 0), (0, 1, 0), (1, 0, 0))
 
@@ -27,7 +28,7 @@ def now_iso():
 
 def empty_document():
     return {'schema_version': VERSION, 'units': UNITS, 'name': '', 'created_at': now_iso(),
-            'values': dict.fromkeys(KEYS)}
+            'values': {**dict.fromkeys(KEYS), CRITICAL_FAULT_POLICY: True}}
 
 
 def validate(document):
@@ -36,14 +37,19 @@ def validate(document):
     if type(document.get('schema_version')) is not int or document['schema_version'] != VERSION or document.get('units') != UNITS:
         raise ValueError('Nieobsługiwana wersja lub jednostki snapshotu; wymagane mm-deg-kg, wersja 1')
     values = document.get('values')
-    required = set(KEYS) - {f'tcp.{key}' for key in TCP_MOTION}
+    required = set(KEYS) - {f'tcp.{key}' for key in TCP_MOTION} - {CRITICAL_FAULT_POLICY}
     if not isinstance(values, dict) or set(values) - set(KEYS) or required - set(values):
         raise ValueError('Snapshot musi zawierać komplet znanych pól; nieznane dane zapisuj jako null')
     result = deepcopy(document)
+    result['values'].setdefault(CRITICAL_FAULT_POLICY, True)
     for key in TCP_MOTION:
         result['values'].setdefault(f'tcp.{key}', None)
     values = result['values']
     for key, value in values.items():
+        if key == CRITICAL_FAULT_POLICY:
+            if type(value) is not bool:
+                raise ValueError(f'{key}: wymagane true albo false')
+            continue
         if value is None:
             continue
         if key in TEXT:
@@ -104,7 +110,7 @@ def profiles(document):
 
 def changed_axes(previous, candidate):
     a, b = previous['values'], candidate['values']
-    common = any(a.get(key) != b.get(key) for key in KEYS if not key.startswith(('joint.', 'tcp.')))
+    common = any(a.get(key) != b.get(key) for key in KEYS if key != CRITICAL_FAULT_POLICY and not key.startswith(('joint.', 'tcp.')))
     return [common or any(a[f'joint.{axis}.{key}'] != b[f'joint.{axis}.{key}'] for key in (*ORIGIN, *CONTROL))
             for axis in range(1, 7)]
 

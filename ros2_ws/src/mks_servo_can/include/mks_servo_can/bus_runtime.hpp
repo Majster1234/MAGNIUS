@@ -25,7 +25,8 @@ class BusRuntime {
   bool finish_tcp_jog(const std::string &session,std::uint64_t generation);
   bool brake_tcp_jog(const std::string &session,std::uint64_t generation);
   bool tcp_jog_available();
-  void stop(const std::string &reason);
+  TcpStreamingSnapshot tcp_streaming_snapshot();
+  void stop(const std::string &reason, bool critical = true);
   void renew_source_lease(Source source, Time created);
   bool try_submit(const CommandBatch &batch);
   bool try_read(ControlState &state);

@@ -1172,3 +1172,91 @@ zachowała wyniki poprzedniej tury: RMSE patched4 osi0,0307846°,6 osi0,0282315�
 Wyniki: `log/gear-ratio-continuity-20261025/{jtc,ptp}-{before,after,compare}.json`,
 `cpu-{before,after}.json`, `streaming-accuracy.json`, `verification.json` i raporty testów.
 Build11 pakietów oraz frontend wdrożono do osobnego overlay, bez restartu i ruchu.
+
+## JOG TCP — płynność i dokładność, 26.10.2026
+
+Cel: ograniczenie szarpnięcia i odchylenia poprzecznego TCP przez profil o
+ograniczonym jerku, prędkości F5 wyliczane osobno dla osi, diagnostyczne wyrównanie
+czasów enkoderów i tolerancję postoju ±0,10°. Poniżej oddzielono pomiary offline
+od osobno autoryzowanych prób sprzętowych. To nie jest wynik standardowych
+adapterów `benchmark_ros.py`; nie uruchamiano ich na fizycznym CAN.
+
+**Stan odbioru: niezaliczony. Limit 6/6 prób wykorzystany.** Próba 5 wykonała
+pełny impuls, lecz nie osiągnęła progów <0,10 mm na końcu i <0,25 mm w ruchu.
+Próba 6 została przerwana przez właściciela CAN, więc nie ma pomiaru domknięcia.
+
+### Wejścia i porównywalność
+
+Kierunek Baza +X, 10 mm, 2 mm/s, limit przyspieszenia 100 mm/s²,
+IK 1e-6 m / 1e-5 rad. Po zmianie limit jerku 500 mm/s³. Streaming 100 Hz,
+FF=1, Kp=2,5, lookahead 85 ms, jeden właściciel CAN. Budowa czterech zmienionych
+pakietów z `-DCMAKE_BUILD_TYPE=Release`, aktywna nakładka
+`install/tcp-jog-fix-ros`, bez budowania `web/`.
+
+Offline zachowano ten sam model i pozycję startową Próby 4. **Sprzętowe Próby 4
+oraz 5 mają różne pozycje startowe** i różne częstotliwości zapisów (około 20 Hz
+WS vs 100 Hz nowej telemetrii). Nie są więc kontrolowanym benchmarkiem przyczynowym.
+Wały były rozsprzęgnięte; FK enkoderów nie mierzy położenia rzeczywistego narzędzia.
+
+### Wyniki sprzętowe przed / po
+
+Procenty: `100*(po/przed-1)`. Wartości dodatnie oznaczają wzrost danej miary.
+
+| Miara | Przed: Próba 4 | Po: Próba 5 | Zmiana |
+| --- | ---: | ---: | ---: |
+| Czas START panelu/WS → potwierdzenie postoju [s] | 5,214407 | 5,341138 | +2,43% |
+| Zmiana orientacji FK [°] | 0,140945 | 0,068708 | −51,25% |
+| Niedojazd X [mm] | 0,028198 | 0,228531 | +710,45% |
+| Końcowa norma odchylenia YZ [mm] | 0,473929 | 0,295768 | −37,59% |
+| Maks. norma YZ surowego FK [mm] | 1,081277 | 0,926583 | −14,31% |
+| Maks. norma YZ zsynchronizowanego FK [mm] | brak danych | 1,033486 | brak porównania |
+| Maks. czas obliczeń próbki w ruchu [ms] | brak danych | 1,561826 | brak porównania |
+
+Końcowe odchylenie i maksimum surowego FK zmalały, ale niedojazd X wzrósł.
+Maksimum zsynchronizowanego FK jest **o 11,54% większe** od surowego w Próbie 5;
+nie uzyskano empirycznego potwierdzenia poprawy przez ekstrapolację.
+Referencja generatora doszła dokładnie do 10 mm, zatem niedojazd napędów nie jest
+niedojazdem skalarnego profilu. Próba 5 potwierdziła postój w ±0,10°, dwa świeże
+zestawy ≥100 ms i 0 RPM. Bez awarii właściciela; hostowe błędy RX/TX/bus-off=0.
+
+### Koszt obliczeń i profil offline
+
+| Miara | Przed | Po |
+| --- | ---: | ---: |
+| Rozbieg referencji 0→2 mm/s | 20 ms, 2 cykle (wynika z trapezu) | 140 ms, 14 cykli |
+| Szczyt przyspieszenia referencji [mm/s²] | limit 100 | 28,571429 |
+| Szczyt jerku referencji [mm/s³] | skok przyspieszenia | 408,163265 (limit 500) |
+| Maks. czas próbki offline [ms] | brak pomiaru na tych wejściach | 0,192075 |
+| Błąd końca drogi skalarnej [m] | brak zapisu | 0, przy 514 próbkach |
+| Maks. błąd pozycji IK offline [m] | brak zapisu | 5,443e-7 |
+
+Czasy są pomiarami czasu ściennego obliczeń, **nie zużyciem CPU procesu**.
+W starej Próbie 4 brak logów referencji i czasów IK; brak pomiaru CPU/cykli
+przed i po pod jednakowym obciążeniem. Nie można podać procentowego przyspieszenia
+CPU ani porównania median siedmiu serii. Zmiana dotyczy płynności i widoczności
+śledzenia; dostępne maksima offline i LIVE mieszczą się w budżecie 7 ms.
+Przeszło **204 wyników colcon, 0 błędów, porażek i pominięć**, obejmujących
+profil/hamowanie, F5 1:5, synchronizację FK, parametry i serializację telemetrii.
+
+### Próba 6 i ograniczenie odbioru
+
+Osobno zatwierdzony powrót −X/10 mm przez panel przerwał się po 0,048879 s,
+przy referencji 0,008503 mm. Właściciel zgłosił „Brak świeżej pozycji/ENABLE
+lub awaria napędu”; API przekazało ogólne „JOG TCP utracił sterowanie lub
+konfigurację”. Ostatni pomiar J3 miał 56,132 ms i nieważną prędkość, rozrzut RX
+52,072 ms. To wskazuje na świeżość odczytu przy progu 60 ms, ale komunikat obejmuje
+również ENABLE/stall/tryb i nie pozwala rozstrzygnąć całego łańcucha przyczynowego.
+Maksymalny czas obliczeń wyniósł 0,096687 ms, bez przekroczenia budżetu.
+
+**Błąd domknięcia enkoderów i FK: brak zwalidowanego wyniku.** Ostatnia próbka
+przed awarią miała normę resztkowego przesunięcia 9,558975 mm względem początku
+Próby 5; nie jest to pomiar po ukończonym powrocie. Po awarii brak świeżych
+pomiarów i potwierdzenia 0 RPM. Operator potwierdził rzeczywisty postój; awarii
+nie resetowano. Wnioskiem jest konieczność diagnostyki świeżości odczytów oraz
+dalszego strojenia dokładności w osobnym etapie, bez dodatkowego ruchu w tej serii.
+
+Dane: [pełny zapis Prób 1–6](tcp_jog_test_data_2026-10-26.json),
+[raport i metody wyznaczania uchybów](tcp_jog_report_2026-10-26.md#poprawki-płynności-i-dokładności--fazy-iv-próby-56).
+Pliki robocze: `/tmp/tcp-jog-2026-10-26/precision-replay-4-final.csv`,
+`iteration-{5,6}.json`, `iteration-{5,6}-panel.json`,
+`iteration-{5,6}-metrics.json`, `trial-6-owner-diagnostics.json`.

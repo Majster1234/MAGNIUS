@@ -4,6 +4,8 @@
     tcp_jog_enabled: true
     tcp_jog_ik_position_tolerance: 0.000001
     tcp_jog_ik_orientation_tolerance: 0.00001
+    tcp_jog_max_jerk: 0.5
+    joint_stop_tolerance_deg: 0.10
     execution_enabled: true
     execution_configuration_revision: 907f038cd3ed4db8968fd7d0cbc65ffb
     execution_acceleration_codes:

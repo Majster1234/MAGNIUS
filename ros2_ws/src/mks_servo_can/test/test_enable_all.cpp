@@ -42,3 +42,18 @@ TEST(EnableAll, PreparationFailureAndStopNeverEnableRemainingAxes) {
     for(const auto &event:rig.port->events) EXPECT_FALSE(event.data[0]==0xf3 && event.data[1]==1);
   }
 }
+
+TEST(EnableAll, CriticalFaultImmediatelyDisablesAllAndCancelsPendingEnables) {
+  Rig rig;rig.ready();ASSERT_TRUE(rig.bus->manual().set_enable_all(true,rig.now));
+  const auto count_enabled=[&] {return std::count_if(rig.port->events.begin(),rig.port->events.end(),[](const auto &e){return e.data[0]==0xf3 && e.data[1]==1;});};
+  for(unsigned i=0;i<2000 && !count_enabled();++i) rig.run(1);
+  ASSERT_EQ(count_enabled(),1);
+  const auto begin=rig.port->events.size();const auto fault_stamp=rig.port->now;rig.bus->stop("krytyczna awaria podczas ENABLE");
+  std::vector<unsigned> disabled;
+  for(auto i=begin;i<rig.port->events.size();++i) {
+    const auto &e=rig.port->events[i];
+    if(e.data[0]==0xf3 && e.data[1]==0) {disabled.push_back(e.axis);EXPECT_EQ(e.stamp,fault_stamp);}
+  }
+  EXPECT_EQ(disabled,(std::vector<unsigned>{1,2,3,4,5,6}));
+  rig.run(2000);EXPECT_EQ(count_enabled(),1);EXPECT_TRUE(rig.bus->snapshot().fault);
+}

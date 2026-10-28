@@ -205,3 +205,123 @@ Ta funkcja nie dodaje wykrywania kolizji.
 - Chromium: `tcp-settings.browser.cjs`, `configuration.browser.cjs` oraz
   `configuration-snapshots.browser.cjs` przeszły na nowym frontendzie.
   Nie wysyłano rzeczywistych komend ENABLE ani ruchu. Odbiór sprzętowy pozostaje otwarty.
+
+## Szczegółowe powody zatrzymania w Centrum komunikatów
+
+Komunikaty napędów zawierają numer przegubu i CAN ID, np. `J3 (CAN ID 3)`.
+Przy utracie świeżości podają rodzaj pomiaru, jego wiek i wymagany limit;
+ENABLE=0, stall, błędy F5 oraz błędy uzbrajania są rozróżniane.
+Przekroczenia uchybu i limitów zawierają wartości odczytane oraz próg.
+Błędy wspólne, takie jak utrata KEEPALIVE lub przekroczenie budżetu generatora,
+są opisane jako dotyczące całego ruchu, bez przypisywania ich dowolnej osi.
+
+Pierwotny powód właściciela CAN jest przekazywany do stanu ręcznego oraz TCP.
+Po awarii nie zastępuje go wcześniejszy tekst o potwierdzeniu postoju.
+Centrum komunikatów pokazuje powód bezpośrednio przy błędzie i w jego historii;
+przy awarii tytuł wymienia osie wskazane w otrzymanym komunikacie.
+Zmiana opisu nie zmienia progów zatrzymania ani nie potwierdza postoju robota.
+
+Wydanie z 26.10.2026: frontend wdrożony do aktywnej nakładki; wymagane Ctrl+F5.
+Nowe binaria `mks_servo_can` i `robot_can_diagnostics` w
+`install/tcp-jog-fix-ros` wymagają restartu usługi przy potwierdzonym postoju:
+
+```bash
+sudo systemctl restart robot-web-status.service
+```
+
+Na żądanie operatora nie wykonywano testów ani operacji na sprzęcie.
+
+## ENABLE=0 po awarii krytycznej
+
+W **Konfiguracja → Parametry robota → Reakcja na awarię krytyczną** dostępny
+jest przełącznik „Wyłącz ENABLE wszystkich silników przy awarii krytycznej”.
+Domyślnie jest włączony, również dla starszych snapshotów bez tego pola.
+Opcja jest zapisywana jako boolean `safety.disable_enable_on_critical_fault`;
+obowiązuje po „Zapisz do ROS”, w ramach tej samej transakcji co pozostałe
+parametry robota. Rollback przywraca poprzednią regułę. Zmiana samej reguły nie
+zmienia kalibracji, przełożeń ani geometrii osi.
+
+Awaria właściciela CAN lub generatora ruchu przerywa bieżące sterowanie,
+anuluje oczekujące operacje i wysyła kolejno do CAN ID 1–6 natywne `F3 ENABLE=0`.
+Przy aktywnym streamingu najpierw czyści cele F7/F6(0), a ENABLE=0 jest ostatnim
+poleceniem dla każdej osi.
+Nie czeka na gotowość, pozycję, kalibrację, ACK ani odstęp 200 ms zwykłego
+zbiorczego ENABLE. Błąd wysłania do jednej osi nie blokuje prób wysyłki do
+pozostałych. Rozsyłanie odbywa się raz przy zatrzaśnięciu awarii przez istniejącego
+właściciela SocketCAN. Dotyczy także awarii w trakcie załączania napędów,
+JOG osi, TCP i programu PTP/LIN; nie wymaga aktywnego ruchu.
+
+Zwykłe puszczenie przycisku, żądanie STOP operatora, anulowanie programu
+oraz planowa dezaktywacja kontrolera nie są same w sobie awarią krytyczną.
+Pozostają obsługiwane przez dotychczasowe zatrzymywanie i blokady. Awaryjne
+przerwanie TCP przez panel/most, np. po utracie nadzoru, uruchamia regułę. Krytyczne
+błędy pomiarów, watchdogów, napędu, transportu lub generatora uruchamiają regułę.
+Wyłączenie przełącznika usuwa tylko automatyczne `ENABLE=0`; kontrola błędów,
+STOP i zatrzaśnięcie awarii nadal obowiązują.
+
+Centrum komunikatów zachowuje pierwotną przyczynę oraz podaje listę osi, do których
+wysłano wyłączenie, i konkretne błędy wysyłki. **Wysłanie nie jest potwierdzeniem
+wyłączenia napędu ani postoju.** Uszkodzona lub niedostępna magistrala może
+uniemożliwić doręczenie komend. Przyczyna w tytule błędu wskazuje osie pierwotnej
+awarii, a nie wszystkie osie objęte rozsyłaniem wyłączenia.
+
+Weryfikacja tej zmiany: 12 testów C++ na atrapach (awaria podczas streamingu
+lub ENABLE, brak pomiarów, błąd jednej wysyłki, brak nowych komend po awarii,
+wyłączenie reguły i rollback), 2 testy konfiguracji Python, 7 testów modułu
+frontendu oraz lokalna serializacja true/false przez nowy typ ROS. Bez prób
+fizycznych, resetowania CAN i przełączania rzeczywistego ENABLE.
+
+Build Release ukończony dla `mks_servo_can`, `robot_control_interfaces`,
+`robot_can_diagnostics`, `robot_configuration` oraz wymagających zgodności
+`robot_hardware` i `robot_motion_planner`, w `install/tcp-jog-fix-ros`.
+Build frontendu ukończony; pliki wdrożone do aktywnej nakładki.
+
+Zmiana interfejsu ROS wymaga restartu całej usługi przy potwierdzonym postoju,
+a następnie odświeżenia panelu Ctrl+F5:
+
+```bash
+sudo systemctl restart robot-web-status.service
+```
+
+## Automatyczne wyłączenie ENABLE po 60 minutach bezczynności
+
+Właściciel CAN monitoruje pozycje **wałów silników J1–J6** z enkoderów.
+Jeśli przez pełne 60 minut zakres położeń żadnego wału nie przekroczy 2°,
+uruchamia istniejącą sekwencję „Wyłącz wszystkie”. Sprawdza aktualny stabilny
+postój, wyłącza napędy kolejno z odstępem co najmniej 200 ms i wymaga potwierdzeń
+ENABLE=0. Jeżeli chwilowo brak warunków bezpiecznego rozpoczęcia sekwencji,
+wyłączenie jest odroczone; samo upłynięcie czasu nie potwierdza wyłączenia.
+
+Próg dotyczy kąta silnika, bez przeliczania przez przełożenie przegubu.
+Monitor porównuje minimum i maksimum pomiarów każdego wału w bieżącym okresie;
+dzięki temu wykrywa również przemieszczenie tam i z powrotem. Ruch ponad 2°
+dowolnego silnika rozpoczyna nowy godzinny okres dla całego robota. Drobne
+zmiany enkoderów nie są sumowane jako przebyta droga.
+
+Odliczanie działa przy nieaktywnym sterowaniu i komplecie świeżych pozycji
+sześciu napędów oraz potwierdzonych stanach ENABLE. Aktywny JOG/program,
+operacja napędów, skan lub zapis konfiguracji zerują odliczanie. Brak odczytów,
+przerwa obserwacji ponad 250 ms, cofnięcie zegara albo zmiana zestawu załączonych
+silników również rozpoczynają nowy okres. Nie zlicza się czasu bez nadzoru CAN
+ani czasu sprzed restartu. Monitor nie dodaje zapytań do magistrali i nie zmienia
+watchdogów ruchu.
+
+Powód „Automatyczne wyłączenie ENABLE: 60 min bez ruchu wałów > 2°” trafia do
+stanu ręcznego i historii Centrum komunikatów, razem z przebiegiem/potwierdzeniem
+sekwencji. Zakończenie bezczynności nie włącza napędów automatycznie — wymagane
+jest świadome „Załącz” lub „Załącz wszystkie”. Przygotowany program zostaje
+unieważniony i wymaga ponownego przygotowania. Reguła oszczędzania energii jest
+niezależna od przełącznika wyłączania ENABLE po awarii krytycznej.
+
+Weryfikacja: sześć nowych testów monitora (w tym pełna godzina na zegarze
+wirtualnym i potwierdzone wyłączenie wszystkich osi na atrapach), pięć regresji
+zbiorczego ENABLE i dwie regresje obsługi awarii — **13/13 OK**. Bez komend do
+sprzętu i bez kolejnej próby fizycznej. Zbudowano tylko zmieniony pakiet
+`mks_servo_can` w Release, do `install/tcp-jog-fix-ros`; nie zmieniano interfejsów
+ROS ani frontendu.
+
+Nowy build wymaga restartu usługi przy potwierdzonym postoju:
+
+```bash
+sudo systemctl restart robot-web-status.service
+```

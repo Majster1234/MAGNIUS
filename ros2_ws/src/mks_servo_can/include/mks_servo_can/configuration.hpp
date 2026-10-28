@@ -17,6 +17,7 @@ struct RobotProfile {
   std::array<bool, 6> changed{};
   std::array<bool, 6> calibration_invalid{};
   std::array<bool, 6> confirm_calibration{};
+  bool disable_enable_on_critical_fault{true};
 };
 struct JointConversion {
   double gear_ratio{1}, direction{1}, offset{};

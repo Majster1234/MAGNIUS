@@ -15,7 +15,7 @@ find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(robot_control_interfaces REQUIRED)
 
-add_library(${PROJECT_NAME} SHARED src/diagnostics.cpp src/program_api.cpp src/tcp_jog_api.cpp)
+add_library(${PROJECT_NAME} SHARED src/diagnostics.cpp src/program_api.cpp src/tcp_jog_api.cpp src/tcp_telemetry.cpp)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wpedantic)
 target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)

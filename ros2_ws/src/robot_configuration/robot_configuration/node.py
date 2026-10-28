@@ -17,7 +17,7 @@ from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 from std_msgs.msg import String
 from robot_control_interfaces.msg import JointConfiguration, RobotConfiguration, ManualState, MotionSettings
 from robot_control_interfaces.srv import ConfigurationCommand, ConfigureRobot
-from .schema import profiles, validate
+from .schema import profiles, validate, CRITICAL_FAULT_POLICY
 from .storage import Storage, decode
 from .coordinator import Coordinator, Conflict
 
@@ -54,6 +54,7 @@ class RosTransport:
         request.phase = {'prepare': 0, 'commit': 1, 'rollback': 2, 'finish': 3, 'status': 4, 'bootstrap': 5}[phase]
         request.operation_id = operation_id; request.expected_revision = expected
         configuration = RobotConfiguration(revision=state['revision'])
+        configuration.disable_enable_on_critical_fault = state['document']['values'].get(CRITICAL_FAULT_POLICY, True)
         configuration.axes = [JointConfiguration(**profile) for profile in profiles(state['document'])]
         configuration.changed = changed or [False] * 6
         if phase == 'bootstrap':
@@ -66,6 +67,7 @@ class RosTransport:
         response = {key: getattr(result, key) for key in ('revision', 'operation_id', 'stage', 'locked')}
         resolved = result.resolved_configuration
         response['resolved_configuration'] = dict(revision=resolved.revision, calibration_invalid=list(resolved.calibration_invalid),
+            disable_enable_on_critical_fault=resolved.disable_enable_on_critical_fault,
             axes=[{key: getattr(axis, key) for key in ('axis', 'configured', 'gear_ratio', 'direction', 'zero_offset_rad',
                   'lower_rad', 'upper_rad', 'velocity_rad_s', 'acceleration_rad_s2')} for axis in resolved.axes])
         return response
@@ -137,6 +139,7 @@ class ConfigurationNode(Node):
         if snapshot['operation']['phase'] in ('idle', 'done', 'uncertain', 'failed'):
             active = snapshot['active']
             self.active_publisher.publish(RobotConfiguration(revision=active['revision'],
+                disable_enable_on_critical_fault=active['document']['values'].get(CRITICAL_FAULT_POLICY, True),
                 calibration_invalid=snapshot['calibration_invalid'],
                 tcp_jog_max_linear_velocity=(active['document']['values'].get('tcp.max_linear_velocity') or 0) / 1000,
                 tcp_jog_max_angular_velocity=math.radians(active['document']['values'].get('tcp.max_angular_velocity') or 0),

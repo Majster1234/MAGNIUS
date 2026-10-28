@@ -60,6 +60,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const [fresh, setFresh] = useState(false);
     const { entries, notice, condition, active, statuses } = useControlMessages();
     const [pending, setPending] = useState(false);
+    const [resettingCan, setResettingCan] = useState(false);
     const [held, setHeld] = useState<{ axis: number; direction: number } | null>(null);
     const [planning, setPlanning] = useState(false);
     const [showMotionFrames, setShowMotionFrames] = useState(true);
@@ -148,6 +149,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         const withoutFeedback=state.axes.filter(a=>a.available && (!a.position_known || !Number.isFinite(a.position_age_seconds) || (a.position_age_seconds ?? Infinity)>=.25 || (a.position_age_seconds ?? 0)<0 || (a.joint_configured && a.calibration_valid && !a.joint_position_known))).map(a=>`J${a.axis}`);
         condition("axis-feedback",withoutFeedback.length?{source:"axis-feedback",severity:"warning",code:"freshness",context:"Pomiary osi",description:`Brakuje aktualnej pozycji osi: ${withoutFeedback.join(", ")}. Stan połączenia panelu nie potwierdza świeżości tych pomiarów.`,message:`Brak świeżej pozycji: ${withoutFeedback.join(", ")}.`}:null,"Zaktualizowano ocenę pomiarów dostępnych osi.");
         condition("controller",state.fault?{source:"controller",severity:"error",code:"fault",context:"Robot fizyczny",message:state.message || "Brak opisu awarii"}:null);
+        condition("tcp-live-fault",!state.fault && state.tcp_jog?.state==="failed"?{source:"tcp-live-fault",severity:"error",code:"fault",context:"JOG TCP LIVE",message:state.tcp_jog.message || "Przerwano JOG TCP bez szczegółowego opisu"}:null);
         if(!state.fault && state.message)notice({source:"controller-state",severity:"info",context:"Robot fizyczny",message:state.message});
         const available = state.axes.filter(axis => axis.available).map(axis => `J${axis.axis}`);
         const missing = state.axes.filter(axis => !axis.available).map(axis => `J${axis.axis}`);
@@ -279,6 +281,19 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         planningControl.current.end(); planningMode.current = false; setPlan(planningControl.current.snapshot(performance.now())); setPlanning(false); setHeld(null); setSimulationPositions(null);
         notice({ source: "planning", severity: "info", message: "Zakończono planowanie lokalne. Fizyczny JOG pozostaje zatrzymany." });
     }
+    const canResetBlocked = pending || !!state?.busy || physicalTcpBusy || !!state?.tcp_jog?.busy || !!execution?.status.busy;
+    async function resetCan() {
+        if (canResetBlocked) return;
+        setPending(true); setResettingCan(true);
+        try {
+            const response = await fetch("/api/v1/can/reset", { method: "POST" });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.detail ?? "Operacja odrzucona");
+            notice({ source: "can-reset", severity: "info", context: "Reset CAN", message: body.message ?? "Reset CAN przyjęty" });
+        } catch (error) {
+            notice({ source: "can-reset", severity: "error", context: "Reset CAN", message: error instanceof Error ? error.message : "Błąd operacji CAN" });
+        } finally { setPending(false); setResettingCan(false); }
+    }
     async function operation(axis: number, name: "enable" | "zero", enabled?: boolean) {
         if (planningMode.current || physicalTcp.current?.busy || latestState.current?.tcp_jog?.busy) return;
         control.current?.stop(); setPending(true);
@@ -372,7 +387,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                 <button className="secondary-button" disabled={planning || !usable || pending || !!state?.busy || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(false)}>Wyłącz wszystkie</button>
             </div>
             <span className="manual-mode"><span aria-hidden="true" />{planning ? "PLANOWANIE · bliźniak" : "LIVE · robot fizyczny"}</span>
-            <button className="motion-stop" disabled={!stopRobot && !physicalTcpBusy && !state?.tcp_jog?.busy} onClick={()=>{physicalTcp.current?.stop(true);stopRobot?.();}} title="Żądanie STOP robota; postój wymaga potwierdzenia pomiarami">STOP robota</button>
+            <button className="motion-stop" disabled={!stopRobot && !physicalTcpBusy && !state?.tcp_jog?.busy} onClick={()=>{if(stopRobot){physicalTcp.current?.stop();stopRobot();}else physicalTcp.current?.stop(true);}} title="Żądanie STOP robota; postój wymaga potwierdzenia pomiarami">STOP robota</button>
+            <button className="secondary-button" disabled={canResetBlocked} onClick={() => void resetCan()} title="Reset CAN jest blokowany podczas aktywnego sterowania">{resettingCan ? "Resetowanie…" : "Reset CAN"}</button>
         </header>
         <div className="manual-workspace"><div className="manual-observation">
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onCondition={condition} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}

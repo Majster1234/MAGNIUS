@@ -1,4 +1,5 @@
 #include "mks_servo_can/bus_manager.hpp"
+#include "mks_servo_can/diagnostic_message.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
 #include <algorithm>
 #include <cmath>
@@ -129,7 +130,14 @@ void CanBusManager::program_setup_reply(const Frame &frame,Time) {
     case 7:good=frame.data[1]==devices_[frame.address].microstep.value;break;
     case 8:good=frame.data[1]==5;break;
   }
-  if(!good) { fault("Niepotwierdzony postój, CanRSP=Disable, SR_vFOC lub watchdog");return; }
+  if(!good) {
+    static constexpr const char *conditions[]={"odczyt prędkości (0x32)","potwierdzenie postoju F1=1",
+        "potwierdzenie zapisu CanRSP (0x8C)","CanRSP=Disable (0x8C)",
+        "potwierdzenie zapisu SYNC (0x4A)","SYNC=0 (0x4A)",
+        "watchdog 300 ms (0x98)","zgodność mikrokroku (0x84)","SR_vFOC=5 (0x82)"};
+    fault(axis_diagnostic_label(e.setup_axis+1,frame.address)+": niepotwierdzony warunek uzbrojenia: "+
+        (e.setup_step<9 ? conditions[e.setup_step] : "nieznany etap"));return;
+  }
   e.waiting=false;if(++e.setup_step==9) {++e.setup_axis;e.setup_step=0;}
 }
 void CanBusManager::begin_program_check(Time now) {
@@ -151,7 +159,8 @@ void CanBusManager::schedule_program(Time now) {
   auto &e=executor_;auto &s=e.status;if(!s.busy || !e.program) return;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
     const auto &d=devices_[config_.axes[j].address];
-    if((d.enable.fresh(now,300ms) && !d.enable.value) || (d.stall.fresh(now,300ms) && d.stall.value)) {fault("Napęd zgłosił ENABLE=0 lub stall");return;}
+    if(d.enable.fresh(now,300ms) && !d.enable.value) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": ENABLE=0 — napęd wyłączony podczas programu");return;}
+    if(d.stall.fresh(now,300ms) && d.stall.value) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": stall=1 — napęd zgłosił zablokowanie wału podczas programu");return;}
   }
   if(s.state=="arming") {
     if(now>=e.preparation_deadline) {fault("Przekroczony termin uzbrojenia");return;}
@@ -160,7 +169,9 @@ void CanBusManager::schedule_program(Time now) {
     if(e.setup_axis==kAxes) {
       for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
         const auto &d=devices_[config_.axes[j].address];
-        if(!d.position.fresh(now,kProgramFeedbackTimeout) || std::abs(position_to_joint(config_.axes[j],d.position.value)-e.program->start[j])>config_.program_position_tolerance[j]) {fault("Pozycja startowa zmieniła się podczas uzbrajania");return;}
+        if(!d.position.fresh(now,kProgramFeedbackTimeout)) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": "+sample_diagnostic(d.position,now,kProgramFeedbackTimeout,"pozycja startowa (0x31)"));return;}
+        const double error=position_to_joint(config_.axes[j],d.position.value)-e.program->start[j];
+        if(std::abs(error)>config_.program_position_tolerance[j]) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": pozycja startowa zmieniła się podczas uzbrajania; uchyb="+diagnostic_number(error*180/std::acos(-1.))+"°, tolerancja ±"+diagnostic_number(config_.program_position_tolerance[j]*180/std::acos(-1.))+"°");return;}
       }
       s.state="running";s.message="Streaming 100 Hz; bez ACK i kontroli punktów pośrednich";return;
     }

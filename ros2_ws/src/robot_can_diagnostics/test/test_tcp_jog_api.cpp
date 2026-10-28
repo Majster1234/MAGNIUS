@@ -44,6 +44,9 @@ TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {
     rclcpp::Parameter("tcp_jog_max_angular_velocity",.05),rclcpp::Parameter("tcp_jog_linear_acceleration",.05),rclcpp::Parameter("tcp_jog_angular_acceleration",.5)}));
   auto api=std::make_unique<robot_can_diagnostics::TcpJogApi>(node.get(),runtime);
   std::mutex mutex;robot_control_interfaces::msg::TcpJogStatus status;
+  std::vector<std::string> telemetry;
+  auto telemetry_subscription=node->create_subscription<std_msgs::msg::String>("/robot/manual/tcp_telemetry",rclcpp::QoS(100).best_effort(),
+    [&](std_msgs::msg::String::ConstSharedPtr value){std::lock_guard<std::mutex> lock(mutex);telemetry.push_back(value->data);});
   auto subscription=node->create_subscription<robot_control_interfaces::msg::TcpJogStatus>("/robot/manual/tcp_status",1,
     [&](robot_control_interfaces::msg::TcpJogStatus::ConstSharedPtr value) {std::lock_guard<std::mutex> lock(mutex);status=*value;});
   auto publisher=node->create_publisher<std_msgs::msg::String>("/robot/preview/robot_description",rclcpp::QoS(1).transient_local());
@@ -68,6 +71,10 @@ TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {
     const auto response=future.get();response_message=response->message;return response->accepted;
   };
   const bool started=send();
+  if(started) {
+    EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_max_jerk",.25)}).successful);
+    EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("joint_stop_tolerance_deg",.1)}).successful);
+  }
   mks_servo_can::ControlState control;
   const bool got_control=runtime->try_read(control);
   mks_servo_can::CommandBatch foreign;foreign.source=mks_servo_can::Source::tcp_jog;
@@ -88,6 +95,18 @@ TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {
   execution_message+="; CAN: "+runtime->snapshot().message;
   cleanup();EXPECT_TRUE(started)<<response_message;EXPECT_TRUE(foreign_rejected);EXPECT_TRUE(advanced)<<execution_message;
   EXPECT_TRUE(stopped)<<response_message<<"; "<<execution_message;EXPECT_TRUE(confirmed)<<execution_message;
+  bool got_sample=false;
+  std::ofstream captured("/tmp/tcp-precision-telemetry-test.jsonl");
+  for(const auto &line:telemetry) {
+    captured<<line<<'\n';
+    for(unsigned char c:line)EXPECT_GE(c,32u);
+    if(line.find("\"event\":\"sample\"")!=std::string::npos) {
+      got_sample=true;
+      for(const auto field:{"q_ref","q_ref_created_ns","q_meas","q_sync","fk_raw","fk_sync","rx_stamp_ns","sync_warning"})
+        EXPECT_NE(line.find(std::string("\"")+field+"\":"),std::string::npos)<<field;
+    }
+  }
+  EXPECT_TRUE(got_sample);
 }
 TEST(TcpJogApi, ParametersEnableDisabledWorkerAndRejectInvalidLimits) {
   setenv("ROS_LOCALHOST_ONLY","1",1);setenv("ROS_DOMAIN_ID","194",1);rclcpp::init(0,nullptr);
@@ -96,6 +115,11 @@ TEST(TcpJogApi, ParametersEnableDisabledWorkerAndRejectInvalidLimits) {
   {
     robot_can_diagnostics::TcpJogApi api(node.get(),runtime);
     EXPECT_FALSE(runtime->config_snapshot().tcp_jog_enabled);
+    for(double invalid:{0.,-.1,10.01,double(NAN),double(INFINITY)})
+      EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_max_jerk",invalid)}).successful);
+    for(double invalid:{.019,1.01,double(NAN),double(INFINITY)})
+      EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("joint_stop_tolerance_deg",invalid)}).successful);
+    EXPECT_TRUE(node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_max_jerk",.5),rclcpp::Parameter("joint_stop_tolerance_deg",.1)}).successful);
     auto result=node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_enabled",true),
       rclcpp::Parameter("tcp_jog_max_linear_velocity",.02),rclcpp::Parameter("tcp_jog_linear_acceleration",.1)});
     EXPECT_TRUE(result.successful)<<result.reason;EXPECT_TRUE(runtime->config_snapshot().tcp_jog_enabled);
@@ -119,4 +143,15 @@ TEST(TcpJogApi, ParametersEnableDisabledWorkerAndRejectInvalidLimits) {
     EXPECT_TRUE(result.successful);EXPECT_FALSE(runtime->config_snapshot().tcp_jog_enabled);
   }
   node.reset();rclcpp::shutdown();
+}
+
+#include "robot_can_diagnostics/tcp_parameters.hpp"
+TEST(TcpStop, ValidatesRangeAndKeepsPointOneDegreeBoundary) {
+  using namespace robot_can_diagnostics;
+  EXPECT_TRUE(tcp_stop_within(.1*std::acos(-1.)/180,.1));
+  EXPECT_FALSE(tcp_stop_within(.10001*std::acos(-1.)/180,.1));
+  EXPECT_NO_THROW(validate_tcp_parameters(.5,.02));
+  EXPECT_NO_THROW(validate_tcp_parameters(10.,1.));
+  EXPECT_THROW(validate_tcp_parameters(.5,.019),std::invalid_argument);
+  EXPECT_THROW(validate_tcp_parameters(0,.1),std::invalid_argument);
 }

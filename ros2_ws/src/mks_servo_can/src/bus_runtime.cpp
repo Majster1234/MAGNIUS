@@ -44,6 +44,7 @@ void BusRuntime::reset_session(ResetMode mode) { std::lock_guard<std::mutex> gua
 bool BusRuntime::reset_allowed() { std::lock_guard<std::mutex> guard(mutex_); return manager_.service_allowed(); }
 bool BusRuntime::activate(Source source) { std::lock_guard<std::mutex> guard(mutex_);const auto accepted=manager_.activate(source,Clock::now());feedback_.publish(manager_.control_state());return accepted; }
 void BusRuntime::configure_tcp_jog(bool enabled) { std::lock_guard<std::mutex> guard(mutex_);manager_.configure_tcp_jog(enabled); }
+TcpStreamingSnapshot BusRuntime::tcp_streaming_snapshot() {std::lock_guard<std::mutex> guard(mutex_);return manager_.tcp_streaming_snapshot();}
 std::uint64_t BusRuntime::begin_tcp_jog(const std::string &session,const std::string &revision,const std::string &model,std::uint64_t sequence,Time issued) {
   std::lock_guard<std::mutex> guard(mutex_);
   const auto generation=manager_.begin_tcp_jog(session,revision,model,sequence,issued,Clock::now());
@@ -61,7 +62,7 @@ bool BusRuntime::brake_tcp_jog(const std::string &session,std::uint64_t generati
 bool BusRuntime::tcp_jog_available() {
   std::lock_guard<std::mutex> guard(mutex_);return manager_.tcp_jog_available(Clock::now());
 }
-void BusRuntime::stop(const std::string &reason) { std::lock_guard<std::mutex> guard(mutex_); manager_.stop(reason); }
+void BusRuntime::stop(const std::string &reason, bool critical) { std::lock_guard<std::mutex> guard(mutex_); manager_.stop(reason, critical); }
 void BusRuntime::renew_source_lease(Source source, Time created) {
   std::lock_guard<std::mutex> guard(mutex_);
   const auto now = Clock::now();

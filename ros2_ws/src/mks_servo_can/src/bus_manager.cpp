@@ -1,6 +1,7 @@
 #include "mks_servo_can/bus_manager.hpp"
 #include "mks_servo_can/motion_sample.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
+#include "mks_servo_can/diagnostic_message.hpp"
 #include "mks_servo_can/trace.hpp"
 
 #include <algorithm>
@@ -194,6 +195,38 @@ bool CanBusManager::feedback_good(Time now) const {
   }
   return true;
 }
+std::string CanBusManager::feedback_failure_reason(Time now) const {
+  std::string message;
+  for (unsigned j = 0; j < kAxes; ++j) {
+    const auto &axis = config_.axes[j];
+    const auto &d = devices_[axis.address];
+    std::string reasons;
+    const auto add = [&reasons](const std::string &reason) {
+      if (!reasons.empty()) reasons += ", ";
+      reasons += reason;
+    };
+    if (!d.detected) add("napęd niewykryty");
+    else if (d.identity.model != Model::kServo42D) add("nieobsługiwany model napędu");
+    else {
+      if (!d.position.fresh(now, config_.feedback_timeout))
+        add(sample_diagnostic(d.position, now, config_.feedback_timeout, "pozycja (0x31)"));
+      if (!d.enable.fresh(now, std::chrono::milliseconds(300)))
+        add(sample_diagnostic(d.enable, now, std::chrono::milliseconds(300), "ENABLE (0x3A)"));
+      else if (!d.enable.value) add("ENABLE=0 — napęd wyłączony");
+      if (!d.stall.fresh(now, std::chrono::milliseconds(300)))
+        add(sample_diagnostic(d.stall, now, std::chrono::milliseconds(300), "stan stall (0x3E)"));
+      else if (d.stall.value) add("stall=1 — napęd zgłosił zablokowanie wału");
+      if (!d.mode.valid) add("brak potwierdzonego trybu pracy (0x82)");
+      else if (!supports_motor_state(d.mode.value))
+        add("nieobsługiwany tryb pracy (0x82): " + std::to_string(d.mode.value));
+    }
+    if (!reasons.empty()) {
+      if (!message.empty()) message += "; ";
+      message += axis_diagnostic_label(j + 1, axis.address) + ": " + reasons;
+    }
+  }
+  return message;
+}
 bool CanBusManager::activate(Source source, Time now) {
   if (!configuration_ready_ || configuration_locked_) return false;
   if (config_.source_lease_required && source!=Source::tcp_jog) {
@@ -234,12 +267,13 @@ void CanBusManager::renew_source_lease(Source source, Time now) {
   }
   lease_stamp_ = now;
 }
-void CanBusManager::fault(const std::string &message) {
+void CanBusManager::fault(const std::string &message, bool critical) {
   if (fault_) return;
   trace_note("bus_fault", message);
   trace_freeze_after(std::chrono::seconds(5));
   const bool was_active = active_;
-  if(executor_.status.busy || executor_.status.state=="ready") {
+  const bool program_failed=executor_.status.busy || executor_.status.state=="ready";
+  if(program_failed) {
     executor_.status.busy=false;executor_.status.state="failed";executor_.status.message=message;
   }
   fault_ = true; active_ = false; scanning_ = false; message_ = message;
@@ -247,10 +281,39 @@ void CanBusManager::fault(const std::string &message) {
   latest_.reset(); source_ = Source::none; tcp_owner_.clear();tcp_last_stop_=last_tick_;++stats_.errors;
   for (auto &p : pending_) p.used = false;
   if (was_active) { config_.program_staged_reset_verified=false;emergency_stop(); }
+  // ENABLE=0 jest ostatnim poleceniem dla każdej osi, po wyczyszczeniu celów F7/F6.
+  if(critical && profile_.disable_enable_on_critical_fault) disable_enable_after_fault();
+  else if(critical) message_+="; reguła awarii krytycznej: automatyczne ENABLE=0 wyłączone w konfiguracji robota";
+  if(program_failed) executor_.status.message=message_;
 }
-void CanBusManager::stop(const std::string &reason) {
-  if (manual_->busy() && !fault_) manual_->abort(reason);
-  else fault(reason);
+void CanBusManager::disable_enable_after_fault() {
+  std::string sent, failed;
+  // J1–J6 mają adresy CAN 1–6, także przed kalibracją/wykryciem napędów.
+  // Ta ścieżka omija kolejkę operacji i nie czeka na ACK ani gotowość osi.
+  for(unsigned address=1;address<=kAxes;++address) {
+    const auto label=axis_diagnostic_label(address,address);
+    try {
+      if(!transport_->is_open()) throw std::runtime_error("SocketCAN jest zamknięty");
+      transport_->send(address,enable_request(address,false));++stats_.tx;
+      if(!sent.empty()) sent+=", ";
+      sent+=label;
+      trace_note("critical_enable_off_sent","F3 ENABLE=0; bez potwierdzenia",address,0xf3);
+    } catch(const std::exception &e) {
+      if(!failed.empty()) failed+="; ";
+      failed+=label+": "+e.what();
+      trace_note("critical_enable_off_failed",e.what(),address,0xf3);
+    } catch(...) {
+      if(!failed.empty()) failed+="; ";
+      failed+=label+": nieznany błąd wysyłania";
+      trace_note("critical_enable_off_failed","nieznany błąd wysyłania",address,0xf3);
+    }
+  }
+  if(!sent.empty()) message_+="; reguła awarii krytycznej: wysłano ENABLE=0 do "+sent+"; wyłączenie niepotwierdzone pomiarami";
+  if(!failed.empty()) message_+="; nie wysłano ENABLE=0: "+failed;
+}
+void CanBusManager::stop(const std::string &reason, bool critical) {
+  if (manual_->busy() && !fault_) manual_->abort(reason,critical);
+  else fault(reason,critical);
 }
 void CanBusManager::emergency_stop() {
   if(stop_sent_) return;
@@ -414,7 +477,9 @@ void CanBusManager::receive(Time now) {
       if(frame->data[1]==2) { ++stats_.completion_reports;trace_note("previous_move_complete","",frame->address,0xf5);continue; }
       if(frame->data[1]==3 || frame->data[1]==0) {
         ++stats_.endstop_reports;
-        if(active_ && axis_index(frame->address)<kAxes) fault("Napęd zgłosił błąd/krańcówkę F5");
+        if(active_ && axis_index(frame->address)<kAxes)
+          fault(axis_diagnostic_label(axis_index(frame->address)+1,frame->address)+
+              ": raport błędu/krańcówki F5, status="+std::to_string(frame->data[1]));
         continue;
       }
     }
@@ -457,7 +522,11 @@ void CanBusManager::expire(Time now) {
       if(p.kind==Kind::position) devices_[p.address].position.valid=false;
       continue;
     }
-    if (p.kind == Kind::program_setup) { fault("Brak potwierdzenia uzbrojenia programu"); break; }
+    if (p.kind == Kind::program_setup) {
+      fault(axis_diagnostic_label(axis_index(p.address)+1,p.address)+
+          ": brak odpowiedzi podczas uzbrajania programu; kod komendy="+std::to_string(p.command)+
+          ", czas oczekiwania="+diagnostic_number(milliseconds(now,p.sent))+" ms"); break;
+    }
     if (p.kind == Kind::manual) { manual_->timeout(); break; }
   }
 }
@@ -553,10 +622,10 @@ void CanBusManager::schedule_background(Time now) {
 }
 void CanBusManager::schedule_motion(Time now) {
   const bool tcp=source_==Source::tcp_jog;
-  if(tcp && !tcp_braking_ && (now<tcp_lease_ || now-tcp_lease_>=std::chrono::milliseconds(200))) {fault("Brak podtrzymania JOG TCP");return;}
-  if(!tcp && config_.source_lease_required && (now<lease_stamp_ || now-lease_stamp_>=config_.source_lease_timeout)) {fault("Utrata źródła trajektorii");return;}
-  if(now-last_command_>=config_.command_timeout) {fault("Brak świeżej komendy sterowania");return;}
-  if(!feedback_good(now)) {fault("Brak świeżej pozycji/ENABLE lub awaria napędu");return;}
+  if(tcp && !tcp_braking_ && (now<tcp_lease_ || now-tcp_lease_>=std::chrono::milliseconds(200))) {fault("JOG TCP: brak podtrzymania KEEPALIVE; wiek "+diagnostic_number(milliseconds(now,tcp_lease_))+" ms, limit < 200 ms (cały robot)");return;}
+  if(!tcp && config_.source_lease_required && (now<lease_stamp_ || now-lease_stamp_>=config_.source_lease_timeout)) {fault("Utrata źródła trajektorii; wiek podtrzymania "+diagnostic_number(milliseconds(now,lease_stamp_))+" ms, limit < "+std::to_string(config_.source_lease_timeout.count())+" ms (cały robot)");return;}
+  if(now-last_command_>=config_.command_timeout) {fault("Brak świeżej komendy generatora; wiek "+diagnostic_number(milliseconds(now,last_command_))+" ms, limit < "+std::to_string(config_.command_timeout.count())+" ms (cały robot)");return;}
+  if(!feedback_good(now)) {fault("Zatrzymanie sterowania: "+feedback_failure_reason(now));return;}
   if(!latest_ || motion_this_cycle_) return;
   auto batch=*latest_;latest_.reset();
   if(batch.created>now || now>=batch.expires || now-batch.created>=config_.command_timeout) {++stats_.dropped_commands;return;}
@@ -566,17 +635,24 @@ void CanBusManager::schedule_motion(Time now) {
   auto next_streaming=streaming_states_;
   for(unsigned j=0;j<kAxes;++j) {
     const auto &axis=config_.axes[j];
-    if(!std::isfinite(batch.velocities[j]) || std::abs(batch.velocities[j])>axis.max_velocity+1e-6) {fault("Prędkość poza limitem osi");return;}
+    const auto label=axis_diagnostic_label(j+1,axis.address);
+    if(!std::isfinite(batch.velocities[j]) || std::abs(batch.velocities[j])>axis.max_velocity+1e-6) {fault(label+": prędkość referencji "+diagnostic_number(batch.velocities[j]*180/kPi)+" °/s poza limitem ±"+diagnostic_number(axis.max_velocity*180/kPi)+" °/s");return;}
     if(tcp && (!std::isfinite(batch.accelerations[j]) || std::abs(batch.accelerations[j])>axis.max_acceleration+1e-6 ||
-        !std::isfinite(batch.remaining_time_sec) || batch.remaining_time_sec<0)) {fault("Nieprawidłowe hamowanie TCP");return;}
+        !std::isfinite(batch.remaining_time_sec) || batch.remaining_time_sec<0)) {fault(label+": nieprawidłowe hamowanie TCP; przyspieszenie="+diagnostic_number(batch.accelerations[j]*180/kPi)+" °/s², limit ±"+diagnostic_number(axis.max_acceleration*180/kPi)+" °/s², czas do zatrzymania="+diagnostic_number(batch.remaining_time_sec)+" s");return;}
     const auto feedback=streaming_feedback_position(j,now);
     if(tcp && feedback.valid) {
+      if(std::abs(batch.positions[j]-feedback.value)>1.25*kPi/180) {
+        fault(label+": uchyb śledzenia JOG TCP="+diagnostic_number((batch.positions[j]-feedback.value)*180/kPi)+"°, limit |uchyb| ≤ 1.25°; referencja="+diagnostic_number(batch.positions[j]*180/kPi)+"°, pomiar="+diagnostic_number(feedback.value*180/kPi)+"°");return;
+      }
       const double quantization=kPi/(axis.streaming.encoder_cpr*axis.gear_ratio);
       if(!std::isfinite(feedback.value) || feedback.value<axis.lower-quantization-1e-9 || feedback.value>axis.upper+quantization+1e-9) {
-        fault("Pomiar JOG TCP poza limitem mechanicznym J"+std::to_string(j+1));return;
+        fault(label+": pomiar TCP="+diagnostic_number(feedback.value*180/kPi)+"° poza limitem mechanicznym ["+diagnostic_number(axis.lower*180/kPi)+", "+diagnostic_number(axis.upper*180/kPi)+"]°");return;
       }
     }
-    const auto sample=streaming_setpoint(axis,batch.positions[j],batch.velocities[j],next_streaming[j],
+    const auto sample=tcp ? tcp_streaming_setpoint(axis,batch.positions[j],committed_positions_[j],next_streaming[j],
+        feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,
+        batch.accelerations[j],batch.remaining_time_sec,feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.,batch.lookahead_positions[j]) :
+        streaming_setpoint(axis,batch.positions[j],batch.velocities[j],next_streaming[j],
         feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,
         tcp ? batch.accelerations[j] : 0.,tcp ? batch.remaining_time_sec : axis.streaming.lookahead_time_sec,
         feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.,

@@ -1,7 +1,7 @@
 """Profil rozstrzygnięty przez właściciela CAN, bez przeliczania z opóźnionego ROS."""
 from copy import deepcopy
 import math
-from .schema import profiles, validate
+from .schema import CRITICAL_FAULT_POLICY, profiles, validate
 
 
 def confirmation_axes(value):
@@ -14,6 +14,9 @@ def resolve(previous, candidate, response):
     resolved = response.get('resolved_configuration')
     if not isinstance(resolved, dict) or resolved.get('revision') != candidate['revision']:
         raise RuntimeError('Brak zgodnego profilu rozstrzygniętego przez CAN')
+    policy = resolved.get('disable_enable_on_critical_fault', True)
+    if type(policy) is not bool or policy != candidate['document']['values'].get(CRITICAL_FAULT_POLICY, True):
+        raise RuntimeError('CAN nie potwierdził reguły wyłączenia ENABLE przy awarii krytycznej')
     axes, invalid = resolved.get('axes'), resolved.get('calibration_invalid')
     if not isinstance(axes, list) or len(axes) != 6 or not isinstance(invalid, list) or len(invalid) != 6 or any(type(v) is not bool for v in invalid):
         raise RuntimeError('Niekompletny profil lub stan kalibracji CAN')

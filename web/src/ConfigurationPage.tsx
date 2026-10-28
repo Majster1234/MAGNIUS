@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EventConsole, useEventConsole } from "./EventConsole";
 import { ConfigurationPreview } from "./ConfigurationPreview";
-import { dirtyKeys, fieldErrors } from "./configurationData";
+import { criticalFaultPolicyKey, dirtyKeys, fieldErrors } from "./configurationData";
 import { useConfiguration } from "./useConfiguration";
 import { useSystemSettings } from "./planningContext";
 
@@ -51,8 +51,9 @@ const draftFields: Record<string, Field> = Object.fromEntries([
     ...Array.from({ length: 6 }, (_, index) => [...jointFields, ...geometryFields].map(field => [`joint.${index + 1}.${field.key}`, field])).flat(),
     ...toolFields.map(field => [`tool.${field.key}`, field]),
     ...tcpMotionFields.map(field => [`tcp.${field.key}`, field]),
+    [criticalFaultPolicyKey, {key:"disable_enable_on_critical_fault",label:"Wyłącz ENABLE przy awarii krytycznej"}],
 ]);
-const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, ""]));
+const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, key===criticalFaultPolicyKey ? "true" : ""]));
 function legacyValue(value: string, field: Field) {
     const scale = field.unit === "mm" ? 1000 : field.unit?.startsWith("°") ? 180 / Math.PI : 1;
     if (!value.trim() || scale === 1) return value;
@@ -65,7 +66,7 @@ function readDraft() {
         const text = legacy ? sessionStorage.getItem(legacyStorageKey) : current;
         const stored = text && text.length <= 65536 ? JSON.parse(text) : null;
         return Object.fromEntries(Object.entries(draftFields).map(([key, field]) => {
-            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : "";
+            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : key===criticalFaultPolicyKey ? "true" : "";
             return [key, legacy ? legacyValue(value, field) : value];
         }));
     } catch { return { ...emptyDraft }; }
@@ -203,6 +204,13 @@ export function ConfigurationPage() {
             <ConfigurationPreview draft={draft} view={tableView} selected={selectedAxis} nativeErrors={nativeErrors}/>
             <div className="settings-extras">
                 <SettingsCard title="Fizyczny JOG TCP — wymagane limity" description="Uzupełnij cztery dodatnie wartości dla rzeczywistego robota i wybierz Zapisz do ROS. Puste pole oznacza brak danych i blokuje fizyczny TCP. Wymagane są również kompletna geometria, sześć składników TCP narzędzia oraz sześć skalibrowanych osi.">{fields("tcp", tcpMotionFields)}</SettingsCard>
+                <SettingsCard title="Reakcja na awarię krytyczną" description="Reguła dotyczy awarii sterowania osi, TCP i programów. Zmiana zacznie obowiązywać po wybraniu Zapisz do ROS.">
+                    <label className="system-planning-switch"><span>Wyłącz ENABLE wszystkich silników przy awarii krytycznej</span>
+                        <input type="checkbox" role="switch" checked={draft[criticalFaultPolicyKey]!=="false"} disabled={Boolean(applying)}
+                            onChange={event=>setDraft(previous=>({...previous,[criticalFaultPolicyKey]:String(event.target.checked)}))}/>
+                    </label>
+                    <p className="settings-description">Domyślnie włączona. Wysyła ENABLE=0 do J1–J6 niezależnie od wykonywanej operacji. Wysłanie komend nie potwierdza wyłączenia napędów. Zwykłe hamowanie i STOP operatora nie uruchamiają tej reguły.</p>
+                </SettingsCard>
                 <SettingsCard title="Dane robota" description="Nazwy i układy odniesienia wspólne dla modelu.">{fields("robot", robotFields)}</SettingsCard>
                 <SettingsCard title="Narzędzie i TCP" description="TCP względem kołnierza; środek masy w układzie narzędzia.">{fields("tool", toolFields)}</SettingsCard>
             </div>

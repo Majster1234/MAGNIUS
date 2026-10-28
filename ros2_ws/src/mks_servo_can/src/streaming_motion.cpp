@@ -70,6 +70,24 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
   unsigned sum=a.address;for(unsigned i=0;i<7;++i) sum+=out.bytes[i];out.bytes[7]=static_cast<std::uint8_t>(sum);
   return out;
 }
+StreamingSetpoint tcp_streaming_setpoint(const AxisConfig &a,double q,double previous,StreamingState &state,
+    std::optional<double> actual,std::uint16_t microstep,double acceleration,double remaining,double age,double lookahead) {
+  if(!std::isfinite(previous))throw std::invalid_argument("Brak poprzedniej referencji TCP");
+  const double dq=(q-previous)/kStreamingCycleSeconds;
+  auto out=streaming_setpoint(a,q,dq,state,actual,microstep,acceleration,remaining,age,lookahead);
+  const double correction=actual ? a.streaming.position_kp*std::abs(previous-*actual) : 0.;
+  const double shaft_rpm=(a.streaming.velocity_ff_scale*std::abs(dq)+correction)*a.gear_ratio*60/(2*pi);
+  const double scale=speed_scale(microstep);
+  const auto maximum=std::min(3000L,static_cast<long>(std::floor(std::min({2500.,double(a.streaming.max_rpm),a.max_velocity*a.gear_ratio*60/(2*pi)})/scale+1e-9)));
+  const auto minimum=static_cast<long>(std::ceil(1./scale-1e-9));
+  if(maximum<minimum)throw std::invalid_argument("Limit osi TCP nie pozwala na minimalne RPM F5");
+  // Niezerowy ruch TCP nigdy nie otrzymuje 0 RPM. Stan postoju zachowuje F5 holding.
+  out.rpm=static_cast<std::uint16_t>(std::clamp(std::lround(std::max(1L,std::lround(shaft_rpm))/scale),minimum,maximum));
+  state.rpm_dither_accum=0;
+  out.bytes[1]=static_cast<std::uint8_t>((out.rpm>>8)&0x0f);out.bytes[2]=static_cast<std::uint8_t>(out.rpm);
+  unsigned sum=a.address;for(unsigned i=0;i<7;++i)sum+=out.bytes[i];out.bytes[7]=static_cast<std::uint8_t>(sum);
+  return out;
+}
 double streaming_bus_utilization(unsigned axes,unsigned bitrate) {
   if(axes>6 || (bitrate!=500000 && bitrate!=1000000)) throw std::invalid_argument("Bitrate streaming: 500 kbit/s lub 1 Mbit/s");
   const double motion=100*(can_frame_bits(8)+can_frame_bits(2)+can_frame_bits(8));

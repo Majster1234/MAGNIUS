@@ -62,6 +62,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_tcp_jog ${PROJECT_NAME})
   ament_add_gtest(test_enable_all test/test_enable_all.cpp)
   target_link_libraries(test_enable_all ${PROJECT_NAME})
+  ament_add_gtest(test_idle_enable test/test_idle_enable.cpp)
+  target_link_libraries(test_idle_enable ${PROJECT_NAME})
 endif()
 
 install(FILES README.md DESTINATION share/${PROJECT_NAME})

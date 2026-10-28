@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <linux/can/error.h>
 #include "mks_servo_can/bus_manager.hpp"
+#include "mks_servo_can/manual_motor_controller.hpp"
 
 using namespace mks_servo_can;
 using namespace std::chrono_literals;
@@ -16,6 +17,8 @@ class Emulator final : public Transport {
   bool opened{false}, disconnected{false}, own_echo{false};
   std::uint16_t missing_ack{}, missing_position{};
   std::uint16_t absent_address{};
+  std::uint16_t fail_disable_address{};
+  std::vector<std::uint16_t> disable_attempts;
   std::array<unsigned, 7> position_requests{};
   Time now{};
   std::array<std::uint64_t, 256> counts{};
@@ -27,6 +30,10 @@ class Emulator final : public Transport {
   void close() override { opened = false; }
   bool is_open() const override { return opened; }
   void send(std::uint16_t address, const std::vector<std::uint8_t> &data) override {
+    if(data[0]==0xf3 && data[1]==0) {
+      disable_attempts.push_back(address);
+      if(address==fail_disable_address) throw std::runtime_error("test: brak miejsca TX");
+    }
     if (disconnected) throw std::runtime_error("USB odłączone");
     ++counts[data[0]];
     if (trace.size() < 10000) trace.emplace_back(address, data[0]);
@@ -80,10 +87,11 @@ struct Harness {
   Emulator *bus;
   std::unique_ptr<CanBusManager> manager;
   Time now{1s};
-  explicit Harness(BusConfig config = configured()) {
+  explicit Harness(BusConfig config = configured(), bool disable_on_fault = true) {
     auto transport = std::make_unique<Emulator>(); bus = transport.get(); bus->now = now;
     manager = std::make_unique<CanBusManager>(config, std::move(transport));
     manager->open(now);manager->require_configuration();RobotProfile profile;profile.revision="unit";profile.changed.fill(true);
+    profile.disable_enable_on_critical_fault=disable_on_fault;
     for(unsigned j=0;j<6;++j) {const auto &a=config.axes[j];profile.axes[j]={true,a.gear_ratio,a.direction,a.offset,a.lower,a.upper,a.max_velocity,a.max_acceleration};}
     if(!manager->configure(ConfigurationPhase::bootstrap,"boot","",profile,now).accepted || !manager->configure(ConfigurationPhase::finish,"boot","",profile,now).accepted) throw std::runtime_error("bootstrap");
   }
@@ -310,4 +318,54 @@ TEST(BusManager, RejectsOldConfigurationGenerationBeforeAcceptingCurrentCommand)
   EXPECT_FALSE(h.manager->submit(batch));EXPECT_EQ(h.bus->counts[0xf5],0u);
   ++batch.configuration_generation;ASSERT_TRUE(h.manager->submit(batch));h.run(10);
   EXPECT_EQ(h.bus->counts[0xf5],6u);
+}
+
+TEST(BusManager, CriticalFaultDisablesAllAxesWithoutFeedbackAndOnlyOnce) {
+  Harness h;
+  h.manager->stop("krytyczna awaria bez pomiarów");
+  EXPECT_EQ(h.bus->disable_attempts,(std::vector<std::uint16_t>{1,2,3,4,5,6}));
+  EXPECT_TRUE(h.manager->snapshot().fault);
+  EXPECT_NE(h.manager->manual().snapshot(h.now).message.find("wyłączenie niepotwierdzone"),std::string::npos);
+  h.manager->stop("kolejna awaria");h.run(100);
+  EXPECT_EQ(h.bus->disable_attempts.size(),6u);
+  EXPECT_EQ(h.bus->counts[0xf5],0u);
+}
+TEST(BusManager, CriticalFaultContinuesDisableAfterOneSendFails) {
+  Harness h;h.bus->fail_disable_address=3;
+  h.manager->stop("krytyczna awaria");
+  EXPECT_EQ(h.bus->disable_attempts,(std::vector<std::uint16_t>{1,2,3,4,5,6}));
+  EXPECT_EQ(h.bus->counts[0xf3],5u);
+  EXPECT_NE(h.manager->snapshot().message.find("J3 (CAN ID 3): test: brak miejsca TX"),std::string::npos);
+}
+TEST(BusManager, CriticalFaultDuringStreamDisablesAfterStopAndRejectsNewMotion) {
+  Harness h;h.ready();ASSERT_TRUE(h.manager->activate(Source::trajectory,h.now));
+  ASSERT_TRUE(h.manager->submit(h.batch(1)));h.run(10);
+  h.bus->trace.clear();const auto moves=h.bus->counts[0xf5];
+  h.manager->stop("krytyczna awaria w ruchu");
+  ASSERT_GE(h.bus->trace.size(),6u);
+  for(unsigned j=0;j<6;++j) EXPECT_EQ(h.bus->trace[h.bus->trace.size()-6+j],std::make_pair(static_cast<std::uint16_t>(j+1),std::uint8_t{0xf3}));
+  EXPECT_EQ(h.bus->counts[0xf7],6u);
+  EXPECT_FALSE(h.manager->submit(h.batch(2)));h.run(100);
+  EXPECT_EQ(h.bus->counts[0xf5],moves);
+}
+TEST(BusManager, CriticalFaultPolicyCanBeDisabledAndOperatorStopDoesNotTriggerIt) {
+  for(bool operator_stop:{false,true}) {
+    Harness h(configured(),operator_stop);
+    h.manager->stop("zatrzymanie",!operator_stop);
+    EXPECT_TRUE(h.manager->snapshot().fault);
+    EXPECT_TRUE(h.bus->disable_attempts.empty());
+  }
+}
+TEST(BusManager, CriticalFaultPolicyCommitAndRollbackRestoreThePreviousRule) {
+  for(bool rollback:{false,true}) {
+    Harness h;
+    auto profile=h.manager->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration;
+    profile.revision="policy-off";profile.changed.fill(false);profile.disable_enable_on_critical_fault=false;
+    ASSERT_TRUE(h.manager->configure(ConfigurationPhase::prepare,"policy","unit",profile,h.now).accepted);
+    ASSERT_TRUE(h.manager->configure(ConfigurationPhase::commit,"policy","unit",profile,h.now).accepted);
+    if(rollback) ASSERT_TRUE(h.manager->configure(ConfigurationPhase::rollback,"policy","unit",profile,h.now).accepted);
+    ASSERT_TRUE(h.manager->configure(ConfigurationPhase::finish,"policy","unit",profile,h.now).accepted);
+    h.manager->stop("krytyczna awaria");
+    EXPECT_EQ(h.bus->disable_attempts.size(),rollback ? 6u : 0u);
+  }
 }

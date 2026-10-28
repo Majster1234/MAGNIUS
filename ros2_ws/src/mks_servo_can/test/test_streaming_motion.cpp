@@ -165,3 +165,16 @@ TEST(RealtimeMailbox, ControlStateKeepsMatchingPositionAndTimestamp) {
   }
   writer.join();
 }
+
+TEST(StreamingTcp, FiniteDifferenceFeedForwardIsProportionalAndNeverZero) {
+  auto a=axis();a.gear_ratio=10;StreamingState first,second;
+  const double delta=(2*pi/60)/a.gear_ratio*.01;
+  const auto one=tcp_streaming_setpoint(a,delta,0,first,0.,16,0.,1.,0.,delta);
+  const auto five=tcp_streaming_setpoint(a,5*delta,0,second,0.,16,0.,1.,0.,5*delta);
+  EXPECT_EQ(one.rpm,1u);EXPECT_EQ(five.rpm,5u);
+  EXPECT_TRUE(validate_response(a.address,std::vector<std::uint8_t>(one.bytes.begin(),one.bytes.end()),0xf5,8).valid);
+  for(double scale:{.000001,.0001,.01,.1,1.})
+    EXPECT_GE(tcp_streaming_setpoint(a,scale*delta,0,first,0.,16,0.,1.,0.,scale*delta).rpm,1u);
+  const auto error=tcp_streaming_setpoint(a,0,0,first,-.01,16,0.,0.,0.,0.);
+  EXPECT_GT(error.rpm,0u);
+}
