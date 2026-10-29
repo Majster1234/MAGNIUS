@@ -1,120 +1,100 @@
-# AGENTS.md — wskazówki i kontekst dla AI
+# AGENTS.md — instrukcje operacyjne dla AI
 
-Zakres: całe repozytorium, z uwzględnieniem instrukcji właściwych dla podkatalogów.
-Stosuj ten plik wraz z instrukcjami systemowymi i bieżącymi poleceniami użytkownika.
-Dokument opisuje zasady pracy oraz ostatni potwierdzony stan; kod i wyniki narzędzi
-są źródłem prawdy o implementacji.
+Zakres: całe repozytorium. Źródłem prawdy jest kod. Komunikacja i dokumentacja: język polski (zachowuj angielskie nazwy w kodzie/API).
 
-## Utrzymanie kontekstu po każdym prompcie
+## 1. Dyrektywy efektywności (Krytyczne — zero zbędnych akcji)
 
-1. Na początku każdego zadania przeczytaj ten plik i sprawdź fakty istotne dla
-   zadania. Nie zakładaj, że zapisany stan Git, środowiska lub testów jest aktualny.
-2. Po każdym obsłużonym prompcie użytkownika, przed odpowiedzią końcową, zapisz
-   nową wersję tego pliku — także po odpowiedzi niewymagającej zmian kodu.
-3. Nadpisuj w całości sekcję **Bieżący kontekst** aktualnym podsumowaniem. Zachowuj
-   nadal obowiązujące zasady; zmieniaj je, gdy zmieniły się ustalenia projektu.
-   Nie dopisuj dziennika kolejnych promptów ani kopii rozmowy.
-4. Zapisuj: ostatnie zadanie i rezultat, stan implementacji, istotne decyzje,
-   wykonane sprawdzenia i ich ograniczenia, otwarte sprawy oraz następny krok.
-   Zachowuj niezakończone zobowiązania, dopóki nie zostały wykonane lub odwołane.
-5. Oddzielaj fakty potwierdzone narzędziami od założeń i planów. Podawaj datę
-   sprawdzeń. Nie przedstawiaj wcześniejszych testów jako wykonanych ponownie.
-6. Usuwaj nieaktualne informacje i odsyłaj do dokumentacji zamiast ją kopiować.
-   Utrzymuj cały plik w granicach około 120 linii i 8 KiB, a kontekst do 30 linii.
-7. Nie zapisuj haseł, tokenów, prywatnych danych kont, pełnych logów ani wewnętrznego
-   toku rozumowania. Używaj ścieżek względnych do repozytorium.
-8. Jeżeli tryb pracy lub uprawnienia zabraniają zapisu, nie omijaj ograniczeń.
-   Poinformuj w odpowiedzi, że aktualizacja kontekstu nie została zapisana.
+- **Zakaz rutynowego skanowania:** NIE sprawdzaj stanu Git, środowiska, drzewa plików ani testów na początku promptu, dopóki zadanie bezpośrednio tego nie wymaga.
+- **Selektywny odczyt:** Używaj `rg` (ripgrep) do punktowego szukania w kodzie i `docs/`. Nie czytaj całych plików ani dokumentacji na zapas.
+- **Warunkowa aktualizacja tego pliku:** Aktualizuj sekcję `Bieżący kontekst` TYLKO wtedy, gdy w sesji zmienił się kod, konfiguracja lub stan testów sprzętowych. Przy pytaniach, analizie i planowaniu **nie edytuj `AGENTS.md`**.
+- **Budowanie i testy celowane:** Buduj i testuj wyłącznie modyfikowane pakiety (`colcon build --packages-select <pkg>`). Nie uruchamiaj pełnych zestawów testów, `npm ci` ani benchmarków bez wyraźnego polecenia lub zmiany w danym module.
+- **Brak zgadywania parametrów:** Nie wymyślaj geometrii, CAN ID, bitrate, przełożeń ani limitów (`null` w `.example.yaml` = brak danych, nie zero).
+- **Decyzyjność:** Odwracalne decyzje techniczne podejmuj samodzielnie. Pytaj tylko przed operacjami fizycznymi (ruch robota) lub zmianami architektury.
 
-To zobowiązanie wykonuje agent; ten plik nie jest skryptem ani automatycznym hookiem.
-W narzędziu, które nie rozpoznaje `AGENTS.md`, trzeba jawnie polecić jego odczytanie.
+## 2. Bezpieczeństwo sprzętu i zasady domenowe
 
-## Projekt i mapa repozytorium
+- **Ruch fizyczny (WYMÓG ZGODY):** Przed każdym testem ruchu opisz: oś, kierunek, prędkość, czas/zakres oraz warunek zatrzymania. Zaczekaj na wyraźną zgodę użytkownika.
+- **Architektura:** Zachowuj ścisłe rozdzielenie: protokół MKS (`mks_servo_can`) ↔ transport SocketCAN ↔ adapter ROS (`robot_hardware`). Zależności deklaruj w `package.xml` i `CMakeLists.txt`.
+- **Wdrożenie zmian:** Po modyfikacji kodu zbuduj zmieniony pakiet. Nie restartuj usług systemowych z `sudo` w ciemno — podaj użytkownikowi gotową komendę restartu i zaznacz, czy nowy build już działa.
+- **Kalibracja i przełożenia:** Zmianę przełożenia i offsetu/kierunku wykonuj osobno. Kąt zachowuje automatyczny offset z pomiaru CAN (bez pomiaru blokuj kalibrację).
+- **Parametry PTP/LIN (build z 25.10):**
+  - Streaming: 100 Hz, komendy F5/F6/F7/FE bez ACK, bez SYNC (`4A=0`), raporty CanRSP wyłączone (`8C00/00`), `SR_vFOC=05`.
+  - Regulator i limity: Lookahead 85 ms, FF 1, Kp 2.5, dithering per oś, prąd holding 1, max 2500 RPM, acc 135. Limity mechaniczne obowiązują zawsze.
+  - Odczyty PTP: wstrzymaj nowe zapytania 4 ms przed F5 (ruch nie czeka na odczyt). Tolerancja końcowa ±0.5° (dwa pomiary >= 100 ms), bez pauz pośrednich.
+  - Pasmo CAN (1 Mbit/s, TX 1000): łącznie max 60% (robot 40%, rezerwa 20%).
+- **Higiena repozytorium:** Zachowuj lokalne zmiany użytkownika w Git. Ignoruj `build/`, `install/`, `log/` i nagrania ROS. Nie ruszaj kwestii licencji (`LICENSE`) ani zakładki GUI „Ustawienia systemowe” bez polecenia.
+- **Benchmarki:** Tylko przy zadaniach optymalizacyjnych zmierz stan przed/po na tych samych danych i dopisz wynik do `docs/benchmark_results.md`.
 
-- Cel: robot 6-DOF, Ubuntu 22.04, ROS 2 Humble, `colcon`, docelowo `ros2_control`.
-- Komunikacja: Linux SocketCAN → BIGTREETECH U2C v2.1 → MKS SERVO42D CAN.
-- Bitrate potwierdzony przez użytkownika: 500000 bit/s, interfejs `can0`, sterownik `gs_usb`.
-- Protokół napędów jest protokołem producenta MKS; nie zakładaj CANopen/CiA 402.
-- Nazwy osi: `joint_1`–`joint_6`, od podstawy do narzędzia. Jednostki ROS: SI.
+## 3. Architektura i mapa repozytorium
 
-| Miejsce | Odpowiedzialność |
+- **System:** Robot 6-DOF, Ubuntu 22.04, ROS 2 Humble (`colcon`/`ros2_control`).
+- **Magistrala:** Linux SocketCAN (`can0`, 1 Mbit/s, sterownik `gs_usb`) → BIGTREETECH U2C v2.1 → MKS SERVO42D CAN (natywny protokół MKS, **nie** CANopen/CiA 402).
+- **Konwencje:** CAN ID 1–6 → J1–J6. Wewnątrz ROS: jednostki SI; w GUI: mm oraz stopnie (°). JOG: °/s przegubu lub RPM wału.
+
+| Ścieżka | Odpowiedzialność |
 | --- | --- |
-| `ros2_ws/src/robot_description` | Model URDF/Xacro, geometria i konfiguracja RViz |
-| `ros2_ws/src/mks_servo_can` | Przyszła biblioteka C++: transport i protokół CAN |
-| `ros2_ws/src/robot_hardware` | Przyszły adapter C++ `SystemInterface` dla Humble |
-| `ros2_ws/src/robot_bringup` | Konfiguracje przykładowe i przyszłe pliki launch |
-| `start_ros2.sh`, `scripts/ros2_terminal.bash` | Terminale aplikacji, diagnostyki i workspace |
-| `hardware/`, `docs/` | Materiały sprzętowe i dokumentacja projektu |
-| `system/can/`, `scripts/install_socketcan.sh` | Systemowa konfiguracja SocketCAN przez systemd |
-| `.github/workflows/ci.yml` | Sprawdzenie składni i budowanie w ROS 2 Humble |
+| `ros2_ws/src/mks_servo_can` | Protokół MKS, transport CAN, manager, ManualMotorController |
+| `ros2_ws/src/robot_hardware` | Interfejs `CanSystem` (ros2_control, 6 osi) |
+| `ros2_ws/src/robot_kinematics`, `robot_motion_planner` | FK/IK (KDL), planowanie TCP/TOTG, podgląd MKS |
+| `ros2_ws/src/robot_description`, `robot_bringup` | URDF/Xacro, RViz, pliki launch |
+| `ros2_ws/src/robot_can_diagnostics`, `robot_system_monitor` | Diagnostyka C++, monitor systemu i CAN |
+| `ros2_ws/src/robot_configuration` | Snapshoty konfiguracji JSON/ROS |
+| `ros2_ws/src/robot_web_bridge`, `web/` | Backend FastAPI/WebSocket, frontend React/TypeScript |
+| `scripts/`, `system/`, `start_ros2.sh` | Skrypty uruchomieniowe, systemd (SocketCAN i autostart) |
 
-## Zasady pracy
-
-- Rozmawiaj i pisz dokumentację po polsku; zachowuj istniejące nazwy pakietów i API.
-- Najpierw sprawdź odpowiedni kod i dokumentację. Wyszukuj przez `rg`; nie czytaj
-  całego repozytorium, jeśli zadanie dotyczy małego fragmentu.
-- Wykonuj zlecone zadanie do końca. Rutynowe, odwracalne decyzje podejmuj samodzielnie;
-  pytaj o brakujące dane, które istotnie zmieniają rozwiązanie.
-- Zachowuj rozdzielenie protokołu MKS, transportu SocketCAN i adaptera ROS.
-  Zależności deklaruj w `package.xml` i CMake wraz z korzystającą z nich implementacją.
-- Nie wymyślaj geometrii, CAN ID, bitrate, przełożeń, limitów ani wersji firmware.
-  `null` w `.example.yaml` oznacza brak danych, a nie zero lub wartość domyślną.
-- Dopasowuj sprawdzenia do zmiany. Nie utożsamiaj budowania szkieletu z testem
-  sterowania ani testu z atrapą terminala z uruchomieniem rzeczywistych okien GUI.
-- Zachowuj zmiany użytkownika. Sprawdzaj stan Git przed operacjami na repozytorium;
-  nie wnioskuj o publikacji na podstawie samej obecności lokalnego commitu.
-- Wybór licencji jest odłożony przez użytkownika. Pozostaw brak `LICENSE` i pola
-  `TODO` w metadanych, dopóki użytkownik nie ustali właściwych danych.
-- Nie dodawaj do historii katalogów `build/`, `install/`, `log/`, lokalnych ustawień,
-  danych uwierzytelniających ani nagrań ROS pomijanych przez `.gitignore`.
-
-## Polecenia sprawdzające
-
-Uruchamiaj odpowiedni podzbiór z katalogu głównego repozytorium:
+## 4. Polecenia sprawdzające (Uruchamiaj tylko adekwatne do zmian!)
 
 ```bash
-bash -n start_ros2.sh scripts/ros2_terminal.bash scripts/install_socketcan.sh
-./start_ros2.sh --dry-run
+# Tylko przy zmianie skryptów bash:
+bash -n start_ros2.sh scripts/*.sh scripts/*.bash
+
+# Tylko przy zmianie w web/ (używaj npm test / build, NIE uruchamiaj npm ci bez zmiany zależności):
+(cd web && npm run build && npm test)
+
+# Tylko dla zmodyfikowanych pakietów ROS 2:
 source /opt/ros/humble/setup.bash
 cd ros2_ws
-colcon build --symlink-install
-colcon test
-colcon test-result --verbose
+colcon build --symlink-install --packages-select <nazwa_pakietu>
+colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 ```
-
-`--dry-run` wymaga zainstalowanego GNOME Terminal, ale nie otwiera okien.
-Po niepowodzeniu polecenia sprawdź przyczynę; nie raportuj dalszych kroków jako
-zakończonych sukcesem. Dla zmian samej dokumentacji wystarczy sprawdzenie treści,
-ścieżek i formatowania. Wynik `0 tests` oznacza brak testów wykonywalnych.
-
-## Dokumentacja źródłowa
-
-- [README.md](README.md) — uruchamianie i stan projektu.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — zasady zmian i lokalna weryfikacja.
-- [docs/architecture.md](docs/architecture.md) — architektura i konwencje osi.
-- [docs/can_protocol.md](docs/can_protocol.md) — dane wymagane do implementacji CAN.
-- [docs/socketcan.md](docs/socketcan.md) — instalacja i diagnostyka systemowego CAN.
-- [docs/setup.md](docs/setup.md), [docs/github.md](docs/github.md) — środowisko i GitHub.
-- [OpenAI Docs: AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md) — wczytywanie instrukcji.
 
 ## Bieżący kontekst
 
-- Aktualizacja: 2026-10-17, strefa Europe/Prague.
-- Ostatnie zadanie: integracja U2C v2.1 z systemowym SocketCAN; użytkownik podał 500000 bit/s.
-- Rezultat: istniejący `gs_usb` obsługuje adapter; zainstalowano `can-utils` i usługę
-  `robot-can@can0.service`, konfigurację `/etc/robot-can/can0.conf` z `BITRATE=500000`.
-- Usługa jest aktywna i włączona jako zależność urządzenia; instrukcja: `docs/socketcan.md`.
-- Weryfikacja tej zmiany: `can0` ma flagi UP/LOWER_UP, bitrate 500000, ERROR-ACTIVE;
-  zwykły użytkownik otworzył socket CAN. Liczniki RX/TX: 0; nie wysyłano ramek.
-- Sprawdzono składnię Bash, błędne argumenty, jednostkę systemd, YAML i lokalne linki.
-  Nie wykonano restartu komputera, fizycznego ponownego podłączenia ani testu napędów.
-- Implementacja ROS nadal obejmuje cztery szkielety; brak modelu, biblioteki CAN,
-  adaptera sprzętowego i plików launch. W szablonie CAN ustawiono bitrate 500000.
-- Wcześniejsze sprawdzenie (2026-10-17): czyste budowanie 4 pakietów udane,
-  0 testów wykonywalnych. Nie powtarzano builda w tym zadaniu ani zdalnego CI.
-- Git na początku zadania: `main` śledzi `origin/main`; `AGENTS.md` był bez commitu.
-  W tym zadaniu nie tworzono commitu ani nie wykonywano push.
-- Pozostaje konflikt bibliotek GNOME w środowisku VS Code Snap; skrypt terminali
-  nie otrzymał poprawki, a jego testy GUI były symulowane. ROS, MoveIt i Desktop są zainstalowane.
-- Otwarte dane: firmware, CAN ID, geometria, przekładnie, bazowanie i limity osi;
-  licencja i metadane opiekuna nieustalone. Dalszy zakres określi użytkownik.
+- 29.10.2026 — na jawne polecenie operatora **włączono i wdrożono automatyczne odblokowanie SYNC mimo niezaliczonego J4**, bez uruchamiania nowych testów. `config/local/execution.production.yaml`: `execution_staged_reset_verified=true` z komentarzem o wyjątku; nie oznacza pozytywnego odbioru sprzętowego wszystkich osi. Gotowe pakiety Release z `install/stop-recovery-timing-ros` (mks, diagnostyka, hardware, planner, bringup) wdrożono przez podmianę katalogów pakietów do używanej już `install/stop-recovery-ros`; systemd nadal wskazuje tę nakładkę. Poprzednie pakiety i YAML zachowano w `install/deployment-backups/sync-auto-1793301016056132003`. Kontrolowane SIGINT właściciela i launch, odtworzenie usługi przez istniejące Restart=always; MainPID 47062. Po wdrożeniu automatyczne odzyskiwanie zakończyło się `idle_disabled`, `fault=false`, `busy=false`, maska 0; sześć osi online, ENABLE=0. Nie wykonywano testowych ruchów, 4B ani ponownego ENABLE; odczyt statusu służył potwierdzeniu wdrożenia. Zachowano świeżość/postój/ACK i politykę ENABLE w odzyskiwaniu, zmieniono wyłącznie zgodę konfiguracji na zakończenie procedury. Aktywne są nowe odstępy STOP 6 ms, ACK odzyskiwania 120 ms i odczyty 24 ms. Brak budowania lub uruchamiania testów w tym wdrożeniu; użyto gotowych artefaktów. Historyczne niezaliczone wyniki J4 pozostają bez zmian. Zapis wdrożenia: `docs/sync_auto_unlock_deployment_2026-10-29.json`; opis: `docs/sync_recovery_timing_2026-10-29.md`.
+
+- 29.10.2026 — powtórne próby SYNC na rozsprzęgniętych wałach według zgody operatora, ±5° i 1 RPM. Zgodnie z poleceniem operatora skok podczas przełączania ENABLE jest rejestrowany osobno; po ustaleniu powstaje zmierzona pozycja odniesienia testu, bez zmiany kalibracji. Tolerancja postoju nadal ±0,5° i rzeczywiste 0 RPM/F1=1. J1–J3, J5 i J6 zaliczyły po dwa nadpisania znanego bufora oraz późniejsze SYNC/ENABLE. J4 nie zaliczyła kontroli dodatniej także przy 6 s; w jednej próbie końcowy niedojazd 0,945–0,967° poza przejściem ENABLE. Dodatkowa próba samej wykrywalności ruchu J4 również niezaliczona; nie wykonano jej dwóch nadpisań znanego bufora. Osiem nowych zapisów: 337059 zakończonych zapytań, 0 timeoutów i 0 ramek błędów CAN, maksymalna odpowiedź odczytu 19,134613 ms. Bazowe 20 ms przechodziło kalibracje; ustawiono 24 ms (+20%) w launch/YAML i potwierdzono aktywny plik parametrów usługi. Nowe C++: F7 natychmiast → ≥6 ms → F5 STOP → ≥6 ms → ENABLE=0 według polityki → ≥6 ms → diagnostyka, bez blokowania RX; ponowne STOP nie przesuwa wyłączenia, reset blokowany do końca serii. Kroki odzyskiwania ACK 120 ms (100 ms +20%); odblokowano pełne opróżnianie RX z ech przy już zatrzaśniętej awarii. Osobny build Release 5 pakietów/konsumentów w `install/stop-recovery-timing-ros` OK; 222 wyniki colcon (w tym 20 opakowań CTest), 0 błędów/porażek/pominięć; 9 testów procedury Python i py_compile OK. Frontendu nie zmieniano. Nowa nakładka C++ nieaktywna; usługa nadal `install/stop-recovery-ros` z timeoutem 24 ms. Odczyty sześciu osi działają, końcowo ENABLE=0/0 RPM, SYNC=1, recovery_failed/maska 63. `execution_staged_reset_verified=false` pozostaje; pełnego odbioru nie zaliczono. Nie zwiększano limitów świeżości ruchu, watchdogów ani tolerancji pozycji. Narzędzie ma minimum po ENABLE 1610 ms; końcowy limit 4490 ms wyliczono z maksimum 3738,952 ms +20% (bez nowego przejazdu przy tym limicie). Raport/pełne podsumowanie i SHA-256: `docs/sync_recovery_timing_2026-10-29.md/.json`; polecenia wdrożenia: `system/application/stop-recovery-timing-ros.conf.example`. Historyczne niezaliczone próby pozostają w poprzednim raporcie.
+
+- 29.10.2026 — odbiór sprzętowy odzyskiwania SYNC **niezaliczony**. Operator udzielił nowej zgody na wszystkie rozsprzęgnięte wały, dobór parametrów i wyjątek od ograniczeń prób AGENTS.md. Aktywna jest już `install/stop-recovery-ros`. Próba 1 (serie STOP bez przerw) przerwana `CAN_ERR_PROT_BIT1`, bez ENABLE=1 i bez 4B. Próba 2 (odstępy 5 ms) potwierdziła F5 STOP/05 przy ENABLE=0 oraz odczyt 4A=0/8C=00/00 na J1–J6, bez błędów CAN. Przy pierwszym ponownym ENABLE J1 odczyt pozycji zmienił się −3→171 ticków (+3,823242° >0,5°); natychmiast wysłano STOP i ENABLE=0. Nie rozstrzygnięto rzeczywistego doskoku wału względem zmiany odniesienia enkodera; 32H=0 RPM i F1=1 nie wykluczyły skoku. Nie wysłano żadnego 4B ani F5 z niezerowym RPM; kontroli dodatniej ±5° i nadpisania znanego ruchu nie wykonano. Dalsze załączanie w tym etapie zakończono. Domknięcie potwierdziło ENABLE=0, 0 RPM, F1=1 i stabilne pozycje wszystkich osi; przywrócono/odczytano SYNC=1 jako blokadę po niezaliczonej próbie. Usługę odtworzono kontrolowanie przez istniejące Restart=always (PID 37632); odczyty wszystkich osi są świeże, fault=true, recovery_failed, maska 63. `execution_staged_reset_verified=false` pozostaje; bez zmian C++ produkcji, kalibracji, geometrii i limitów. Dodano narzędzie `scripts/test_sync_recovery_hardware.py`, 5 celowanych testów na atrapach i py_compile OK. Raport: `docs/sync_recovery_hardware_2026-10-29.md`, trwałe podsumowanie JSON i pełne ramki w `log/hardware/`. Następny etap: wyjaśnić skok przy ENABLE J1 oraz błędy grupowego STOP; nie uznawać ACK 05 za odbiór usunięcia bufora.
+
+- 29.10.2026: zaimplementowano globalny STOP z F7 → udokumentowane F5 STOP (wszystkie pola 0) → F3 ENABLE=0 oraz nieblokujące odzyskiwanie. RX i odczyty osi działają także przy awarii i `recovery_failed`; ważność pozycji/RPM/ENABLE oraz podgląd 3D są niezależne od blokady ruchu. Reconnect 0,5/1/2/5 s, potem co 5 s; brak wznowienia źródeł, stare generacje i sesje są odrzucane. `ros2_control::on_error` zachowuje właściciela CAN i diagnostykę. Awaria krytyczna respektuje opcję odcięcia ENABLE; przy wyłączonej regule czeka na operatora, który może wysłać wyłącznie ENABLE=0. Odzyskiwanie nie wysyła 4B. Nadpisanie F5 przy SYNC wymaga 05; przy braku odbioru sprzętowego procedura zatrzymuje się przed 4A=0, zachowuje SYNC=1 i blokadę także po ponownym STOP/resetowaniu komunikacji. `execution_staged_reset_verified: false` zapisane jawnie w YAML; nie zmieniać bez odbioru J1–J6 na 1.0.9. Build 6 pakietów Release w `install/stop-recovery-ros`, 254 wyniki colcon (w tym opakowania CTest), 0 błędów/porażek/pominięć; 69 celowanych testów mostu OK, build web OK, 144/145 TS (zastany błąd `controlMessages.test.ts`), nowy test Chromium etapów/odczytów/blokad/ENABLE=0 i układu 1280/1366/1920 OK. Zależności npm nie reinstalowane; użyto tymczasowego Node 22.14.0. Nowa nakładka nieaktywna: bez restartu usługi, resetu CAN, ENABLE i komend do sprzętu. Instrukcja i drop-in: `docs/sync_buffer_recovery_proposal.md`, `system/application/stop-recovery-ros.conf.example`. Odbiór sprzętowy pozostaje osobnym etapem z kartami i zgodami.
+
+- 29.10.2026: dodano odizolowany konstruktor kandydata F5 z RPM=0 i surowym pomiarem pozycji w int24, bez automatycznej wysyłki ani odblokowania; zwykła ścieżka F5 nadal odrzuca zerowe RPM. Firmware 1.0.9 nie został sprawdzony pod kątem nadpisania bufora lub neutralnego zachowania. Build Release `mks_servo_can` w `/tmp/sync-fault-diagnostics-install`, 183 wyniki colcon (w tym opakowania CTest), 0 błędów/porażek/pominięć; usługi nie restartowano i zmian nie aktywowano. Szczegóły: `docs/sync_buffer_recovery_proposal.md`.
+
+- 29.10.2026: przygotowano w `mks_servo_can` diagnostykę tylko do odczytu podczas blokady niepewnego bufora SYNC: identyfikacja, pozycja, prędkość, ENABLE i SYNC dla osi; blokada ruchu pozostaje, bez F5/4B i kasowania awarii. Build Release wyłącznie pakietu w `/tmp/sync-fault-diagnostics-install`, 182 wyniki colcon (w tym opakowania CTest), 0 błędów/poraażek/pominięć; zmiana nie działa jeszcze w usłudze. Bieżący odczyt panelu: fault SYNC, skan przerwany po 3 adresach, brak świeżych pozycji/prędkości. Nie resetowano CAN, nie zmieniano ENABLE ani nie wykonywano ruchu. Nie potwierdzono usunięcia bufora ani nie odblokowano systemu.
+
+- 28.10.2026: globalne opcje konfiguracji zebrano w „Ustawieniach systemowych”: planowanie bez sterowników, ruch z niepełnym zestawem osi, wyłączenie ENABLE przy awarii krytycznej i tryb wysyłania PTP/LIN. Wspólny styl przełączników/wyboru binarnego, opisy jako tooltipy dostępne myszą, klawiaturą i dotykiem. Dwie opcje współdzielone zachowują zapis natychmiastowy; zabezpieczenie i tryb PTP/LIN mają osobny „Zapisz ustawienia do ROS”, który scala tylko te pola z aktywnym profilem i zachowuje ukryty szkic geometrii oraz walidację. Kierunki osi i potwierdzenia odniesienia pozostają przy danych robota. Build web OK; 144/145 TS (ten sam zastany błąd controlMessages), trzy scenariusze Chromium OK, w tym zapis na atrapach i brak przepełnienia przy 1280/1366/1920 px. Frontend przygotowany do `install/synchronized-ros`; bez restartu, komend do CAN i zmian konfiguracji produkcyjnej.
+
+
+- 28.10.2026: dodano opcjonalny `motion.ptp_lin_dispatch_mode=streamed/synchronized` w Parametrach robota i transakcji konfiguracji (stare snapshoty→streamed, bez zmiany kalibracji). Tryb dotyczy wykonawcy PTP/LIN panelu; JTC i oba JOG zachowują dotychczasowy tor. SYNC: wspólna przyszła referencja i lookahead, F5/05 wszystkich uczestników przed terminem, pojedynczy 4B co 10 ms i potwierdzenie nadania SocketCAN, tolerancja 2,5 ms. Niekompletny zestaw/błąd zatrzaskuje awarię bez nadrabiania i wznowienia. Po rozpoczęciu uzbrajania 4A=1 błąd pozostawia blokadę niepewnego bufora; zwykły reset jej nie usuwa. Normalny koniec wymaga pozycji, nowych 0 RPM/F1 po ostatnim SYNC i potwierdzonego odtworzenia 4A=0/8C=00/00. Build 7 pakietów Release w osobnym `install/synchronized-ros`, frontend zbudowany i dołączony do tej nakładki. Weryfikacja: 444 wyniki colcon (420 przypadków + 24 opakowania CTest), 0 błędów/porażek/pominięć; w tym 19 nowych testów SYNC i 152 celowane testy mostu. Chromium na atrapach OK. Frontend 143/144: jeden zastany błąd `controlMessages.test.ts` odtworzony na HEAD; nowe testy konfiguracji OK. Bez restartu usługi, resetu CAN, ENABLE i ruchów fizycznych; nowy backend nie działa jeszcze w usłudze. Odbiór sprzętowy pozostaje osobny, od jednej osi, z nowymi kartami i zgodami; stare 6/6 nie obowiązuje. Instrukcja i ograniczenia: `docs/synchronized_streaming.md`; benchmark syntetyczny: `docs/benchmark_results.md`.
+
+
+- 26.10.2026: dodano automatyczne wyłączenie ENABLE po 60 min bez zakresu ruchu >2° na dowolnym wale J1–J6 (enkoder silnika, bez przełożenia). Ruch dowolnej osi, aktywne sterowanie/operacja, brak świeżych danych, zmiana ENABLE i przerwa obserwacji >250 ms zerują odliczanie. Po upływie czasu istniejąca sekwencja wyłączania wszystkich wymaga stabilnego postoju i potwierdzeń 3A, z odstępami ≥200 ms; nie odcina aktywnego JOG/programu. Brak samoczynnego ponownego ENABLE; przygotowany program unieważniany. Powód trafia do stanu ręcznego/historii Centrum komunikatów. Funkcja niezależna od reguły awarii krytycznej. Build tylko `mks_servo_can` Release w `install/tcp-jog-fix-ros` OK, 13 celowanych testów na atrapach/zegarze wirtualnym OK. Backend wymaga restartu usługi przy potwierdzonym postoju; bez restartu, resetu CAN i komend do sprzętu w tej zmianie. Szczegóły: `docs/tcp_jog.md`.
+
+- 26.10.2026: dodano domyślnie włączoną regułę `safety.disable_enable_on_critical_fault` w Parametrach robota (boolean, stare snapshoty→true). Krytyczna awaria właściciela/generatora rozsyła F3 ENABLE=0 do CAN ID 1–6 bez oczekiwania na gotowość/ACK/200 ms; błąd jednej wysyłki nie blokuje kolejnych. Kolejka operacji jest anulowana, brak wznowienia; wysłanie nie potwierdza wyłączenia ani postoju. Zwykły STOP operatora, anulowanie programu i planowa dezaktywacja nie uruchamiają reguły; awaryjne przerwanie TCP przez panel/most uruchamia. Przy streamingu F3 ENABLE=0 jest ostatnią komendą po F7/F6(0). Opcja stosowana transakcyjnie z profilem, rollback przywraca poprzednią; nie zmienia kalibracji. Build Release 6 pakietów (interfejsy, mks, diagnostyka, konfiguracja, hardware i planner) w `install/tcp-jog-fix-ros` oraz frontend OK. Celowane testy: 12 C++, 2 Python i 7 TS OK; lokalna serializacja nowego typu ROS OK. Frontend wdrożony, reguła backendu wymaga restartu całej usługi przy potwierdzonym postoju, potem Ctrl+F5. Bez testów fizycznych, resetu CAN, restartu i poleceń do napędów. Szczegóły: `docs/tcp_jog.md`.
+
+- 26.10.2026: rozszerzono komunikaty zatrzymania CAN/JOG/TCP/PTP o J1–J6 i CAN ID, konkretny warunek (pozycja/ENABLE/stall/tryb/uzbrojenie), wiek pomiaru, próg i uchyb. Stan ręczny/TCP przekazuje pierwotny powód właściciela zamiast starszego opisu postoju. Centrum komunikatów pokazuje powód bez rozwijania szczegółów i osie w tytule awarii. Build Release `mks_servo_can` + `robot_can_diagnostics` do `install/tcp-jog-fix-ros` oraz frontend OK; frontend wdrożony do aktywnej nakładki (Ctrl+F5), backend wymaga restartu usługi przy potwierdzonym postoju. Na żądanie operatora bez uruchamiania testów, odczytów sprzętu, resetu CAN i restartu. Instrukcja: `docs/tcp_jog.md`.
+
+- 26.10.2026: dodano „Reset CAN” obok „STOP robota” w Sterowaniu ręcznym, z istniejącym POST `/api/v1/can/reset` i blokadą podczas operacji/aktywnego sterowania. Build frontendu OK; pliki wdrożono do aktywnej nakładki `install/tcp-settings-ros/robot_web_bridge/share/robot_web_bridge/web`, bez restartu usługi. Zgodnie z żądaniem operatora nie uruchamiano testów ani rzeczywistego resetu CAN. Otwarty panel wymaga Ctrl+F5.
+
+- 26.10.2026: **wykorzystano 6/6 prób fizycznych; odbiór dokładności TCP niezaliczony**. Nie wykonywać kolejnych ruchów bez nowego etapu, pełnej karty i osobnej zgody. Ruch fizyczny wyłącznie przyciskami panelu operatorskiego, bez bezpośrednich poleceń skryptami WS/ROS/CAN.
+- Próba 5: Baza +X/10 mm, 2 mm/s, pełna referencja i postój pomiarowy (±0,10°, dwa świeże zestawy ≥100 ms, 0 RPM), bez awarii właściciela. FK: ΔX/Y/Z +9,771/−0,107/+0,276 mm; końcowa norma YZ 0,296 mm, maksimum raw 0,927 mm, sync 1,033 mm — cele <0,10/<0,25 mm niespełnione. Inna pozycja początkowa niż w Próbie 4; procentów nie traktować jako izolowanego efektu kodu.
+- Próba 6: zatwierdzony powrót Baza −X/10 mm przerwany po 49 ms i 0,008503 mm referencji. Właściciel: „Brak świeżej pozycji/ENABLE lub awaria napędu”; ostatni J3 miał 56,132 ms i nieważną prędkość, rozrzut RX 52,072 ms. Wskazuje to na świeżość, ale predykat obejmuje też ENABLE/stall/tryb. Nie było przekroczenia budżetu IK.
+- **Stan końcowy:** awaria CAN zatrzaśnięta, brak świeżych pomiarów prędkości sześciu osi i brak zwalidowanego domknięcia. Operator potwierdził fizyczny postój wszystkich napędów. Nie resetowano awarii ani nie ponawiano ruchu/ENABLE. Komunikat ręczny „Zatrzymanie potwierdzone” nie zastępuje świeżych pomiarów po tej awarii.
+- Aktywna nakładka `install/tcp-jog-fix-ros`; operator wykonał restart usługi (MainPID 24929), następnie przygotował napędy przyciskiem „Załącz wszystkie”. Cztery zmienione pakiety zbudowane jawnie Release: `mks_servo_can`, `robot_kinematics`, `robot_motion_planner`, `robot_can_diagnostics`; 204 wyniki colcon, 0 błędów/porażek/pominięć. Bez budowania web w tym etapie.
+- Parametry produkcyjne zapisane w `config/local/execution.production.yaml` i sprawdzone w ROS przed próbami: `tcp_jog_enabled=true`, IK 1e-6 m / 1e-5 rad, `tcp_jog_max_jerk=0.5` m/s³, `joint_stop_tolerance_deg=0.10`. Fizyczne limity TCP 100 mm/s, 100 °/s, 100 mm/s², 100 °/s². Nie zmieniano geometrii, kalibracji ani limitów mechanicznych; watchdogi pozostają aktywne.
+- Generator TCP ma analityczny profil o ograniczonym jerku i dokładnym końcu drogi; streaming TCP osobno wyznacza FF/korekcję RPM każdej osi. Telemetria 100 Hz zapisuje zatwierdzoną referencję IO/F5, q_raw/q_sync, FK, RX i czas obliczeń. Ekstrapolacja ±20 ms, fallback przy wieku >50 ms/nieważnej prędkości. Domyślne tolerancje biblioteki IK nadal 1e-9 m / 1e-8 rad.
+- Offline na modelu i pozycji startowej Próby 4: 514 próbek, dokładne 10 mm, rozbieg 140 ms/14 cykli, maks. czas próbki 0,192075 ms <7 ms. Brak pomiarów referencji/IK/CPU w starym logu 4 ogranicza porównanie przed/po. Próby przy rozsprzęgniętych wałach nie mierzą przestrzennego TCP.
+- Trwałe pełne dane 1–6: `docs/tcp_jog_test_data_2026-10-26.json`; raport `docs/tcp_jog_report_2026-10-26.md`; porównanie i ograniczenia `docs/benchmark_results.md`. Próba 6: `stop_confirmed=false`, osobne potwierdzenie operatora, zwalidowane domknięcie `null`.
+- Wcześniej poprawiono panel: walidowane `velocity`/`step` jawnie float przed typowanym ROS (JSON `0` powodował AssertionError); opis awarii pokazuje przyczynę właściciela. Build mostu, 142 TS i Chromium WS→typ ROS na atrapach przeszły. Frontend aktywny w `install/tcp-settings-ros/robot_web_bridge/share/robot_web_bridge/web`; szczegóły w raporcie.
+- Zbiorcze ENABLE: końcowe F3 J1→J6 co najmniej co 200 ms, kolejny po świeżym 3A poprzedniego; błędy/STOP blokują kontynuację. Jedno IO SocketCAN, wykluczenie sterowań osi/TCP/programu. Konfiguracja panelu udostępnia cztery fizyczne limity TCP; brak wartości blokuje LIVE.
+- Historia: Próba 1 +X przerwana przy 3,820 mm przez budżet solvera; 2 +Y/40 mm, 3 +Z/10 mm i 4 +X/10 mm ukończone po osobnych zgodach, z postojem. Poprzednia tolerancja postoju ±0,5°. Naprawa ciągłości złotego śladu 3D PTP/LIN opisana w `docs/robot_preview.md`; nie zmieniano jej w obecnym etapie.

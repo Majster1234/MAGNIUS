@@ -1,0 +1,7 @@
+string program_id
+string execution_key
+---
+bool success
+string message
+---
+MotionProgramStatus status

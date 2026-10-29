@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robot_can_diagnostics</name>
+  <version>0.1.0</version>
+  <description>Diagnostyka CAN i usługi ręcznego sterowania napędami MKS SERVO42D.</description>
+  <!-- TODO: Replace placeholder maintainer data and choose a project license. -->
+  <maintainer email="maintainer@example.com">Project maintainer (TODO)</maintainer>
+  <license>TODO</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>mks_servo_can</depend>
+  <depend>robot_kinematics</depend>
+  <depend>tinyxml2</depend>
+  <depend>rclcpp</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>rclcpp_action</depend>
+  <depend>openssl</depend>
+  <depend>std_srvs</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <depend>robot_control_interfaces</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

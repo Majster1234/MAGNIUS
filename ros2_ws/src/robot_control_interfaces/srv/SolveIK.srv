@@ -1,0 +1,12 @@
+robot_control_interfaces/PlanningContext context
+geometry_msgs/Pose target
+float64 position_tolerance
+float64 orientation_tolerance
+bool forward_only
+---
+bool success
+string message
+float64[6] positions
+geometry_msgs/Pose tcp
+float64 position_error
+float64 orientation_error

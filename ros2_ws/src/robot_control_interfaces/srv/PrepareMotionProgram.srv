@@ -1,0 +1,7 @@
+CartesianPlan plan
+string settings_revision
+uint64 issued_monotonic_ns
+---
+bool accepted
+string message
+MotionProgramStatus status

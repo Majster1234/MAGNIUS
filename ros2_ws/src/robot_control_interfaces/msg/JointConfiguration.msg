@@ -1,0 +1,9 @@
+uint8 axis
+bool configured
+float64 gear_ratio
+int8 direction
+float64 zero_offset_rad
+float64 lower_rad
+float64 upper_rad
+float64 velocity_rad_s
+float64 acceleration_rad_s2

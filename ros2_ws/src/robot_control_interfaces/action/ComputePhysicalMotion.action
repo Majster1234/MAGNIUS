@@ -1,0 +1,16 @@
+uint8 PTP=0
+uint8 LIN=1
+PlanningContext context
+uint8 motion_type
+float64[6] target_positions
+# LIN: m/s, m/s² i rad/s; wymagane dodatnie wartości. PTP: trzy zera.
+float64 tcp_velocity
+float64 tcp_acceleration
+float64 tcp_angular_velocity
+---
+bool success
+string message
+CartesianPlan plan
+---
+float32 progress
+string phase

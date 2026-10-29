@@ -1,0 +1,5 @@
+# Drop-in dla robot-web-status.service; wymaga zbudowanej nakładki.
+# Zezwolenie tcp_jog_enabled pochodzi z execution_parameters usługi.
+# Brak limitów lub geometrii nadal blokuje fizyczny JOG TCP.
+[Service]
+Environment="ROBOT_OVERLAY_SETUP=/home/mk/Desktop/Projekty/install/tcp-settings-ros/setup.bash"

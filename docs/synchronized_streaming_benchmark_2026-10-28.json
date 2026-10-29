@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-28",
+  "baseline": "b91b06a",
+  "runs": [
+    {
+      "run": 0,
+      "mode": "before",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=109.551"
+    },
+    {
+      "run": 0,
+      "mode": "streamed",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=123.764"
+    },
+    {
+      "run": 0,
+      "mode": "synchronized",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=10100 execution_ms=508.138"
+    },
+    {
+      "run": 1,
+      "mode": "before",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=110.162"
+    },
+    {
+      "run": 1,
+      "mode": "streamed",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=121.451"
+    },
+    {
+      "run": 1,
+      "mode": "synchronized",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=10100 execution_ms=506.056"
+    },
+    {
+      "run": 2,
+      "mode": "before",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=108.314"
+    },
+    {
+      "run": 2,
+      "mode": "streamed",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=122.419"
+    },
+    {
+      "run": 2,
+      "mode": "synchronized",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=10100 execution_ms=506.931"
+    },
+    {
+      "run": 3,
+      "mode": "before",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=106.892"
+    },
+    {
+      "run": 3,
+      "mode": "streamed",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=121.993"
+    },
+    {
+      "run": 3,
+      "mode": "synchronized",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=10100 execution_ms=507.245"
+    },
+    {
+      "run": 4,
+      "mode": "before",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=108.946"
+    },
+    {
+      "run": 4,
+      "mode": "streamed",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=0 execution_ms=120.598"
+    },
+    {
+      "run": 4,
+      "mode": "synchronized",
+      "result": "runs=100 simulated_execution_ms=160000 F5=60600 SYNC=10100 execution_ms=505.176"
+    }
+  ],
+  "median_execution_ms": {
+    "before": 108.946,
+    "streamed": 121.993,
+    "synchronized": 506.931
+  },
+  "description": "100 programów, 6 osi, syntetyczne 0→0.2 rad w 1 s, 1600 ms symulacji wykonania na program, 1 Mbit/s; bez CAN/ROS; czas ścienny wykonania bez przygotowania stanowiska"
+}

@@ -19,8 +19,8 @@ sudo apt install ros-humble-ros-base ros-dev-tools
 ```
 
 `ros-dev-tools` dostarcza narzędzia deweloperskie, w tym `colcon` i `rosdep`.
-Na tym etapie szkielet potrzebuje `ament_cmake`; dodatkowe zależności należy
-deklarować w manifestach razem z implementacją.
+Projekt potrzebuje `ament_cmake`, `ament_python` i zależności zadeklarowanych
+w manifestach; panel korzysta z systemowych pakietów FastAPI, Uvicorn i psutil.
 
 ## Zależności workspace
 
@@ -48,7 +48,8 @@ rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
 
 ## Budowanie
 
-Z katalogu `ros2_ws`, po wczytaniu ROS 2 Humble:
+Najpierw zbuduj frontend zgodnie z [instrukcją panelu](web_status.md).
+Następnie z katalogu `ros2_ws`, po wczytaniu ROS 2 Humble:
 
 ```bash
 colcon list
@@ -58,12 +59,14 @@ ros2 pkg prefix robot_description
 ros2 pkg prefix mks_servo_can
 ros2 pkg prefix robot_hardware
 ros2 pkg prefix robot_bringup
+ros2 pkg prefix robot_system_monitor
+ros2 pkg prefix robot_web_bridge
 ```
 
-`colcon list` powinien wykryć dokładnie cztery pakiety tego projektu.
+`colcon list` powinien wykryć sześć pakietów tego projektu.
 Po udanym budowaniu każde polecenie `ros2 pkg prefix` powinno wskazać pakiet
-w lokalnym katalogu `install`. Aktualnie budowane są wyłącznie pakiety zasobów:
-nie ma celów bibliotek C++, programów ani testów wykonywalnych.
+w lokalnym katalogu `install`. Cztery pakiety CMake nadal zawierają zasoby
+i szablony. Dwa pakiety Python dostarczają węzły diagnostyczne i testy.
 
 CMake instaluje README każdego pakietu oraz katalogi zasobów modelu
 i konfiguracji. Pliki `.gitkeep` nie są instalowane. Katalogi `include`, `src`
@@ -85,7 +88,7 @@ Humble. Po budowaniu wykonaj `source install/local_setup.bash` w każdym oknie,
 w którym potrzebujesz nowych pakietów, albo otwórz nowy zestaw terminali.
 
 Skrypt nie buduje projektu ani nie uruchamia węzłów automatycznie. Polecenie
-startowe dla przyszłej aplikacji można przekazać po `--`; szczegóły są w
+startowe aplikacji można przekazać po `--`; szczegóły są w
 [głównym README](../README.md#terminale-do-pracy-z-ros-2).
 
 ## Następny etap implementacji
@@ -95,7 +98,8 @@ zależności ROS, m.in. `xacro`, `robot_state_publisher`, `ros2_control`,
 `ros2_controllers` i opcjonalnie `rviz2`. Dodaj je w odpowiednich manifestach
 i ponownie wykonaj `rosdep install`; obecny szkielet nie korzysta z tych pakietów.
 
-Nie ma jeszcze polecenia `ros2 launch` dla robota. Szablony `.example.yaml`
+Panel uruchamia `ros2 launch robot_bringup web_status.launch.py`.
+Nie ma jeszcze launch sterowania robotem. Szablony `.example.yaml`
 nie stanowią gotowych parametrów ROS 2, a wartości `null` trzeba zastąpić
 rzeczywistymi danymi podczas implementacji ich obsługi.
 

@@ -1,0 +1,4565 @@
+{
+  "date": "2026-10-29",
+  "scope": "Powtórny odbiór SYNC z osobnym przejściem ENABLE",
+  "hardware_acceptance": false,
+  "automatic_unlock_verified": false,
+  "fully_passed_axes": [
+    1,
+    2,
+    3,
+    5,
+    6
+  ],
+  "incomplete_axes": [
+    4
+  ],
+  "timings_final": {
+    "read_response_ms": 24,
+    "recovery_ack_ms": 120,
+    "stop_phase_gap_ms": 6,
+    "enable_settle_min_ms": 1610,
+    "enable_settle_timeout_ms": 4490,
+    "motion_confirmation_window_ms": 600,
+    "motion_timeout_ms": 6000
+  },
+  "note": "Końcowy limit ustalania ENABLE 4490 ms wyliczono z maksimum 3738,952 ms +20%; przejazdy miały poprzedni limit 3720 ms. Brak ponownej próby przy 4490 ms. 600 ms/6000 ms dotyczą narzędzia odbioru, nie regulatora produkcyjnego.",
+  "logs": [
+    {
+      "path": "log/hardware/sync-recovery-settle-20261029-1793299207731537520.jsonl",
+      "sha256": "8fcbc7fc20c38857ab403ebcedf27bfd61057d9cf995ec6e2eb6d898b0e6454b",
+      "counts": {
+        "authorization": 1,
+        "tx": 9421,
+        "tx_confirmation": 9421,
+        "rx": 9408,
+        "query_latency": 9382,
+        "sample": 276,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 2,
+        "enable_transition_settled": 5,
+        "neutral_accepted": 6,
+        "recovery_sequence_verified": 1,
+        "axis_test_begin": 1,
+        "residual_sync_probe_pass": 3,
+        "failed": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 3,
+      "nonzero_rpm_f5_count": 0,
+      "maximum_query_ms": 7.749606,
+      "maximum_read_ms": 6.163304,
+      "maximum_enable_settle_ms": 1340.808585,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 12427883618754,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12428334470368,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 2,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12428341995423,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12428348478715,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12428355207327,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12428361608884,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12428367727763,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 12431342507573,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3060,
+          "maximum_ms": 6.163304,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12431362317641,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12431883509223,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12431888151880,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12431892925906,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12431897032374,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12431902663835,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12431907253687,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12432650187589,
+          "baseline": {
+            "1": 2,
+            "2": 0,
+            "3": -1,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 12432650237921,
+          "axis": 1,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12434747929800,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12435155591829,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12435563996493,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "failed",
+          "mono_ns": 12437783376605,
+          "message": "CAN 1: postój niepotwierdzony: {'position': -3, 'position_rx_ns': 12437759431765, 'rpm': -1, 'speed_rx_ns': 12437760752247, 'enabled': True, 'enable_rx_ns': 12437761748953, 'motor_state': 1, 'motor_rx_ns': 12437762742127}"
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12437803860103,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 12439947490965,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 12439947603291,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ]
+    },
+    {
+      "path": "log/hardware/sync-recovery-settle1610-20261029-1793299355015101019.jsonl",
+      "sha256": "191d34ccb87edfb7634e85b55ebc907f3d969f8ac085d7e7f2ad93f4dc7d7d56",
+      "counts": {
+        "authorization": 1,
+        "tx": 16481,
+        "tx_confirmation": 16481,
+        "rx": 16466,
+        "query_latency": 16440,
+        "sample": 570,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 2,
+        "enable_transition_settled": 5,
+        "neutral_accepted": 6,
+        "recovery_sequence_verified": 1,
+        "axis_test_begin": 1,
+        "residual_sync_probe_pass": 3,
+        "reenable_probe_pass": 1,
+        "positive_control_pass": 1,
+        "failed": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 5,
+      "nonzero_rpm_f5_count": 2,
+      "maximum_query_ms": 8.89167,
+      "maximum_read_ms": 5.852622,
+      "maximum_enable_settle_ms": 1773.095041,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 12575220904633,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12575657254028,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12575663135205,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12575669324443,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12575675390292,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12575681773318,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12575689500704,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 12578699832011,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3036,
+          "maximum_ms": 3.421471,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12578719400538,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12580621764086,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12580626022866,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12580630153337,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12580634255529,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12580638256260,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12580641818342,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12581422940777,
+          "baseline": {
+            "1": 1,
+            "2": 0,
+            "3": -1,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 12581423066543,
+          "axis": 1,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12583879468001,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12584280612627,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12584684395118,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12589983523664,
+          "axis": 1
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 12591162029981,
+          "axis": 1,
+          "label": "plus_5_degrees",
+          "target": 225,
+          "measured": 238
+        },
+        {
+          "event": "failed",
+          "mono_ns": 12594391084337,
+          "message": "CAN 1: timeout dojścia return_minus_5_degrees"
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12594410127661,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 12597070516848,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 12597070603657,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ]
+    },
+    {
+      "path": "log/hardware/sync-recovery-tuned3720-20261029-1793299517270366762.jsonl",
+      "sha256": "ecf4205328d122f47c2ca7044c3fb07a0cfcb05c97abc6c2712c7a62ac67a288",
+      "counts": {
+        "authorization": 1,
+        "tx": 93282,
+        "tx_confirmation": 93282,
+        "rx": 93175,
+        "query_latency": 93101,
+        "sample": 3748,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 8,
+        "enable_transition_settled": 41,
+        "neutral_accepted": 12,
+        "recovery_sequence_verified": 7,
+        "axis_test_begin": 4,
+        "residual_sync_probe_pass": 30,
+        "reenable_probe_pass": 10,
+        "positive_control_pass": 6,
+        "known_buffer_staged": 6,
+        "overwrite_trial_pass": 6,
+        "axis_test_pass": 3,
+        "failed": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 37,
+      "nonzero_rpm_f5_count": 13,
+      "maximum_query_ms": 8.898651,
+      "maximum_read_ms": 7.238533,
+      "maximum_enable_settle_ms": 2750.669009,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 12737420083334,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12737856690210,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12737865355034,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12737873346899,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12737881666339,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12737888308042,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 12737894322024,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 12740872975412,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3060,
+          "maximum_ms": 7.238533,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12740893786032,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12742779397510,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12742783466248,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12742787426896,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12742791348209,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12742798895387,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12742803030033,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12743592374173,
+          "baseline": {
+            "1": 0,
+            "2": 0,
+            "3": -1,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 12743592435592,
+          "axis": 1,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12746077260599,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12746483439833,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12747975682484,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12753369308568,
+          "axis": 1
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 12754603785316,
+          "axis": 1,
+          "label": "plus_5_degrees",
+          "target": 223,
+          "measured": 238
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 12755761277198,
+          "axis": 1,
+          "label": "return_minus_5_degrees",
+          "target": -5,
+          "measured": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 12755765751611,
+          "axis": 1,
+          "repetition": 1,
+          "target": 229,
+          "before": 1
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12757957590061,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12759865746771,
+          "axis": 1
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12760674841337,
+          "baseline": {
+            "1": 2,
+            "2": 0,
+            "3": -1,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12763145389358,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12763568979333,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12764930389105,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12769329477729,
+          "axis": 1
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 12769329560549,
+          "axis": 1,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 12769332411426,
+          "axis": 1,
+          "repetition": 2,
+          "target": -230,
+          "before": -2
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12769563878811,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12771451974457,
+          "axis": 1
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12772244315210,
+          "baseline": {
+            "1": -1,
+            "2": 0,
+            "3": -1,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12774759481399,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12775164033020,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12775574409910,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12779478453312,
+          "axis": 1
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 12779478536129,
+          "axis": 1,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 12781544871906,
+          "axis": 1
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 12781544945678,
+          "axis": 2,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12784810933260,
+          "axis": 2,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12786166846338,
+          "axis": 2,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12786595383427,
+          "axis": 2,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12790605383036,
+          "axis": 2
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 12791774037055,
+          "axis": 2,
+          "label": "plus_5_degrees",
+          "target": 224,
+          "measured": 227
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 12792985463024,
+          "axis": 2,
+          "label": "return_minus_5_degrees",
+          "target": -4,
+          "measured": -5
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 12792989164408,
+          "axis": 2,
+          "repetition": 1,
+          "target": 223,
+          "before": -5
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12795201823117,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12797136733204,
+          "axis": 2
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12797900255724,
+          "baseline": {
+            "1": 0,
+            "2": -1,
+            "3": -1,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12801035582999,
+          "axis": 2,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12801441180581,
+          "axis": 2,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12801852326095,
+          "axis": 2,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12805807336050,
+          "axis": 2
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 12805807401961,
+          "axis": 2,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 12805810743047,
+          "axis": 2,
+          "repetition": 2,
+          "target": -229,
+          "before": -1
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12806051775464,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12808467325870,
+          "axis": 2
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12809248240847,
+          "baseline": {
+            "1": 0,
+            "2": -13,
+            "3": -1,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12811696651340,
+          "axis": 2,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12812108209151,
+          "axis": 2,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12812534771708,
+          "axis": 2,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12816447303900,
+          "axis": 2
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 12816447396825,
+          "axis": 2,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 12818507176320,
+          "axis": 2
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 12818507211205,
+          "axis": 3,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12821074784857,
+          "axis": 3,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12822806831039,
+          "axis": 3,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12823215302038,
+          "axis": 3,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12827167218651,
+          "axis": 3
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 12828360704292,
+          "axis": 3,
+          "label": "plus_5_degrees",
+          "target": 233,
+          "measured": 240
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 12831198626711,
+          "axis": 3,
+          "label": "return_minus_5_degrees",
+          "target": 5,
+          "measured": 10
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 12831201674811,
+          "axis": 3,
+          "repetition": 1,
+          "target": 238,
+          "before": 10
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12831426624265,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12833324355315,
+          "axis": 3
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12834101493425,
+          "baseline": {
+            "1": 0,
+            "2": -6,
+            "3": 18,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12836590249862,
+          "axis": 3,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12836999723775,
+          "axis": 3,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12837422293519,
+          "axis": 3,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12841659525061,
+          "axis": 3
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 12841659596207,
+          "axis": 3,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 12841663231653,
+          "axis": 3,
+          "repetition": 2,
+          "target": -212,
+          "before": 16
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12841899468677,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 12843847488645,
+          "axis": 3
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 12844603517022,
+          "baseline": {
+            "1": 0,
+            "2": -6,
+            "3": 31,
+            "4": -1,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12847076464385,
+          "axis": 3,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12847481371229,
+          "axis": 3,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12847896386225,
+          "axis": 3,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12852209291188,
+          "axis": 3
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 12852209325943,
+          "axis": 3,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 12854645715058,
+          "axis": 3
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 12854645753834,
+          "axis": 4,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12857136456802,
+          "axis": 4,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12857551825665,
+          "axis": 4,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 12858693733733,
+          "axis": 4,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 12862626613499,
+          "axis": 4
+        },
+        {
+          "event": "failed",
+          "mono_ns": 12863647359865,
+          "message": "CAN 5: ruch nieuczestniczącej osi"
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 12863668236860,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 12867342448951,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 12867342679753,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ]
+    },
+    {
+      "path": "log/hardware/sync-recovery-settled-all-20261029-1793299818750776822.jsonl",
+      "sha256": "cb13e134822176343cf5807c87104ffb91275b1f56ef335147c54d196f3865e0",
+      "counts": {
+        "authorization": 1,
+        "tx": 103867,
+        "tx_confirmation": 103867,
+        "rx": 103760,
+        "query_latency": 103686,
+        "sample": 4189,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 8,
+        "enable_transition_settled": 41,
+        "neutral_accepted": 12,
+        "recovery_sequence_verified": 7,
+        "axis_test_begin": 4,
+        "residual_sync_probe_pass": 30,
+        "reenable_probe_pass": 10,
+        "positive_control_pass": 7,
+        "known_buffer_staged": 6,
+        "overwrite_trial_pass": 6,
+        "axis_test_pass": 3,
+        "failed": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 37,
+      "nonzero_rpm_f5_count": 14,
+      "maximum_query_ms": 19.134613,
+      "maximum_read_ms": 19.134613,
+      "maximum_enable_settle_ms": 3738.951748,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 13038947747500,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13039388639336,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13039394937248,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -6,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13039401053495,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 25,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13039406556030,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 230,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13039412964659,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13039419471492,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 13042376939945,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3060,
+          "maximum_ms": 3.446124,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13042398025996,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13044290166635,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13044296227377,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13044300568776,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13044304458902,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13044308281893,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13044315251186,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13045061652017,
+          "baseline": {
+            "1": 0,
+            "2": -6,
+            "3": 25,
+            "4": 230,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13045061751529,
+          "axis": 1,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13048551773323,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13048952168067,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13050157862576,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13054584553778,
+          "axis": 1
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13055757940589,
+          "axis": 1,
+          "label": "plus_5_degrees",
+          "target": 224,
+          "measured": 240
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13056954800735,
+          "axis": 1,
+          "label": "return_minus_5_degrees",
+          "target": -4,
+          "measured": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13056959359470,
+          "axis": 1,
+          "repetition": 1,
+          "target": 229,
+          "before": 1
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13059157945481,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13061063984951,
+          "axis": 1
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13061863688103,
+          "baseline": {
+            "1": 2,
+            "2": -6,
+            "3": 25,
+            "4": 230,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13064337143074,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13066136946486,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13067545779472,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13071526552042,
+          "axis": 1
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13071526623524,
+          "axis": 1,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13071530918981,
+          "axis": 1,
+          "repetition": 2,
+          "target": -230,
+          "before": -2
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13071759902663,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13073640596299,
+          "axis": 1
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13075577410877,
+          "baseline": {
+            "1": -1,
+            "2": -6,
+            "3": 25,
+            "4": 230,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13078044370580,
+          "axis": 1,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13078447595584,
+          "axis": 1,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13078848381581,
+          "axis": 1,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13083965692808,
+          "axis": 1
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13083965720936,
+          "axis": 1,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 13086002123493,
+          "axis": 1
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13086002178382,
+          "axis": 2,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13089072465408,
+          "axis": 2,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13089496276673,
+          "axis": 2,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13089906692130,
+          "axis": 2,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13093848849814,
+          "axis": 2
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13095008268556,
+          "axis": 2,
+          "label": "plus_5_degrees",
+          "target": 223,
+          "measured": 229
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13098256390864,
+          "axis": 2,
+          "label": "return_minus_5_degrees",
+          "target": -5,
+          "measured": -5
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13098260307525,
+          "axis": 2,
+          "repetition": 1,
+          "target": 223,
+          "before": -5
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13098484858641,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13100404244835,
+          "axis": 2
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13101192985271,
+          "baseline": {
+            "1": 0,
+            "2": 1,
+            "3": 25,
+            "4": 230,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13103632483879,
+          "axis": 2,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13104047120456,
+          "axis": 2,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13104449499028,
+          "axis": 2,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13108709510976,
+          "axis": 2
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13108709559065,
+          "axis": 2,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13108712362903,
+          "axis": 2,
+          "repetition": 2,
+          "target": -232,
+          "before": -4
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13108951597741,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13110871741015,
+          "axis": 2
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13111644514608,
+          "baseline": {
+            "1": 0,
+            "2": -4,
+            "3": 25,
+            "4": 230,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13114364373121,
+          "axis": 2,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13114786821645,
+          "axis": 2,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13116279727730,
+          "axis": 2,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13120223406129,
+          "axis": 2
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13120223435356,
+          "axis": 2,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 13122268662317,
+          "axis": 2
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13122268688385,
+          "axis": 3,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13124714430413,
+          "axis": 3,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13125135445205,
+          "axis": 3,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13125558324916,
+          "axis": 3,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13130158026482,
+          "axis": 3
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13131517496402,
+          "axis": 3,
+          "label": "plus_5_degrees",
+          "target": 252,
+          "measured": 274
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13133867094002,
+          "axis": 3,
+          "label": "return_minus_5_degrees",
+          "target": 24,
+          "measured": 45
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13133870208467,
+          "axis": 3,
+          "repetition": 1,
+          "target": 273,
+          "before": 45
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13134117777658,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13136022230417,
+          "axis": 3
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13136777477029,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 51,
+            "4": 230,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13139282556990,
+          "axis": 3,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13139684274877,
+          "axis": 3,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13140086514836,
+          "axis": 3,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13144803311889,
+          "axis": 3
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13144803375384,
+          "axis": 3,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13144806422684,
+          "axis": 3,
+          "repetition": 2,
+          "target": -186,
+          "before": 42
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13145042251010,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13147141430874,
+          "axis": 3
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13147888583486,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 35,
+            "4": 230,
+            "5": -1,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13151929207073,
+          "axis": 3,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13152345978862,
+          "axis": 3,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13153871139451,
+          "axis": 3,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13158293288899,
+          "axis": 3
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13158293321471,
+          "axis": 3,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 13161288480070,
+          "axis": 3
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13161288563903,
+          "axis": 4,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 3.72,
+          "enable_settle_min_ms": 1610.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13165496599526,
+          "axis": 4,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13167496085483,
+          "axis": 4,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13167914373847,
+          "axis": 4,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13175260462524,
+          "axis": 4
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13177002253332,
+          "axis": 4,
+          "label": "plus_5_degrees",
+          "target": 460,
+          "measured": 465
+        },
+        {
+          "event": "failed",
+          "mono_ns": 13177060135821,
+          "message": "CAN 4: ruch >0,5° w oknie postoju"
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13177082994031,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 13180802542384,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 13180802579142,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ]
+    },
+    {
+      "path": "log/hardware/sync-recovery-long-window-20261029-1793300053345615992.jsonl",
+      "sha256": "75dc6bcdb317f08732ed655be7402045f0d9b28d7fafc83f33fb228a57715e42",
+      "counts": {
+        "authorization": 1,
+        "tx": 21831,
+        "tx_confirmation": 21831,
+        "rx": 21817,
+        "query_latency": 21791,
+        "sample": 793,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 2,
+        "enable_transition_settled": 5,
+        "neutral_accepted": 6,
+        "recovery_sequence_verified": 1,
+        "axis_test_begin": 1,
+        "residual_sync_probe_pass": 3,
+        "reenable_probe_pass": 1,
+        "failed": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 4,
+      "nonzero_rpm_f5_count": 1,
+      "maximum_query_ms": 7.535431,
+      "maximum_read_ms": 4.037743,
+      "maximum_enable_settle_ms": 2594.476898,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 13273540607514,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13274390973264,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13274398352363,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 6,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13274406174816,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 30,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13274412111993,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 420,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13274417751453,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": -1,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13274423177916,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 13277068959438,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3516,
+          "maximum_ms": 3.838728,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13277087936342,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13279646917260,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13279650660234,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13279654860761,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13279658370156,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13279662627675,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13279666129537,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13280408914648,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 30,
+            "4": 420,
+            "5": 0,
+            "6": 0
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13280408975229,
+          "axis": 4,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 6.0,
+          "enable_settle_min_ms": 1610.0,
+          "motion_stable_window_ms": 600.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13283193102555,
+          "axis": 4,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13284387614556,
+          "axis": 4,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13284808088528,
+          "axis": 4,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13291370430919,
+          "axis": 4
+        },
+        {
+          "event": "failed",
+          "mono_ns": 13297577047515,
+          "message": "CAN 4: timeout dojścia plus_5_degrees"
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13297596263762,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 13300377007421,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 13300377053564,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ],
+      "j4_last_second": [
+        {
+          "mono_ns": 13296584298028,
+          "position": 601,
+          "position_rx_ns": 13296573111883,
+          "rpm": 0,
+          "speed_rx_ns": 13296574122723,
+          "enabled": true,
+          "enable_rx_ns": 13296575109671,
+          "motor_state": 1,
+          "motor_rx_ns": 13296576106881
+        },
+        {
+          "mono_ns": 13296618252270,
+          "position": 601,
+          "position_rx_ns": 13296607116701,
+          "rpm": 0,
+          "speed_rx_ns": 13296608052342,
+          "enabled": true,
+          "enable_rx_ns": 13296609088621,
+          "motor_state": 1,
+          "motor_rx_ns": 13296610079847
+        },
+        {
+          "mono_ns": 13296652179859,
+          "position": 600,
+          "position_rx_ns": 13296641129394,
+          "rpm": 0,
+          "speed_rx_ns": 13296642132594,
+          "enabled": true,
+          "enable_rx_ns": 13296643099201,
+          "motor_state": 1,
+          "motor_rx_ns": 13296644028653
+        },
+        {
+          "mono_ns": 13296686122075,
+          "position": 601,
+          "position_rx_ns": 13296675125258,
+          "rpm": 0,
+          "speed_rx_ns": 13296676053103,
+          "enabled": true,
+          "enable_rx_ns": 13296677085396,
+          "motor_state": 1,
+          "motor_rx_ns": 13296678046905
+        },
+        {
+          "mono_ns": 13296720127197,
+          "position": 600,
+          "position_rx_ns": 13296709090985,
+          "rpm": 0,
+          "speed_rx_ns": 13296710076392,
+          "enabled": true,
+          "enable_rx_ns": 13296711024684,
+          "motor_state": 1,
+          "motor_rx_ns": 13296711998053
+        },
+        {
+          "mono_ns": 13296754103228,
+          "position": 600,
+          "position_rx_ns": 13296743129863,
+          "rpm": 0,
+          "speed_rx_ns": 13296744032390,
+          "enabled": true,
+          "enable_rx_ns": 13296744983447,
+          "motor_state": 1,
+          "motor_rx_ns": 13296745955578
+        },
+        {
+          "mono_ns": 13296787035501,
+          "position": 601,
+          "position_rx_ns": 13296776065140,
+          "rpm": 0,
+          "speed_rx_ns": 13296776977873,
+          "enabled": true,
+          "enable_rx_ns": 13296777955539,
+          "motor_state": 1,
+          "motor_rx_ns": 13296778950977
+        },
+        {
+          "mono_ns": 13296820979976,
+          "position": 601,
+          "position_rx_ns": 13296809983048,
+          "rpm": 0,
+          "speed_rx_ns": 13296810954752,
+          "enabled": true,
+          "enable_rx_ns": 13296811912499,
+          "motor_state": 1,
+          "motor_rx_ns": 13296812950732
+        },
+        {
+          "mono_ns": 13296854975590,
+          "position": 600,
+          "position_rx_ns": 13296843986872,
+          "rpm": 0,
+          "speed_rx_ns": 13296844919599,
+          "enabled": true,
+          "enable_rx_ns": 13296845936918,
+          "motor_state": 1,
+          "motor_rx_ns": 13296846924149
+        },
+        {
+          "mono_ns": 13296888932612,
+          "position": 601,
+          "position_rx_ns": 13296877904815,
+          "rpm": 0,
+          "speed_rx_ns": 13296878859170,
+          "enabled": true,
+          "enable_rx_ns": 13296879903423,
+          "motor_state": 1,
+          "motor_rx_ns": 13296880923946
+        },
+        {
+          "mono_ns": 13296922888816,
+          "position": 600,
+          "position_rx_ns": 13296911927739,
+          "rpm": 0,
+          "speed_rx_ns": 13296912899626,
+          "enabled": true,
+          "enable_rx_ns": 13296913884399,
+          "motor_state": 1,
+          "motor_rx_ns": 13296914899360
+        },
+        {
+          "mono_ns": 13296956803356,
+          "position": 600,
+          "position_rx_ns": 13296945873078,
+          "rpm": 0,
+          "speed_rx_ns": 13296946825508,
+          "enabled": true,
+          "enable_rx_ns": 13296947852231,
+          "motor_state": 1,
+          "motor_rx_ns": 13296948856669
+        },
+        {
+          "mono_ns": 13296990753198,
+          "position": 600,
+          "position_rx_ns": 13296979887233,
+          "rpm": 0,
+          "speed_rx_ns": 13296980869398,
+          "enabled": true,
+          "enable_rx_ns": 13296981850347,
+          "motor_state": 1,
+          "motor_rx_ns": 13296982835252
+        },
+        {
+          "mono_ns": 13297024683931,
+          "position": 601,
+          "position_rx_ns": 13297013841283,
+          "rpm": 0,
+          "speed_rx_ns": 13297014804314,
+          "enabled": true,
+          "enable_rx_ns": 13297015779195,
+          "motor_state": 1,
+          "motor_rx_ns": 13297016780294
+        },
+        {
+          "mono_ns": 13297058682045,
+          "position": 600,
+          "position_rx_ns": 13297047826841,
+          "rpm": 0,
+          "speed_rx_ns": 13297048719112,
+          "enabled": true,
+          "enable_rx_ns": 13297049747080,
+          "motor_state": 1,
+          "motor_rx_ns": 13297050747024
+        },
+        {
+          "mono_ns": 13297092654962,
+          "position": 600,
+          "position_rx_ns": 13297080802424,
+          "rpm": 0,
+          "speed_rx_ns": 13297081782993,
+          "enabled": true,
+          "enable_rx_ns": 13297083165344,
+          "motor_state": 1,
+          "motor_rx_ns": 13297083679204
+        },
+        {
+          "mono_ns": 13297129552931,
+          "position": 600,
+          "position_rx_ns": 13297118763844,
+          "rpm": 0,
+          "speed_rx_ns": 13297119738434,
+          "enabled": true,
+          "enable_rx_ns": 13297120714120,
+          "motor_state": 1,
+          "motor_rx_ns": 13297121713270
+        },
+        {
+          "mono_ns": 13297163553216,
+          "position": 600,
+          "position_rx_ns": 13297152773771,
+          "rpm": 0,
+          "speed_rx_ns": 13297153722043,
+          "enabled": true,
+          "enable_rx_ns": 13297154721509,
+          "motor_state": 1,
+          "motor_rx_ns": 13297155722522
+        },
+        {
+          "mono_ns": 13297197501239,
+          "position": 601,
+          "position_rx_ns": 13297186735929,
+          "rpm": 0,
+          "speed_rx_ns": 13297187705190,
+          "enabled": true,
+          "enable_rx_ns": 13297188702287,
+          "motor_state": 1,
+          "motor_rx_ns": 13297189702006
+        },
+        {
+          "mono_ns": 13297231451772,
+          "position": 600,
+          "position_rx_ns": 13297220779026,
+          "rpm": 0,
+          "speed_rx_ns": 13297221672050,
+          "enabled": true,
+          "enable_rx_ns": 13297222698750,
+          "motor_state": 1,
+          "motor_rx_ns": 13297223696292
+        },
+        {
+          "mono_ns": 13297265398477,
+          "position": 600,
+          "position_rx_ns": 13297253692608,
+          "rpm": 0,
+          "speed_rx_ns": 13297254701755,
+          "enabled": true,
+          "enable_rx_ns": 13297255696340,
+          "motor_state": 1,
+          "motor_rx_ns": 13297256699355
+        },
+        {
+          "mono_ns": 13297298317451,
+          "position": 600,
+          "position_rx_ns": 13297287670373,
+          "rpm": 0,
+          "speed_rx_ns": 13297288603196,
+          "enabled": true,
+          "enable_rx_ns": 13297289612551,
+          "motor_state": 1,
+          "motor_rx_ns": 13297290645580
+        },
+        {
+          "mono_ns": 13297331328589,
+          "position": 600,
+          "position_rx_ns": 13297320612016,
+          "rpm": 0,
+          "speed_rx_ns": 13297321585659,
+          "enabled": true,
+          "enable_rx_ns": 13297322638186,
+          "motor_state": 1,
+          "motor_rx_ns": 13297323572511
+        },
+        {
+          "mono_ns": 13297365225682,
+          "position": 600,
+          "position_rx_ns": 13297353648532,
+          "rpm": 0,
+          "speed_rx_ns": 13297354606644,
+          "enabled": true,
+          "enable_rx_ns": 13297355590906,
+          "motor_state": 1,
+          "motor_rx_ns": 13297356599622
+        },
+        {
+          "mono_ns": 13297398227523,
+          "position": 600,
+          "position_rx_ns": 13297387573133,
+          "rpm": 0,
+          "speed_rx_ns": 13297388562381,
+          "enabled": true,
+          "enable_rx_ns": 13297389550376,
+          "motor_state": 1,
+          "motor_rx_ns": 13297390558784
+        },
+        {
+          "mono_ns": 13297430186635,
+          "position": 600,
+          "position_rx_ns": 13297419594006,
+          "rpm": 0,
+          "speed_rx_ns": 13297420568833,
+          "enabled": true,
+          "enable_rx_ns": 13297421528326,
+          "motor_state": 1,
+          "motor_rx_ns": 13297422506252
+        },
+        {
+          "mono_ns": 13297463157569,
+          "position": 601,
+          "position_rx_ns": 13297452528103,
+          "rpm": 0,
+          "speed_rx_ns": 13297453453458,
+          "enabled": true,
+          "enable_rx_ns": 13297454497390,
+          "motor_state": 1,
+          "motor_rx_ns": 13297455476441
+        },
+        {
+          "mono_ns": 13297497103161,
+          "position": 600,
+          "position_rx_ns": 13297486503069,
+          "rpm": 0,
+          "speed_rx_ns": 13297487491905,
+          "enabled": true,
+          "enable_rx_ns": 13297488454324,
+          "motor_state": 1,
+          "motor_rx_ns": 13297489449624
+        },
+        {
+          "mono_ns": 13297530986599,
+          "position": 601,
+          "position_rx_ns": 13297520558638,
+          "rpm": 0,
+          "speed_rx_ns": 13297521444992,
+          "enabled": true,
+          "enable_rx_ns": 13297522435441,
+          "motor_state": 1,
+          "motor_rx_ns": 13297523440029
+        },
+        {
+          "mono_ns": 13297566956580,
+          "position": 601,
+          "position_rx_ns": 13297554509155,
+          "rpm": 0,
+          "speed_rx_ns": 13297555474825,
+          "enabled": true,
+          "enable_rx_ns": 13297556449659,
+          "motor_state": 1,
+          "motor_rx_ns": 13297557445122
+        }
+      ]
+    },
+    {
+      "path": "log/hardware/sync-recovery-j5-20261029-1793300118956180320.jsonl",
+      "sha256": "a45d3f4899391ad6aa0bb72c51277005e77c313ccc3ba4ee820415ac60cc0e74",
+      "counts": {
+        "authorization": 1,
+        "tx": 36873,
+        "tx_confirmation": 36873,
+        "rx": 36830,
+        "query_latency": 36790,
+        "sample": 1413,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 4,
+        "enable_transition_settled": 14,
+        "neutral_accepted": 8,
+        "recovery_sequence_verified": 3,
+        "axis_test_begin": 1,
+        "residual_sync_probe_pass": 9,
+        "reenable_probe_pass": 3,
+        "positive_control_pass": 2,
+        "known_buffer_staged": 2,
+        "overwrite_trial_pass": 2,
+        "axis_test_pass": 1,
+        "selected_axes_pass": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 11,
+      "nonzero_rpm_f5_count": 4,
+      "maximum_query_ms": 8.328226,
+      "maximum_read_ms": 8.328226,
+      "maximum_enable_settle_ms": 2620.536806,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 13338966633628,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13339398958034,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13339405100698,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 6,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13339411417683,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 30,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13339417093790,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 585,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13339422981852,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13339428938958,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 13342152412594,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3108,
+          "maximum_ms": 3.931958,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13342171592175,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13344066468806,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13344069907990,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13344074257718,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13344078306197,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13344082428053,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13344086599067,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13345821079245,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 30,
+            "4": 585,
+            "5": 0,
+            "6": 0
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13345821119937,
+          "axis": 5,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 6.0,
+          "enable_settle_min_ms": 1610.0,
+          "motion_stable_window_ms": 600.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13349602749763,
+          "axis": 5,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13350009222801,
+          "axis": 5,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13351311385354,
+          "axis": 5,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13355279896911,
+          "axis": 5
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13356989536556,
+          "axis": 5,
+          "label": "plus_5_degrees",
+          "target": 229,
+          "measured": 227
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13360823033171,
+          "axis": 5,
+          "label": "return_minus_5_degrees",
+          "target": 1,
+          "measured": 0
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13360826413025,
+          "axis": 5,
+          "repetition": 1,
+          "target": 228,
+          "before": 0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13361051187998,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13362982175071,
+          "axis": 5
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13363731211094,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 30,
+            "4": 585,
+            "5": 7,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13367175478690,
+          "axis": 5,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13367587803506,
+          "axis": 5,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13368001367633,
+          "axis": 5,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13371949715049,
+          "axis": 5
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13371949917612,
+          "axis": 5,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13371955053579,
+          "axis": 5,
+          "repetition": 2,
+          "target": -226,
+          "before": 2
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13372193194338,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13374859116568,
+          "axis": 5
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13375592122412,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 31,
+            "4": 585,
+            "5": 10,
+            "6": 0
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13378075816651,
+          "axis": 5,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13378499257823,
+          "axis": 5,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13378916568748,
+          "axis": 5,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13382842150495,
+          "axis": 5
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13382842191457,
+          "axis": 5,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 13384959258183,
+          "axis": 5
+        },
+        {
+          "event": "selected_axes_pass",
+          "mono_ns": 13384959288152,
+          "axes": [
+            {
+              "axis": 5,
+              "passed": true,
+              "repetitions": 2
+            }
+          ],
+          "tx_confirmations": 34839
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13384978508324,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 13387670286596,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 13387670318501,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ]
+    },
+    {
+      "path": "log/hardware/sync-recovery-j6-20261029-1793300167729256967.jsonl",
+      "sha256": "ddc1936e9ee2d352162478d5b43fd3ceb030e88db2aa9dee9e787558ec05e193",
+      "counts": {
+        "authorization": 1,
+        "tx": 36465,
+        "tx_confirmation": 36465,
+        "rx": 36422,
+        "query_latency": 36382,
+        "sample": 1396,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 4,
+        "enable_transition_settled": 14,
+        "neutral_accepted": 8,
+        "recovery_sequence_verified": 3,
+        "axis_test_begin": 1,
+        "residual_sync_probe_pass": 9,
+        "reenable_probe_pass": 3,
+        "positive_control_pass": 2,
+        "known_buffer_staged": 2,
+        "overwrite_trial_pass": 2,
+        "axis_test_pass": 1,
+        "selected_axes_pass": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 11,
+      "nonzero_rpm_f5_count": 4,
+      "maximum_query_ms": 11.500554,
+      "maximum_read_ms": 6.508982,
+      "maximum_enable_settle_ms": 2468.594698,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 13387733697876,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13388181782491,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13388187774415,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 6,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13388196170094,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 30,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13388202329767,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 585,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13388208188854,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 13,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13388214608292,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 13390833075126,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3108,
+          "maximum_ms": 3.294898,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13390852052763,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13392749110281,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13392752597035,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13392756562039,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13392760601634,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13392764891188,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13392768983107,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13393531804219,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 30,
+            "4": 585,
+            "5": 13,
+            "6": 0
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13393531850557,
+          "axis": 6,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 6.0,
+          "enable_settle_min_ms": 1610.0,
+          "motion_stable_window_ms": 600.0,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13396827937221,
+          "axis": 6,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13397248428002,
+          "axis": 6,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13397650747125,
+          "axis": 6,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13401567031387,
+          "axis": 6
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13403217734386,
+          "axis": 6,
+          "label": "plus_5_degrees",
+          "target": 228,
+          "measured": 238
+        },
+        {
+          "event": "positive_control_pass",
+          "mono_ns": 13406534279243,
+          "axis": 6,
+          "label": "return_minus_5_degrees",
+          "target": 0,
+          "measured": 0
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13406537106184,
+          "axis": 6,
+          "repetition": 1,
+          "target": 228,
+          "before": 0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13406763960563,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13408696213355,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13410500255167,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 30,
+            "4": 585,
+            "5": 13,
+            "6": 3
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13414056396730,
+          "axis": 6,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13414477808220,
+          "axis": 6,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13414896249223,
+          "axis": 6,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13419360565793,
+          "axis": 6
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13419360596454,
+          "axis": 6,
+          "repetition": 1
+        },
+        {
+          "event": "known_buffer_staged",
+          "mono_ns": 13419366185929,
+          "axis": 6,
+          "repetition": 2,
+          "target": -228,
+          "before": 0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13419588259589,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13421537549561,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13422257904431,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 30,
+            "4": 585,
+            "5": 13,
+            "6": 2
+          }
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13424714504859,
+          "axis": 6,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13425121881697,
+          "axis": 6,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13425545394310,
+          "axis": 6,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13429488391871,
+          "axis": 6
+        },
+        {
+          "event": "overwrite_trial_pass",
+          "mono_ns": 13429488442256,
+          "axis": 6,
+          "repetition": 2
+        },
+        {
+          "event": "axis_test_pass",
+          "mono_ns": 13431519085326,
+          "axis": 6
+        },
+        {
+          "event": "selected_axes_pass",
+          "mono_ns": 13431519110026,
+          "axes": [
+            {
+              "axis": 6,
+              "passed": true,
+              "repetitions": 2
+            }
+          ],
+          "tx_confirmations": 34503
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13431537965526,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 13434252271513,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 13434252361729,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ]
+    },
+    {
+      "path": "log/hardware/sync-recovery-j4-buffer-only-20261029-1793300419976413611.jsonl",
+      "sha256": "a713b0a190c5bf63834d1f1a3fd40f3ff219bfb64ac8c50cb68aa07ec5f62baf",
+      "counts": {
+        "authorization": 1,
+        "tx": 19527,
+        "tx_confirmation": 19527,
+        "rx": 19513,
+        "query_latency": 19487,
+        "sample": 697,
+        "initial": 6,
+        "read_timeout_calibrated": 1,
+        "stop_sent": 2,
+        "enable_transition_settled": 5,
+        "neutral_accepted": 6,
+        "recovery_sequence_verified": 1,
+        "axis_test_begin": 1,
+        "residual_sync_probe_pass": 3,
+        "reenable_probe_pass": 1,
+        "failed": 1,
+        "failed_recovery_latched": 1,
+        "cleanup": 1
+      },
+      "can_error_frames": 0,
+      "broadcast_sync_count": 4,
+      "nonzero_rpm_f5_count": 1,
+      "maximum_query_ms": 8.842092,
+      "maximum_read_ms": 4.507262,
+      "maximum_enable_settle_ms": 3350.978756,
+      "events": [
+        {
+          "event": "authorization",
+          "mono_ns": 13639974090543,
+          "scope": "J1–J6; wały odłączone; ±5°; <=1 RPM; zgoda operatora na dobór parametrów i bezpośrednie testy CAN w tej sesji"
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13640420097812,
+          "axis": 1,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 0,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13640425891126,
+          "axis": 2,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 6,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13640431508448,
+          "axis": 3,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 30,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13640437705422,
+          "axis": 4,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 585,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13640443895920,
+          "axis": 5,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 13,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "initial",
+          "mono_ns": 13640450189945,
+          "axis": 6,
+          "identity": "1201000920",
+          "parameters": {
+            "82": "05",
+            "84": "10",
+            "8c": "0100",
+            "98": "0000012c",
+            "4a": "01"
+          },
+          "position": 2,
+          "raw_rpm": 1,
+          "shaft_rpm": 1.0
+        },
+        {
+          "event": "read_timeout_calibrated",
+          "mono_ns": 13643102657555,
+          "passing_base_ms": 20,
+          "margin_percent": 20,
+          "final_timeout_ms": 24,
+          "samples": 3108,
+          "maximum_ms": 3.759523,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13643121874131,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13644998795422,
+          "axis": 1
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13645002653988,
+          "axis": 2
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13645006632442,
+          "axis": 3
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13645010716024,
+          "axis": 4
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13645014838254,
+          "axis": 5
+        },
+        {
+          "event": "neutral_accepted",
+          "mono_ns": 13645018741791,
+          "axis": 6
+        },
+        {
+          "event": "recovery_sequence_verified",
+          "mono_ns": 13645773581481,
+          "baseline": {
+            "1": 0,
+            "2": 6,
+            "3": 31,
+            "4": 585,
+            "5": 13,
+            "6": 2
+          }
+        },
+        {
+          "event": "axis_test_begin",
+          "mono_ns": 13645773654015,
+          "axis": 4,
+          "step_degrees": 5,
+          "rpm": 1,
+          "rest_tolerance_degrees": 0.5,
+          "move_timeout_seconds": 6.0,
+          "enable_settle_min_ms": 1610.0,
+          "motion_stable_window_ms": 600.0,
+          "control_detection_only": true,
+          "enable_settle_timeout_ms": 3720.0,
+          "response_timeout_ms": 24.0,
+          "stop_gap_ms": 6.0
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13649021833040,
+          "axis": 4,
+          "sequence": 1
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13649442200092,
+          "axis": 4,
+          "sequence": 2
+        },
+        {
+          "event": "residual_sync_probe_pass",
+          "mono_ns": 13649852631354,
+          "axis": 4,
+          "sequence": 3
+        },
+        {
+          "event": "reenable_probe_pass",
+          "mono_ns": 13655512684195,
+          "axis": 4
+        },
+        {
+          "event": "failed",
+          "mono_ns": 13661736206493,
+          "message": "CAN 4: timeout dojścia plus_5_degrees"
+        },
+        {
+          "event": "stop_sent",
+          "mono_ns": 13661755311245,
+          "errors": [],
+          "note": "F7 → F5 STOP → ENABLE=0; wymaga pomiarów"
+        },
+        {
+          "event": "failed_recovery_latched",
+          "mono_ns": 13664419095863,
+          "axes": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "sync": 1,
+          "enabled": false,
+          "note": "Znacznik blokady dla właściciela po restarcie; nie wysłano 4B"
+        },
+        {
+          "event": "cleanup",
+          "mono_ns": 13664419141186,
+          "success": true,
+          "errors": [],
+          "keep_block": true,
+          "note": "ENABLE=0; nie wyzwalano bufora; niezaliczona próba pozostawia SYNC=1"
+        }
+      ],
+      "j4_last_second": [
+        {
+          "mono_ns": 13660766382221,
+          "position": 752,
+          "position_rx_ns": 13660754927824,
+          "rpm": 0,
+          "speed_rx_ns": 13660755901856,
+          "enabled": true,
+          "enable_rx_ns": 13660756945264,
+          "motor_state": 1,
+          "motor_rx_ns": 13660758891552
+        },
+        {
+          "mono_ns": 13660800340067,
+          "position": 752,
+          "position_rx_ns": 13660789933895,
+          "rpm": 0,
+          "speed_rx_ns": 13660790878659,
+          "enabled": true,
+          "enable_rx_ns": 13660791793210,
+          "motor_state": 1,
+          "motor_rx_ns": 13660792855894
+        },
+        {
+          "mono_ns": 13660835250593,
+          "position": 751,
+          "position_rx_ns": 13660824903061,
+          "rpm": 0,
+          "speed_rx_ns": 13660825848943,
+          "enabled": true,
+          "enable_rx_ns": 13660826825589,
+          "motor_state": 1,
+          "motor_rx_ns": 13660827849502
+        },
+        {
+          "mono_ns": 13660871194189,
+          "position": 751,
+          "position_rx_ns": 13660857825075,
+          "rpm": 0,
+          "speed_rx_ns": 13660858788487,
+          "enabled": true,
+          "enable_rx_ns": 13660859806495,
+          "motor_state": 1,
+          "motor_rx_ns": 13660863167556
+        },
+        {
+          "mono_ns": 13660905206214,
+          "position": 751,
+          "position_rx_ns": 13660894819197,
+          "rpm": 0,
+          "speed_rx_ns": 13660895835560,
+          "enabled": true,
+          "enable_rx_ns": 13660896822759,
+          "motor_state": 1,
+          "motor_rx_ns": 13660897729395
+        },
+        {
+          "mono_ns": 13660940144575,
+          "position": 752,
+          "position_rx_ns": 13660928845059,
+          "rpm": 0,
+          "speed_rx_ns": 13660929788598,
+          "enabled": true,
+          "enable_rx_ns": 13660930809727,
+          "motor_state": 1,
+          "motor_rx_ns": 13660931813472
+        },
+        {
+          "mono_ns": 13660980074618,
+          "position": 751,
+          "position_rx_ns": 13660968816999,
+          "rpm": 0,
+          "speed_rx_ns": 13660969787472,
+          "enabled": true,
+          "enable_rx_ns": 13660970728455,
+          "motor_state": 1,
+          "motor_rx_ns": 13660971764405
+        },
+        {
+          "mono_ns": 13661013978096,
+          "position": 752,
+          "position_rx_ns": 13661002735258,
+          "rpm": 0,
+          "speed_rx_ns": 13661003749681,
+          "enabled": true,
+          "enable_rx_ns": 13661004744776,
+          "motor_state": 1,
+          "motor_rx_ns": 13661005745709
+        },
+        {
+          "mono_ns": 13661047975209,
+          "position": 751,
+          "position_rx_ns": 13661036755007,
+          "rpm": 0,
+          "speed_rx_ns": 13661037702775,
+          "enabled": true,
+          "enable_rx_ns": 13661038668994,
+          "motor_state": 1,
+          "motor_rx_ns": 13661039686316
+        },
+        {
+          "mono_ns": 13661081898660,
+          "position": 752,
+          "position_rx_ns": 13661070749872,
+          "rpm": 0,
+          "speed_rx_ns": 13661071714225,
+          "enabled": true,
+          "enable_rx_ns": 13661072690472,
+          "motor_state": 1,
+          "motor_rx_ns": 13661073690015
+        },
+        {
+          "mono_ns": 13661114899736,
+          "position": 752,
+          "position_rx_ns": 13661103701472,
+          "rpm": 0,
+          "speed_rx_ns": 13661104692641,
+          "enabled": true,
+          "enable_rx_ns": 13661105682101,
+          "motor_state": 1,
+          "motor_rx_ns": 13661106674322
+        },
+        {
+          "mono_ns": 13661147833987,
+          "position": 751,
+          "position_rx_ns": 13661136675632,
+          "rpm": 0,
+          "speed_rx_ns": 13661137640777,
+          "enabled": true,
+          "enable_rx_ns": 13661138631212,
+          "motor_state": 1,
+          "motor_rx_ns": 13661139634792
+        },
+        {
+          "mono_ns": 13661182772195,
+          "position": 751,
+          "position_rx_ns": 13661171598802,
+          "rpm": 0,
+          "speed_rx_ns": 13661172619124,
+          "enabled": true,
+          "enable_rx_ns": 13661173539696,
+          "motor_state": 1,
+          "motor_rx_ns": 13661174626954
+        },
+        {
+          "mono_ns": 13661215719259,
+          "position": 751,
+          "position_rx_ns": 13661204677822,
+          "rpm": 0,
+          "speed_rx_ns": 13661205553748,
+          "enabled": true,
+          "enable_rx_ns": 13661206595559,
+          "motor_state": 1,
+          "motor_rx_ns": 13661207567357
+        },
+        {
+          "mono_ns": 13661248713120,
+          "position": 751,
+          "position_rx_ns": 13661237594127,
+          "rpm": 0,
+          "speed_rx_ns": 13661238561692,
+          "enabled": true,
+          "enable_rx_ns": 13661239534195,
+          "motor_state": 1,
+          "motor_rx_ns": 13661240539208
+        },
+        {
+          "mono_ns": 13661282635574,
+          "position": 752,
+          "position_rx_ns": 13661271616767,
+          "rpm": 0,
+          "speed_rx_ns": 13661272566510,
+          "enabled": true,
+          "enable_rx_ns": 13661273564945,
+          "motor_state": 1,
+          "motor_rx_ns": 13661274569731
+        },
+        {
+          "mono_ns": 13661318587549,
+          "position": 752,
+          "position_rx_ns": 13661307561911,
+          "rpm": 0,
+          "speed_rx_ns": 13661308510620,
+          "enabled": true,
+          "enable_rx_ns": 13661309510462,
+          "motor_state": 1,
+          "motor_rx_ns": 13661310510573
+        },
+        {
+          "mono_ns": 13661353783191,
+          "position": 752,
+          "position_rx_ns": 13661342504424,
+          "rpm": 0,
+          "speed_rx_ns": 13661343433680,
+          "enabled": true,
+          "enable_rx_ns": 13661344495874,
+          "motor_state": 1,
+          "motor_rx_ns": 13661345476804
+        },
+        {
+          "mono_ns": 13661388482244,
+          "position": 752,
+          "position_rx_ns": 13661377458884,
+          "rpm": 0,
+          "speed_rx_ns": 13661378461409,
+          "enabled": true,
+          "enable_rx_ns": 13661379434075,
+          "motor_state": 1,
+          "motor_rx_ns": 13661380438142
+        },
+        {
+          "mono_ns": 13661422456547,
+          "position": 752,
+          "position_rx_ns": 13661411554459,
+          "rpm": 0,
+          "speed_rx_ns": 13661412487956,
+          "enabled": true,
+          "enable_rx_ns": 13661413463412,
+          "motor_state": 1,
+          "motor_rx_ns": 13661414457321
+        },
+        {
+          "mono_ns": 13661456419399,
+          "position": 752,
+          "position_rx_ns": 13661445478942,
+          "rpm": 0,
+          "speed_rx_ns": 13661446439763,
+          "enabled": true,
+          "enable_rx_ns": 13661447413812,
+          "motor_state": 1,
+          "motor_rx_ns": 13661448411490
+        },
+        {
+          "mono_ns": 13661490357325,
+          "position": 751,
+          "position_rx_ns": 13661479440222,
+          "rpm": 0,
+          "speed_rx_ns": 13661480417976,
+          "enabled": true,
+          "enable_rx_ns": 13661481387046,
+          "motor_state": 1,
+          "motor_rx_ns": 13661482383077
+        },
+        {
+          "mono_ns": 13661524281939,
+          "position": 751,
+          "position_rx_ns": 13661513445165,
+          "rpm": 0,
+          "speed_rx_ns": 13661514411871,
+          "enabled": true,
+          "enable_rx_ns": 13661515395233,
+          "motor_state": 1,
+          "motor_rx_ns": 13661516391372
+        },
+        {
+          "mono_ns": 13661556234339,
+          "position": 752,
+          "position_rx_ns": 13661546394513,
+          "rpm": 0,
+          "speed_rx_ns": 13661547345252,
+          "enabled": true,
+          "enable_rx_ns": 13661548371881,
+          "motor_state": 1,
+          "motor_rx_ns": 13661549378102
+        },
+        {
+          "mono_ns": 13661588166058,
+          "position": 752,
+          "position_rx_ns": 13661578389454,
+          "rpm": 0,
+          "speed_rx_ns": 13661579336130,
+          "enabled": true,
+          "enable_rx_ns": 13661580350763,
+          "motor_state": 1,
+          "motor_rx_ns": 13661581336028
+        },
+        {
+          "mono_ns": 13661621176645,
+          "position": 751,
+          "position_rx_ns": 13661610375563,
+          "rpm": 0,
+          "speed_rx_ns": 13661611311048,
+          "enabled": true,
+          "enable_rx_ns": 13661612337917,
+          "motor_state": 1,
+          "motor_rx_ns": 13661613341476
+        },
+        {
+          "mono_ns": 13661655111377,
+          "position": 752,
+          "position_rx_ns": 13661644384478,
+          "rpm": 0,
+          "speed_rx_ns": 13661645216031,
+          "enabled": true,
+          "enable_rx_ns": 13661646225853,
+          "motor_state": 1,
+          "motor_rx_ns": 13661647240574
+        },
+        {
+          "mono_ns": 13661689046290,
+          "position": 751,
+          "position_rx_ns": 13661678346149,
+          "rpm": 0,
+          "speed_rx_ns": 13661679285464,
+          "enabled": true,
+          "enable_rx_ns": 13661680267211,
+          "motor_state": 1,
+          "motor_rx_ns": 13661681291922
+        },
+        {
+          "mono_ns": 13661726041254,
+          "position": 752,
+          "position_rx_ns": 13661715286611,
+          "rpm": 0,
+          "speed_rx_ns": 13661716257018,
+          "enabled": true,
+          "enable_rx_ns": 13661717237330,
+          "motor_state": 1,
+          "motor_rx_ns": 13661718233307
+        }
+      ]
+    }
+  ],
+  "service_final_snapshots": [
+    {
+      "recovery_state": "recovery_failed",
+      "recovery_pending_mask": 63,
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.1318359375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.68115234375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 16.34765625,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.28564453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0439453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        }
+      ]
+    },
+    {
+      "recovery_state": "recovery_failed",
+      "recovery_pending_mask": 63,
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.1318359375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.68115234375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 16.34765625,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.28564453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0439453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        }
+      ]
+    },
+    {
+      "recovery_state": "recovery_failed",
+      "recovery_pending_mask": 63,
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.1318359375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.6591796875,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 16.34765625,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.28564453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0439453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        }
+      ]
+    },
+    {
+      "recovery_state": "recovery_failed",
+      "recovery_pending_mask": 63,
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.1318359375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.68115234375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 16.34765625,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.28564453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0439453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        }
+      ]
+    },
+    {
+      "recovery_state": "recovery_failed",
+      "recovery_pending_mask": 63,
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.1318359375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.68115234375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 16.34765625,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.28564453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0439453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        }
+      ]
+    },
+    {
+      "recovery_state": "recovery_failed",
+      "recovery_pending_mask": 63,
+      "axes": [
+        {
+          "axis": 1,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 2,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.1318359375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 3,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.68115234375,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 4,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 16.34765625,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 5,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.28564453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        },
+        {
+          "axis": 6,
+          "available": true,
+          "enable_known": true,
+          "enabled": false,
+          "position_known": true,
+          "position_degrees": 0.0439453125,
+          "speed_known": true,
+          "speed_rpm": 0.0
+        }
+      ]
+    }
+  ],
+  "offline_verification": {
+    "build": "Release",
+    "packages": [
+      "mks_servo_can",
+      "robot_can_diagnostics",
+      "robot_hardware",
+      "robot_motion_planner",
+      "robot_bringup"
+    ],
+    "overlay": "install/stop-recovery-timing-ros",
+    "active": false,
+    "colcon_results": 222,
+    "ctest_wrappers": 20,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "python_procedure_tests": 9
+  }
+}

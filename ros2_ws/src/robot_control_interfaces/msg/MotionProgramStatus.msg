@@ -1,0 +1,21 @@
+string program_id
+string state
+string mode
+string message
+string execution_key
+string dispatch_mode "streamed"
+uint64 sync_cycle
+string sync_state
+uint8 sync_ack_mask
+int64 sync_due_monotonic_ns
+int64 sync_sent_monotonic_ns
+int64 sync_confirmed_monotonic_ns
+float64 sync_lateness_ms
+bool[6] participating
+bool tcp_verified
+bool busy
+float64 progress
+float64 elapsed
+float64 duration
+float64[6] start_positions
+float64[6] target_positions

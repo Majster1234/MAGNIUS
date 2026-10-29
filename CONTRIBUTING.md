@@ -22,7 +22,12 @@ Nie zastępuj nieznanych parametrów napędów fikcyjnymi wartościami.
 Z katalogu głównego repozytorium:
 
 ```bash
-bash -n start_ros2.sh scripts/ros2_terminal.bash
+bash -n start_ros2.sh scripts/*.sh scripts/*.bash
+cd web
+npm ci
+npm run build
+npm test
+cd ..
 source /opt/ros/humble/setup.bash
 cd ros2_ws
 colcon build --symlink-install
@@ -32,8 +37,8 @@ colcon test-result --verbose
 
 Testy komunikacji powinny korzystać z ramek referencyjnych i sprawdzać błędy
 protokołu. Testy wymagające fizycznego robota opisuj oddzielnie od testów
-uruchamianych automatycznie. Obecny szkielet nie zawiera testów wykonywalnych
-ani sterownika napędów.
+uruchamianych automatycznie. Pakiety diagnostyczne zawierają testy wykonywalne;
+sterownik napędów nie jest jeszcze zaimplementowany. Frontend buduj przed workspace.
 
 ## Zawartość commitów
 

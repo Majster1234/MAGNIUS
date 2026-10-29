@@ -1,0 +1,75 @@
+"""Panel i diagnostyka, bez uruchamiania kontrolerów ani napędów."""
+
+from launch import LaunchDescription
+from pathlib import Path
+from ament_index_python.packages import get_package_share_directory
+from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable, OpaqueFunction, LogInfo
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+from launch.conditions import IfCondition
+
+
+def preview(context):
+    try:
+        model = Path(LaunchConfiguration('preview_urdf').perform(context)).read_text()
+    except OSError as error:
+        return [LogInfo(msg=f'Podgląd URDF niedostępny: {error}')]
+    return [Node(package='robot_state_publisher', executable='robot_state_publisher',
+                 namespace='/robot/preview', name='state_publisher', output='screen',
+                 parameters=[{'robot_description': model, 'frame_prefix': 'preview/', 'publish_frequency': 20.0}],
+                 remappings=[('joint_states', '/robot/preview/joint_states'),
+                             ('/tf', '/robot/preview/tf'), ('/tf_static', '/robot/preview/tf_static')])]
+
+
+def generate_launch_description():
+    monitor = Node(
+        package='robot_system_monitor', executable='monitor', output='screen',
+        parameters=[{'can_interface': LaunchConfiguration('can_interface')}])
+    can_diagnostics = Node(
+        package='robot_can_diagnostics', executable='can_diagnostics', output='screen',
+        condition=IfCondition(LaunchConfiguration('standalone_can')),
+        parameters=[LaunchConfiguration('execution_parameters'), {
+            'can_interface': LaunchConfiguration('can_interface'),
+            'bitrate': ParameterValue(LaunchConfiguration('can_bitrate'), value_type=int),
+            'response_timeout_ms': ParameterValue(LaunchConfiguration('can_timeout_ms'), value_type=int),
+            'manual_max_rpm': ParameterValue(LaunchConfiguration('manual_max_rpm'), value_type=int),
+        }])
+    bridge = Node(
+        package='robot_web_bridge', executable='bridge', output='screen', respawn=True, respawn_delay=2.0,
+        parameters=[{
+            'lan_interface': LaunchConfiguration('lan_interface'),
+            'lan_subnet': LaunchConfiguration('lan_subnet'),
+            'port': ParameterValue(LaunchConfiguration('port'), value_type=int),
+            'can_interface': LaunchConfiguration('can_interface'),
+        }])
+    configuration = Node(package='robot_configuration', executable='configuration', output='screen',
+                         condition=IfCondition(LaunchConfiguration('configuration_enabled')),
+                         parameters=[{'configuration_dir': LaunchConfiguration('configuration_dir')}])
+    planner = Node(package='robot_motion_planner', executable='planner', output='screen',
+                   condition=IfCondition(LaunchConfiguration('planning_enabled')),
+                   parameters=[LaunchConfiguration('planning_parameters')])
+    return LaunchDescription([
+        DeclareLaunchArgument('lan_interface', default_value='enp2s0'),
+        DeclareLaunchArgument('lan_subnet', default_value='192.168.1.0/24'),
+        DeclareLaunchArgument('port', default_value='8080'),
+        DeclareLaunchArgument('can_interface', default_value='can0'),
+        DeclareLaunchArgument('can_bitrate', default_value='500000'),
+        # Próby sześciu osi 29.10: baza 20 ms bez timeoutów, zapas 20%.
+        DeclareLaunchArgument('can_timeout_ms', default_value='24'),
+        DeclareLaunchArgument('manual_max_rpm', default_value='30'),
+        DeclareLaunchArgument('preview_enabled', default_value='true'),
+        DeclareLaunchArgument('planning_enabled', default_value='true'),
+        DeclareLaunchArgument('execution_parameters', default_value=str(Path(get_package_share_directory('robot_bringup')) / 'config/execution.example.yaml')),
+        DeclareLaunchArgument('planning_parameters', default_value=str(Path(get_package_share_directory('robot_bringup')) / 'config/planning.example.yaml')),
+        DeclareLaunchArgument('configuration_dir', default_value=str(Path.home() / '.local/state/robot/configuration')),
+        DeclareLaunchArgument('configuration_enabled', default_value='true'),
+        DeclareLaunchArgument('preview_urdf', default_value=str(Path(get_package_share_directory('robot_description')) / 'urdf/preview_6dof.example.urdf')),
+        DeclareLaunchArgument('standalone_can', default_value='true',
+                              description='false, gdy właścicielem CAN jest plugin robot_hardware'),
+        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '1'),
+        # Bridge może wrócić po awarii bez przerywania lokalnego programu.
+        # Zamknięcie launch przez operatora nadal zatrzymuje wszystkie procesy.
+        monitor, can_diagnostics, bridge, configuration, planner,
+        OpaqueFunction(function=preview, condition=IfCondition(LaunchConfiguration('preview_enabled'))),
+    ])
