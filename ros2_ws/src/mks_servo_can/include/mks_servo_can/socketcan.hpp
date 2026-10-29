@@ -18,6 +18,7 @@ struct Frame {
   std::uint32_t error_flags{};
   std::chrono::steady_clock::time_point received_at{};
   std::int64_t kernel_utc_ns{};
+  bool tx_confirmation{};
 };
 struct AxisFeedback {
   std::int64_t pulses{};
@@ -53,6 +54,7 @@ class Transport {
   virtual AxisFeedback position_feedback(unsigned) const { return {}; }
   virtual void set_receive_poll_timeout(unsigned) {}
   virtual unsigned bitrate() const { return 0; } // 0: transport emulowany, bez zegara przewodu
+  virtual bool supports_tx_confirmation() const { return false; }
 };
 
 class SocketCan : public Transport {
@@ -70,6 +72,7 @@ class SocketCan : public Transport {
   AxisFeedback position_feedback(unsigned address) const override;
   void set_receive_poll_timeout(unsigned timeout_ms) override;
   unsigned bitrate() const override { return link_bitrate_; }
+  bool supports_tx_confirmation() const override { return true; }
 
  private:
   friend struct SocketCanTestAccess;

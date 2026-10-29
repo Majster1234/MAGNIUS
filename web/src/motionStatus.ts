@@ -1,4 +1,5 @@
 export type MotionStatus = {
+    dispatch_mode?: "streamed" | "synchronized"; sync_cycle?: number; sync_state?: string; sync_lateness_ms?: number;
     state: string; program_id: string; mode: string; message: string; busy: boolean; progress: number;
     duration: number; elapsed?: number; start_positions: number[]; target_positions: number[];
     motion_type?: "PTP" | "LIN" | null;
@@ -15,4 +16,4 @@ export function motionReady(status:MotionStatus|null,planId:string|null,type:"PT
         status.preparation.preview_plan_id===planId && status.preparation.program_id===status.program_id &&
         status.motion_type===type && status.preparation.motion_type===type && (!expected || status.preparation.id===expected));
 }
-export const motionStateLabels:Record<string,string>={idle:"Oczekiwanie",ready:"Gotowy do zatwierdzenia",arming:"Weryfikacja napędów",warming:"Odczyt startu",staging:"Przygotowanie startu",running:"W ruchu",waiting_position:"Oczekiwanie na pozycję osi",waiting_feedback:"Oczekiwanie na pomiary",waiting_budget:"Oczekiwanie na budżet CAN",settling:"Potwierdzanie celu",succeeded:"Zakończony",failed:"Przerwany",invalidated:"Wymaga przygotowania"};
+export const motionStateLabels:Record<string,string>={idle:"Oczekiwanie",ready:"Gotowy do zatwierdzenia",arming:"Weryfikacja napędów",warming:"Odczyt startu",staging:"Przygotowanie startu",running:"W ruchu",waiting_position:"Oczekiwanie na pozycję osi",waiting_feedback:"Oczekiwanie na pomiary",waiting_budget:"Oczekiwanie na budżet CAN",settling:"Potwierdzanie celu",restoring:"Przywracanie trybu napędów",succeeded:"Zakończony",failed:"Przerwany",invalidated:"Wymaga przygotowania"};

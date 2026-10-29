@@ -107,3 +107,15 @@ TEST(CanSystem, FastEncoderReadUsesCommittedConversionAndResetsVelocityOnGenerat
   EXPECT_TRUE(std::isnan(states[0].get_value()));EXPECT_DOUBLE_EQ(states[1].get_value(),0);
   runtime->shutdown();
 }
+TEST(CanSystem, LifecycleErrorKeepsTheSingleCanOwnerRunningForDiagnostics) {
+  using namespace mks_servo_can;
+  auto port=std::make_unique<CachedEncoder>();
+  auto runtime=std::make_shared<BusRuntime>(BusConfig{},std::move(port));
+  robot_hardware::CanSystem plugin(runtime);
+  ASSERT_EQ(plugin.on_init(example_info()),hardware_interface::CallbackReturn::SUCCESS);
+  runtime->start(false);
+  ASSERT_TRUE(runtime->snapshot().open);
+  EXPECT_EQ(plugin.on_error(rclcpp_lifecycle::State{}),hardware_interface::CallbackReturn::SUCCESS);
+  EXPECT_TRUE(runtime->snapshot().open);EXPECT_TRUE(runtime->snapshot().fault);
+  runtime->shutdown();
+}

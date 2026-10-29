@@ -1,5 +1,9 @@
 # Sterowanie i diagnostyka przez wspólny manager CAN
 
+Opcjonalne rozszerzenie PTP/LIN z ACK i wspólnym SYNC opisuje
+[streaming synchroniczny](synchronized_streaming.md). Domyślny streaming, JTC
+i JOG zachowują poniższy kontrakt bez SYNC.
+
 Ręczne ENABLE, zero i prędkościowy JOG pojedynczego wału opisuje
 [moduł ręczny](manual_control.md). Działa bez modelu robota, przy tym samym
 właścicielu CAN, i wyklucza się ze sterowaniem sześciu osi opisanym poniżej.

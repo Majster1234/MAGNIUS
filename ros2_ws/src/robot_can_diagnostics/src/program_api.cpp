@@ -12,6 +12,9 @@ robot_control_interfaces::msg::MotionProgramStatus message(const mks_servo_can::
   robot_control_interfaces::msg::MotionProgramStatus out;
   out.program_id=s.program_id;out.state=s.state;out.mode=s.mode;out.message=s.message;out.execution_key=s.execution_key;
   out.participating=s.participating;out.tcp_verified=s.tcp_verified;out.busy=s.busy;out.progress=s.progress;out.elapsed=s.elapsed;out.duration=s.duration;
+  out.dispatch_mode=s.dispatch_mode;out.sync_cycle=s.sync_cycle;out.sync_state=s.sync_state;out.sync_ack_mask=s.sync_ack_mask;
+  out.sync_due_monotonic_ns=s.sync_due_monotonic_ns;out.sync_sent_monotonic_ns=s.sync_sent_monotonic_ns;
+  out.sync_confirmed_monotonic_ns=s.sync_confirmed_monotonic_ns;out.sync_lateness_ms=s.sync_lateness_ms;
   out.start_positions=s.start;out.target_positions=s.target;
   return out;
 }
@@ -26,9 +29,11 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
   const bool stop_verified=node->declare_parameter("execution_stop_verified",false);
   const bool sync_verified=node->declare_parameter("execution_sync_verified",false);
   const bool reset_verified=node->declare_parameter("execution_staged_reset_verified",false);
+  authorization.program_staged_reset_verified=reset_verified;
   const auto old_errors=node->declare_parameter("execution_tracking_error_rad",std::vector<double>(6,-1));
-  if(stop_verified || sync_verified || reset_verified || std::any_of(old_errors.begin(),old_errors.end(),[](double v){return v>0;}))
+  if(stop_verified || sync_verified || std::any_of(old_errors.begin(),old_errors.end(),[](double v){return v>0;}))
     RCLCPP_WARN(node->get_logger(),"Stare flagi odbioru i execution_tracking_error_rad nie sterują podstawowym PTP");
+  if(reset_verified) RCLCPP_WARN(node->get_logger(),"Automatyczne zdjęcie blokady SYNC wymaga odebranej sprzętowo sekwencji F5 STOP; włączono execution_staged_reset_verified");
   (void)node->declare_parameter("execution_ack_timeout_ms",10); // zgodność starych YAML; nie jest bramką ruchu
   authorization.use_ack=node->declare_parameter("execution_use_ack",false);
   const auto lookahead=node->declare_parameter("execution_lookahead_time_sec",.085);

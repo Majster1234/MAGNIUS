@@ -57,3 +57,27 @@ it("migruje regułę awarii do true i zapisuje świadome wyłączenie jako boole
     expect(validateDocument(documentFromDraft(draft)).values[key]).toBe(false);
     for(const invalid of [null,0,1,"false"]) expect(()=>validateDocument({...normalized,values:{...normalized.values,[key]:invalid}})).toThrow();
 });
+it("migruje wybór wysyłania PTP/LIN i odrzuca nieznane tryby",()=>{
+    const key="motion.ptp_lin_dispatch_mode",old=emptyDocument();delete old.values[key];
+    const normalized=validateDocument(old);expect(normalized.values[key]).toBe("streamed");
+    expect(dirtyKeys(toDraft(normalized),old).size).toBe(0);
+    const draft=toDraft(normalized);draft[key]="synchronized";
+    expect(documentFromDraft(draft).values[key]).toBe("synchronized");
+    expect(dirtyKeys(draft,old).has(key)).toBe(true);
+    for(const invalid of [null,true,0,"unknown"]) {
+        const document=emptyDocument();document.values[key]=invalid;
+        expect(()=>validateDocument(document)).toThrow();
+    }
+});
+it("zapis ustawień systemowych zachowuje aktywną geometrię i niezastosowany szkic",async()=>{
+    const {systemConfigurationDocument,criticalFaultPolicyKey,dispatchModeKey}=await import('./configurationData');
+    const active=emptyDocument();active.values['joint.1.lower']=-90;active.values['joint.1.upper']=90;
+    const draft=toDraft(active);draft['joint.1.lower']='999';draft['tool.mass']='niepoprawna liczba';
+    draft[criticalFaultPolicyKey]='false';draft[dispatchModeKey]='synchronized';
+    const document=systemConfigurationDocument(draft,active);
+    expect(document.values['joint.1.lower']).toBe(-90);expect(document.values['tool.mass']).toBeNull();
+    expect(document.values[criticalFaultPolicyKey]).toBe(false);expect(document.values[dispatchModeKey]).toBe('synchronized');
+    const merged=mergeAppliedDraft(draft,toDraft(document),document);
+    expect(merged['joint.1.lower']).toBe('999');expect(merged['tool.mass']).toBe('niepoprawna liczba');
+    expect(dirtyKeys(merged,document)).toEqual(new Set(['joint.1.lower','tool.mass']));
+});

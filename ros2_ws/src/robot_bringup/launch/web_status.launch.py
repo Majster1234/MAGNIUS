@@ -55,7 +55,8 @@ def generate_launch_description():
         DeclareLaunchArgument('port', default_value='8080'),
         DeclareLaunchArgument('can_interface', default_value='can0'),
         DeclareLaunchArgument('can_bitrate', default_value='500000'),
-        DeclareLaunchArgument('can_timeout_ms', default_value='20'),
+        # Próby sześciu osi 29.10: baza 20 ms bez timeoutów, zapas 20%.
+        DeclareLaunchArgument('can_timeout_ms', default_value='24'),
         DeclareLaunchArgument('manual_max_rpm', default_value='30'),
         DeclareLaunchArgument('preview_enabled', default_value='true'),
         DeclareLaunchArgument('planning_enabled', default_value='true'),

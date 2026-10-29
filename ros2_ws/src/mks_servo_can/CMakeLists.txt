@@ -12,6 +12,8 @@ add_library(${PROJECT_NAME} SHARED
   src/configuration.cpp
   src/motion_executor.cpp
   src/program_bus.cpp
+  src/recovery.cpp
+  src/synchronized_program.cpp
   src/motion_sample.cpp
   src/streaming_motion.cpp
   src/tcp_jog.cpp
@@ -46,6 +48,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_trace ${PROJECT_NAME})
   ament_add_gtest(test_shaft_trace test/test_shaft_trace.cpp)
   target_link_libraries(test_shaft_trace ${PROJECT_NAME})
+  ament_add_gtest(test_synchronized_program test/test_synchronized_program.cpp)
+  target_link_libraries(test_synchronized_program ${PROJECT_NAME})
+  ament_add_gtest(test_recovery test/test_recovery.cpp)
+  target_link_libraries(test_recovery ${PROJECT_NAME})
   ament_add_gtest(test_motion_executor test/test_motion_executor.cpp)
   target_link_libraries(test_motion_executor ${PROJECT_NAME})
   ament_add_gtest(test_configuration_revision test/test_configuration_revision.cpp)

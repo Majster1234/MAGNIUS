@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EventConsole, useEventConsole } from "./EventConsole";
 import { ConfigurationPreview } from "./ConfigurationPreview";
-import { criticalFaultPolicyKey, dirtyKeys, fieldErrors } from "./configurationData";
+import { dispatchModeKey, criticalFaultPolicyKey, systemConfigurationKeys, dirtyKeys, fieldErrors } from "./configurationData";
 import { useConfiguration } from "./useConfiguration";
 import { useSystemSettings } from "./planningContext";
 
@@ -51,9 +51,10 @@ const draftFields: Record<string, Field> = Object.fromEntries([
     ...Array.from({ length: 6 }, (_, index) => [...jointFields, ...geometryFields].map(field => [`joint.${index + 1}.${field.key}`, field])).flat(),
     ...toolFields.map(field => [`tool.${field.key}`, field]),
     ...tcpMotionFields.map(field => [`tcp.${field.key}`, field]),
+    [dispatchModeKey, {key:"ptp_lin_dispatch_mode",label:"Wysyłanie PTP/LIN"}],
     [criticalFaultPolicyKey, {key:"disable_enable_on_critical_fault",label:"Wyłącz ENABLE przy awarii krytycznej"}],
 ]);
-const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, key===criticalFaultPolicyKey ? "true" : ""]));
+const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : ""]));
 function legacyValue(value: string, field: Field) {
     const scale = field.unit === "mm" ? 1000 : field.unit?.startsWith("°") ? 180 / Math.PI : 1;
     if (!value.trim() || scale === 1) return value;
@@ -66,7 +67,7 @@ function readDraft() {
         const text = legacy ? sessionStorage.getItem(legacyStorageKey) : current;
         const stored = text && text.length <= 65536 ? JSON.parse(text) : null;
         return Object.fromEntries(Object.entries(draftFields).map(([key, field]) => {
-            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : key===criticalFaultPolicyKey ? "true" : "";
+            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : "";
             return [key, legacy ? legacyValue(value, field) : value];
         }));
     } catch { return { ...emptyDraft }; }
@@ -77,22 +78,59 @@ function SettingsCard({ title, description, children }: { title: string; descrip
     </details>;
 }
 
+function SettingHelp({id, label, children}: {id: string; label: string; children: ReactNode}) {
+    const [open, setOpen] = useState(false);
+    const button = useRef<HTMLButtonElement>(null);
+    const [anchor, setAnchor] = useState<{left: number; top?: number; bottom?: number}>({left: 12, top: 0});
+    function show() {
+        const rect = button.current?.getBoundingClientRect();
+        if (rect) setAnchor({left: Math.max(12, Math.min(rect.left, window.innerWidth - Math.min(340, window.innerWidth - 24) - 12)),
+            ...(rect.bottom > window.innerHeight - 190 ? {bottom: window.innerHeight - rect.top + 8} : {top: rect.bottom + 8})});
+        setOpen(true);
+    }
+    useEffect(() => {
+        if (!open) return;
+        const hide = () => setOpen(false);
+        window.addEventListener("scroll", hide, true);window.addEventListener("resize", hide);
+        return () => {window.removeEventListener("scroll", hide, true);window.removeEventListener("resize", hide);};
+    }, [open]);
+    return <span className="system-setting-help" onPointerEnter={show} onPointerLeave={() => setOpen(false)}>
+        <button ref={button} type="button" className="system-setting-info" aria-label={`Opis: ${label}`} aria-describedby={`${id}-help`}
+            aria-expanded={open} onFocus={show} onBlur={() => setOpen(false)} onClick={show}
+            onKeyDown={event => {if (event.key === "Escape") {event.preventDefault();setOpen(false);}}}>i</button>
+        <span id={`${id}-help`} role="tooltip" style={anchor} hidden={!open}>{children}</span>
+    </span>;
+}
+function SystemSetting({id, label, description, status, pending = false, group = false, children}: {
+    id: string; label: string; description: string; status: string; pending?: boolean; group?: boolean; children: ReactNode;
+}) {
+    return <div className="system-setting" data-pending={pending}>
+        <div className="system-setting-copy"><div className="system-setting-title">{group ? <span id={`${id}-label`}>{label}</span> : <label htmlFor={id}>{label}</label>}
+            <SettingHelp id={id} label={label}>{description}</SettingHelp></div>
+            <span className={`system-setting-status${pending ? " pending" : ""}`}>{status}</span>
+        </div>
+        <div className="system-setting-control">{children}</div>
+    </div>;
+}
+
 export function ConfigurationPage() {
     const system = useSystemSettings();
     const [section, setSection] = useState<"system" | "robot">("system");
     const [tableView, setTableView] = useState<"geometry" | "limits">("geometry");
     const [draft, setDraft] = useState(readDraft);
     const [nativeErrors, setNativeErrors] = useState<Record<string, string>>({});
-    const replaceDraft = useCallback((next: Record<string,string>) => {setDraft(next);setNativeErrors({});}, []);
+    const replaceDraft = useCallback((next: Record<string,string>, preserveValidation = false) => {setDraft(next);if (!preserveValidation) setNativeErrors({});}, []);
     const [stored, setStored] = useState(true);
     const [selectedAxis, setSelectedAxis] = useState(0);
     const [confirmAxes, setConfirmAxes] = useState<number[]>([]);
     const {entries, notice} = useEventConsole();
     const hasLocal = useRef((() => {try { return sessionStorage.getItem(storageKey) !== null || sessionStorage.getItem(legacyStorageKey) !== null; } catch { return true; }})());
     const fileInput = useRef<HTMLInputElement>(null);
-    const configuration = useConfiguration(draft, replaceDraft, section === "robot", hasLocal.current, notice);
+    const configuration = useConfiguration(draft, replaceDraft, true, hasLocal.current, notice, section === "robot");
     const dirty = dirtyKeys(draft, configuration.baseline), errors = {...fieldErrors(draft), ...nativeErrors}, invalid = Object.keys(errors).length > 0;
     const applying = configuration.status && !["idle", "done", "failed", "uncertain"].includes(configuration.status.operation.phase);
+    const systemDirty = systemConfigurationKeys.filter(key => dirty.has(key));
+    const systemError = systemConfigurationKeys.map(key => errors[key]).find(Boolean);
     const conflict = configuration.status && configuration.baseRevision !== configuration.status.active.revision;
     const invalidCalibration = configuration.status?.calibration_invalid ?? [];
     useEffect(() => {setConfirmAxes(previous => previous.filter(axis => invalidCalibration[axis-1]));}, [configuration.status]);
@@ -127,9 +165,9 @@ export function ConfigurationPage() {
         })}</div>;
     }
     return <section className="configuration-screen" aria-label="Konfiguracja">
-        <header className="page-title configuration-header"><div><div className="eyebrow">PARAMETRY KINEMATYKI I NAPĘDÓW</div><h1>Konfiguracja</h1><p>Geometria, przełożenia i ograniczenia sześciu osi. Snapshoty i zastosowanie do ROS.</p></div>
+        <header className="page-title configuration-header"><div><div className="eyebrow">{section === "system" ? "USTAWIENIA APLIKACJI I STEROWANIA" : "PARAMETRY KINEMATYKI I NAPĘDÓW"}</div><h1>Konfiguracja</h1><p>{section === "system" ? "Opcje planowania, wykonania ruchu i zabezpieczeń." : "Geometria, przełożenia i ograniczenia sześciu osi. Snapshoty i zastosowanie do ROS."}</p></div>
             <div className="page-header-status"><span className={`badge ${dirty.size ? "warn" : "ok"}`}>{dirty.size ? `Szkic · ${dirty.size} zmian` : "Bez zmian w szkicu"}</span>{conflict && <span className="badge error">Konflikt rewizji</span>}</div></header>
-        {section === "robot" && <EventConsole entries={entries}/>}
+        <EventConsole entries={entries}/>
         <div className="configuration-tabs" role="tablist" aria-label="Obszar konfiguracji" onKeyDown={event => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
             event.preventDefault();
@@ -146,16 +184,55 @@ export function ConfigurationPage() {
         {section === "robot" && <p className="configuration-notice" role="status">{stored
             ? "Szkic i model aktualizują się lokalnie. Bursztynowe pola różnią się od konfiguracji ROS; snapshot nie stosuje zmian w sterowaniu."
             : "Przeglądarka blokuje zapis szkicu. Wpisy pozostaną tylko do odświeżenia lub opuszczenia strony."}</p>}
-        {section === "system" ? <div id="config-system-panel" role="tabpanel" aria-labelledby="config-system-tab" className="settings-system-empty">
-            <label className="system-planning-switch"><span>Ignoruj brak sterowników — tylko planowanie</span>
-                <input type="checkbox" role="switch" checked={system.settings?.ignore_missing_drivers ?? false} disabled={!system.settings || system.saving}
-                    onChange={event => void system.save(event.target.checked)} /></label>
-            <p>Odblokowuje JOG wszystkich osi bliźniaka. Ustawienie jest wspólne dla klientów i nie zmienia sterowania sprzętem.</p>
-            <label className="system-planning-switch"><span>Zezwalaj na ruch bez wszystkich silników</span>
-                <input type="checkbox" role="switch" aria-label="Zezwalaj na ruch bez wszystkich silników" checked={system.settings?.allow_missing_motion ?? false}
-                    disabled={!system.settings || system.saving} onChange={event => void system.save(event.target.checked, "allow_missing_motion")} /></label>
-            <p>Włączony: PTP porusza tylko napędami obecnymi przy przygotowaniu programu. Brakujące osie są pomijane; pozycja TCP i osiągnięcie celu TCP nie są potwierdzone. Utrata uczestniczącego napędu zatrzymuje ruch.</p>
-            {system.error && <p role="status">{system.error}</p>}
+        {section === "system" ? <div id="config-system-panel" role="tabpanel" aria-labelledby="config-system-tab" className="system-settings-panel">
+            <section className="system-settings-group" aria-labelledby="system-planning-title">
+                <header><span className="eyebrow">PLANOWANIE I WYKONANIE</span><h2 id="system-planning-title">Dostępność napędów</h2></header>
+                <SystemSetting id="system-ignore-missing" label="Ignoruj brak sterowników — tylko planowanie"
+                    description="Odblokowuje JOG wszystkich osi bliźniaka. Ustawienie jest wspólne dla klientów i nie zmienia sterowania sprzętem. Zmiana zapisuje się od razu."
+                    status={!system.settings ? "Brak danych" : system.settings.ignore_missing_drivers ? "Włączone" : "Wyłączone"}>
+                    <input id="system-ignore-missing" className="system-setting-switch" type="checkbox" role="switch"
+                        checked={system.settings?.ignore_missing_drivers ?? false} disabled={!system.settings || system.saving}
+                        onChange={event => void system.save(event.target.checked)}/>
+                </SystemSetting>
+                <SystemSetting id="system-allow-missing" label="Zezwalaj na ruch bez wszystkich silników"
+                    description="PTP/LIN obejmuje napędy obecne przy przygotowaniu programu. Brakujące osie są pomijane; pozycja i osiągnięcie celu TCP nie są potwierdzone. Utrata uczestniczącego napędu zatrzymuje ruch. Zmiana zapisuje się od razu."
+                    status={!system.settings ? "Brak danych" : system.settings.allow_missing_motion ? "Włączone" : "Wyłączone"}>
+                    <input id="system-allow-missing" className="system-setting-switch" type="checkbox" role="switch"
+                        checked={system.settings?.allow_missing_motion ?? false} disabled={!system.settings || system.saving}
+                        onChange={event => void system.save(event.target.checked, "allow_missing_motion")}/>
+                </SystemSetting>
+                {system.error && <p className="system-settings-error" role="status">{system.error}</p>}
+            </section>
+            <section className="system-settings-group" aria-labelledby="system-motion-title">
+                <header><span className="eyebrow">STEROWANIE ROBOTEM</span><h2 id="system-motion-title">Wykonanie i zabezpieczenia</h2></header>
+                <SystemSetting id="system-critical-fault" label="Wyłącz ENABLE wszystkich silników przy awarii krytycznej"
+                    description="Domyślnie włączone. Dotyczy awarii sterowania osi, TCP i programów; wysyła ENABLE=0 do J1–J6. Wysłanie komend nie potwierdza wyłączenia napędów. Zwykły STOP operatora nie uruchamia reguły. Wymaga zapisu do ROS."
+                    pending={dirty.has(criticalFaultPolicyKey)} status={dirty.has(criticalFaultPolicyKey) ? "Niezapisana zmiana" : !configuration.online ? "Szkic lokalny" : draft[criticalFaultPolicyKey] !== "false" ? "Włączone" : "Wyłączone"}>
+                    <input id="system-critical-fault" className="system-setting-switch" type="checkbox" role="switch" aria-invalid={!!errors[criticalFaultPolicyKey]}
+                        checked={draft[criticalFaultPolicyKey] !== "false"} disabled={Boolean(applying) || configuration.busy}
+                        onChange={event => setDraft(previous => ({...previous, [criticalFaultPolicyKey]: String(event.target.checked)}))}/>
+                </SystemSetting>
+                <SystemSetting id="system-dispatch" group label="Sposób wysyłania PTP/LIN"
+                    description="Streaming synchroniczny przygotowuje komendy osi i uruchamia je wspólnym SYNC. Dotyczy programów PTP/LIN; JOG zachowuje obecne działanie. Wymaga osobnego odbioru płynności na sprzęcie. Wybór stosuje się po zapisie do ROS w potwierdzonym postoju; zmiana unieważnia przygotowany program."
+                    pending={dirty.has(dispatchModeKey)} status={dirty.has(dispatchModeKey) ? "Niezapisana zmiana" : !configuration.online ? "Szkic lokalny" : "Zapisane w konfiguracji"}>
+                    <div id="system-dispatch" className="system-setting-choice" role="radiogroup" aria-label="Sposób wysyłania PTP/LIN" aria-invalid={!!errors[dispatchModeKey]}>
+                        {[["streamed", "Streaming"], ["synchronized", "Synchroniczny"]].map(([value, label]) => <label key={value}>
+                            <input type="radio" name="ptp-lin-dispatch" value={value} checked={(draft[dispatchModeKey] || "streamed") === value}
+                                disabled={Boolean(applying) || configuration.busy} onChange={() => setDraft(previous => ({...previous, [dispatchModeKey]: value}))}/>
+                            <span>{label}</span>
+                        </label>)}
+                    </div>
+                </SystemSetting>
+                <footer className="system-settings-actions"><span>Zabezpieczenie i sposób wysyłania wymagają zapisu do ROS.</span>
+                    <button className="configuration-apply" onClick={configuration.applySystemSettings}
+                        disabled={!configuration.online || configuration.busy || !!applying || !!conflict || !systemDirty.length || !!systemError || configuration.status?.operation.phase === "uncertain"}>
+                        {applying ? "Stosowanie…" : "Zapisz ustawienia do ROS"}
+                    </button>
+                    {configuration.status?.operation.phase === "uncertain" && <button onClick={configuration.reconcile} disabled={configuration.busy}>Uzgodnij stan ROS</button>}
+                </footer>
+                {systemError && <p className="system-settings-error" role="status">{systemError}</p>}
+                {conflict && <p className="system-settings-error" role="status">Konfiguracja ROS zmieniła się. Uzgodnij szkic w Parametrach robota przed zapisem.</p>}
+            </section>
         </div> : <div id="config-robot-panel" role="tabpanel" aria-labelledby="config-robot-tab" className="robot-settings">
             <div className="snapshot-toolbar" aria-label="Snapshoty konfiguracji">
                 <input aria-label="Nazwa snapshotu" placeholder="Nazwa snapshotu" maxLength={80} value={configuration.name} onChange={event => configuration.setName(event.target.value)}/>
@@ -204,13 +281,6 @@ export function ConfigurationPage() {
             <ConfigurationPreview draft={draft} view={tableView} selected={selectedAxis} nativeErrors={nativeErrors}/>
             <div className="settings-extras">
                 <SettingsCard title="Fizyczny JOG TCP — wymagane limity" description="Uzupełnij cztery dodatnie wartości dla rzeczywistego robota i wybierz Zapisz do ROS. Puste pole oznacza brak danych i blokuje fizyczny TCP. Wymagane są również kompletna geometria, sześć składników TCP narzędzia oraz sześć skalibrowanych osi.">{fields("tcp", tcpMotionFields)}</SettingsCard>
-                <SettingsCard title="Reakcja na awarię krytyczną" description="Reguła dotyczy awarii sterowania osi, TCP i programów. Zmiana zacznie obowiązywać po wybraniu Zapisz do ROS.">
-                    <label className="system-planning-switch"><span>Wyłącz ENABLE wszystkich silników przy awarii krytycznej</span>
-                        <input type="checkbox" role="switch" checked={draft[criticalFaultPolicyKey]!=="false"} disabled={Boolean(applying)}
-                            onChange={event=>setDraft(previous=>({...previous,[criticalFaultPolicyKey]:String(event.target.checked)}))}/>
-                    </label>
-                    <p className="settings-description">Domyślnie włączona. Wysyła ENABLE=0 do J1–J6 niezależnie od wykonywanej operacji. Wysłanie komend nie potwierdza wyłączenia napędów. Zwykłe hamowanie i STOP operatora nie uruchamiają tej reguły.</p>
-                </SettingsCard>
                 <SettingsCard title="Dane robota" description="Nazwy i układy odniesienia wspólne dla modelu.">{fields("robot", robotFields)}</SettingsCard>
                 <SettingsCard title="Narzędzie i TCP" description="TCP względem kołnierza; środek masy w układzie narzędzia.">{fields("tool", toolFields)}</SettingsCard>
             </div>

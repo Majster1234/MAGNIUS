@@ -41,7 +41,7 @@ void BusRuntime::shutdown() {
 }
 bool BusRuntime::scan() { std::lock_guard<std::mutex> guard(mutex_); return manager_.start_scan(); }
 void BusRuntime::reset_session(ResetMode mode) { std::lock_guard<std::mutex> guard(mutex_); manager_.reset_session(mode); }
-bool BusRuntime::reset_allowed() { std::lock_guard<std::mutex> guard(mutex_); return manager_.service_allowed(); }
+bool BusRuntime::reset_allowed() { std::lock_guard<std::mutex> guard(mutex_); return manager_.reset_allowed(); }
 bool BusRuntime::activate(Source source) { std::lock_guard<std::mutex> guard(mutex_);const auto accepted=manager_.activate(source,Clock::now());feedback_.publish(manager_.control_state());return accepted; }
 void BusRuntime::configure_tcp_jog(bool enabled) { std::lock_guard<std::mutex> guard(mutex_);manager_.configure_tcp_jog(enabled); }
 TcpStreamingSnapshot BusRuntime::tcp_streaming_snapshot() {std::lock_guard<std::mutex> guard(mutex_);return manager_.tcp_streaming_snapshot();}
@@ -77,7 +77,7 @@ bool BusRuntime::try_submit(const CommandBatch &batch) {
   ControlState state;
   const bool accepted=feedback_.read(state) && state.active && !state.fault && state.configuration_ready &&
       state.source==batch.source && state.configuration_generation==batch.configuration_generation &&
-      (batch.source!=Source::tcp_jog || batch.control_generation==state.control_generation);
+      batch.control_generation==state.control_generation;
   if(accepted) commands_.publish(batch);
   publishing_.clear(std::memory_order_release);return accepted;
 }

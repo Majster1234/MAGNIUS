@@ -7,6 +7,10 @@
     tcp_jog_max_jerk: 0.5
     joint_stop_tolerance_deg: 0.10
     execution_enabled: true
+    # Jawny wyjątek operatora 29.10.2026: włączone mimo niepełnego odbioru J4.
+    # Nie stanowi potwierdzenia pozytywnego odbioru sprzętowego wszystkich osi.
+    execution_staged_reset_verified: true
+    response_timeout_ms: 24  # Przetestowane 20 ms +20%; bez zmiany świeżości ruchu.
     execution_configuration_revision: 907f038cd3ed4db8968fd7d0cbc65ffb
     execution_acceleration_codes:
     - 135

@@ -65,7 +65,10 @@ TEST(MotionProgram, SettingsModelAndStartChangesInvalidatePreparedProgram) {
 TEST(MotionProgram, SetupVerifiesNoResponseModeAndDisabledSynchronization) {
   for(unsigned broken=0;broken<3;++broken) {
     Rig h;h.ready();h.port->bad_response_mode=broken==0;h.port->bad_sync_mode=broken==1;h.port->bad_watchdog=broken==2;
-    h.execute(h.program());h.run(600);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0xf5],0u);
+    h.execute(h.program());h.run(600);EXPECT_EQ(h.bus->program_status().state,"failed");
+    EXPECT_NE(h.bus->recovery_state_name(),"idle");
+    for(const auto &event:h.port->events) if(event.data[0]==0xf5)
+      EXPECT_EQ(event.data,absolute_position_stop_request(event.axis));
   }
 }
 TEST(MotionProgram, LateIoTickDropsHistoryWithoutBurstOrPhaseDrift) {
@@ -86,8 +89,9 @@ TEST(MotionProgram, StopWorksDuringMotionOrFinalWaitWithoutAcceptanceFlags) {
     Rig h;h.ready();h.port->frozen[1]=true;h.execute(h.program(.4,1));h.run(final ? 1500 : 400);
     const auto before=h.port->events.size();h.bus->stop("operator");h.run(100);
     EXPECT_TRUE(h.bus->snapshot().fault);ASSERT_GE(h.port->events.size(),before+12);
-    for(unsigned j=0;j<6;++j) {EXPECT_EQ(h.port->events[before+j].data[0],0xf7);EXPECT_EQ(h.port->events[before+6+j].data[0],0xf6);}
-    const auto tx=h.port->events.size();h.run(200);EXPECT_EQ(h.port->events.size(),tx);
+    for(unsigned j=0;j<6;++j) {EXPECT_EQ(h.port->events[before+j].data[0],0xf7);EXPECT_EQ(h.port->events[before+6+j].data,absolute_position_stop_request(j+1));}
+    const auto tx=h.port->events.size();h.run(200);EXPECT_GT(h.port->events.size(),tx);
+    EXPECT_EQ(h.port->counts[0x4b],0u);
   }
 }
 TEST(MotionProgram, BusOffTransportLossDisableAndStallAbortStream) {

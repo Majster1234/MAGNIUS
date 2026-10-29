@@ -50,6 +50,23 @@ def test_manual_display_never_overrides_controller_rejection_or_fault():
     assert not result['axes'][1]['available']
 
 
+def test_recovery_preserves_real_measurements_and_blocks_motion_independently():
+    store = ManualStore(lambda: 10.0)
+    message = state(); message.fault = True
+    message.recovery_state = 'recovery_failed'; message.recovery_message = 'J3: odrzucony F5'
+    message.recovery_pending_mask = 4
+    store.update(message); result = store.snapshot()
+    assert result['recovery_state'] == 'recovery_failed'
+    assert result['recovery_message'] == 'J3: odrzucony F5'
+    assert result['recovery_pending_mask'] == 4
+    for axis in result['axes']:
+        assert axis['available'] and axis['position_known'] and axis['speed_known'] and axis['enable_known']
+        assert not axis['can_jog'] and not axis['can_zero']
+    message.fault = False; message.recovery_state = 'verifying'
+    store.update(message)
+    assert not store.snapshot()['axes'][0]['can_jog']
+
+
 def test_tcp_status_expires_without_claiming_robot_stopped():
     now = [10.]
     store = ManualStore(lambda: now[0]); store.update(state())

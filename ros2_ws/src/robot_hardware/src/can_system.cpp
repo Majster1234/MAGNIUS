@@ -70,6 +70,9 @@ hardware_interface::CallbackReturn CanSystem::on_init(const hardware_interface::
 }
 hardware_interface::CallbackReturn CanSystem::on_configure(const rclcpp_lifecycle::State &) {
   try {
+    // Po błędzie sterowania diagnostyka i jedyny właściciel CAN nadal działają.
+    // Ponowna konfiguracja cyklu życia nie tworzy drugiego wątku IO.
+    if(diagnostics_ && executor_) return hardware_interface::CallbackReturn::SUCCESS;
     runtime_->reset_session();
     runtime_->start(false);
     if (!runtime_->snapshot().open) { runtime_->shutdown(); return hardware_interface::CallbackReturn::ERROR; }
@@ -122,7 +125,12 @@ void CanSystem::shutdown() {
 }
 hardware_interface::CallbackReturn CanSystem::on_cleanup(const rclcpp_lifecycle::State &) { shutdown(); return hardware_interface::CallbackReturn::SUCCESS; }
 hardware_interface::CallbackReturn CanSystem::on_shutdown(const rclcpp_lifecycle::State &) { shutdown(); return hardware_interface::CallbackReturn::SUCCESS; }
-hardware_interface::CallbackReturn CanSystem::on_error(const rclcpp_lifecycle::State &) { shutdown(); return hardware_interface::CallbackReturn::SUCCESS; }
+hardware_interface::CallbackReturn CanSystem::on_error(const rclcpp_lifecycle::State &) {
+  active_=false;
+  if(runtime_ && !runtime_->snapshot().fault) runtime_->stop("Błąd cyklu życia ros2_control");
+  // Błąd ruchu nie wyłącza RX, reconnect ani publikacji diagnostycznej.
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
 std::vector<hardware_interface::StateInterface> CanSystem::export_state_interfaces() {
   std::vector<hardware_interface::StateInterface> result;
   for(std::size_t i=0;i<positions_.size();++i) {
@@ -182,6 +190,7 @@ hardware_interface::return_type CanSystem::write(const rclcpp::Time &, const rcl
   if (state_.fault) return hardware_interface::return_type::ERROR;
   mks_servo_can::CommandBatch batch; batch.positions = commands_; batch.sequence = ++sequence_;
   batch.configuration_generation=state_.configuration_generation;
+  batch.control_generation=state_.control_generation;
   batch.velocities=velocities_; batch.velocities_valid=velocity_commands_;
   batch.created = mks_servo_can::Clock::now(); batch.expires = batch.created + 2*config_.cycle;
   batch.source = state_.source;

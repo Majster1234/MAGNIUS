@@ -14,10 +14,11 @@ TCP = ('tcp_x', 'tcp_y', 'tcp_z', 'tcp_roll', 'tcp_pitch', 'tcp_yaw')
 TCP_MOTION = ('max_linear_velocity', 'max_angular_velocity', 'linear_acceleration', 'angular_acceleration')
 TEXT = ('robot.name', 'robot.base_frame', 'robot.flange_frame', 'tool.name', 'tool.frame')
 CRITICAL_FAULT_POLICY = 'safety.disable_enable_on_critical_fault'
+DISPATCH_MODE = 'motion.ptp_lin_dispatch_mode'
 KEYS = (*TEXT, 'tool.mass', 'tool.com_x', 'tool.com_y', 'tool.com_z',
         *(f'tool.{key}' for key in TCP),
         *(f'joint.{axis}.{key}' for axis in range(1, 7) for key in (*ORIGIN, *CONTROL)),
-        *(f'tcp.{key}' for key in TCP_MOTION), CRITICAL_FAULT_POLICY)
+        *(f'tcp.{key}' for key in TCP_MOTION), CRITICAL_FAULT_POLICY, DISPATCH_MODE)
 DEMO = ((0, 0, 100), (0, 0, 100), (0, 0, 250), (220, 0, 0), (80, 0, 0), (60, 0, 0))
 AXES = ((0, 0, 1), (0, 1, 0), (0, 1, 0), (1, 0, 0), (0, 1, 0), (1, 0, 0))
 
@@ -28,7 +29,7 @@ def now_iso():
 
 def empty_document():
     return {'schema_version': VERSION, 'units': UNITS, 'name': '', 'created_at': now_iso(),
-            'values': {**dict.fromkeys(KEYS), CRITICAL_FAULT_POLICY: True}}
+            'values': {**dict.fromkeys(KEYS), CRITICAL_FAULT_POLICY: True, DISPATCH_MODE: 'streamed'}}
 
 
 def validate(document):
@@ -37,15 +38,20 @@ def validate(document):
     if type(document.get('schema_version')) is not int or document['schema_version'] != VERSION or document.get('units') != UNITS:
         raise ValueError('Nieobsługiwana wersja lub jednostki snapshotu; wymagane mm-deg-kg, wersja 1')
     values = document.get('values')
-    required = set(KEYS) - {f'tcp.{key}' for key in TCP_MOTION} - {CRITICAL_FAULT_POLICY}
+    required = set(KEYS) - {f'tcp.{key}' for key in TCP_MOTION} - {CRITICAL_FAULT_POLICY, DISPATCH_MODE}
     if not isinstance(values, dict) or set(values) - set(KEYS) or required - set(values):
         raise ValueError('Snapshot musi zawierać komplet znanych pól; nieznane dane zapisuj jako null')
     result = deepcopy(document)
     result['values'].setdefault(CRITICAL_FAULT_POLICY, True)
+    result['values'].setdefault(DISPATCH_MODE, 'streamed')
     for key in TCP_MOTION:
         result['values'].setdefault(f'tcp.{key}', None)
     values = result['values']
     for key, value in values.items():
+        if key == DISPATCH_MODE:
+            if value not in ('streamed', 'synchronized'):
+                raise ValueError(f'{key}: wymagane streamed albo synchronized')
+            continue
         if key == CRITICAL_FAULT_POLICY:
             if type(value) is not bool:
                 raise ValueError(f'{key}: wymagane true albo false')
@@ -110,7 +116,7 @@ def profiles(document):
 
 def changed_axes(previous, candidate):
     a, b = previous['values'], candidate['values']
-    common = any(a.get(key) != b.get(key) for key in KEYS if key != CRITICAL_FAULT_POLICY and not key.startswith(('joint.', 'tcp.')))
+    common = any(a.get(key) != b.get(key) for key in KEYS if key not in (CRITICAL_FAULT_POLICY, DISPATCH_MODE) and not key.startswith(('joint.', 'tcp.')))
     return [common or any(a[f'joint.{axis}.{key}'] != b[f'joint.{axis}.{key}'] for key in (*ORIGIN, *CONTROL))
             for axis in range(1, 7)]
 

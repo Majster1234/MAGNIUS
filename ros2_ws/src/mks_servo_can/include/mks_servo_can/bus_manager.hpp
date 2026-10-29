@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <functional>
+#include <limits>
 #include "mks_servo_can/protocol.hpp"
 #include "mks_servo_can/socketcan.hpp"
 #include "mks_servo_can/configuration.hpp"
@@ -48,6 +49,7 @@ struct DeviceState {
   Sample<bool> enable, stall;
   Sample<std::uint8_t> mode, motor_state;
   Sample<std::int16_t> speed;
+  Sample<std::uint32_t> watchdog_ms;
   Aggregate rtt;
   double last_rtt_ms{};
   std::uint64_t timeouts{}, invalid{};
@@ -145,6 +147,7 @@ class CanBusManager {
   void tick(Time now);
   bool start_scan();
   bool service_allowed() const;
+  bool reset_allowed() const;
   bool activate(Source source, Time now);
   void configure_tcp_jog(bool enabled) { config_.tcp_jog_enabled=enabled; }
   std::uint64_t begin_tcp_jog(const std::string &session,const std::string &revision,
@@ -173,6 +176,9 @@ class CanBusManager {
   MotionProgramStatus prepare_program(PreparedMotionProgram program, Time now);
   bool execute_program(const std::string &id, const std::string &key, Time now);
   MotionProgramStatus program_status() const { return executor_.status; }
+  std::string recovery_state_name() const;
+  const std::string &recovery_message() const { return recovery_.message; }
+  unsigned recovery_pending_mask() const { return recovery_.pending; }
   std::size_t drain_shaft_trace(ShaftPositionSample *out,std::size_t capacity) { return shaft_trace_.drain(out,capacity); }
   std::uint64_t shaft_trace_dropped() const { return shaft_trace_.dropped(); }
   void require_configuration();
@@ -186,7 +192,7 @@ class CanBusManager {
   ShaftTraceQueue shaft_trace_;
   std::array<std::uint64_t,6> shaft_sequences_{}, shaft_segments_{};
   std::array<std::uint32_t,6> shaft_flags_{};
-  enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, manual, program_setup };
+  enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, watchdog, manual, program_setup, recovery };
   struct Pending {
     bool used{false};
     std::uint16_t address{};
@@ -209,6 +215,17 @@ class CanBusManager {
   void disable_enable_after_fault();
   void emergency_stop();
   void send_zero_stop(Time now);
+  void begin_recovery(const std::string &reason,bool force_disable,Time now);
+  void send_recovery_stop_phase(unsigned phase,Time now);
+  void schedule_recovery(Time now);
+  void recovery_reply(const Frame &frame,Time stamp);
+  bool send_recovery(std::uint16_t address,const std::vector<std::uint8_t> &data,
+      std::size_t response_length,Time now);
+  void recovery_failed(const std::string &reason);
+  bool recovery_standstill(Time now,bool capture);
+  void schedule_fault_diagnostics(Time now);
+  void reconnect(Time now);
+  void transport_lost(Time now,const std::string &reason);
   Time current_time(Time fallback) const;
   bool phased_program() const;
   unsigned feedback_group() const;
@@ -223,6 +240,13 @@ class CanBusManager {
   void schedule_background(Time now);
   void schedule_motion(Time now);
   void schedule_program(Time now);
+  void schedule_synchronized_program(Time now);
+  bool synchronized_reply(const Frame &frame,Time stamp);
+  void synchronized_confirmation(const Frame &frame,Time now);
+  bool synchronized_query_window(Time now) const;
+  bool sync_recovery_required_{};
+  bool unverified_sync_buffer_{};
+  std::array<StreamingState,kAxes> staged_streaming_states_{};
   bool program_feedback_good(Time now) const;
   void begin_program_check(Time now);
   bool check_program_positions(Time now);
@@ -259,9 +283,26 @@ class CanBusManager {
   std::uint64_t last_sequence_{};
   Time cycle_start_{}, next_cycle_{}, last_rx_{}, last_command_{}, lease_stamp_{}, last_tick_{}, last_cycle_wake_{};
   std::uint64_t cycle_number_{};
+  std::uint64_t last_fault_diagnostic_cycle_{std::numeric_limits<std::uint64_t>::max()};
   std::size_t diagnostic_transactions_{};
+  std::size_t fault_diagnostic_cursor_{};
   unsigned scan_address_{1}, checked_{}, cursor_{1};
   bool scanning_{false}, active_{false}, fault_{false}, stop_sent_{false}, cycle_initialized_{false}, motion_this_cycle_{false}, feedback_recorded_{false};
+  enum class RecoveryPhase { idle, stopping, verifying_disabled, overwriting, restoring, verifying, idle_disabled, failed };
+  struct Recovery {
+    RecoveryPhase phase{RecoveryPhase::idle};
+    std::string message;
+    unsigned required{}, pending{};
+    unsigned axis{}, step{}, stop_phase{};
+    std::array<std::uint16_t,kAxes> addresses{};
+    bool waiting{}, force_disable{}, staged_buffer_seen{};
+    Time started{}, deadline{}, verify_after{}, stop_next{};
+    std::array<Sample<std::int64_t>,kAxes> anchors{};
+    std::array<Time,kAxes> watchdog_pause_until{};
+  } recovery_;
+  std::array<Time,kAxes> fault_probe_after_{};
+  Time next_reconnect_{};
+  unsigned reconnect_attempt_{};
   Source source_{Source::none};
   std::string tcp_owner_;
   std::uint64_t control_generation_{}, tcp_sequence_{};

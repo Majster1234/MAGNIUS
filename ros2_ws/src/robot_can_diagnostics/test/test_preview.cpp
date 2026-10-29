@@ -20,7 +20,7 @@ TEST(Preview, OnlyFreshNewMeasurementsWithIndividualTimestamps) {
   state.axes[0].position.stamp = now;
   EXPECT_EQ(robot_can_diagnostics::preview_states(state, now, rclcpp::Time(10'000'000'000LL), last).size(), 1u);
 }
-TEST(Preview, NeverInventMissingStaleOrFaultedPositions) {
+TEST(Preview, RejectsMissingStaleAndFuturePositionsButPublishesFreshPositionsDuringFault) {
   ManualState state; std::array<Time, kAxes> last{}; const Time now{2s};
   EXPECT_TRUE(robot_can_diagnostics::preview_states(state, now, rclcpp::Time(10'000'000'000LL), last).empty());
   state.axes[0].available = true; state.axes[0].position = {30, now - 250ms, true};
@@ -28,7 +28,7 @@ TEST(Preview, NeverInventMissingStaleOrFaultedPositions) {
   state.axes[0].position.stamp = now + 1ms;
   EXPECT_TRUE(robot_can_diagnostics::preview_states(state, now, rclcpp::Time(10'000'000'000LL), last).empty());
   state.axes[0].position.stamp = now; state.fault = true;
-  EXPECT_TRUE(robot_can_diagnostics::preview_states(state, now, rclcpp::Time(10'000'000'000LL), last).empty());
+  EXPECT_EQ(robot_can_diagnostics::preview_states(state, now, rclcpp::Time(10'000'000'000LL), last).size(),1u);
 }
 TEST(Preview, ConfiguredJointUsesConvertedPositionAndUncalibratedJointIsOmitted) {
   ManualState state;std::array<Time,kAxes> last{};const Time now{2s};

@@ -233,12 +233,13 @@ Na żądanie operatora nie wykonywano testów ani operacji na sprzęcie.
 
 ## ENABLE=0 po awarii krytycznej
 
-W **Konfiguracja → Parametry robota → Reakcja na awarię krytyczną** dostępny
+W **Konfiguracja → Ustawienia systemowe → Wykonanie i zabezpieczenia** dostępny
 jest przełącznik „Wyłącz ENABLE wszystkich silników przy awarii krytycznej”.
 Domyślnie jest włączony, również dla starszych snapshotów bez tego pola.
 Opcja jest zapisywana jako boolean `safety.disable_enable_on_critical_fault`;
-obowiązuje po „Zapisz do ROS”, w ramach tej samej transakcji co pozostałe
-parametry robota. Rollback przywraca poprzednią regułę. Zmiana samej reguły nie
+obowiązuje po „Zapisz ustawienia do ROS”, z użyciem transakcji profilu robota.
+Ten przycisk zapisuje tylko opcje systemowe i zachowuje niezastosowany szkic
+geometrii. Rollback przywraca poprzednią regułę. Zmiana samej reguły nie
 zmienia kalibracji, przełożeń ani geometrii osi.
 
 Awaria właściciela CAN lub generatora ruchu przerywa bieżące sterowanie,

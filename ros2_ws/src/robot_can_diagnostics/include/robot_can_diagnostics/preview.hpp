@@ -13,7 +13,6 @@ inline std::vector<sensor_msgs::msg::JointState> preview_states(
     const mks_servo_can::ManualState &state, mks_servo_can::Time now,
     rclcpp::Time ros_now, std::array<mks_servo_can::Time, mks_servo_can::kAxes> &last) {
   std::vector<sensor_msgs::msg::JointState> messages;
-  if (state.fault) return messages;
   for (std::size_t i = 0; i < state.axes.size(); ++i) {
     const auto &a = state.axes[i];
     if (!a.available || !a.position.fresh(now, std::chrono::milliseconds(250)) ||

@@ -7,3 +7,4 @@ float64 tcp_jog_max_angular_velocity
 float64 tcp_jog_linear_acceleration
 float64 tcp_jog_angular_acceleration
 bool disable_enable_on_critical_fault true
+string ptp_lin_dispatch_mode "streamed"

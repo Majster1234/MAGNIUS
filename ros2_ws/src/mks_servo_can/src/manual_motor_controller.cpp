@@ -80,6 +80,17 @@ void ManualMotorController::add(std::vector<std::uint8_t> data, std::size_t leng
 }
 bool ManualMotorController::set_enable(unsigned axis, bool enabled, Time now) {
   if(group_active_ && !group_step_) return false;
+  // Podczas zatrzaśniętej awarii nie wolno wykonywać żadnej sekwencji
+  // przygotowującej ruch. Operator może jednak jawnie odciąć ENABLE; wynik
+  // potwierdzi niezależny odczyt 3A prowadzony przez maszynę odzyskiwania.
+  if(!enabled && bus_.fault_) {
+    if(!axis || axis>kAxes || !bus_.transport_->is_open()) return false;
+    try {
+      bus_.transport_->send(axis,enable_request(axis,false));++bus_.stats_.tx;
+      bus_.next_enable_[axis]={};message_="Operator wysłał ENABLE=0 do J"+std::to_string(axis)+"; oczekiwanie na odczyt";
+      return true;
+    } catch(...) { return false; }
+  }
   if (!enabled && phase_!=Phase::idle) {
     if (axis != axis_ || (phase_ != Phase::starting && phase_ != Phase::moving && phase_ != Phase::stopping)) return false;
     disable_after_ = true; stop(now, "Hamowanie przed wyłączeniem ENABLE"); return true;
@@ -110,6 +121,17 @@ bool ManualMotorController::set_enable(unsigned axis, bool enabled, Time now) {
   return true;
 }
 bool ManualMotorController::set_enable_all(bool enabled, Time now) {
+  if(!enabled && bus_.fault_) {
+    if(!bus_.transport_->is_open()) return false;
+    bool sent=false;
+    for(unsigned j=0;j<kAxes;++j) {
+      const auto address=bus_.config_.axes[j].address;if(!address) continue;
+      try {bus_.transport_->send(address,enable_request(address,false));++bus_.stats_.tx;sent=true;bus_.next_enable_[address]={};}
+      catch(...) {}
+    }
+    if(sent) message_="Operator wysłał ENABLE=0 do wszystkich osi; oczekiwanie na odczyty 3A";
+    return sent;
+  }
   if(busy() || bus_.active_ || bus_.fault_ || bus_.scanning_ || !bus_.configuration_ready_ || bus_.configuration_locked_ || !bus_.transport_->is_open()) return false;
   std::array<bool,kAxes> targets{};
   for(unsigned j=0;j<kAxes;++j) {
@@ -196,6 +218,11 @@ bool ManualMotorController::configuration_stopped(unsigned axis, Time now) const
   const auto &device = bus_.devices_[axis];
   return device.enable.fresh(now, 300ms) && !device.enable.value && position_stable(axis, now, 100ms);
 }
+bool ManualMotorController::dispatch_stopped(unsigned axis, Time now) const {
+  const auto &d=bus_.devices_[axis];
+  return configuration_stopped(axis,now) || (position_stable(axis,now,100ms) && d.speed.fresh(now,150ms) && d.speed.value==0 &&
+      d.motor_state.fresh(now,150ms) && d.motor_state.value==1);
+}
 bool ManualMotorController::limit_reached(unsigned axis, int direction, double rpm, Time now) const {
   const auto motor = degrees(bus_.devices_[axis].position.value);
   const auto distance = brake_distance(axis, rpm, now);
@@ -272,7 +299,8 @@ void ManualMotorController::stop(Time now, const std::string &reason) {
 }
 void ManualMotorController::fail(const std::string &message, bool critical) {
   trace_note("manual_fault", message, axis_);
-  // Jeden ostatni STOP, potem cisza całej magistrali: diagnostyka nie maskuje 98H.
+  // Jeden ostatni STOP dla aktywnego źródła. Właściciel magistrali przejmuje
+  // dalsze zatrzymanie i zachowuje ograniczoną diagnostykę podczas odzyskiwania.
   if (phase_ != Phase::fault && axis_ && bus_.transport_->is_open()) {
     try { bus_.transport_->send(axis_, speed_request(axis_, false, 0)); ++bus_.stats_.tx; } catch (...) {}
   }
@@ -282,10 +310,13 @@ void ManualMotorController::fail(const std::string &message, bool critical) {
   bus_.fault(reason, critical);
 }
 void ManualMotorController::transport_fault() {
-  group_active_=false;
-  if (busy() && phase_ != Phase::fault) {
-    phase_ = Phase::fault; prepared_.fill(false); message_ = "Utrata komunikacji — stan ruchu nieznany";
-  }
+  group_active_=false;phase_=Phase::fault;waiting_=false;prepared_.fill(false);
+  owner_.clear();last_stop_=std::max(last_stop_,bus_.last_tick_);
+  message_="Sterowanie anulowane; trwa odzyskiwanie po STOP";
+}
+void ManualMotorController::recovery_complete() {
+  group_active_=false;phase_=Phase::idle;waiting_=stop_sent_=disable_after_=false;
+  prepared_.fill(false);owner_.clear();message_="Gotowy do ponownego załączenia";
 }
 void ManualMotorController::timeout() {
   const auto command=step_<step_count_ && !steps_[step_].data.empty() ?
@@ -480,6 +511,8 @@ void ManualMotorController::tick(Time now) {
 ManualState ManualMotorController::snapshot(Time now) const {
   ManualState result; result.busy = busy() || bus_.active_ || bus_.configuration_locked_ || !bus_.configuration_ready_; result.fault = bus_.fault_;
   result.configuration_revision = bus_.profile_.revision;
+  result.recovery_state=bus_.recovery_state_name();result.recovery_message=bus_.recovery_message();
+  result.recovery_pending_mask=static_cast<std::uint8_t>(bus_.recovery_pending_mask());
   result.axis = group_active_ ? 0 : busy() ? axis_ : 0; result.max_rpm = bus_.config_.manual_max_rpm; result.message = bus_.fault_ ? bus_.message_ : message_;
   if(!bus_.fault_ && idle_disable_) result.message="Automatyczne wyłączenie ENABLE: 60 min bez ruchu wałów > 2°; "+result.message;
   result.operation = bus_.fault_ || phase_ == Phase::fault ? "fault" : phase_ == Phase::stopping ? "stopping" :
@@ -487,11 +520,11 @@ ManualState ManualMotorController::snapshot(Time now) const {
   if(group_active_) result.operation=group_enabled_ ? "enable_all" : "disable_all";
   for (unsigned axis = 1; axis <= kAxes; ++axis) {
     auto &a = result.axes[axis - 1]; const auto &d = bus_.devices_[axis];
-    a.axis = axis; a.available = !bus_.fault_ && bus_.transport_->is_open() && d.detected &&
+    a.axis = axis; a.available = bus_.transport_->is_open() && d.detected &&
         d.identity.model == Model::kServo42D && d.position.fresh(now, 250ms);
     a.prepared = prepared_[axis - 1];
-    a.enable = d.enable; a.enable.valid = d.enable.fresh(now, 500ms) && !bus_.fault_;
-    a.position = {degrees(d.position.value), d.position.stamp, d.position.fresh(now, 250ms) && !bus_.fault_};
+    a.enable = d.enable; a.enable.valid = bus_.transport_->is_open() && d.enable.fresh(now, 500ms);
+    a.position = {degrees(d.position.value), d.position.stamp, bus_.transport_->is_open() && d.position.fresh(now, 250ms)};
     const auto &profile = bus_.profile_.axes[axis - 1];
     a.configured = profile.configured; a.calibration_valid = calibrated_[axis - 1];
     a.configuration_message = configuration_messages_[axis - 1];
@@ -504,8 +537,13 @@ ManualState ManualMotorController::snapshot(Time now) const {
       a.maximum_velocity = std::min(profile.velocity, std::floor(bus_.config_.manual_max_rpm / (scale ? scale : 1)) * (scale ? scale : 1) * 2 * std::acos(-1.0) / 60 / profile.gear_ratio);
     }
     // Prędkość w układzie 31: pochodna pozycji, filtr 100 ms, stała pamięć.
-    a.speed = velocity_[axis - 1]; a.speed.valid = a.speed.fresh(now, 250ms) && !bus_.fault_;
-    if (jog_stopped(axis, now)) a.speed = {0, d.position.stamp, !bus_.fault_};
+    a.speed = velocity_[axis - 1]; a.speed.valid = a.speed.fresh(now, 250ms);
+    // W odzyskiwaniu publikujemy również bezpośredni, niezależnie od pozycji
+    // odczyt 32H. Dzięki temu awaria ruchu nie ukrywa prawdziwej ważności RPM.
+    if(bus_.fault_ && d.speed.fresh(now,250ms))
+      a.speed={static_cast<double>(d.speed.value),d.speed.stamp,true};
+    if (jog_stopped(axis, now)) a.speed = {0, d.position.stamp, true};
+    a.speed.valid=a.speed.valid && bus_.transport_->is_open();
     a.can_jog = !result.busy && !result.fault && ready(axis, now) && jog_stopped(axis, now);
     a.can_zero = !result.busy && a.available && stopped(axis, now, 100ms);
     if (a.speed.valid && d.motor_state.fresh(now, 150ms)) {

@@ -16,6 +16,14 @@ TEST(StreamingCodec, PositiveNegativeAndSigned24BoundaryBytesHaveChecksums) {
   EXPECT_TRUE(validate_response(6,minimum,0xf5,8).valid);
   EXPECT_EQ(encoder_position_request(5),(std::vector<uint8_t>{0x31,0x36}));
 }
+TEST(StreamingCodec, DocumentedPositionStopUsesZeroSpeedAndTarget) {
+  EXPECT_EQ(absolute_position_stop_request(1,4),
+            (std::vector<uint8_t>{0xf5,0,0,4,0,0,0,0xfa}));
+  EXPECT_EQ(absolute_position_stop_request(1,0),
+            (std::vector<uint8_t>{0xf5,0,0,0,0,0,0,0xf6}));
+  EXPECT_THROW(absolute_position_stop_request(0,0),std::invalid_argument);
+  EXPECT_THROW(absolute_position_request(1,0,0,1),std::invalid_argument);
+}
 TEST(StreamingCodec, Signed48ExtremesAndInvalidFrames) {
   for(std::int64_t value:{std::int64_t{0},std::int64_t{16384},std::int64_t{-16384},(std::int64_t{1}<<47)-1,-(std::int64_t{1}<<47)}) {
     std::vector<uint8_t> bytes{0x31};const auto raw=static_cast<uint64_t>(value);

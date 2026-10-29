@@ -11,7 +11,7 @@ using namespace std::chrono_literals;
 namespace {
 struct Motor {
   bool enabled{}, stalled{}, respond{true}, complete{true};
-  unsigned mode{2}, microstep{16}, sync{1}, heartbeat{};
+  unsigned mode{2}, microstep{16}, sync{0}, heartbeat{};
   double rpm{}, target{}, ticks{};
 };
 class Port final : public Transport {
@@ -81,6 +81,10 @@ class Port final : public Transport {
         m.target = m.rpm = 0;
         if(!m.respond) return;  // CAN V1.0.9: CanRSP=Disable tłumi też F7.
         reply.push_back(1); break;
+      case 0xf5:
+        if(data[1]==0 && data[2]==0 && data[3]==0 && data[4]==0 && data[5]==0 && data[6]==0) m.target=m.rpm=0;
+        if(!m.respond) return;
+        reply.push_back(m.sync ? 5 : 1);break;
       case 0xf6: {
         const auto raw = (unsigned(data[1] & 0xf) << 8) | data[2];
         if (m.enabled) m.target = raw * speed_scale(m.microstep) * (data[1] & 0x80 ? 1 : -1);
@@ -162,7 +166,7 @@ TEST(ManualMotor, PreparationVerifiesStoppedMotorWithoutF7AckWhenCanRspIsDisable
 TEST(ManualMotor, LostF7StillFailsStoppedStateVerificationBeforeEnable) {
   Rig r;r.port->motors[1].target=30;r.port->drop_command=0xf7;
   ASSERT_TRUE(r.manual().set_enable(1,true,r.now));r.step(300);
-  EXPECT_TRUE(r.bus.snapshot().fault);
+  EXPECT_NE(r.state().recovery_state,"idle");
   EXPECT_FALSE(r.port->motors[1].enabled);
 }
 TEST(ManualMotor, OneOwnerReleaseAndDisable) {
@@ -287,7 +291,7 @@ TEST(ManualMotor, ShaftTraceKeepsMeasuredZeroResidualAndBreaksSegmentOnFailedCon
     for(unsigned i=0;i<n;++i) if(samples[i].axis==1 && samples[i].ticks==residual) {
       EXPECT_NE(samples[i].segment,previous);found=true;
     }
-    EXPECT_TRUE(found);EXPECT_EQ(r.state().fault,residual==9);
+    EXPECT_TRUE(found);EXPECT_EQ(r.state().recovery_state!="idle",residual==9);
   }
 }
 TEST(ManualMotor, ConfigurationAckMayTakeLongerThanReadTimeout) {
@@ -325,17 +329,20 @@ TEST(ManualMotor, SoftLimitIncludesBrakingDistance) {
 TEST(ManualMotor, RefusedEnableNeverConfirmsReady) {
   Rig r; r.port->refuse_command = 0xf3;
   ASSERT_TRUE(r.manual().set_enable(1, true, r.now)); r.step(100);
-  EXPECT_TRUE(r.state().fault); EXPECT_FALSE(r.state().axes[0].can_jog);
+  EXPECT_NE(r.state().recovery_state,"idle"); EXPECT_FALSE(r.state().axes[0].can_jog);
   EXPECT_FALSE(r.port->motors[1].enabled); const auto tx = r.bus.snapshot().statistics.tx; r.step(1000);
-  EXPECT_EQ(tx, r.bus.snapshot().statistics.tx); EXPECT_TRUE(r.bus.service_allowed());
+  EXPECT_GT(r.bus.snapshot().statistics.tx,tx);EXPECT_TRUE(r.state().axes[0].position.valid);
+  EXPECT_TRUE(r.bus.reset_allowed());EXPECT_FALSE(r.state().axes[0].can_jog);
 }
-TEST(ManualMotor, MissingStopCommandEventuallyLatchesFaultAndSilencesBus) {
+TEST(ManualMotor, MissingJogStopEscalatesToGlobalRecoveryAndKeepsDiagnostics) {
   Rig r; r.enable(); ASSERT_TRUE(r.start()); unsigned seq = 1; r.held(500, seq);
   r.port->drop_command = 0xf6;
   ASSERT_TRUE(r.manual().jog(JogAction::stop, 1, 0, 0, "panel-a", ++seq, r.now, r.now)); r.step(3000);
-  EXPECT_TRUE(r.state().fault); EXPECT_TRUE(r.state().busy); EXPECT_FALSE(r.start(2, "panel-b"));
-  const auto tx = r.bus.snapshot().statistics.tx; r.step(500); EXPECT_EQ(tx, r.bus.snapshot().statistics.tx);
-  r.bus.close(); r.bus.reset_session(); r.bus.open(r.now); EXPECT_FALSE(r.state().busy);
+  EXPECT_NE(r.state().recovery_state,"idle");EXPECT_FALSE(r.start(2, "panel-b"));
+  const auto tx = r.bus.snapshot().statistics.tx; r.step(500); EXPECT_GT(r.bus.snapshot().statistics.tx,tx);
+  EXPECT_TRUE(r.state().axes[0].position.valid)<<r.state().recovery_state<<": "<<r.state().message;
+  EXPECT_FALSE(r.port->motors[1].enabled);
+  EXPECT_FALSE(r.manual().jog(JogAction::keepalive,1,0,0,"panel-a",++seq,r.now,r.now));
 }
 TEST(ManualMotor, OldSequenceAndTimestampRejected) {
   Rig r; r.enable(); EXPECT_FALSE(r.manual().jog(JogAction::start, 1, 1, 30, "panel-a", 1, r.now - 101ms, r.now));
@@ -349,7 +356,8 @@ TEST(ManualMotor, BusOffAndUsbNeverResume) {
     if (usb) r.port->disconnected = true;
     else r.port->rx.push_back({0, {}, true, CAN_ERR_BUSOFF, r.now});
     r.step(10); EXPECT_TRUE(r.state().fault); EXPECT_FALSE(r.state().axes[0].can_jog);
-    EXPECT_EQ(r.state().axes[0].motion, "stan nieznany");
+    if(usb) EXPECT_EQ(r.state().axes[0].motion, "stan nieznany");
+    else EXPECT_TRUE(r.state().axes[0].position.valid);
   }
 }
 TEST(ManualMotor, StopBeforeDelayedStartCreatesTimeBarrier) {
@@ -366,7 +374,7 @@ TEST(ManualMotor, LeftArrowMovesNegativeAndStops) {
 TEST(ManualMotor, UnsupportedParameterReadDoesNotEnableMotor) {
   Rig r; r.port->no_read_command = 0x4a;
   ASSERT_TRUE(r.manual().set_enable(1, true, r.now)); r.step(100);
-  EXPECT_TRUE(r.state().fault); EXPECT_FALSE(r.port->motors[1].enabled);
+  EXPECT_NE(r.state().recovery_state,"idle"); EXPECT_FALSE(r.port->motors[1].enabled);
 }
 TEST(ManualMotor, FullScanEchoCannotInventDevices) {
   Rig r; r.port->echo = true; r.step(44000);
@@ -511,5 +519,7 @@ TEST(Configuration, BusOffBetweenPrepareAndCommitCannotCommit) {
   EXPECT_FALSE(r.state().axes[0].configured);
   ASSERT_TRUE(r.bus.configure(ConfigurationPhase::rollback,"apply","",profile,r.now).accepted);
   ASSERT_TRUE(r.bus.configure(ConfigurationPhase::finish,"apply","",profile,r.now).accepted);
-  EXPECT_TRUE(r.state().fault);EXPECT_TRUE(r.bus.service_allowed());
+  EXPECT_TRUE(r.state().fault);EXPECT_FALSE(r.bus.service_allowed());
+  EXPECT_FALSE(r.bus.reset_allowed()); // Nie przerywaj serii STOP resetem interfejsu.
+  r.step(20);EXPECT_TRUE(r.bus.reset_allowed());
 }

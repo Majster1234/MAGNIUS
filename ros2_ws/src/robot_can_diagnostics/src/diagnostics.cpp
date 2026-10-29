@@ -74,6 +74,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         profile.changed = req->configuration.changed;
         profile.calibration_invalid = req->configuration.calibration_invalid;
         profile.confirm_calibration = req->confirm_calibration;
+        profile.ptp_lin_dispatch_mode = req->configuration.ptp_lin_dispatch_mode;
         profile.disable_enable_on_critical_fault = req->configuration.disable_enable_on_critical_fault;
         for (std::size_t i = 0; i < 6; ++i) {
           const auto &a = req->configuration.axes[i];
@@ -87,6 +88,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         res->operation_id = result.operation_id; res->stage = result.stage; res->locked = result.locked;
         const auto &resolved=result.resolved_configuration;
         res->resolved_configuration.revision=resolved.revision;
+        res->resolved_configuration.ptp_lin_dispatch_mode=resolved.ptp_lin_dispatch_mode;
         res->resolved_configuration.disable_enable_on_critical_fault=resolved.disable_enable_on_critical_fault;
         res->resolved_configuration.changed=resolved.changed;
         res->resolved_configuration.calibration_invalid=resolved.calibration_invalid;
@@ -151,7 +153,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
   stop_ = create_service<std_srvs::srv::Trigger>("/robot/motion/stop",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
         runtime_->stop("Żądanie zatrzymania operatora",false);
-        response->success = true; response->message = "Zatrzymanie zlecone; wymagany reset przed wznowieniem";
+        response->success = true; response->message = "STOP wysłany; trwa wyłączanie ENABLE i odzyskiwanie sterowania";
       });
   scan_ = create_service<std_srvs::srv::Trigger>("/robot/can/scan",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -188,6 +190,8 @@ void DiagnosticsNode::publish_manual() {
   out.monotonic_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
   out.busy = state.busy || resetting_; out.fault = state.fault; out.active_axis = state.axis; out.max_rpm = state.max_rpm;
   out.operation = state.operation; out.message = state.message;
+  out.recovery_state=state.recovery_state;out.recovery_message=state.recovery_message;
+  out.recovery_pending_mask=state.recovery_pending_mask;
   out.configuration_revision = state.configuration_revision;
   const auto sample_age = [now](const auto &sample) { return sample.stamp == mks_servo_can::Time{} ? -1.0 : std::chrono::duration<double>(now - sample.stamp).count(); };
   for (std::size_t i = 0; i < state.axes.size(); ++i) {
@@ -225,7 +229,8 @@ void DiagnosticsNode::publish() {
     if (reset_future_.get() == 0) { runtime_->start(false); }
     else reset_error_ = "Brak uprawnienia lub błąd restartu robot-can@can0.service";
   }
-  const auto snapshot = runtime_->snapshot(); const auto now = mks_servo_can::Clock::now(); const auto &s = snapshot.statistics;
+  const auto snapshot = runtime_->snapshot(); const auto manual=runtime_->manual_snapshot();
+  const auto now = mks_servo_can::Clock::now(); const auto &s = snapshot.statistics;
   diagnostic_msgs::msg::DiagnosticArray message; message.header.stamp = get_clock()->now();
   std::size_t count{}, online{};
   for (const auto &d : snapshot.devices) if (d.detected) { ++count; if (d.last_ok!=mks_servo_can::Time{} && now - d.last_ok < 3s) ++online; }
@@ -233,11 +238,14 @@ void DiagnosticsNode::publish() {
   message.status.push_back(status("can", snapshot.fault || !snapshot.open ? 2 : 0, snapshot.message, {
       kv("interface", quote(config_.interface)), kv("bitrate", std::to_string(config_.bitrate)), kv("bus_state", quote(bus_state)),
       kv("socket_open", snapshot.open ? "true" : "false"), kv("active", snapshot.active ? "true" : "false"), kv("fault", snapshot.fault ? "true" : "false"),
+      kv("recovery_state",quote(manual.recovery_state)),kv("recovery_message",quote(manual.recovery_message)),
+      kv("recovery_pending_mask",std::to_string(manual.recovery_pending_mask)),
       kv("device_count", std::to_string(count)), kv("online_count", std::to_string(online)),
       kv("full_round_ms", s.feedback_round_ms.count ? number(s.feedback_round_ms.mean) : "null"),
       kv("cycle_ms", number(s.cycle_ms.mean)), kv("cycle_max_ms", number(s.cycle_ms.maximum)), kv("cycle_jitter_ms", number(s.cycle_ms.deviation())),
       kv("feedback_span_ms", s.feedback_span_ms.count ? number(s.feedback_span_ms.mean) : "null"),
       kv("command_period_ms",std::to_string(config_.cycle.count())),
+      kv("response_timeout_ms",std::to_string(config_.response_timeout.count())),
       kv("motion_use_ack","false"),kv("streaming_lookahead_ms",number(1000*get_parameter("execution_lookahead_time_sec").as_double())),
       kv("encoder_period_ms",std::to_string(snapshot.source==mks_servo_can::Source::program ?
           get_parameter("execution_position_period_ms").as_int() : (snapshot.active ? mks_servo_can::kStreamingCycle.count() : mks_servo_can::kEncoderPeriod.count()))),
@@ -251,7 +259,7 @@ void DiagnosticsNode::publish() {
       kv("stop_pending",s.stop_pending ? "true" : "false"),kv("stop_f7_ack_mask",std::to_string(s.stop_f7_acks)),
       kv("stop_zero_ack_mask",std::to_string(s.stop_zero_acks)),kv("stop_rejected_mask",std::to_string(s.stop_rejected)),
       kv("stop_failed_mask",std::to_string(s.stop_failed)),kv("stop_elapsed_ms",number(s.stop_elapsed_ms)),
-      kv("stop_result",quote(s.stop_pending ? "F7 → F6(0) w toku" : s.stop_failed ? "Niepotwierdzony STOP" : !config_.use_ack && s.stop_elapsed_ms>0 ? "STOP wysłano bez ACK; postój wymaga pomiaru" :
+      kv("stop_result",quote(s.stop_pending ? "F7 → F5 STOP → ENABLE=0 w toku (zgodnie z polityką ENABLE)" : s.stop_failed ? "Niepotwierdzony STOP" : !config_.use_ack && s.stop_elapsed_ms>0 ? "STOP wysłano bez ACK; postój wymaga pomiaru" :
           (s.stop_f7_acks || s.stop_zero_acks) ? "ACK odebrane; kasowanie celu wymaga odbioru" :
           s.stop_elapsed_ms>0 ? "Wysłano STOP; brak potwierdzonych napędów" : "Brak próby")),
       kv("completion_reports",std::to_string(s.completion_reports)),kv("endstop_reports",std::to_string(s.endstop_reports)),
@@ -267,7 +275,7 @@ void DiagnosticsNode::publish() {
       kv("checked", std::to_string(snapshot.checked)), kv("total", std::to_string(mks_servo_can::kScanMaximumAddress)), kv("error", quote(error))}));
   for (std::size_t address = 1; address < snapshot.devices.size(); ++address) {
     const auto &d = snapshot.devices[address]; if (!d.detected) continue;
-    const auto connected = !snapshot.fault && snapshot.open && d.consecutive_timeouts < 3 && d.last_ok!=mks_servo_can::Time{} && now - d.last_ok < 3s;
+    const auto connected = snapshot.open && d.consecutive_timeouts < 3 && d.last_ok!=mks_servo_can::Time{} && now - d.last_ok < 3s;
     const auto enabled = connected && d.enable.fresh(now, 300ms) ? (d.enable.value ? "true" : "false") : "null";
     const auto stall = connected && d.stall.fresh(now, 300ms) ? (d.stall.value ? "true" : "false") : "null";
     const auto motor = connected && d.mode.valid && mks_servo_can::supports_motor_state(d.mode.value) && d.motor_state.fresh(now, 1500ms) ? mks_servo_can::motor_state_name(d.motor_state.value) : "Niedostępny";

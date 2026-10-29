@@ -207,7 +207,11 @@ void TcpJogApi::command(const Request &r,robot_control_interfaces::srv::JogTcp::
 }
 void TcpJogApi::fail(const std::string &message) {
   telemetry_event("fault",message);
-  if(generator_) runtime_->stop(message);
+  mks_servo_can::ControlState state;
+  const bool have_state=runtime_->try_read(state);
+  if(generator_ && (!have_state || (!state.fault && state.active &&
+      state.source==mks_servo_can::Source::tcp_jog && state.control_generation==generation_)))
+    runtime_->stop(message);
   generator_.reset();status_.busy=false;status_.state="failed";status_.message=message;
 }
 void TcpJogApi::tick() {

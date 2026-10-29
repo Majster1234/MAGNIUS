@@ -134,9 +134,9 @@ void CanBusManager::open(Time now) {
     if(transport_->bitrate() && transport_->bitrate()!=config_.bitrate) {
       transport_->close();throw std::runtime_error("Bitrate konfiguracji różni się od fizycznego interfejsu CAN");
     }
-    next_cycle_=now;cycle_initialized_=false;message_="Magistrala CAN dostępna";
+    next_cycle_=now;cycle_initialized_=false;next_reconnect_={};reconnect_attempt_=0;message_="Magistrala CAN dostępna";
   }
-  catch (const std::exception &e) { fault(e.what()); }
+  catch (const std::exception &e) { transport_lost(now,e.what());fault(e.what()); }
 }
 void CanBusManager::close() {
   if (manual_->busy() && !fault_) {
@@ -147,7 +147,10 @@ void CanBusManager::close() {
   transport_->close(); scanning_ = false;
   for (auto &p : pending_) p.used = false;
 }
-bool CanBusManager::service_allowed() const { return (configuration_stage_ == "boot" || (configuration_ready_ && !configuration_locked_)) && !stats_.stop_pending && !active_ && (!manual_->busy() || fault_); }
+bool CanBusManager::service_allowed() const { return !sync_recovery_required_ && (configuration_stage_ == "boot" || (configuration_ready_ && !configuration_locked_)) && !stats_.stop_pending && !active_ && (!manual_->busy() || fault_); }
+bool CanBusManager::reset_allowed() const {
+  return !stats_.stop_pending && !active_ && (fault_ || !manual_->busy()) && (!configuration_locked_ || configuration_stage_=="boot");
+}
 bool CanBusManager::start_scan() {
   if (!service_allowed() || scanning_ || fault_ || !transport_->is_open()) return false;
   scanning_ = true; scan_address_ = 1; checked_ = 0; message_ = "Skanowanie adresów 1–20"; return true;
@@ -160,7 +163,6 @@ void CanBusManager::clear_fault() {
   manual_ = std::make_unique<ManualMotorController>(*this);
   std::array<bool, kAxes> changed; changed.fill(true); manual_->configuration_changed(changed);
   for (auto &p : pending_) p.used = false;
-  config_.program_staged_reset_verified=false; // Ponowny odbiór po niepewnym stanie napędów.
   message_ = "Błąd skasowany — wymagana ponowna aktywacja";
 }
 void CanBusManager::reset_session(ResetMode mode) {
@@ -253,11 +255,12 @@ bool CanBusManager::submit(const CommandBatch &batch) {
   if(!configuration_ready_ || configuration_locked_ || batch.configuration_generation!=configuration_generation_) return false;
   if (executor_.status.busy || batch.source == Source::program) return false;
   if (!active_ || fault_ || batch.source != source_ || batch.sequence <= last_sequence_) return false;
-  if(source_==Source::tcp_jog && batch.control_generation!=control_generation_) return false;
+  if(batch.control_generation!=control_generation_) return false;
   if (latest_) ++stats_.dropped_commands;
   latest_ = batch; last_sequence_ = batch.sequence; return true;
 }
 void CanBusManager::renew_source_lease(Source source, Time now) {
+  if(now<=tcp_last_stop_) return;
   if(source_==Source::tcp_jog || source==Source::tcp_jog) return;
   if (fault_ || program_owned_ || executor_.status.busy) return;
   if (!active_) { source_ = source; lease_stamp_ = now; return; }
@@ -271,7 +274,6 @@ void CanBusManager::fault(const std::string &message, bool critical) {
   if (fault_) return;
   trace_note("bus_fault", message);
   trace_freeze_after(std::chrono::seconds(5));
-  const bool was_active = active_;
   const bool program_failed=executor_.status.busy || executor_.status.state=="ready";
   if(program_failed) {
     executor_.status.busy=false;executor_.status.state="failed";executor_.status.message=message;
@@ -280,10 +282,11 @@ void CanBusManager::fault(const std::string &message, bool critical) {
   manual_->transport_fault();
   latest_.reset(); source_ = Source::none; tcp_owner_.clear();tcp_last_stop_=last_tick_;++stats_.errors;
   for (auto &p : pending_) p.used = false;
-  if (was_active) { config_.program_staged_reset_verified=false;emergency_stop(); }
-  // ENABLE=0 jest ostatnim poleceniem dla każdej osi, po wyczyszczeniu celów F7/F6.
-  if(critical && profile_.disable_enable_on_critical_fault) disable_enable_after_fault();
-  else if(critical) message_+="; reguła awarii krytycznej: automatyczne ENABLE=0 wyłączone w konfiguracji robota";
+  executor_.staged=false;executor_.sync_waiting_confirmation=false;
+  if(executor_.status.dispatch_mode=="synchronized") executor_.status.sync_state="fault";
+  const bool disable=critical && profile_.disable_enable_on_critical_fault;
+  begin_recovery(message,disable,current_time(last_tick_));
+  if(critical && !disable) message_+="; reguła awarii krytycznej: oczekiwanie na wyłączenie ENABLE przez operatora";
   if(program_failed) executor_.status.message=message_;
 }
 void CanBusManager::disable_enable_after_fault() {
@@ -312,8 +315,8 @@ void CanBusManager::disable_enable_after_fault() {
   if(!failed.empty()) message_+="; nie wysłano ENABLE=0: "+failed;
 }
 void CanBusManager::stop(const std::string &reason, bool critical) {
-  if (manual_->busy() && !fault_) manual_->abort(reason,critical);
-  else fault(reason,critical);
+  if(manual_->busy() && !fault_) manual_->transport_fault();
+  begin_recovery(reason,!critical || profile_.disable_enable_on_critical_fault,current_time(last_tick_));
 }
 void CanBusManager::emergency_stop() {
   if(stop_sent_) return;
@@ -324,6 +327,7 @@ void CanBusManager::emergency_stop() {
     const auto address=config_.axes[j].address;stop.addresses[j]=address;if(!address) continue;
     if(devices_[address].detected) stop.required|=1u<<j;
     try {transport_->send(address,stop_request(address));++stats_.tx;} catch(...) {stats_.stop_failed|=1u<<j;}
+    try {transport_->send(address,absolute_position_stop_request(address));++stats_.tx;} catch(...) {stats_.stop_failed|=1u<<j;}
   }
   trace_note("stop_f7_all","bez oczekiwania na ACK");
   send_zero_stop(stop.sent);
@@ -369,9 +373,10 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
     case Kind::stall: command = 0x3e; break;
     case Kind::motor: command = 0xf1; break;
     case Kind::speed: command = 0x32; length = 4; break;
-    case Kind::manual: case Kind::program_setup: return false;
+    case Kind::watchdog:command=0x98;length=6;break;
+    case Kind::manual: case Kind::program_setup: case Kind::recovery:return false;
   }
-  const bool parameter=kind==Kind::mode || kind==Kind::response_mode || kind==Kind::sync_mode || kind==Kind::microstep;
+  const bool parameter=kind==Kind::mode || kind==Kind::response_mode || kind==Kind::sync_mode || kind==Kind::microstep || kind==Kind::watchdog;
   query_payload_.resize(parameter ? 3 : 2);
   query_payload_[0]=parameter ? 0 : command;
   query_payload_[1]=parameter ? command : static_cast<std::uint8_t>(address+command);
@@ -432,7 +437,12 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
       d.responses_known=true;d.responses_disabled=frame.data[1]==0 && frame.data[2]==0;break;
     case Kind::sync_mode:
       if(frame.data[1]>1) return false;
-      d.synchronization_known=true;d.synchronization_disabled=frame.data[1]==0;break;
+      d.synchronization_known=true;d.synchronization_disabled=frame.data[1]==0;
+      if(frame.data[1]==1 && !active_) {
+        unverified_sync_buffer_=true;
+        sync_recovery_required_=true;fault("Wykryto pozostawione SYNC=1: bufor napędu wymaga osobnego odbioru przed odblokowaniem sterowania",true);
+      }
+      break;
     case Kind::microstep:
       try {speed_scale(frame.data[1]);} catch(...) {return false;}
       d.microstep.set(frame.data[1],stamp);break;
@@ -447,16 +457,22 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
     case Kind::stall: { const auto v = parse_stall(p.address, frame.data); if (!v) return false; d.stall.set(*v, stamp); break; }
     case Kind::motor: { const auto v = parse_motor_state(p.address, frame.data); if (!v) return false; d.motor_state.set(*v, stamp); break; }
     case Kind::speed: { const auto v = parse_speed(p.address, frame.data); if (!v) return false; d.speed.set(*v, stamp); break; }
+    case Kind::watchdog:
+      if(frame.data.size()!=6 || frame.data[0]!=0x98) return false;
+      d.watchdog_ms.set((std::uint32_t(frame.data[1])<<24)|(std::uint32_t(frame.data[2])<<16)|
+          (std::uint32_t(frame.data[3])<<8)|frame.data[4],stamp);break;
     case Kind::manual:
       manual_->reply(frame.data, stamp);
       if(p.command==0x31 && d.position.valid && d.position.stamp==stamp)
         record_shaft_position(p.address,d.position.value,stamp,frame.kernel_utc_ns);
       break;
     case Kind::program_setup: program_setup_reply(frame, stamp); break;
+    case Kind::recovery: recovery_reply(frame,stamp); break;
 
   }
   const auto rtt = milliseconds(stamp, p.sent);
   d.last_rtt_ms = rtt; d.rtt.add(rtt); stats_.rtt.add(rtt); d.last_ok = stamp; d.consecutive_timeouts = 0;
+  reconnect_attempt_=0;next_reconnect_={};
   return true;
 }
 void CanBusManager::receive(Time now) {
@@ -468,11 +484,24 @@ void CanBusManager::receive(Time now) {
       if (frame->error_flags & CAN_ERR_BUSOFF) { fault("BUS-OFF — wymagany reset i ponowna aktywacja"); break; }
       continue;
     }
+    if(frame->tx_confirmation) {
+      const bool already_faulted=fault_;
+      synchronized_confirmation(*frame,current_time(now));
+      if(fault_ && !already_faulted) break;
+      continue;
+    }
+    if(frame->address==0 && frame->data==sync_payload_ && active_ && source_==Source::program && executor_.status.dispatch_mode=="synchronized") {
+      fault("Nieoczekiwany SYNC z innego nadawcy");break;
+    }
     ++stats_.rx;
     if (last_rx_ != Time{} && stamp >= last_rx_) stats_.rx_interval_ms.add(milliseconds(stamp, last_rx_));
     last_rx_ = stamp;
     if (frame->address == 0 || frame->address > kMaximumAddress) { ++stats_.invalid; continue; }
-    if(frame->data.size()==3 && frame->data[0]==0xf5 &&
+    if(synchronized_reply(*frame,stamp)) {if(fault_) break;continue;}
+    const bool recovery_f5=std::any_of(pending_.begin(),pending_.end(),[&](const Pending &p) {
+      return p.used && p.kind==Kind::recovery && p.address==frame->address && p.command==0xf5;
+    });
+    if(!recovery_f5 && frame->data.size()==3 && frame->data[0]==0xf5 &&
         validate_response(frame->address,frame->data,0xf5,3).valid) {
       if(frame->data[1]==2) { ++stats_.completion_reports;trace_note("previous_move_complete","",frame->address,0xf5);continue; }
       if(frame->data[1]==3 || frame->data[1]==0) {
@@ -513,6 +542,8 @@ void CanBusManager::expire(Time now) {
     if (p.kind == Kind::identity) next_scan(p.address);
     else {
       auto &d = devices_[p.address]; ++d.timeouts; ++d.consecutive_timeouts;
+      const auto axis=axis_index(p.address);
+      if(fault_ && axis<kAxes && d.consecutive_timeouts>=3) fault_probe_after_[axis]=now+std::chrono::seconds(1);
       if (d.consecutive_timeouts >= 3) {
         d.mode.valid = d.enable.valid = d.stall.valid = d.motor_state.valid = false;d.responses_known=d.synchronization_known=false;d.microstep.valid=false;
       }
@@ -527,6 +558,7 @@ void CanBusManager::expire(Time now) {
           ": brak odpowiedzi podczas uzbrajania programu; kod komendy="+std::to_string(p.command)+
           ", czas oczekiwania="+diagnostic_number(milliseconds(now,p.sent))+" ms"); break;
     }
+    if(p.kind==Kind::recovery) {recovery_.waiting=false;recovery_failed(axis_diagnostic_label(axis_index(p.address)+1,p.address)+": brak odpowiedzi odzyskiwania");break;}
     if (p.kind == Kind::manual) { manual_->timeout(); break; }
   }
 }
@@ -547,7 +579,9 @@ void CanBusManager::start_cycle(Time now) {
 }
 void CanBusManager::schedule_feedback(Time now) {
   if(active_) {
-    if((source_==Source::program || source_==Source::tcp_jog) &&
+    if(source_==Source::program && executor_.status.dispatch_mode=="synchronized") {
+      if(!synchronized_query_window(now)) return;
+    } else if((source_==Source::program || source_==Source::tcp_jog) &&
         !program_query_window(now,source_==Source::tcp_jog ? tcp_started_ : executor_.started)) return;
     for(unsigned j=0;j<kAxes;++j) {
       if(source_==Source::program && !executor_.status.participating[j]) continue;
@@ -573,7 +607,9 @@ void CanBusManager::schedule_feedback(Time now) {
 }
 void CanBusManager::schedule_background(Time now) {
   if(active_ && (source_==Source::program || source_==Source::tcp_jog)) {
-    if(!program_query_window(now,source_==Source::tcp_jog ? tcp_started_ : executor_.started)) return;
+    if(source_==Source::program && executor_.status.dispatch_mode=="synchronized") {
+      if(!synchronized_query_window(now)) return;
+    } else if(!program_query_window(now,source_==Source::tcp_jog ? tcp_started_ : executor_.started)) return;
     while(diagnostic_transactions_<kDiagnosticTransactionsPerCycle) {
       Time oldest=now+std::chrono::hours(1);Time *due=nullptr;
       std::uint16_t selected{};Kind selected_kind{};std::chrono::milliseconds period{};
@@ -667,8 +703,21 @@ void CanBusManager::schedule_motion(Time now) {
 }
 void CanBusManager::tick(Time now) {
   last_tick_=current_time(now);
-  if(!transport_->is_open()) return;
-  if(fault_) return;
+  if(!transport_->is_open()) {reconnect(last_tick_);return;}
+  if(fault_) {
+    try {
+      if(!cycle_initialized_ || now>=next_cycle_) start_cycle(now);
+      receive(now);
+      now=current_time(std::max(now,last_rx_));last_tick_=now;
+      if(now>=next_cycle_) start_cycle(now);
+      expire(now);
+      manual_->tick(now);
+      schedule_recovery(now);schedule_fault_diagnostics(now);
+    } catch(const std::exception &e) {
+      trace_note("fault_diagnostic_transport_error",e.what());transport_lost(now,e.what());
+    }
+    return;
+  }
   try {
     if (!cycle_initialized_ || now >= next_cycle_) start_cycle(now);
     receive(now);
@@ -706,10 +755,12 @@ void CanBusManager::tick(Time now) {
       }
     }
     schedule_background(now);
-  } catch (const std::exception &e) { fault(std::string("Błąd transportu CAN: ") + e.what()); }
+  } catch (const std::exception &e) {
+    const auto reason=std::string("Błąd transportu CAN: ")+e.what();transport_lost(now,e.what());fault(reason);
+  }
 }
 BusSnapshot CanBusManager::snapshot() const {
-  return {devices_, stats_, transport_->is_open(), scanning_, active_ || manual_->busy(), fault_, checked_, source_, message_};
+  return {devices_, stats_, transport_->is_open(), scanning_, active_ || (!fault_ && manual_->busy()), fault_, checked_, source_, message_};
 }
 ControlState CanBusManager::control_state() const {
   ControlState state; state.active = active_; state.fault = fault_; state.source = source_;state.program_owned=program_owned_;

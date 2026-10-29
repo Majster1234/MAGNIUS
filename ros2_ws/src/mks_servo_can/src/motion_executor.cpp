@@ -23,6 +23,60 @@ ProgramPoint program_reference(const PreparedMotionProgram &p,double t) {
   }
   return out;
 }
+namespace {
+double polynomial(const std::vector<double> &c,double u) {
+  double value=0;for(auto i=c.rbegin();i!=c.rend();++i) value=value*u+*i;return value;
+}
+// Izolacja pierwiastków przez miejsca zerowe pochodnej. Obliczana przed ruchem.
+std::vector<double> unit_roots(std::vector<double> c) {
+  double scale=0;for(double x:c) scale=std::max(scale,std::abs(x));
+  const double epsilon=std::max(1e-14,scale*1e-12);
+  while(c.size()>1 && std::abs(c.back())<epsilon) c.pop_back();
+  if(c.size()==1) return {};
+  std::vector<double> derivative;for(unsigned i=1;i<c.size();++i) derivative.push_back(i*c[i]);
+  auto splits=unit_roots(derivative);splits.insert(splits.begin(),0.);splits.push_back(1.);
+  std::vector<double> roots;
+  for(double u:splits) if(std::abs(polynomial(c,u))<=epsilon) roots.push_back(u);
+  for(unsigned i=1;i<splits.size();++i) {
+    double lo=splits[i-1],hi=splits[i],left=polynomial(c,lo),right=polynomial(c,hi);
+    if(left*right>=0) continue;
+    for(unsigned n=0;n<50;++n) {
+      const double mid=(lo+hi)/2,value=polynomial(c,mid);
+      if(left*value<=0) hi=mid;else {lo=mid;left=value;}
+    }
+    roots.push_back((lo+hi)/2);
+  }
+  std::sort(roots.begin(),roots.end());
+  roots.erase(std::unique(roots.begin(),roots.end(),[](double a,double b){return std::abs(a-b)<1e-10;}),roots.end());
+  return roots;
+}
+}
+void compile_program_reversals(PreparedMotionProgram &p) {
+  p.reversal_times.clear();
+  for(unsigned k=1;k<p.points.size();++k) {
+    const auto &a=p.points[k-1],&b=p.points[k];const double h=b.seconds-a.seconds;
+    for(unsigned j=0;j<6;++j) if(p.participating[j]) {
+      const double c1=a.velocities[j]*h,c2=a.accelerations[j]*h*h/2;
+      const double d=b.positions[j]-a.positions[j],v=b.velocities[j]*h,acc=b.accelerations[j]*h*h;
+      const double c3=10*d-6*c1-3*c2-4*v+acc/2,c4=-15*d+8*c1+3*c2+7*v-acc,c5=6*d-3*c1-c2-3*v+acc/2;
+      for(double u:unit_roots({c1,2*c2,3*c3,4*c4,5*c5})) {
+        const double t=a.seconds+u*h,delta=std::min(1e-6,h*1e-4);
+        if(t<=0 || t>=p.duration) continue;
+        const double before=program_reference(p,std::max(0.,t-delta)).velocities[j];
+        const double after=program_reference(p,std::min(p.duration,t+delta)).velocities[j];
+        if(before*after<0 || ((std::abs(before)>1e-14)!=(std::abs(after)>1e-14)))
+          p.reversal_times.push_back(t);
+      }
+    }
+  }
+  std::sort(p.reversal_times.begin(),p.reversal_times.end());
+  p.reversal_times.erase(std::unique(p.reversal_times.begin(),p.reversal_times.end(),
+      [](double a,double b){return std::abs(a-b)<1e-9;}),p.reversal_times.end());
+}
+double program_lookahead_time(const PreparedMotionProgram &p,double phase,double horizon) {
+  const auto next=std::upper_bound(p.reversal_times.begin(),p.reversal_times.end(),phase+1e-9);
+  return std::min({p.duration,phase+horizon,next==p.reversal_times.end() ? p.duration : *next});
+}
 std::array<double,2> program_position_bounds(const PreparedMotionProgram &p,unsigned axis,double begin,double end) {
   begin=std::clamp(begin,0.,p.duration);end=std::clamp(end,begin,p.duration);
   auto left=program_reference(p,begin);std::array<double,2> bounds{left.positions[axis],left.positions[axis]};

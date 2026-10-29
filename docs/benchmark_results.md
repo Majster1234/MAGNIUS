@@ -1260,3 +1260,118 @@ Dane: [pełny zapis Prób 1–6](tcp_jog_test_data_2026-10-26.json),
 Pliki robocze: `/tmp/tcp-jog-2026-10-26/precision-replay-4-final.csv`,
 `iteration-{5,6}.json`, `iteration-{5,6}-panel.json`,
 `iteration-{5,6}-metrics.json`, `trial-6-owner-diagnostics.json`.
+
+
+## Streaming synchroniczny PTP/LIN — offline, 28.10.2026
+
+Zaimplementowany tryb opisuje [kontrakt wykonania](synchronized_streaming.md).
+Nie wykonano pomiarów sprzętu, porównania toru fizycznego ani odbioru płynności.
+Dotychczasowy niezaliczony odbiór TCP i limit 6/6 pozostają historią odrębnego etapu.
+
+Pomiar obejmuje 100 programów sześciu osi, każdy z syntetycznym ruchem 0→0,2 rad
+w 1 s, 1600 ms czasu wirtualnego wykonania, 1 Mbit/s, po 101 zestawów F5.
+Dane i limity emulatora są identyczne dla trajektorii przed i po; nie opisują
+parametrów rzeczywistego robota. Inicjalizacja, skan i wybór trybu są poza pomiarem.
+Pięć serii wykonywano naprzemiennie: baseline, streamed, synchronized.
+C++17, -O3/-DNDEBUG, jeden proces, bez ROS i otwierania SocketCAN.
+Mierzono czas ścienny, nie wykorzystanie CPU aktywnej usługi.
+
+| Wariant: 100 programów | Minimum [ms] | Mediana [ms] | Maksimum [ms] |
+| --- | ---: | ---: | ---: |
+| Przed zmianą, streamed (`b91b06a`) | 106.892 | 108.946 | 110.162 |
+| Po zmianie, streamed | 120.598 | 121.993 | 123.764 |
+| Po zmianie, synchronized | 505.176 | 506.931 | 508.138 |
+
+Mediana zwykłego streamingu zmieniła się o +11.98%.
+Pomiar obejmuje również zmieniony emulator i obsługę nowych zdarzeń; nie izoluje
+kosztu biblioteki produkcyjnej. Większy koszt SYNC obejmuje ACK, potwierdzenia
+nadania, dokładne próbkowanie horyzontu i zapisy diagnostyczne. Nie jest dowodem
+lepszej dokładności, dotrzymywania terminów przez Ubuntu ani ciągłości ruchu firmware.
+Każdy wariant wysłał 60600 F5, synchronized dodatkowo 10100 SYNC; wszystkie
+programy w emulatorze zakończyły się sukcesem.
+
+Reprodukcja: `scripts/benchmark_sync_dispatch.cpp`. Baseline skompilowano
+z archiwum pakietu mks_servo_can z `b91b06a`, razem z jego źródłami i nagłówkami.
+Wariant aktualny skompilowano z `-DSYNCHRONIZED_BENCHMARK`, nagłówkami testowymi
+bieżącego pakietu i biblioteką z `install/synchronized-ros/mks_servo_can/lib`.
+Uruchomienie bez argumentu wybiera streamed, z argumentem `sync` — synchronized.
+[Pełne 15 wyników i opis wejścia](synchronized_streaming_benchmark_2026-10-28.json).
+
+Weryfikacja: 444 wyniki colcon, 0 błędów/porażek/pominięć (420 przypadków
+oraz 24 opakowania CTest), w tym 19 testów nowego wykonawcy, 41 sterowania
+ręcznego i 59 konfiguracji Python/ROS. Celowane API mostu: 152/152; dodatkowy
+lokalny test WebSocket z prawdziwym uvicorn: 1/1, uruchomiony poza ograniczeniem
+sandboxa na atrapach. Kosztowny test pojemności pliku śladu, niezwiązany ze zmianą,
+przerwano; nie należy traktować wyniku jako pełnego przebiegu testów mostu.
+Frontend: build OK, 143/144 testy. Jedyny błąd to zastany
+`controlMessages.test.ts → nie przypisuje nieznanemu błędowi niepotwierdzonej przyczyny`;
+odtworzono go również na niezmienionych plikach z HEAD. Nowe testy konfiguracji
+frontendu przechodzą, a Chromium sprawdził wybór trybu, zachowanie szkicu po
+przeładowaniu i sześć układów rozdzielczości, bez zapisów do backendu/CAN.
+
+Dodatkowo zweryfikowano rzeczywisty JSON rejestratora na emulatorze: 101 cykli,
+606 przygotowanych i 606 aktywowanych referencji osi, 606 ACK oraz 101 SYNC;
+wspólne terminy i fazy, bez brakujących zdarzeń w tym przebiegu. Numer cyklu
+pozostaje w `detail` jako `cycle=`, niezależnie od globalnego numeru zdarzenia.
+
+## Odzyskiwanie po STOP i diagnostyka w awarii (29.10.2026)
+
+Weryfikacja funkcjonalna offline, bez pomiaru wydajności przed/po i bez prób
+fizycznych. Build sześciu zmienionych pakietów/konsumentów Release w osobnej
+nakładce `install/stop-recovery-ros`: OK. Celowane testy ROS/C++: **254 wyniki,
+0 błędów, 0 porażek, 0 pominięć**; licznik zawiera opakowania CTest.
+
+11 testów odzyskiwania obejmuje STOP na każdym etapie, neutralny F5 STOP,
+niezależny rozkaz aktywny/oczekujący, odrzucenie przez firmware przy ENABLE=0,
+brak/spóźniony/uszkodzony ACK, niezgodny odczyt ustawień, watchdog, utratę jednej
+osi, reconnect 0,5/1/2/5 s i blokowanie starej generacji. Regresja zawiera także
+25 testów streamingu synchronicznego oraz zwykły streaming, JOG, konfigurację,
+kalibrację, politykę ENABLE i zachowanie diagnostyki przy błędzie cyklu życia.
+
+Most: 69 celowanych testów OK. Frontend: typecheck/build OK, 144/145 TS; jedyna
+porażka to opisany wyżej zastany `controlMessages.test.ts`. Chromium na atrapach
+potwierdza etapy odzyskiwania, aktualne pozycje podczas awarii, blokady ruchu,
+możliwość wysłania ENABLE=0, Reset CAN oraz układ 1280/1366/1920 px.
+
+Nie wykonano restartu ani komend do sprzętu. Automatyczne zdjęcie blokady SYNC
+pozostaje wyłączone (`execution_staged_reset_verified=false`). Emulator nie
+potwierdza semantyki rzeczywistego bufora; do odbioru procedura pozostawia
+`4A=1`, a diagnostyka nadal pracuje. Pełna sekwencja, ograniczenia i polecenia
+wdrożenia: [odzyskiwanie bufora SYNC](sync_buffer_recovery_proposal.md).
+
+### Odbiór sprzętowy odzyskiwania — 29.10.2026
+
+**Niezaliczony.** Na wszystkich sześciu osiach firmware 1.0.9 potwierdzono
+przyjęcie neutralnego F5 STOP/05 przy ENABLE=0 oraz odczyt 4A=0/8C=00/00.
+Przy pierwszym ponownym ENABLE J1 odczyt zmienił się o 174 ticki = 3,823242°,
+przekraczając 0,5°. Próba przerwana STOP i ENABLE=0; nie wykonano 4B, kontroli
+dodatniej ±5° ani nadpisania znanego ruchu. Osobno zarejestrowano błąd protokołu
+CAN podczas grup STOP bez odstępów; wariant z odstępami 5 ms nie wykazał go,
+co nie rozstrzyga przyczyny ani nie stanowi odbioru obecnej produkcji.
+
+Stan końcowy: świeże pozycje/RPM/ENABLE J1–J6, ENABLE=0, 0 RPM, SYNC=1,
+`recovery_failed`, flaga odbioru nadal false. Brak pomiaru wydajności przed/po.
+[Raport, ograniczenia i zapis ramek](sync_recovery_hardware_2026-10-29.md).
+
+### Powtórne próby i tolerancje czasowe — 29.10.2026
+
+Na polecenie operatora przejścia ENABLE mierzono osobno przed ustaleniem
+pozycji odniesienia. Zachowano tolerancję postoju ±0,5°. Zarejestrowano
+337059 zakończonych zapytań, 0 timeoutów oraz 0 ramek błędów CAN w ośmiu
+nowych zapisach. Maksymalny czas odpowiedzi odczytu: 19,134613 ms. Bazowe
+20 ms przechodziło kalibracje; ustawiono 24 ms (+20%). To dobór zapasu
+czasowego, bez twierdzenia o poprawie szybkości lub izolowanym efekcie kodu.
+
+Przetestowane odstępy między seriami STOP 5 ms zwiększono do 6 ms (+20%).
+Nowy właściciel realizuje je nieblokująco, pozostawiając RX aktywne; jego
+binarka wymaga osobnego wdrożenia i weryfikacji sprzętowej. Brak powtórzenia
+bezpośredniej serii bez odstępów na tych samych danych; nie przypisano
+jednoznacznej przyczyny historycznych błędów CAN.
+
+J1–J3, J5 i J6: po dwa znane bufory nadpisane, późniejsze SYNC i ponowne
+ENABLE zaliczone. J4: kontrola dodatnia niezaliczona także przy limicie 6 s;
+w jednej próbie ustalony niedojazd 0,945–0,967° poza przejściem ENABLE.
+Nie zwiększono tolerancji pozycji i nie odblokowano automatycznego odzyskiwania.
+Wyniki okien 100 ms i 600 ms są rozróżnione w
+[raporcie kolejnego etapu](sync_recovery_timing_2026-10-29.md), wraz z pełnymi
+licznikami i SHA-256 [zapisów](sync_recovery_timing_2026-10-29.json).

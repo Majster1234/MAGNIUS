@@ -1,0 +1,5 @@
+# Odzyskiwanie po globalnym STOP i ciągła diagnostyka w awarii.
+# Aktywować wyłącznie przy potwierdzonym postoju. Flaga
+# execution_staged_reset_verified pozostaje false do odbioru sprzętowego.
+[Service]
+Environment="ROBOT_OVERLAY_SETUP=/home/mk/Desktop/Projekty/install/stop-recovery-ros/setup.bash"

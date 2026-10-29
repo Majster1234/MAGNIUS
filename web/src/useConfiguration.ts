@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dirtyKeys, documentFromDraft, emptyDocument, mergeAppliedDraft, toDraft, validateDocument, withExample, type ConfigurationDocument, type ConfigurationStatus, type Draft } from "./configurationData";
+import { dirtyKeys, documentFromDraft, emptyDocument, mergeAppliedDraft, systemConfigurationDocument, toDraft, validateDocument, withExample, type ConfigurationDocument, type ConfigurationStatus, type Draft } from "./configurationData";
 import type { Notice } from "./eventLog";
 type Snapshot = {id: string; name: string; created_at: string};
 const revisionKey = "robot.configuration.base_revision.v1";
@@ -11,7 +11,7 @@ async function api(path = "", body?: unknown, method?: string) {
     if (!response.ok) throw Error(typeof value.detail === "string" ? value.detail : "Operacja konfiguracji odrzucona");
     return value;
 }
-export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void, enabled: boolean, hasLocal: boolean, notice: (event: Notice) => void) {
+export function useConfiguration(draft: Draft, setDraft: (draft: Draft, preserveValidation?: boolean) => void, enabled: boolean, hasLocal: boolean, notice: (event: Notice) => void, loadSnapshots = true) {
     const [status, setStatus] = useState<ConfigurationStatus | null>(null), [baseline, setBaseline] = useState(emptyDocument);
     const [baseRevision, setBaseRevision] = useState<string | null>(storedRevision);
     const [online, setOnline] = useState(false), [busy, setBusy] = useState(false);
@@ -33,7 +33,7 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
             if (!before.baseRevision || !hasLocal) bindRevision(data.active.revision);
             initial.current = false;
         } else if (ownOperation.current === data.operation.id && submitted.current && data.operation.phase === "done" && data.operation.success) {
-            setDraft(mergeAppliedDraft(before.draft, submitted.current, document));
+            setDraft(mergeAppliedDraft(before.draft, submitted.current, document), true);
             submitted.current = null; ownOperation.current = "";
             bindRevision(data.active.revision);
         } else if (different && !dirtyKeys(before.draft, before.baseline).size) {
@@ -60,7 +60,7 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
         setItems(data.items); setNextCursor(data.next_cursor);
         setSelected(previous => data.items.some((item: Snapshot) => item.id === previous) ? previous : data.items[0]?.id ?? "");
     }, []);
-    useEffect(() => { if (enabled) void refresh().catch(() => {}); }, [enabled, refresh]);
+    useEffect(() => { if (enabled && loadSnapshots) void refresh().catch(() => {}); }, [enabled, loadSnapshots, refresh]);
     async function run(action: () => Promise<void>) {
         setBusy(true);
         try { await action(); }
@@ -103,6 +103,7 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
         } catch (error) { submitted.current = null; throw error; }
     });
     const apply = () => applyDocument(documentFromDraft(draft, name), [], draft);
+    const applySystemSettings = () => status ? applyDocument(systemConfigurationDocument(draft, status.active.document)) : Promise.resolve();
     const confirmReference = (axes: number[]) => status ? applyDocument(status.active.document, axes) : Promise.resolve();
     const reconcile = () => run(async () => {receive(await api('/reconcile', {}));});
     const loadActive = () => {if (status) replace(status.active.document);};
@@ -115,5 +116,5 @@ export function useConfiguration(draft: Draft, setDraft: (draft: Draft) => void,
         await refresh(updated.at(-1));setCursors(updated.length ? updated : [""]);
     });
     return {status, baseline, baseRevision, online, busy, items, selected, setSelected, name, setName, nextCursor, cursors,
-        saveSnapshot, loadSnapshot, deleteSnapshot, importFile, exportFile, apply, confirmReference, reconcile, loadActive, example, page};
+        saveSnapshot, loadSnapshot, deleteSnapshot, importFile, exportFile, apply, applySystemSettings, confirmReference, reconcile, loadActive, example, page};
 }

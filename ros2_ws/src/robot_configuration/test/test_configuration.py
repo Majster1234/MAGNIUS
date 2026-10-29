@@ -493,3 +493,37 @@ def test_critical_fault_policy_requires_can_confirmation():
     response['resolved_configuration']['disable_enable_on_critical_fault'] = True
     with pytest.raises(RuntimeError, match='CAN nie potwierdził reguły'):
         resolve(previous, candidate, response)
+
+
+def test_dispatch_mode_migration_validation_and_axis_independence():
+    from robot_configuration.schema import DISPATCH_MODE, changed_axes
+    legacy = empty_document()
+    del legacy['values'][DISPATCH_MODE]
+    normalized = validate(legacy)
+    assert normalized['values'][DISPATCH_MODE] == 'streamed'
+    candidate = deepcopy(normalized)
+    candidate['values'][DISPATCH_MODE] = 'synchronized'
+    assert validate(candidate)['values'][DISPATCH_MODE] == 'synchronized'
+    assert changed_axes(normalized, candidate) == [False] * 6
+    for invalid in (None, True, 0, 'invalid'):
+        candidate['values'][DISPATCH_MODE] = invalid
+        with pytest.raises(ValueError):
+            validate(candidate)
+
+
+def test_dispatch_mode_requires_runtime_confirmation():
+    from robot_configuration.schema import DISPATCH_MODE
+    from robot_configuration.resolution import resolve
+    document = empty_document()
+    previous = {'revision': 'before', 'document': document}
+    candidate = deepcopy(previous)
+    candidate['revision'] = 'after'
+    candidate['document']['values'][DISPATCH_MODE] = 'synchronized'
+    response = {'resolved_configuration': {'revision': 'after', 'axes': profiles(document),
+                'calibration_invalid': [False] * 6, 'ptp_lin_dispatch_mode': 'streamed'}}
+    with pytest.raises(RuntimeError, match='trybu wysyłania'):
+        resolve(previous, candidate, response)
+    response['resolved_configuration']['ptp_lin_dispatch_mode'] = 'synchronized'
+    resolved, invalid = resolve(previous, candidate, response)
+    assert resolved['document']['values'][DISPATCH_MODE] == 'synchronized'
+    assert invalid == [False] * 6

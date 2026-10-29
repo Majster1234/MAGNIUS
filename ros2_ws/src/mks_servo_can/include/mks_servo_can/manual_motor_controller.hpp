@@ -20,6 +20,8 @@ struct ManualState {
   unsigned axis{}, max_rpm{30};
   std::string operation, message{"Sterowanie ręczne gotowe"};
   std::string configuration_revision{"initial"};
+  std::string recovery_state{"idle"}, recovery_message;
+  std::uint8_t recovery_pending_mask{};
 };
 enum class JogAction { start, keepalive, stop };
 
@@ -37,11 +39,13 @@ class ManualMotorController {
       const std::string &revision, const std::string &session, std::uint64_t sequence, Time issued, Time now);
   void configuration_changed(const std::array<bool, kAxes> &changed);
   bool configuration_stopped(unsigned axis, Time now) const;
+  bool dispatch_stopped(unsigned axis, Time now) const;
   bool calibration_valid(unsigned axis) const { return calibrated_[axis - 1]; }
   void tick(Time now);
   void reply(const std::vector<std::uint8_t> &data, Time stamp);
   void timeout();
   void transport_fault();
+  void recovery_complete();
   void abort(const std::string &reason, bool critical = true) { fail(reason, critical); }
   std::uint16_t microstep(unsigned axis) const { return microstep_.at(axis-1); }
   bool prepared(unsigned axis) const { return prepared_.at(axis-1); }

@@ -281,7 +281,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         planningControl.current.end(); planningMode.current = false; setPlan(planningControl.current.snapshot(performance.now())); setPlanning(false); setHeld(null); setSimulationPositions(null);
         notice({ source: "planning", severity: "info", message: "Zakończono planowanie lokalne. Fizyczny JOG pozostaje zatrzymany." });
     }
-    const canResetBlocked = pending || !!state?.busy || physicalTcpBusy || !!state?.tcp_jog?.busy || !!execution?.status.busy;
+    const canResetBlocked = pending || (!state?.fault && (!!state?.busy || physicalTcpBusy || !!state?.tcp_jog?.busy || !!execution?.status.busy));
     async function resetCan() {
         if (canResetBlocked) return;
         setPending(true); setResettingCan(true);
@@ -309,7 +309,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         finally { setPending(false); }
     }
     async function allEnable(enabled: boolean) {
-        if(planningMode.current || pending || physicalTcp.current?.busy || latestState.current?.busy || !fresh || !connected) return;
+        const blockedByMotion=latestState.current?.busy && !(latestState.current?.fault && !enabled);
+        if(planningMode.current || pending || physicalTcp.current?.busy || blockedByMotion || !fresh || !connected) return;
         control.current?.stop();setPending(true);
         try {
             const response=await fetch('/api/v1/manual/enable-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
@@ -378,18 +379,24 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             <span>{profile.joint_configured ? "°/s przeg." : "obr./min wału"}</span></label>;
     }
     const usable = fresh && connected;
+    const recovering = !!state?.recovery_state && !["idle", "idle_disabled"].includes(state.recovery_state);
+    const recoveryPending = Array.from({length: 6}, (_, index) => (state?.recovery_pending_mask ?? 0) & (1 << index) ? `J${index + 1}` : "").filter(Boolean).join(", ");
     const axes = state?.axes ?? Array.from({ length: 6 }, (_, index) => ({ axis: index + 1 } as Axis));
     return <section className={`manual-screen ${planning ? "mode-planning" : "mode-live"}`} data-usable={usable} aria-label="Sterowanie ręczne">
         <header className="manual-header">
             <h1>Sterowanie ręczne</h1>
             <div className="manual-enable-all" role="group" aria-label="ENABLE wszystkich napędów">
-                <button className="secondary-button" disabled={planning || !usable || pending || !!state?.busy || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(true)}>Załącz wszystkie</button>
-                <button className="secondary-button" disabled={planning || !usable || pending || !!state?.busy || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(false)}>Wyłącz wszystkie</button>
+                <button className="secondary-button" disabled={planning || !usable || pending || !!state?.busy || !!state?.fault || recovering || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(true)}>Załącz wszystkie</button>
+                <button className="secondary-button" disabled={planning || !usable || pending || physicalTcpBusy || (!state?.fault && (!!state?.busy || recovering)) || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(false)}>Wyłącz wszystkie</button>
             </div>
             <span className="manual-mode"><span aria-hidden="true" />{planning ? "PLANOWANIE · bliźniak" : "LIVE · robot fizyczny"}</span>
             <button className="motion-stop" disabled={!stopRobot && !physicalTcpBusy && !state?.tcp_jog?.busy} onClick={()=>{if(stopRobot){physicalTcp.current?.stop();stopRobot();}else physicalTcp.current?.stop(true);}} title="Żądanie STOP robota; postój wymaga potwierdzenia pomiarami">STOP robota</button>
             <button className="secondary-button" disabled={canResetBlocked} onClick={() => void resetCan()} title="Reset CAN jest blokowany podczas aktywnego sterowania">{resettingCan ? "Resetowanie…" : "Reset CAN"}</button>
         </header>
+        {state?.recovery_state && state.recovery_state !== "idle" && <div className={`manual-recovery ${state.recovery_state === "idle_disabled" ? "ready" : state.recovery_state === "recovery_failed" ? "failed" : "active"}`} role="status">
+            <strong>{state.recovery_state === "idle_disabled" ? "Gotowy do ponownego załączenia" : state.recovery_state === "recovery_failed" ? "Odzyskiwanie nieudane" : "Odzyskiwanie po STOP"}</strong>
+            <span>{state.recovery_message || state.message}{recoveryPending ? ` · oczekujące osie: ${recoveryPending}` : ""}</span>
+        </div>}
         <div className="manual-workspace"><div className="manual-observation">
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onCondition={condition} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
             simulationPositions={simulationPositions} motionTrace={motionTrace} execution={execution} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} />
@@ -407,9 +414,9 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                     <span className={`badge ${usable && axis.available ? "ok" : "stale"}`}>{!usable ? "Dane nieaktualne" : axis.available ? "Połączony" : "Niedostępny"}</span></td>
                 <td><AxisPosition axis={axis} usable={usable} planning={planning} plannedPosition={plan.positions[axis.axis - 1]} planAvailable={plan.available[axis.axis - 1]}/></td>
                 <td className="manual-drive"><span className={`badge ${usable && axis.enable_known ? axis.enabled ? "ok" : "warn" : "stale"}`}>{usable && axis.enable_known ? axis.enabled ? "Włączony" : "Wyłączony" : "Nieznany"}</span>
-                    <div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
-                    <button className="secondary-button" disabled={planning || !usable || !axis.available || pending || (state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
-                <td><button className="link-button" title={calibrationRepair(axis) ?? "Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu"} disabled={planning || !usable || !axis.can_zero || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
+                    <div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || state?.fault || recovering || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
+                    <button className="secondary-button" disabled={planning || !usable || !axis.available || pending || (!state?.fault && state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
+                <td><button className="link-button" title={calibrationRepair(axis) ?? "Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu"} disabled={planning || !usable || !axis.can_zero || state?.fault || recovering || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
                 <td>{jogSpeed(axis)}</td>
             </tr>)}
         </tbody></table></div>

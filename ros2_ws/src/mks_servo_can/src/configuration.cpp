@@ -33,6 +33,13 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
     if (active_ || manual_->busy() || fault_) return result(false, "Zapis wymaga nieaktywnego sterowania i braku awarii");
     if (profile.revision.empty() || profile.revision.size() > 64) return result(false, "Nieprawidłowa rewizja");
     auto candidate = profile;
+    if(candidate.ptp_lin_dispatch_mode!="streamed" && candidate.ptp_lin_dispatch_mode!="synchronized")
+      return result(false,"Nieprawidłowy tryb wysyłania PTP/LIN");
+    if(!bootstrap && candidate.ptp_lin_dispatch_mode!=profile_.ptp_lin_dispatch_mode) {
+      for(unsigned j=0;j<kAxes;++j) if(devices_[j+1].detected &&
+          !manual_->dispatch_stopped(j+1,now))
+        return result(false,"Zmiana trybu PTP/LIN wymaga potwierdzonego postoju wszystkich obecnych osi");
+    }
     std::array<bool,kAxes> anchored{};
     std::array<std::int64_t,kAxes> ticks{};
     std::array<std::uint64_t,kAxes> segments{};
@@ -57,6 +64,9 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
         if((device.enable.fresh(now,std::chrono::milliseconds(300)) && device.enable.value) ||
             (live && !manual_->configuration_stopped(i+1,now)))
           return result(false,"J"+std::to_string(i+1)+": wymagany potwierdzony postój i ENABLE=0");
+      }
+      if(!bootstrap && candidate.ptp_lin_dispatch_mode!=profile_.ptp_lin_dispatch_mode && device.detected) {
+        anchored[i]=true;ticks[i]=device.position.value;segments[i]=shaft_segments_[i];
       }
       if(!bootstrap) {
         candidate.calibration_invalid[i]=calibration_invalid_[i];
@@ -117,7 +127,7 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
     if (!bootstrap) for (std::size_t i = 0; i < kAxes; ++i) {
       const auto &device = devices_[i + 1];
       if(configuration_anchored_[i] && (!device.detected || device.consecutive_timeouts>=3 ||
-          !manual_->configuration_stopped(i+1,now) || shaft_segments_[i]!=configuration_segments_[i] ||
+          !(candidate_profile_.changed[i] ? manual_->configuration_stopped(i+1,now) : manual_->dispatch_stopped(i+1,now)) || shaft_segments_[i]!=configuration_segments_[i] ||
           std::abs(device.position.value-configuration_ticks_[i])>3))
         return result(false,"Odniesienie lub warunki postoju zmieniły się przed COMMIT");
       if(candidate_profile_.changed[i] && device.enable.fresh(now,std::chrono::milliseconds(300)) && device.enable.value)

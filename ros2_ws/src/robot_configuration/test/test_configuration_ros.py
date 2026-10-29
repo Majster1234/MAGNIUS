@@ -90,6 +90,7 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
         assert command('system_set', ignore_missing_drivers=False)[1]['allow_missing_motion'] is True
         assert command('status')[1]['active']['revision'] == 'initial'
         document=empty_document();document['name']='ROS integracja'
+        document['values']['motion.ptp_lin_dispatch_mode']='synchronized'
         for key,value in dict(gear_ratio=50,direction=-1,zero_offset=10,lower=-180,upper=180,velocity=30,acceleration=60).items():
             document['values'][f'joint.1.{key}']=value
         document['values']['joint.1.origin_x']=123
@@ -110,6 +111,8 @@ def test_configuration_rpc_updates_real_description_si_profiles_files_and_tf(mon
         while time.monotonic()<deadline and not any(value.revision==revision for value in active_configurations):
             time.sleep(.02)
         active_tcp=next(value for value in reversed(active_configurations) if value.revision==revision)
+        assert active_tcp.ptp_lin_dispatch_mode == "synchronized"
+        assert profiles[-1].ptp_lin_dispatch_mode == "synchronized"
         assert active_tcp.tcp_jog_max_linear_velocity==.1
         assert active_tcp.tcp_jog_max_angular_velocity==math.radians(30)
         assert active_tcp.tcp_jog_linear_acceleration==.5

@@ -18,6 +18,7 @@ struct Identity {
   std::uint8_t hardware_type{};
   std::uint8_t firmware_major{};
   std::uint8_t firmware_minor{};
+  std::uint8_t firmware_patch{};
 };
 
 struct ValidationResult {
@@ -50,6 +51,10 @@ bool supports_motor_state(std::uint8_t mode);
 std::optional<std::int64_t> parse_position(std::uint16_t address, const std::vector<std::uint8_t> &data);
 std::vector<std::uint8_t> absolute_position_request(std::uint16_t address, std::int32_t ticks,
                                                  std::uint16_t rpm, std::uint8_t acceleration);
+// Udokumentowany STOP trybu pozycyjnego F5 (§11.4.2): speed=0, target=0.
+// acceleration=0 zatrzymuje natychmiast, wartość niezerowa uruchamia rampę.
+std::vector<std::uint8_t> absolute_position_stop_request(
+    std::uint16_t address, std::uint8_t acceleration = 0);
 std::vector<std::uint8_t> synchronize_request();
 std::vector<std::uint8_t> stop_request(std::uint16_t address);
 std::vector<std::uint8_t> speed_request(std::uint16_t address, bool clockwise,

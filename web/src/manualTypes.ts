@@ -10,6 +10,7 @@ export type ManualState = {
     tcp_jog?: import("./physicalTcpJog").TcpJogStatus;
     fresh: boolean; busy: boolean; fault: boolean; recording?: boolean; active_axis: number;
     max_rpm: number; operation: string; message: string; axes: Axis[];
+    recovery_state?: string; recovery_message?: string; recovery_pending_mask?: number;
     configuration_revision?: string;
     state_monotonic_ns?: string;
 };

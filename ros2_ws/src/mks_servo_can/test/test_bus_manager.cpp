@@ -102,6 +102,7 @@ struct Harness {
   CommandBatch batch(std::uint64_t sequence, double position = 0.001) const {
     CommandBatch batch;batch.velocities_valid=true; batch.positions.fill(position); batch.sequence = sequence;
     batch.configuration_generation=manager->control_state().configuration_generation;
+    batch.control_generation=manager->control_state().control_generation;
     batch.created = now; batch.expires = now + 19ms; batch.source = Source::trajectory; return batch;
   }
 };
@@ -320,19 +321,21 @@ TEST(BusManager, RejectsOldConfigurationGenerationBeforeAcceptingCurrentCommand)
   EXPECT_EQ(h.bus->counts[0xf5],6u);
 }
 
-TEST(BusManager, CriticalFaultDisablesAllAxesWithoutFeedbackAndOnlyOnce) {
+TEST(BusManager, ExplicitStopCanRetryRecoveryAndAlwaysDisablesAllAxes) {
   Harness h;
   h.manager->stop("krytyczna awaria bez pomiarów");
+  EXPECT_TRUE(h.manager->snapshot().statistics.stop_pending);
+  EXPECT_EQ(h.manager->manual().snapshot(h.now).recovery_state,"stopping");
+  h.run(20);
   EXPECT_EQ(h.bus->disable_attempts,(std::vector<std::uint16_t>{1,2,3,4,5,6}));
   EXPECT_TRUE(h.manager->snapshot().fault);
-  EXPECT_NE(h.manager->manual().snapshot(h.now).message.find("wyłączenie niepotwierdzone"),std::string::npos);
   h.manager->stop("kolejna awaria");h.run(100);
-  EXPECT_EQ(h.bus->disable_attempts.size(),6u);
-  EXPECT_EQ(h.bus->counts[0xf5],0u);
+  EXPECT_EQ(h.bus->disable_attempts.size(),12u);
+  EXPECT_EQ(h.bus->counts[0xf5],12u);
 }
 TEST(BusManager, CriticalFaultContinuesDisableAfterOneSendFails) {
   Harness h;h.bus->fail_disable_address=3;
-  h.manager->stop("krytyczna awaria");
+  h.manager->stop("krytyczna awaria");h.run(20);
   EXPECT_EQ(h.bus->disable_attempts,(std::vector<std::uint16_t>{1,2,3,4,5,6}));
   EXPECT_EQ(h.bus->counts[0xf3],5u);
   EXPECT_NE(h.manager->snapshot().message.find("J3 (CAN ID 3): test: brak miejsca TX"),std::string::npos);
@@ -342,18 +345,20 @@ TEST(BusManager, CriticalFaultDuringStreamDisablesAfterStopAndRejectsNewMotion) 
   ASSERT_TRUE(h.manager->submit(h.batch(1)));h.run(10);
   h.bus->trace.clear();const auto moves=h.bus->counts[0xf5];
   h.manager->stop("krytyczna awaria w ruchu");
-  ASSERT_GE(h.bus->trace.size(),6u);
-  for(unsigned j=0;j<6;++j) EXPECT_EQ(h.bus->trace[h.bus->trace.size()-6+j],std::make_pair(static_cast<std::uint16_t>(j+1),std::uint8_t{0xf3}));
+  h.run(13);
+  std::vector<std::uint16_t> disabled;
+  for(const auto &[address,opcode]:h.bus->trace) if(opcode==0xf3) disabled.push_back(address);
+  EXPECT_EQ(disabled,(std::vector<std::uint16_t>{1,2,3,4,5,6}));
   EXPECT_EQ(h.bus->counts[0xf7],6u);
   EXPECT_FALSE(h.manager->submit(h.batch(2)));h.run(100);
-  EXPECT_EQ(h.bus->counts[0xf5],moves);
+  EXPECT_EQ(h.bus->counts[0xf5],moves+6);
 }
-TEST(BusManager, CriticalFaultPolicyCanBeDisabledAndOperatorStopDoesNotTriggerIt) {
+TEST(BusManager, CriticalFaultRespectsPolicyAndOperatorStopAlwaysDisables) {
   for(bool operator_stop:{false,true}) {
     Harness h(configured(),operator_stop);
-    h.manager->stop("zatrzymanie",!operator_stop);
+    h.manager->stop("zatrzymanie",!operator_stop);h.run(20);
     EXPECT_TRUE(h.manager->snapshot().fault);
-    EXPECT_TRUE(h.bus->disable_attempts.empty());
+    EXPECT_EQ(h.bus->disable_attempts.size(),operator_stop ? 6u : 0u);
   }
 }
 TEST(BusManager, CriticalFaultPolicyCommitAndRollbackRestoreThePreviousRule) {
@@ -365,7 +370,7 @@ TEST(BusManager, CriticalFaultPolicyCommitAndRollbackRestoreThePreviousRule) {
     ASSERT_TRUE(h.manager->configure(ConfigurationPhase::commit,"policy","unit",profile,h.now).accepted);
     if(rollback) ASSERT_TRUE(h.manager->configure(ConfigurationPhase::rollback,"policy","unit",profile,h.now).accepted);
     ASSERT_TRUE(h.manager->configure(ConfigurationPhase::finish,"policy","unit",profile,h.now).accepted);
-    h.manager->stop("krytyczna awaria");
+    h.manager->stop("krytyczna awaria");h.run(20);
     EXPECT_EQ(h.bus->disable_attempts.size(),rollback ? 6u : 0u);
   }
 }

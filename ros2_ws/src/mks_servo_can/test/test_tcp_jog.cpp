@@ -25,7 +25,12 @@ TEST(TcpJogOwner, WatchdogStopsEvenWhenGeneratorKeepsPublishing) {
   for(unsigned i=0;i<20;++i) {ASSERT_TRUE(rig.bus->submit(batch(rig,generation,i+1)));rig.run(10);}
   rig.run(2);EXPECT_TRUE(rig.bus->control_state().fault);const auto sent=rig.port->counts[0xf5];
   EXPECT_GT(rig.port->counts[0xf7],0u);EXPECT_FALSE(rig.bus->submit(batch(rig,generation,30)));
-  rig.run(50);EXPECT_EQ(rig.port->counts[0xf5],sent);
+  const auto first=rig.port->events.size();rig.run(50);
+  EXPECT_EQ(rig.port->counts[0xf5],sent+6);
+  for(auto i=first;i<rig.port->events.size();++i) {
+    const auto &e=rig.port->events[i];
+    if(e.data[0]==0xf5) EXPECT_EQ(e.data,absolute_position_stop_request(e.axis));
+  }
 }
 TEST(TcpJogOwner, SessionGenerationArbitrationAndReferenceTimeout) {
   Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);

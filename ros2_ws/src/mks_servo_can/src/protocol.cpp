@@ -82,7 +82,7 @@ std::optional<Identity> parse_identity(std::uint16_t address,
   if (kind == 4) model = Model::kServo57D;
   if (kind == 6) model = Model::kServo28D;
   if (kind == 8) model = Model::kServo35D;
-  return Identity{model, static_cast<std::uint8_t>(data[1] >> 4), kind, data[2], data[3]};
+  return Identity{model, static_cast<std::uint8_t>(data[1] >> 4), kind, data[2], data[3], data[4]};
 }
 
 std::optional<bool> parse_enable(std::uint16_t address, const std::vector<std::uint8_t> &data) {
@@ -142,6 +142,10 @@ std::vector<std::uint8_t> absolute_position_request(std::uint16_t address, std::
   return request(address, 0xf5, {static_cast<std::uint8_t>((rpm >> 8)&0x0f), static_cast<std::uint8_t>(rpm),
       acceleration, static_cast<std::uint8_t>(bits >> 16), static_cast<std::uint8_t>(bits >> 8),
       static_cast<std::uint8_t>(bits)});
+}
+std::vector<std::uint8_t> absolute_position_stop_request(
+    std::uint16_t address, std::uint8_t acceleration) {
+  return request(address,0xf5,{0,0,acceleration,0,0,0});
 }
 std::vector<std::uint8_t> synchronize_request() { return {0x4b, 0x4b}; }
 std::vector<std::uint8_t> stop_request(std::uint16_t address) { return request(address, 0xf7); }

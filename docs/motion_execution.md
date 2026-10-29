@@ -1,5 +1,9 @@
 # Fizyczne wykonanie PTP/LIN — streaming 100 Hz
 
+Od 28.10.2026 dostępny jest opcjonalny [streaming synchroniczny](synchronized_streaming.md).
+Poniższy kontrakt bez ACK/SYNC nadal opisuje domyślny tryb `streamed`;
+nowy tryb wymaga oddzielnego odbioru sprzętowego i nie obejmuje JOG ani JTC.
+
 ## LIN na wspólnym wykonawcy — 25.10.2026
 
 PTP i LIN korzystają z tego samego wykonawcy C++ oraz strumienia CAN 100 Hz.

@@ -17,6 +17,9 @@ void CanBusManager::configure_program_authorization(const BusConfig &a) {
   config_.program_position_period=kStreamingCycle;
   config_.program_position_tolerance=a.program_position_tolerance;
   config_.program_streaming=a.program_streaming;
+  // To nie jest bramka zwykłego PTP. Zezwala wyłącznie na automatyczne
+  // zdjęcie blokady po sprzętowo odebranej sekwencji czyszczenia bufora SYNC.
+  config_.program_staged_reset_verified=a.program_staged_reset_verified;
   // Pola ACK/odbioru są przyjmowane przez stare API, ale nie sterują ruchem.
   for(unsigned j=0;j<kAxes;++j) {
     if(!config_.axes[j].address) config_.axes[j].address=j+1;
@@ -40,6 +43,7 @@ void CanBusManager::update_motion_settings(const std::string &revision,bool allo
 }
 MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time now) {
   if(source_==Source::tcp_jog) throw std::runtime_error("Zakończ JOG TCP przed przygotowaniem programu");
+  if(sync_recovery_required_) throw std::runtime_error("Niepewny bufor SYNC: wymagany osobny odbiór usunięcia oczekujących poleceń");
   if(!config_.program_enabled) throw std::runtime_error("Wykonanie PTP/LIN wyłączone");
   // Rewizję wybiera zakończona transakcja konfiguracji, a nie kopia UUID w YAML.
   // Sprawdzamy tę bramkę przed przejęciem sterowania od JTC.
@@ -58,6 +62,9 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
   }
   if(!service_allowed() || scanning_ || fault_ || executor_.status.busy || !transport_->is_open())
     throw std::runtime_error("Przygotowanie wymaga postoju, zakończonego skanu i wolnego CAN");
+  p.dispatch_mode=profile_.ptp_lin_dispatch_mode;
+  const bool synchronized=p.dispatch_mode=="synchronized";
+  if(synchronized && !transport_->supports_tx_confirmation()) throw std::runtime_error("Transport nie potwierdza nadania SYNC");
   std::array<std::uint16_t,6> microsteps{};auto axes=config_.axes;unsigned participants=0;
   for(unsigned j=0;j<kAxes;++j) {
     const auto &a=config_.axes[j];
@@ -68,6 +75,9 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
       continue;
     }
     ++participants;
+    if(synchronized && !(d.identity.firmware_major==1 && d.identity.firmware_minor==0 &&
+        (d.identity.firmware_patch==8 || d.identity.firmware_patch==9)))
+      throw std::runtime_error("J"+std::to_string(j+1)+": SYNC wymaga obsługiwanej wersji firmware CAN 1.0.8/1.0.9");
     if(!profile_.axes[j].configured || !manual_->calibration_valid(j+1) || !d.microstep.valid ||
         !d.position.fresh(now,kProgramFeedbackTimeout) || !d.enable.fresh(now,300ms) || !d.enable.value ||
         !d.stall.fresh(now,300ms) || d.stall.value || !d.mode.valid || d.mode.value!=5)
@@ -76,14 +86,15 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
       throw std::runtime_error("Zmieniła się pozycja początkowa; przelicz ruch");
     microsteps[j]=d.microstep.value;axes[j].streaming=config_.program_streaming[j];
   }
-  if(streaming_bus_utilization(participants,config_.bitrate)>std::min(kPlannedUtilization,config_.utilization_limit)+1e-12)
+  if(streaming_bus_utilization(participants,config_.bitrate)+(synchronized ? (participants*can_frame_bits(3)+can_frame_bits(2))*100/config_.bitrate : 0)>std::min(kPlannedUtilization,config_.utilization_limit)+1e-12)
     throw std::runtime_error("Streaming 100 Hz przekracza budżet robota 40%; sześć osi wymaga profilu 1 Mbit/s");
   p=compile_streaming_program(std::move(p),axes,microsteps);
+  if(synchronized) compile_program_reversals(p);
   p.id+="-"+std::to_string(++program_generation_)+"-"+std::to_string(Clock::now().time_since_epoch().count());
   program_owned_=true;latest_.reset();executor_={};executor_.program=std::move(p);const auto &program=*executor_.program;
   auto &s=executor_.status;s.program_id=program.id;s.state="ready";s.mode=program.mode;s.participating=program.participating;
-  s.tcp_verified=program.tcp_verified;s.duration=program.duration;s.start=program.start;s.target=program.target;
-  s.message="Streaming 100 Hz gotowy; oczekiwanie na zatwierdzenie";
+  s.dispatch_mode=program.dispatch_mode;s.tcp_verified=program.tcp_verified;s.duration=program.duration;s.start=program.start;s.target=program.target;
+  s.message=synchronized ? "Streaming synchroniczny 100 Hz gotowy; płynność wymaga odbioru sprzętowego" : "Streaming 100 Hz gotowy; oczekiwanie na zatwierdzenie";
   return s;
 }
 bool CanBusManager::program_feedback_good(Time now) const {
@@ -99,7 +110,7 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
   if(s.program_id==id && s.execution_key==key && !key.empty()) return s.state!="failed";
   if(s.state!="ready" || s.busy || !e.program || id!=s.program_id || key.empty() || key.size()>64 ||
       std::find(execution_keys_.begin(),execution_keys_.end(),key)!=execution_keys_.end() || active_ || manual_->busy() ||
-      fault_ || configuration_locked_ || scanning_ || !program_feedback_good(now)) return false;
+      fault_ || sync_recovery_required_ || configuration_locked_ || scanning_ || !program_feedback_good(now)) return false;
   if(e.program->revision!=profile_.revision || e.program->settings_revision!=motion_settings_revision_ ||
       now<motion_settings_stamp_ || now-motion_settings_stamp_>=1500ms) return false;
   for(unsigned j=0;j<kAxes;++j) {
@@ -109,7 +120,7 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
     } else if(d.detected && d.consecutive_timeouts<3) return false;
   }
   execution_keys_[execution_key_cursor_++%execution_keys_.size()]=key;
-  s.execution_key=key;s.busy=true;s.state="arming";s.message="Weryfikacja postoju i CanRSP=Disable";
+  s.execution_key=key;s.busy=true;s.state="arming";s.message=s.dispatch_mode=="synchronized" ? "Weryfikacja postoju, ACK i SYNC" : "Weryfikacja postoju i CanRSP=Disable";
   e.preparation_deadline=now+3s;e.setup_axis=e.setup_step=0;e.waiting=false;
   active_=true;source_=Source::program;stop_sent_=false;latest_.reset();
   streaming_states_={};
@@ -118,14 +129,20 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
 }
 void CanBusManager::program_setup_reply(const Frame &frame,Time) {
   auto &e=executor_;
-  if(e.status.state!="arming" || !e.waiting || frame.address!=config_.axes[e.setup_axis].address) { fault("Nieoczekiwane potwierdzenie uzbrojenia");return; }
+  const bool restoring=e.status.state=="restoring";
+  const bool synchronized=e.status.dispatch_mode=="synchronized" && !restoring;
+  if((e.status.state!="arming" && !restoring) || !e.waiting || frame.address!=config_.axes[e.setup_axis].address) { fault("Nieoczekiwane potwierdzenie uzbrojenia");return; }
   bool good=false;
-  switch(e.setup_step) {
-    case 0:good=bool(parse_speed(frame.address,frame.data));break;
+  if(restoring) {
+    good=e.setup_step%2==0 ? frame.data[1]==1 : frame.data[1]==0 && (e.setup_step==1 || frame.data[2]==0);
+    if(good && e.setup_step==1) {devices_[frame.address].synchronization_known=true;devices_[frame.address].synchronization_disabled=true;}
+    if(good && e.setup_step==3) {devices_[frame.address].responses_known=true;devices_[frame.address].responses_disabled=true;}
+  } else switch(e.setup_step) {
+    case 0:{const auto speed=parse_speed(frame.address,frame.data);good=speed && (!synchronized || *speed==0);break;}
     case 1:{const auto state=parse_motor_state(frame.address,frame.data);good=state && *state==1;break;}
     case 2:case 4:good=frame.data[1]==1;break;
-    case 3:good=frame.data[1]==0 && frame.data[2]==0;devices_[frame.address].responses_disabled=good;break;
-    case 5:good=frame.data[1]==0;devices_[frame.address].synchronization_disabled=good;break;
+    case 3:good=frame.data[1]==(synchronized ? 1 : 0) && frame.data[2]==0;devices_[frame.address].responses_known=good;devices_[frame.address].responses_disabled=good && !synchronized;break;
+    case 5:good=frame.data[1]==(synchronized ? 1 : 0);devices_[frame.address].synchronization_known=good;devices_[frame.address].synchronization_disabled=good && !synchronized;break;
     case 6:good=frame.data[1]==0 && frame.data[2]==0 && frame.data[3]==1 && frame.data[4]==44;break;
     case 7:good=frame.data[1]==devices_[frame.address].microstep.value;break;
     case 8:good=frame.data[1]==5;break;
@@ -135,10 +152,14 @@ void CanBusManager::program_setup_reply(const Frame &frame,Time) {
         "potwierdzenie zapisu CanRSP (0x8C)","CanRSP=Disable (0x8C)",
         "potwierdzenie zapisu SYNC (0x4A)","SYNC=0 (0x4A)",
         "watchdog 300 ms (0x98)","zgodność mikrokroku (0x84)","SR_vFOC=5 (0x82)"};
-    fault(axis_diagnostic_label(e.setup_axis+1,frame.address)+": niepotwierdzony warunek uzbrojenia: "+
-        (e.setup_step<9 ? conditions[e.setup_step] : "nieznany etap"));return;
+    static constexpr const char *restore_conditions[]={"potwierdzenie zapisu SYNC=0 (0x4A)","odczyt SYNC=0 (0x4A)",
+        "potwierdzenie zapisu CanRSP=00/00 (0x8C)","odczyt CanRSP=00/00 (0x8C)"};
+    std::string condition=restoring ? restore_conditions[e.setup_step] : conditions[e.setup_step];
+    if(synchronized && e.setup_step==3) condition="CanRSP=01/00 (0x8C)";
+    if(synchronized && e.setup_step==5) condition="SYNC=1 (0x4A)";
+    fault(axis_diagnostic_label(e.setup_axis+1,frame.address)+": niepotwierdzony warunek uzbrojenia/odtwarzania: "+condition);return;
   }
-  e.waiting=false;if(++e.setup_step==9) {++e.setup_axis;e.setup_step=0;}
+  e.waiting=false;if(++e.setup_step==(restoring ? 4u : 9u)) {++e.setup_axis;e.setup_step=0;}
 }
 void CanBusManager::begin_program_check(Time now) {
   auto &e=executor_;e.checking_position=true;e.check_started=now;
@@ -162,45 +183,86 @@ void CanBusManager::schedule_program(Time now) {
     if(d.enable.fresh(now,300ms) && !d.enable.value) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": ENABLE=0 — napęd wyłączony podczas programu");return;}
     if(d.stall.fresh(now,300ms) && d.stall.value) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": stall=1 — napęd zgłosił zablokowanie wału podczas programu");return;}
   }
-  if(s.state=="arming") {
+  const bool synchronized=s.dispatch_mode=="synchronized";
+  const bool restoring=s.state=="restoring";
+  if(s.state=="arming" || restoring) {
     if(now>=e.preparation_deadline) {fault("Przekroczony termin uzbrojenia");return;}
     if(e.waiting) return;
     while(e.setup_axis<kAxes && !s.participating[e.setup_axis]) ++e.setup_axis;
     if(e.setup_axis==kAxes) {
+      if(restoring) {
+        sync_recovery_required_=false;e.sync_uncertain=false;s.busy=false;s.state="succeeded";s.progress=1;
+        s.sync_state="restored";s.message="Postój i koniec programu potwierdzone; przywrócono tryb bez SYNC";
+        active_=false;source_=Source::none;return;
+      }
       for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
         const auto &d=devices_[config_.axes[j].address];
         if(!d.position.fresh(now,kProgramFeedbackTimeout)) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": "+sample_diagnostic(d.position,now,kProgramFeedbackTimeout,"pozycja startowa (0x31)"));return;}
         const double error=position_to_joint(config_.axes[j],d.position.value)-e.program->start[j];
         if(std::abs(error)>config_.program_position_tolerance[j]) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": pozycja startowa zmieniła się podczas uzbrajania; uchyb="+diagnostic_number(error*180/std::acos(-1.))+"°, tolerancja ±"+diagnostic_number(config_.program_position_tolerance[j]*180/std::acos(-1.))+"°");return;}
       }
-      s.state="running";s.message="Streaming 100 Hz; bez ACK i kontroli punktów pośrednich";return;
+      if(synchronized) {
+        e.phase_origin=now+2*kStreamingCycle;e.stage_origin=now;e.due=e.phase_origin;
+        e.sync_uncertain=true;s.sync_state="preparing";
+      }
+      s.state="running";s.message=synchronized ? "Streaming synchroniczny 100 Hz" : "Streaming 100 Hz; bez ACK i kontroli punktów pośrednich";
+      if(synchronized) schedule_synchronized_program(now);
+      return;
     }
     const auto address=config_.axes[e.setup_axis].address;if(!can_send(address,now)) return;
     std::vector<std::uint8_t> data;std::size_t length=3;std::uint8_t command{};
-    switch(e.setup_step) {
+    if(restoring) {
+      switch(e.setup_step) {
+        case 0:data=request(address,0x4a,{0});command=0x4a;break;
+        case 1:data=parameter_request(address,0x4a);command=0x4a;break;
+        case 2:data=request(address,0x8c,{0,0});command=0x8c;break;
+        default:data=parameter_request(address,0x8c);length=4;command=0x8c;break;
+      }
+    } else switch(e.setup_step) {
       case 0:data=request(address,0x32);length=4;command=0x32;break;
       case 1:data=request(address,0xf1);command=0xf1;break;
-      case 2:data=request(address,0x8c,{0,0});command=0x8c;break;
+      case 2:data=request(address,0x8c,{static_cast<std::uint8_t>(synchronized ? 1 : 0),0});command=0x8c;break;
       case 3:data=parameter_request(address,0x8c);length=4;command=0x8c;break;
-      case 4:data=request(address,0x4a,{0});command=0x4a;break;
+      case 4:data=request(address,0x4a,{static_cast<std::uint8_t>(synchronized ? 1 : 0)});command=0x4a;break;
       case 5:data=parameter_request(address,0x4a);command=0x4a;break;
       case 6:data=parameter_request(address,0x98);length=6;command=0x98;break;
       case 7:data=parameter_request(address,0x84);command=0x84;break;
       default:data=parameter_request(address,0x82);command=0x82;break;
     }
     if(!reserve(data.size(),length,true)) return;
+    if(synchronized && !restoring && e.setup_step==4) sync_recovery_required_=true;
     transport_->send(address,data);++stats_.tx;
     for(auto &pending:pending_) if(!pending.used) {pending={true,address,Kind::program_setup,command,length,now,now+100ms};e.waiting=true;break;}
     return;
   }
   const auto &program=*e.program;
+  if(synchronized && e.frame<program.frames.size()) {schedule_synchronized_program(now);return;}
   s.elapsed=e.started==Time{} ? 0 : std::max(0.,std::chrono::duration<double>(now-e.started).count());
   s.progress=std::min(.99,s.elapsed/program.duration);
   if(e.frame==program.frames.size()) {
     if(!e.checking_position && now>=e.next_check) begin_program_check(now);
     if(!e.checking_position || !check_program_positions(now)) return;
+    if(synchronized) {
+      for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+        const auto &d=devices_[config_.axes[j].address];
+        if(!d.speed.fresh(now,150ms) || d.speed.value!=0 || d.speed.stamp<e.last_sync ||
+            !d.motor_state.fresh(now,150ms) || d.motor_state.value!=1 || d.motor_state.stamp<e.last_sync) {
+          e.settled={};s.state="settling";s.message="Oczekiwanie na świeże 0 RPM i postój wszystkich uczestników";return;
+        }
+      }
+    }
+    if(synchronized && e.settled!=Time{}) {
+      for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+        const auto &d=devices_[config_.axes[j].address];
+        if(d.speed.stamp<e.settled+100ms || d.motor_state.stamp<e.settled+100ms) return;
+      }
+    }
     if(e.settled==Time{}) e.settled=now;
     if(now-e.settled<100ms) {s.state="settling";return;}
+    if(synchronized) {
+      s.state="restoring";s.sync_state="restoring";e.setup_axis=e.setup_step=0;e.waiting=false;
+      e.preparation_deadline=now+3s;return;
+    }
     s.busy=false;s.state="succeeded";s.progress=1;s.message="Ruch zakończony: pozycje końcowe potwierdzone";
     active_=false;source_=Source::none;return;
   }

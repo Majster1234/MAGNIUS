@@ -28,6 +28,9 @@ class ManualStore:
         state = {'busy': message.busy, 'fault': message.fault,
                  'active_axis': message.active_axis, 'max_rpm': message.max_rpm,
                  'operation': message.operation, 'message': message.message, 'axes': []}
+        state['recovery_state'] = getattr(message, 'recovery_state', 'idle')
+        state['recovery_message'] = getattr(message, 'recovery_message', '')
+        state['recovery_pending_mask'] = getattr(message, 'recovery_pending_mask', 0)
         state['configuration_revision'] = getattr(message, 'configuration_revision', 'initial')
         fields = ('axis', 'available', 'prepared', 'can_jog', 'can_zero', 'motion',
                   'enable_known', 'enabled', 'position_known', 'position_degrees',
@@ -66,6 +69,7 @@ class ManualStore:
         control_fresh = age is not None and 0 <= age < 0.15
         if state is None:
             state = {'busy': False, 'fault': False, 'active_axis': 0, 'max_rpm': 30,
+                     'recovery_state': 'idle', 'recovery_message': '', 'recovery_pending_mask': 0,
                      'operation': 'idle', 'message': 'Oczekiwanie na moduł CAN',
                      'axes': [{'axis': axis} for axis in range(1, 7)]}
         state.update(fresh=fresh, age_seconds=age, recording=recording(),
@@ -85,8 +89,9 @@ class ManualStore:
                 axis[field] = measured + elapsed if measured >= 0 else None
                 axis[known] = fresh and axis.get(known, False) and measured >= 0 and measured + elapsed < limit
             axis['available'] = fresh and axis.get('available', False) and axis['position_known']
-            axis['can_jog'] = control_fresh and axis.get('can_jog', False) and axis['available'] and axis['enable_known'] and axis['speed_known']
-            axis['can_zero'] = control_fresh and axis.get('can_zero', False) and axis['available'] and axis['speed_known']
+            motion_allowed = not state['fault'] and state.get('recovery_state', 'idle') in ('idle', 'idle_disabled')
+            axis['can_jog'] = motion_allowed and control_fresh and axis.get('can_jog', False) and axis['available'] and axis['enable_known'] and axis['speed_known']
+            axis['can_zero'] = motion_allowed and control_fresh and axis.get('can_zero', False) and axis['available'] and axis['speed_known']
             axis['joint_position_known'] = axis.get('joint_position_known', False) and axis['position_known'] and axis.get('calibration_valid', False)
             if not axis['speed_known']:
                 axis['motion'] = 'stan nieznany'

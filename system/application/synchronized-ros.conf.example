@@ -1,0 +1,4 @@
+# Opcjonalny streaming synchroniczny PTP/LIN; domyślnie pozostaje streamed.
+# Aktywować wyłącznie przy potwierdzonym postoju, razem z nowymi typami ROS.
+[Service]
+Environment="ROBOT_OVERLAY_SETUP=/home/mk/Desktop/Projekty/install/synchronized-ros/setup.bash"

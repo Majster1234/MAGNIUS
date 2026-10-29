@@ -71,7 +71,7 @@ void SocketCan::open(const std::string &interface) {
   }
   fd_ = ::socket(PF_CAN, SOCK_RAW | SOCK_NONBLOCK, CAN_RAW);
   if (fd_ < 0) { const std::string error = std::strerror(errno); close(); throw std::runtime_error(error); }
-  int own_messages = 0;
+  int own_messages = 1;
   int timestamps = 1;
   const can_err_mask_t errors = CAN_ERR_BUSOFF | CAN_ERR_CRTL | CAN_ERR_PROT | CAN_ERR_ACK |
                                 CAN_ERR_BUSERROR | CAN_ERR_RESTARTED;
@@ -158,7 +158,7 @@ void SocketCan::receive_loop() {
     try {
       for(unsigned n=0;n<256 && receiving_;++n) {
         auto frame=receive_socket();if(!frame) break;
-        if(!frame->error && frame->address>0 && frame->address<positions_.size()) {
+        if(!frame->tx_confirmation && !frame->error && frame->address>0 && frame->address<positions_.size()) {
           if(const auto value=parse_position(frame->address,frame->data)) {
             auto &axis=positions_[frame->address];axis.sequence.fetch_add(1);
             axis.pulses.store(*value);
@@ -166,6 +166,8 @@ void SocketCan::receive_loop() {
             axis.sequence.fetch_add(1);
           }
         }
+        // Tylko SYNC wymaga bariery nadania. Pozostałe własne echa nie są RX napędów.
+        if(frame->tx_confirmation && !(frame->address==0 && frame->data==synchronize_request())) continue;
         if(!frames_.push(std::move(*frame))) { receive_error_=ENOBUFS;return; }
       }
     } catch(...) { receive_error_=EIO;break; }
@@ -185,12 +187,10 @@ std::optional<Frame> SocketCan::receive_socket() {
     throw std::runtime_error(std::strerror(errno));
   }
   if (received != static_cast<ssize_t>(sizeof(raw))) return std::nullopt;
-  // Własne echo jest wyłączone. Inne lokalne sockety mogą być emulatorem vcan;
-  // dopasowanie adresu/opcode/DLC/CRC w managerze odrzuca echo zapytań.
-  if ((message.msg_flags & MSG_CONFIRM) ||
-      (raw.can_id & (CAN_EFF_FLAG | CAN_RTR_FLAG)) || raw.can_dlc > CAN_MAX_DLEN)
+  if ((raw.can_id & (CAN_EFF_FLAG | CAN_RTR_FLAG)) || raw.can_dlc > CAN_MAX_DLEN)
     return std::nullopt;
   Frame result;
+  result.tx_confirmation = (message.msg_flags & MSG_CONFIRM) != 0;
   result.error = (raw.can_id & CAN_ERR_FLAG) != 0;
   result.error_flags = raw.can_id & CAN_ERR_MASK;
   result.address = static_cast<std::uint16_t>(raw.can_id & CAN_SFF_MASK);
@@ -209,7 +209,7 @@ std::optional<Frame> SocketCan::receive_socket() {
       }
     }
   }
-  TraceEvent e; e.event = result.error ? "can_error_frame" : "can_rx";
+  TraceEvent e; e.event = result.tx_confirmation ? "can_tx_confirm" : result.error ? "can_error_frame" : "can_rx";
   e.mono_ns = trace_ns(result.received_at); e.kernel_utc_ns = result.kernel_utc_ns;
   e.axis = result.address; e.command = result.data.empty() ? 0 : result.data[0]; e.flags = result.error_flags;
   e.dlc = result.data.size(); std::copy(result.data.begin(), result.data.end(), e.data.begin()); trace(e);
