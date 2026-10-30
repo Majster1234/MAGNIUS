@@ -14,6 +14,40 @@ Izometria / Przód / Bok / Góra. Model nie wysyła poleceń do napędów.
 
 ## Osie TCP, ślad ruchu i osobliwości
 
+### Restart pętli pomarańczowego modelu przy wykonaniu PTP/LIN
+
+Naciśnięcie „Wykonaj PTP/LIN” po zatwierdzeniu ruchu natychmiast ustawia
+pomarańczowy model na początku **aktualnie wyświetlanej trajektorii** i rozpoczyna
+jej pętlę od nowa. Reset następuje przy wysłaniu żądania startu, przed odpowiedzią
+HTTP. Dotyczy trybów `streamed` i `synchronized`.
+
+Model zachowuje ten sam plan, start i prędkość animacji. Powtarza przejazd
+z dotychczasową pauzą 0,5 s na końcu. Można porównać rzeczywisty model z enkoderów
+z ruchem zaplanowanym. Jeśli operator wcześniej wyświetlił przygotowany program
+fizyczny, restart dotyczy właśnie tego podglądu. Nie jest wymagane wcześniejsze
+naciśnięcie „Podgląd przygotowanego PTP/LIN”.
+
+Reset nie czeka na status `busy`, pole `dispatch_mode`, ACK ani pierwszy SYNC.
+Późniejsze statusy i odpowiedź START nie resetują pętli ponownie i nie sterują
+jej fazą. Restart działa również po ręcznym zatrzymaniu podglądu. Pozostają
+przerwania animacji po utracie fokusu, ukryciu karty i zmianie kontekstu.
+
+Wcześniejsza wersja z 29.10.2026 czekała na status SYNC i przełączała model
+na czas wykonawcy; operator zgłosił brak oczekiwanego restartu. Zastąpiono ją
+bezpośrednim zdarzeniem przy wydaniu rozkazu i odtwarzaniem tej samej pętli.
+Animacja jest odniesieniem wizualnym liczonym od rozkazu, a opóźnienie uzbrajania
+robota może być widoczne jako różnica względem planu. Reset nie potwierdza
+rozpoczęcia fizycznego ruchu i nie pobiera nowego planu ani nie wysyła dodatkowych
+komend do robota.
+
+Weryfikacja 29.10.2026: build web OK; 144/145 testów jednostkowych OK
+(zastany błąd `controlMessages.test.ts`). `motion.browser.cjs` sprawdza
+reset przed opóźnioną odpowiedzią START (900 ms), zachowanie aktualnego planu,
+ciągłą pętlę i brak ponownego resetu po statusach. Wszystkie API w teście
+są atrapami HTTP/WebSocket; nie wykonuje się ruchu fizycznego.
+
+### Układy osi i planowany ślad TCP
+
 Niebieski bliźniak celu oraz pomarańczowy bliźniak ruchu mają w TCP układ osi
 **X — czerwona, Y — zielona, Z — niebieska**. Osie i etykiety obracają się wraz
 z narzędziem według aktualnego URDF. Dla niepełnej pozycji celu układ jest ukryty.

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architektura — wariant 2: Mapa przepływu</title>
+<!-- Makieta statyczna: dane przykładowe, brak skryptów i połączeń z API/ROS/CAN. -->
+<style>
+:root {
+    --bg-app:#0b1017; --bg-panel:#131b24; --bg-elevated:#192430; --border:#283648;
+    --text:#e0e8f0; --muted:#9aaaba; --live:#10b981; --plan:#3b82f6; --warn:#f59e0b; --danger:#ef4444; --code:#8ec9ec;
+    color-scheme:dark; font-family:Inter,"Segoe UI",system-ui,sans-serif; color:var(--text); background:var(--bg-app); line-height:1.5;
+}
+* { box-sizing:border-box; }
+body { margin:0; padding:28px 32px 48px; }
+h1,h2,h3,p { margin:0; }
+code { font-family:"SFMono-Regular",Consolas,monospace; font-size:11px; color:var(--code); }
+.mock { display:inline-block; margin-bottom:18px; padding:4px 10px; border:1px dashed var(--warn); border-radius:6px; color:var(--warn); font-size:11px; }
+.eyebrow { color:var(--live); font-size:11px; letter-spacing:.14em; font-weight:600; }
+header { margin-bottom:20px; }
+header h1 { font-size:26px; }
+header p { color:var(--muted); font-size:13px; }
+.layout { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:18px; align-items:start; }
+.panel { border:1px solid var(--border); background:var(--bg-panel); border-radius:8px; }
+.map { padding:12px; overflow-x:auto; }
+.map svg { display:block; width:100%; min-width:860px; height:auto; }
+.legend { display:flex; gap:16px; flex-wrap:wrap; padding:10px 14px 14px; color:var(--muted); font-size:11.5px; }
+.legend span::before { content:""; display:inline-block; width:18px; height:3px; margin-right:6px; vertical-align:middle; background:var(--c); }
+aside { display:grid; gap:18px; }
+aside .panel { padding:16px; }
+aside h2 { font-size:13px; margin-bottom:10px; }
+.issue { padding:10px 12px; border-left:3px solid var(--warn); background:var(--bg-elevated); border-radius:0 6px 6px 0; margin-bottom:8px; font-size:12.5px; }
+.issue.info { border-left-color:#5b6b7c; }
+.issue.err { border-left-color:var(--danger); }
+.issue small { display:block; color:var(--muted); font-size:11px; margin-top:3px; }
+.selected .kv { display:grid; grid-template-columns:1fr auto; gap:4px 12px; font-size:12.5px; }
+.selected .kv span:nth-child(even) { font-family:Consolas,monospace; font-size:12px; text-align:right; }
+.selected p { color:var(--muted); font-size:11.5px; margin-top:10px; }
+.tag { display:inline-block; font-size:10px; letter-spacing:.1em; color:var(--muted); margin-bottom:4px; }
+/* SVG */
+.zone { fill:none; stroke:#22303f; stroke-dasharray:4 4; }
+.zone-label { fill:#6f8296; font-size:11px; letter-spacing:.12em; font-weight:600; }
+.node rect { fill:var(--bg-elevated); stroke:var(--border); }
+.node.ok rect { stroke:rgba(16,185,129,.55); }
+.node.warn rect { stroke:var(--warn); }
+.node.off rect { stroke:#3a4757; stroke-dasharray:3 3; }
+.node.sel rect { stroke:var(--plan); stroke-width:2; }
+.node text.t { fill:var(--text); font-size:12.5px; font-weight:600; }
+.node text.s { fill:var(--muted); font-size:10.5px; font-family:Consolas,monospace; }
+.node circle { fill:var(--live); } .node.warn circle { fill:var(--warn); } .node.off circle { fill:#5b6b7c; }
+.edge { fill:none; stroke:var(--live); stroke-width:2; opacity:.7; }
+.edge.warn { stroke:var(--warn); }
+.edge.off { stroke:#3a4757; stroke-dasharray:5 4; }
+.edge-label { fill:var(--muted); font-size:10px; font-family:Consolas,monospace; }
+@media (max-width:1100px) { .layout { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="mock">MAKIETA · dane przykładowe · brak połączenia z systemem</div>
+<header>
+    <div class="eyebrow">TOPOLOGIA SYSTEMU</div>
+    <h1>Architektura</h1>
+    <p>Mapa procesów i połączeń. Kolor krawędzi = świeżość danych, kolor ramki = stan procesu.</p>
+</header>
+
+<div class="layout">
+    <section class="panel">
+        <div class="map">
+        <svg viewBox="0 0 900 560" role="img" aria-label="Mapa przepływu danych">
+            <defs><marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L8 4L0 8z" fill="#5f7286"/></marker></defs>
+
+            <rect class="zone" x="10" y="10" width="880" height="96" rx="8"/><text class="zone-label" x="24" y="30">FRONTEND</text>
+            <rect class="zone" x="10" y="122" width="880" height="96" rx="8"/><text class="zone-label" x="24" y="142">BACKEND PYTHON</text>
+            <rect class="zone" x="10" y="234" width="880" height="180" rx="8"/><text class="zone-label" x="24" y="254">ROS 2 HUMBLE</text>
+            <rect class="zone" x="10" y="430" width="880" height="120" rx="8"/><text class="zone-label" x="24" y="450">SYSTEM I SPRZĘT</text>
+
+            <!-- krawędzie -->
+            <path class="edge" d="M330 88V150" marker-end="url(#a)" marker-start="url(#a)"/><text class="edge-label" x="338" y="124">WS 250 ms</text>
+            <path class="edge" d="M600 88V150" marker-end="url(#a)" marker-start="url(#a)"/><text class="edge-label" x="608" y="124">REST</text>
+            <path class="edge" d="M460 200V262" marker-end="url(#a)" marker-start="url(#a)"/><text class="edge-label" x="468" y="236">rclpy</text>
+            <path class="edge" d="M250 290H330" marker-end="url(#a)"/>
+            <path class="edge" d="M560 290H640" marker-end="url(#a)"/>
+            <path class="edge" d="M150 318V340" marker-end="url(#a)"/>
+            <path class="edge warn" d="M460 318V346" marker-end="url(#a)"/>
+            <path class="edge" d="M460 396V462" marker-end="url(#a)" marker-start="url(#a)"/><text class="edge-label" x="468" y="434">SocketCAN 31%</text>
+            <path class="edge" d="M560 490H612" marker-end="url(#a)" marker-start="url(#a)"/>
+            <path class="edge off" d="M720 318V346" marker-end="url(#a)"/>
+
+            <g class="node ok"><rect x="230" y="40" width="200" height="48" rx="6"/><circle cx="246" cy="58" r="4"/><text class="t" x="258" y="62">Panel operatora</text><text class="s" x="246" y="79">React · web/dist · 2 klientów</text></g>
+            <g class="node warn"><rect x="500" y="40" width="200" height="48" rx="6"/><circle cx="516" cy="58" r="4"/><text class="t" x="528" y="62">Build frontendu</text><text class="s" x="516" y="79">ccb1fbc+dirty · 144/145 TS</text></g>
+
+            <g class="node ok sel"><rect x="300" y="152" width="320" height="48" rx="6"/><circle cx="316" cy="170" r="4"/><text class="t" x="328" y="174">robot_web_bridge · FastAPI :8080</text><text class="s" x="316" y="191">PID 47118 · CPU 3,1% · 142 MB</text></g>
+
+            <g class="node ok"><rect x="50" y="266" width="200" height="52" rx="6"/><circle cx="66" cy="284" r="4"/><text class="t" x="78" y="288">robot_system_monitor</text><text class="s" x="66" y="306">/robot/system_status 1 Hz</text></g>
+            <g class="node ok"><rect x="340" y="266" width="220" height="52" rx="6"/><circle cx="356" cy="284" r="4"/><text class="t" x="368" y="288">robot_motion_planner</text><text class="s" x="356" y="306">KDL · TOTG · synchronized</text></g>
+            <g class="node ok"><rect x="650" y="266" width="200" height="52" rx="6"/><circle cx="666" cy="284" r="4"/><text class="t" x="678" y="288">robot_state_publisher</text><text class="s" x="666" y="306">URDF · /tf</text></g>
+            <g class="node ok"><rect x="50" y="344" width="200" height="52" rx="6"/><circle cx="66" cy="362" r="4"/><text class="t" x="78" y="366">robot_can_diagnostics</text><text class="s" x="66" y="384">odczyt 19,1 / 24 ms</text></g>
+            <g class="node warn"><rect x="340" y="348" width="240" height="48" rx="6"/><circle cx="356" cy="366" r="4"/><text class="t" x="368" y="370">controller_manager · CanSystem</text><text class="s" x="356" y="387">mks_servo_can · SYNC wyjątek J4</text></g>
+            <g class="node off"><rect x="620" y="348" width="230" height="48" rx="6"/><circle cx="636" cy="366" r="4"/><text class="t" x="648" y="370">joint_trajectory_controller</text><text class="s" x="636" y="387">inactive</text></g>
+
+            <g class="node ok"><rect x="50" y="466" width="220" height="56" rx="6"/><circle cx="66" cy="484" r="4"/><text class="t" x="78" y="488">Host Ubuntu 22.04</text><text class="s" x="66" y="506">CPU 23% · RAM 33% · 2 d 4 h</text></g>
+            <g class="node ok"><rect x="340" y="466" width="220" height="56" rx="6"/><circle cx="356" cy="484" r="4"/><text class="t" x="368" y="488">can0 · U2C v2.1</text><text class="s" x="356" y="506">1 Mbit/s · ERROR-ACTIVE · 0 błędów</text></g>
+            <g class="node ok"><rect x="616" y="466" width="234" height="56" rx="6"/><circle cx="632" cy="484" r="4"/><text class="t" x="644" y="488">MKS SERVO42D · J1–J6</text><text class="s" x="632" y="506">6/6 online · ENABLE 0 · 0 RPM</text></g>
+        </svg>
+        </div>
+        <div class="legend">
+            <span style="--c:var(--live)">dane świeże</span>
+            <span style="--c:var(--warn)">ostrzeżenie</span>
+            <span style="--c:var(--danger)">błąd / brak danych</span>
+            <span style="--c:#3a4757">nieaktywne</span>
+        </div>
+    </section>
+
+    <aside>
+        <section class="panel">
+            <h2>Aktywne problemy</h2>
+            <div class="issue">SYNC: automatyczne odblokowanie mimo niezaliczonego J4<small>controller_manager · konfiguracja produkcyjna</small></div>
+            <div class="issue">Zapas czasu odczytu CAN tylko 20%<small>robot_can_diagnostics · 19,1 ms / 24 ms</small></div>
+            <div class="issue info">1 test TS nie przechodzi<small>Build frontendu · controlMessages.test.ts</small></div>
+        </section>
+        <section class="panel selected">
+            <span class="tag">WYBRANY WĘZEŁ</span>
+            <h2>robot_web_bridge</h2>
+            <div class="kv">
+                <span>Stan</span><span style="color:var(--live)">OK</span>
+                <span>Adres</span><span>0.0.0.0:8080</span>
+                <span>Klienci WS</span><span>2</span>
+                <span>Wiek snapshotu</span><span>0,4 s</span>
+                <span>Żądania / min</span><span>38</span>
+                <span>Błędy 5xx (1 h)</span><span>0</span>
+            </div>
+            <p>Kliknięcie węzła na mapie pokazywałoby tutaj szczegóły procesu. W makiecie zaznaczenie jest stałe.</p>
+        </section>
+    </aside>
+</div>
+</body>
+</html>

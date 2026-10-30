@@ -10,7 +10,8 @@ export class EventLog {
     static readonly limit = 100;
 
     append(notice: Notice, timestamp = Date.now()): boolean {
-        const message = notice.message.trim().slice(0, 800);
+        // Awaria zachowuje pełną treść do wglądu w historii; pozostałe wpisy są skracane.
+        const text = notice.message.trim(), message = notice.severity === "error" ? text : text.slice(0, 800);
         if (!message) return false;
         const signature = JSON.stringify([notice.severity, message, notice.code, notice.title, notice.description, notice.remedy, notice.context]);
         if (this.previous.get(notice.source) === signature) return false;
@@ -25,7 +26,11 @@ export class EventLog {
             return true;
         }
         this.entries.push({ ...notice, message, timestamp, id: ++this.sequence });
-        if (this.entries.length > EventLog.limit) this.entries.shift();
+        if (this.entries.length > EventLog.limit) {
+            // Przy przepełnieniu najpierw znikają najstarsze wpisy bez awarii.
+            const oldest = this.entries.findIndex(entry => entry.severity !== "error");
+            this.entries.splice(oldest < 0 ? 0 : oldest, 1);
+        }
         return true;
     }
 }

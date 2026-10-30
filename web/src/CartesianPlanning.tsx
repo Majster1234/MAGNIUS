@@ -5,7 +5,7 @@ import type { MotionTrace } from "./previewMotionTrail";
 import type { Notice } from "./eventLog";
 
 type Start = { values: number[]; simulated: boolean[] };
-export function CartesianPlanning({ positions, context, editing, usable, onMotion, onEditingReady, beforePlanning, showMotionFrames = true, onShowMotionFrames, onPlanReady, onPreparedPreview, onNotice, onCondition }: {
+export function CartesianPlanning({ positions, context, editing, usable, onMotion, onEditingReady, beforePlanning, showMotionFrames = true, onShowMotionFrames, onPlanReady, onPreparedPreview, onRestartReady, onNotice, onCondition }: {
     positions: (number | null)[]; context: PreviewContext | null; editing: boolean; usable: boolean;
     onMotion: (positions: number[] | null, trace?: MotionTrace | null) => void;
     onEditingReady?: (ready: boolean) => void;
@@ -13,6 +13,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     showMotionFrames?: boolean; onShowMotionFrames?: (show: boolean) => void;
     onPlanReady?: (id: string | null, type?: "PTP" | "LIN" | null) => void;
     onPreparedPreview?: (callback: ((plan: CartesianPlan) => void) | null) => void;
+    onRestartReady?: (callback: (() => void) | null) => void;
     onNotice?: (value:Notice)=>void;
     onCondition?: (key:string,value:Notice|null)=>void;
 }) {
@@ -27,6 +28,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     const [velocity, setVelocity] = useState("6"), [acceleration, setAcceleration] = useState("50");
     const [tcpVelocity, setTcpVelocity] = useState("50"), [tcpAcceleration, setTcpAcceleration] = useState("100"), [tcpAngularVelocity, setTcpAngularVelocity] = useState("10");
     const generation = useRef(0), animation = useRef(0), mounted = useRef(true), armed = useRef(false);
+    const displayedPlan = useRef<CartesianPlan | null>(null);
     const job = useRef<string | null>(null), cancellation = useRef<Promise<unknown>>(Promise.resolve());
     const work = useRef<Promise<unknown>>(Promise.resolve()), previousContext = useRef(contextKey(context));
     const key = contextKey(context), targetKey = positions.join("/");
@@ -36,6 +38,30 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         Number.isFinite(Number(acceleration)) && Number(acceleration) >= .01 && Number(acceleration) <= 3600;
     const linParametersValid=[[tcpVelocity,10000],[tcpAcceleration,100000],[tcpAngularVelocity,360]].every(([text,max])=>String(text).trim()!=="" && Number.isFinite(Number(text)) && Number(text)>=.01 && Number(text)<=Number(max));
     const editingContext = useRef<string | null>(null);
+    const playPreview = useCallback((plan: CartesianPlan, loop: boolean) => {
+        generation.current++; cancelAnimationFrame(animation.current);
+        displayedPlan.current = plan;
+        setBusy(false); setPlaying(true);
+        const current = generation.current, epoch = performance.now(), total = pointTime(plan.trajectory.points.at(-1)!);
+        let previous = epoch;
+        onMotion(trajectoryPosition(plan, 0), { plan, seconds: 0 });
+        function frame(now: number) {
+            if (!mounted.current || generation.current !== current) return;
+            if (document.hidden || now - previous > 500) { armed.current = false; setPlaying(false); return; }
+            previous = now;
+            const elapsed = (now - epoch) / 1000;
+            const seconds = loop ? Math.min(total, elapsed % (total + .5)) : Math.min(total, elapsed);
+            onMotion(trajectoryPosition(plan, seconds), { plan, seconds });
+            if (loop || seconds < total) animation.current = requestAnimationFrame(frame);else setPlaying(false);
+        }
+        animation.current = requestAnimationFrame(frame);
+    }, [onMotion]);
+    const restartPreview = useCallback(() => {
+        const plan = displayedPlan.current;
+        if (!mounted.current || !plan) return;
+        playPreview(plan, true);
+        setMessage(`Duch ${plan.motion_type} · pętla od początku przy żądaniu ruchu`);
+    }, [playPreview, onNotice]);
     useEffect(()=>{onNotice?.({source:"simulation",severity:"info",context:"Symulacja",message:"Ustaw cel przez JOG lub TCP, następnie wybierz PTP lub LIN."});},[onNotice]);
     function cancelJob() {
         if (!job.current) return cancellation.current;
@@ -75,6 +101,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
     useEffect(() => {
         if (previousContext.current !== key || !usable) {
             armed.current = false; interrupt(); onMotion(null, null);
+            displayedPlan.current = null;
             if (previousContext.current !== key) {
                 setChoice(null); setStart(null); setOverrides(Array(6).fill(""));
                 setMessage("Kontekst planowania zmienił się. Ustaw cel i wybierz PTP lub LIN.","warning","configuration");
@@ -136,16 +163,8 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                             throw Error("Wynik dotyczy innego kontekstu symulacji; wybierz ruch ponownie.");
                         setPlanId(plan.id);
                         const total = pointTime(plan.trajectory.points.at(-1)!);
-                        const epoch = performance.now(); let previous = epoch;
-                        setBusy(false); setPlaying(true); setMessage(`${choice} · ${total.toFixed(2)} s · pętla · tylko symulacja`);
-                        function frame(now: number) {
-                            if (!valid()) return;
-                            if (document.hidden || now - previous > 500) { armed.current = false; setPlaying(false); return; }
-                            previous = now;
-                            const elapsed = (now - epoch) / 1000, t = Math.min(total, elapsed % (total + .5));
-                            onMotion(trajectoryPosition(plan, t), { plan, seconds: t }); animation.current = requestAnimationFrame(frame);
-                        }
-                        onMotion(trajectoryPosition(plan, 0), { plan, seconds: 0 }); animation.current = requestAnimationFrame(frame); return;
+                        setMessage(`${choice} · ${total.toFixed(2)} s · pętla · tylko symulacja`);
+                        playPreview(plan, true); return;
                     }
                     if (status.status !== "running") { job.current = null; throw Error(status.message || "Obliczenia anulowane"); }
                     await new Promise(resolve => setTimeout(resolve, 100));
@@ -157,22 +176,16 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
                 if (mounted.current && current === generation.current) setBusy(false);
             }
         });
-    }, [choice, start, serial, targetKey, editing, usable, key, velocity, acceleration, tcpVelocity, tcpAcceleration, tcpAngularVelocity, onMotion, onEditingReady, beforePlanning]);
+    }, [choice, start, serial, targetKey, editing, usable, key, velocity, acceleration, tcpVelocity, tcpAcceleration, tcpAngularVelocity, onMotion, onEditingReady, beforePlanning, playPreview]);
     const showPrepared = useCallback((plan: CartesianPlan) => {
-        armed.current = false;generation.current++;cancelAnimationFrame(animation.current);
-        setBusy(false);setPlaying(true);
-        const current = generation.current, epoch = performance.now(), total = pointTime(plan.trajectory.points.at(-1)!);
+        armed.current = false;
+        playPreview(plan, false);
+        const total = pointTime(plan.trajectory.points.at(-1)!);
         setMessage(`Podgląd przygotowanego ${plan.motion_type} · ${total.toFixed(2)} s · fizyczne wykonanie wymaga zatwierdzenia`);
-        function frame(now: number) {
-            if (!mounted.current || generation.current !== current) return;
-            const seconds = Math.min(total, (now - epoch) / 1000);
-            onMotion(trajectoryPosition(plan, seconds), { plan, seconds });
-            if (seconds < total) animation.current = requestAnimationFrame(frame);else setPlaying(false);
-        }
-        animation.current = requestAnimationFrame(frame);
-    }, [onMotion]);
+    }, [playPreview, onNotice]);
     useEffect(() => { onPlanReady?.(planId, choice);return () => onPlanReady?.(null); }, [choice, planId, onPlanReady]);
     useEffect(() => { onPreparedPreview?.(showPrepared);return () => onPreparedPreview?.(null); }, [showPrepared, onPreparedPreview]);
+    useEffect(() => { onRestartReady?.(restartPreview);return () => onRestartReady?.(null); }, [restartPreview, onRestartReady]);
     const invalidStart = context?.preview_seed_degrees.some((q, i) => {const value=overrides[i].trim()?Number(overrides[i]):q;return !Number.isFinite(value) || value < context.profiles[i].lower || value > context.profiles[i].upper;});
     useEffect(()=>{
         const invalid=choice==="LIN"?!linParametersValid:!ptpParametersValid;
@@ -180,40 +193,34 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         onCondition?.("simulation-start",invalidStart?{source:"simulation-start",severity:"warning",code:"limits",context:"Start symulacji",message:"Start poza limitami. Popraw pozycje w edytorze Start symulacji."}:null);
     },[choice,linParametersValid,ptpParametersValid,invalidStart,maxPtpVelocity,onCondition]);
     useEffect(()=>()=>{onCondition?.("simulation-parameters",null);onCondition?.("simulation-start",null);},[onCondition]);
+    const invalid = (text: string, max: number) => text.trim() === "" || !Number.isFinite(Number(text)) || Number(text) < .01 || Number(text) > max;
+    // Wiersz parametrów zakładki PTP/LIN: wybór typu liczy podgląd bliźniaka; szczegóły startu i klatek są zwinięte.
     return <div className="cartesian-planning motion-selection" aria-label="Podgląd ruchu PTP/LIN">
-        <div className="cartesian-card">
-            <header className="motion-stage-heading"><span className="motion-stage-number">1</span><div><h3>Podgląd PTP/LIN</h3><small>Cel ustawiany przez JOG lub TCP</small></div><span className="badge planning-badge">SYMULACJA</span></header>
-            <div className="cartesian-actions">
-                {(["PTP", "LIN"] as const).map(type => <button key={type} aria-pressed={choice === type}
-                    disabled={!context?.planner_available || !usable || editing || (type === "PTP" ? !ptpParametersValid : !linParametersValid)} onClick={() => choose(type)}>{type}</button>)}
-                <button disabled={!busy && !playing} onClick={stop}>Zatrzymaj podgląd</button>
-            </div>
-            {choice !== "LIN" && <fieldset className="ptp-parameters" disabled={editing || !usable}>
-                <legend>Parametry ruchu PTP</legend>
-                <div className="cartesian-target">
-                    <label>Prędkość PTP °/s<input aria-label="Prędkość PTP °/s" type="number" min="0.01" max={maxPtpVelocity} step="any" value={velocity}
-                        aria-errormessage="control-issue-simulation-parameters" aria-invalid={velocity.trim() === "" || !Number.isFinite(Number(velocity)) || Number(velocity) < .01 || Number(velocity) > maxPtpVelocity}
-                        onChange={e => changePtpParameter(setVelocity, e.target.value)} /></label>
-                    <label>Przyspieszenie PTP °/s²<input aria-label="Przyspieszenie PTP °/s²" type="number" min="0.01" max="3600" step="any" value={acceleration}
-                        aria-errormessage="control-issue-simulation-parameters" aria-invalid={acceleration.trim() === "" || !Number.isFinite(Number(acceleration)) || Number(acceleration) < .01 || Number(acceleration) > 3600}
-                        onChange={e => changePtpParameter(setAcceleration, e.target.value)} /></label>
-                </div>
-                <small>Wartości dotyczą przegubów i obowiązują w podglądzie oraz wykonaniu fizycznym. Każda oś zachowuje własne limity. Zmiana wymaga ponownego obliczenia i zatwierdzenia PTP.</small>
+        <div className="motion-parameters">
+            <span className="motion-type-seg" role="group" aria-label="Typ ruchu">{(["PTP", "LIN"] as const).map(type => <button key={type} aria-pressed={choice === type}
+                disabled={!context?.planner_available || !usable || editing || (type === "PTP" ? !ptpParametersValid : !linParametersValid)} onClick={() => choose(type)}>{type}</button>)}</span>
+            {choice !== "LIN" ? <fieldset className="ptp-parameters" disabled={editing || !usable} title="Wartości dotyczą przegubów i obowiązują w podglądzie oraz wykonaniu fizycznym. Każda oś zachowuje własne limity. Zmiana wymaga ponownego obliczenia i zatwierdzenia PTP.">
+                <label>Prędkość<input aria-label="Prędkość PTP °/s" type="number" min="0.01" max={maxPtpVelocity} step="any" value={velocity}
+                    aria-errormessage="control-issue-simulation-parameters" aria-invalid={invalid(velocity, maxPtpVelocity)}
+                    onChange={e => changePtpParameter(setVelocity, e.target.value)} />°/s</label>
+                <label>Przysp.<input aria-label="Przyspieszenie PTP °/s²" type="number" min="0.01" max="3600" step="any" value={acceleration}
+                    aria-errormessage="control-issue-simulation-parameters" aria-invalid={invalid(acceleration, 3600)}
+                    onChange={e => changePtpParameter(setAcceleration, e.target.value)} />°/s²</label>
+            </fieldset> : <fieldset className="ptp-parameters lin-parameters" aria-label="Prędkość podglądu LIN">
+                <label>TCP<input aria-label="Prędkość TCP mm/s" type="number" min="0.01" max="10000" value={tcpVelocity} aria-errormessage="control-issue-simulation-parameters" aria-invalid={invalid(tcpVelocity, 10000)} onChange={e => changeLinParameter(setTcpVelocity, e.target.value)} />mm/s</label>
+                <label>Przysp.<input aria-label="Przysp. TCP mm/s²" type="number" min="0.01" max="100000" value={tcpAcceleration} aria-errormessage="control-issue-simulation-parameters" aria-invalid={invalid(tcpAcceleration, 100000)} onChange={e => changeLinParameter(setTcpAcceleration, e.target.value)} />mm/s²</label>
+                <label>Obrót<input aria-label="Obrót TCP °/s" type="number" min="0.01" max="360" value={tcpAngularVelocity} aria-errormessage="control-issue-simulation-parameters" aria-invalid={invalid(tcpAngularVelocity, 360)} onChange={e => changeLinParameter(setTcpAngularVelocity, e.target.value)} />°/s</label>
             </fieldset>}
-            <label className="motion-frames-toggle"><input type="checkbox" checked={showMotionFrames} onChange={event => onShowMotionFrames?.(event.target.checked)} />Pokaż klatki pośrednie</label>
+            <button className="motion-preview-stop" disabled={!busy && !playing} onClick={stop}>Zatrzymaj podgląd</button>
+        </div>
+        <div className="motion-extra"><label className="motion-frames-toggle"><input type="checkbox" checked={showMotionFrames} onChange={event => onShowMotionFrames?.(event.target.checked)} />Pokaż klatki pośrednie</label>
+        <details className="motion-more" open={invalidStart || undefined}><summary>Start symulacji</summary>
             <small>Przy osobliwości nadgarstka J4/J6 zwalniają do maks. 5°/s.</small>{" "}
             {start && <small>Stały start · symulowane odniesienie: {start.simulated.map((value, i) => value ? `J${i + 1}` : "").filter(Boolean).join(", ") || "brak"}</small>}
-            <details open={invalidStart || undefined}><summary>Start symulacji</summary>
-                <p>Pomiar → ostatni pomiar → 0° tylko w symulacji. Korekta obowiązuje przy następnym wyborze ruchu.</p>
-                <div className="cartesian-seed">{Array.from({ length: 6 }, (_, i) => <label key={i}>J{i + 1} · {context?.seed_sources[i] === "measured" ? "pomiar" : context?.seed_sources[i] === "last" ? "ostatni" : "sym. 0°"}
-                    <input type="number" step="any" aria-label={`Start symulacji J${i + 1}`} value={overrides[i]} aria-errormessage="control-issue-simulation-start" aria-invalid={!!context && (!Number.isFinite(Number(overrides[i])) || (overrides[i].trim() !== "" && (Number(overrides[i]) < context.profiles[i].lower || Number(overrides[i]) > context.profiles[i].upper)))} placeholder={String(context?.preview_seed_degrees[i] ?? 0)}
-                        onChange={e => setOverrides(old => old.map((q, j) => j === i ? e.target.value : q))} /></label>)}</div>
-            </details>
-            {choice === "LIN" && <details><summary>Prędkość podglądu LIN</summary><div className="cartesian-target">
-                    <label>Prędkość TCP mm/s<input type="number" min="0.01" max="10000" value={tcpVelocity} aria-errormessage="control-issue-simulation-parameters" aria-invalid={tcpVelocity.trim() === "" || !Number.isFinite(Number(tcpVelocity)) || Number(tcpVelocity) < .01 || Number(tcpVelocity) > 10000} onChange={e => changeLinParameter(setTcpVelocity, e.target.value)} /></label>
-                    <label>Przysp. TCP mm/s²<input type="number" min="0.01" max="100000" value={tcpAcceleration} aria-errormessage="control-issue-simulation-parameters" aria-invalid={tcpAcceleration.trim() === "" || !Number.isFinite(Number(tcpAcceleration)) || Number(tcpAcceleration) < .01 || Number(tcpAcceleration) > 100000} onChange={e => changeLinParameter(setTcpAcceleration, e.target.value)} /></label>
-                    <label>Obrót TCP °/s<input type="number" min="0.01" max="360" value={tcpAngularVelocity} aria-errormessage="control-issue-simulation-parameters" aria-invalid={tcpAngularVelocity.trim() === "" || !Number.isFinite(Number(tcpAngularVelocity)) || Number(tcpAngularVelocity) < .01 || Number(tcpAngularVelocity) > 360} onChange={e => changeLinParameter(setTcpAngularVelocity, e.target.value)} /></label>
-            </div></details>}
-        </div>
+            <p>Pomiar → ostatni pomiar → 0° tylko w symulacji. Korekta obowiązuje przy następnym wyborze ruchu.</p>
+            <div className="cartesian-seed">{Array.from({ length: 6 }, (_, i) => <label key={i}>J{i + 1} · {context?.seed_sources[i] === "measured" ? "pomiar" : context?.seed_sources[i] === "last" ? "ostatni" : "sym. 0°"}
+                <input type="number" step="any" aria-label={`Start symulacji J${i + 1}`} value={overrides[i]} aria-errormessage="control-issue-simulation-start" aria-invalid={!!context && (!Number.isFinite(Number(overrides[i])) || (overrides[i].trim() !== "" && (Number(overrides[i]) < context.profiles[i].lower || Number(overrides[i]) > context.profiles[i].upper)))} placeholder={String(context?.preview_seed_degrees[i] ?? 0)}
+                    onChange={e => setOverrides(old => old.map((q, j) => j === i ? e.target.value : q))} /></label>)}</div>
+        </details></div>
     </div>;
 }

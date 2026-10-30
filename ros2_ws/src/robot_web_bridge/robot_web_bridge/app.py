@@ -95,7 +95,9 @@ class JogRateLimit:
         return True
 
 
-def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None):
+def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None, overview=None):
+    from .system_overview import ConnectionCounter
+    connections = overview.connections if overview is not None else ConnectionCounter()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(LanOnly, subnet=store.network['subnet'],
                        authority=f"{store.network['address']}:{store.network['port']}")
@@ -113,6 +115,14 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     @app.get('/api/v1/status')
     async def status():
         return JSONResponse(store.snapshot(), headers={'Cache-Control': 'no-store'})
+
+    @app.get('/api/v1/system/overview')
+    async def system_overview():
+        # Przegląd architektury tylko do odczytu; psutil/systemctl poza pętlą zdarzeń.
+        if overview is None:
+            raise HTTPException(503, 'Przegląd systemu jest niedostępny')
+        data = await asyncio.get_running_loop().run_in_executor(None, overview.snapshot)
+        return JSONResponse(data, headers={'Cache-Control': 'no-store'})
 
     async def configuration_call(operation, **values):
         if configuration_action is None:
@@ -246,8 +256,7 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     async def motor_zero(axis: int):
         return await motor_action('zero', axis)
 
-    @app.websocket('/api/v1/manual/ws')
-    async def manual_stream(websocket: WebSocket):
+    async def manual_session(websocket: WebSocket):
         if manual_store is None or manual_action is None:
             await websocket.close(code=1013)
             return
@@ -439,11 +448,26 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
             except (RuntimeError, OSError, LocalProtocolError):
                 pass
 
+    @app.websocket('/api/v1/manual/ws')
+    async def manual_stream(websocket: WebSocket):
+        connections.opened('manual')
+        try:
+            await manual_session(websocket)
+        finally:
+            connections.closed('manual')
+
     @app.api_route('/api/{path:path}', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
     async def missing_api(path):
         return JSONResponse({'detail': 'Nieznany endpoint API'}, status_code=404)
 
-    async def stream_state(websocket, snapshot, interval):
+    async def stream_state(websocket, snapshot, interval, kind):
+        connections.opened(kind)
+        try:
+            await publish_state(websocket, snapshot, interval)
+        finally:
+            connections.closed(kind)
+
+    async def publish_state(websocket, snapshot, interval):
         await websocket.accept()
         stopped = False
 
@@ -483,14 +507,14 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
 
     @app.websocket('/api/v1/ws')
     async def stream(websocket: WebSocket):
-        await stream_state(websocket, store.snapshot, 1.0)
+        await stream_state(websocket, store.snapshot, 1.0, 'status')
 
     @app.websocket('/api/v1/can/ws')
     async def can_stream(websocket: WebSocket):
         if can_store is None:
             await websocket.close(code=1013)
             return
-        await stream_state(websocket, can_store.snapshot, 0.2)
+        await stream_state(websocket, can_store.snapshot, 0.2, 'can')
 
     app.mount('/', PanelFiles(directory=str(static_dir), html=True), name='panel')
     return app

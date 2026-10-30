@@ -9,6 +9,8 @@ import { AppShell, emptyManualHeader, pageFromHash } from "./AppShell";
 import { ArchitecturePage } from "./ArchitecturePage";
 import { DiagnosticsPage } from "./DiagnosticsPage";
 import { axisPresence, busStateLabel } from "./dashboardData";
+import { buildLabel } from "./buildInfo";
+import { driveCells, freshCan, pulseSections } from "./systemPulse";
 import "./style.css";
 
 const labels: Record<State, string> = {
@@ -177,7 +179,8 @@ function App() {
     const pageId = pageFromHash(view);
     const canView = pageId === "can", manualView = pageId === "manual", configurationView = pageId === "config";
     const [manualHeader, setManualHeader] = useState(emptyManualHeader);
-    const canStatus = useCanStatus(pageId === "overview");
+    // Monitor pracy w pasku górnym potrzebuje diagnostyki CAN na każdym widoku.
+    const canStatus = useCanStatus(true);
     useEffect(() => { const update = () => { setManualHeader(emptyManualHeader); setView(location.hash); }; window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
     const { snapshot, connection, receivedAt, now } = useStatus();
     const stale =
@@ -196,9 +199,15 @@ function App() {
     const driveComponent: Component = { id: "drives", state: !drivesFresh ? "stale" : driveCount === 6 ? "ok" : "warn",
         message: drivesFresh ? "Dostępność z diagnostyki CAN; potwierdzenie ENABLE i konfiguracji odbywa się oddzielnie." : "Oczekiwanie na aktualną diagnostykę CAN.",
         sampled_at: canStatus.snapshot?.updated_at ?? null, values: {} };
+    const canOnline = canStatus.connection === "online", canFresh = freshCan(canStatus.snapshot, canOnline, canStatus.receivedAt, now);
+    const sections = pulseSections({ status: snapshot, statusOnline: online, statusFresh: !stale, statusConnecting: connection === "connecting",
+        can: canStatus.snapshot, canOnline, canFresh, build: buildLabel });
+    const pulse = { sections, drives: driveCells(canStatus.snapshot, canFresh),
+        ticks: { SYS: c?.host.sampled_at ?? undefined, ROS: canStatus.snapshot?.updated_at ?? snapshot?.updated_at ?? undefined,
+            API: receivedAt || undefined, WEB: receivedAt + canStatus.receivedAt || undefined } };
     return (
-        <AppShell view={pageId} manual={manualHeader} online={online} connecting={connection === "connecting"}>
-                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : canView ? <CanPage /> : pageId === "diagnostics" ? null : pageId === "architecture" ? <ArchitecturePage /> : <>
+        <AppShell view={pageId} manual={manualHeader} online={online} connecting={connection === "connecting"} pulse={pulse}>
+                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : canView ? <CanPage /> : pageId === "diagnostics" ? null : pageId === "architecture" ? <ArchitecturePage status={snapshot} statusFresh={!stale} statusOnline={online} can={canStatus.snapshot} canFresh={canFresh} canOnline={canOnline} sections={sections} /> : <>
                 <div className="page-title">
                     <div>
                         <div className="eyebrow">MONITOROWANIE SYSTEMU</div>

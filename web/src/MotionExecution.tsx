@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { validateCartesianPlan, type CartesianPlan } from "./cartesianTrajectory";
 import { planningRequest, PlanningRequestError } from "./planningContext";
 import { MOTION_STATUS_MAX_AGE_MS, motionReady, motionStateLabels, motionStatusFresh, type MotionObservation, type MotionStatus } from "./motionStatus";
 import type { Notice } from "./eventLog";
 
-type Props={planId:string|null;motionType:"PTP"|"LIN"|null;disabled:boolean;onPreview:(plan:CartesianPlan)=>void;
+type Props={planId:string|null;motionType:"PTP"|"LIN"|null;disabled:boolean;onPreview:(plan:CartesianPlan)=>void;onExecuteRequest?:()=>void;
     onStatus?:(value:MotionObservation|null)=>void;onNotice?:(value:Notice)=>void;
-    onCondition?:(key:string,value:Notice|null)=>void;onStopReady?:(action:(()=>void)|null)=>void};
-export function MotionExecution({planId,motionType,disabled,onPreview,onStatus,onNotice,onCondition,onStopReady}:Props) {
+    onCondition?:(key:string,value:Notice|null)=>void;onStopReady?:(action:(()=>void)|null)=>void;children?:ReactNode};
+// „Odtwarzacz” zakładki PTP/LIN: ▶ wykonuje zatwierdzony program, pasek pokazuje postęp i czas do końca, ■ wysyła STOP programu.
+export function MotionExecution({planId,motionType,disabled,onPreview,onExecuteRequest,onStatus,onNotice,onCondition,onStopReady,children}:Props) {
     const [status,setStatus]=useState<MotionStatus|null>(null),[preparing,setPreparing]=useState(false),[sending,setSending]=useState(false);
     const [confirmed,setConfirmed]=useState(false),[receivedAt,setReceivedAt]=useState(-Infinity),[clock,setClock]=useState(performance.now()),[connectionError,setConnectionError]=useState("");
     const [uncertain,setUncertain]=useState<{program:string;key:string}|null>(null);
@@ -85,6 +86,7 @@ export function MotionExecution({planId,motionType,disabled,onPreview,onStatus,o
         if(!key.current)key.current=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
         const current=++epoch.current,attempt={program:status.program_id,key:key.current};setSending(true);setConfirmed(false);
         try {
+            onExecuteRequest?.();
             const value=await planningRequest("motion/execute",{program_id:attempt.program,execution_key:attempt.key});if(current!==epoch.current)return;
             receive(value);emit("motion-execute","Żądanie startu przyjęte. Obserwuj aktualny stan programu.");
         }catch(error){if(current===epoch.current){
@@ -107,19 +109,24 @@ export function MotionExecution({planId,motionType,disabled,onPreview,onStatus,o
     const selectedType=motionType ?? "ruch";
     const stopAction=useRef(stop);stopAction.current=stop;
     useEffect(()=>{onStopReady?.(()=>void stopAction.current());return()=>onStopReady?.(null);},[onStopReady]);
+    const progress=Math.max(0,Math.min(1,status?.progress ?? 0)),remaining=status?.program_id?Math.max(0,status.duration-(status.elapsed ?? 0)):null;
+    const axes=status?.participating.map((yes,i)=>yes?`J${i+1}`:"").filter(Boolean) ?? [];
+    const stateLabel=!fresh?"Status nieaktualny":preparing?"Przygotowywanie":expected.current && status?.preparation?.id!==expected.current?"Oczekiwanie na aktualny program":motionStateLabels[status?.state ?? "idle"] ?? "Nieznany stan";
     return <section className="physical-motion" aria-label="Wykonanie fizycznego PTP/LIN">
-        <header className="motion-stage-heading"><span className="motion-stage-number">2</span><div><h3>Przygotowanie robota</h3><small>Aktualne pomiary → program fizyczny</small></div><span className="badge warn">ROBOT</span></header>
-        <div className="motion-prepare-actions"><button className="secondary-button" disabled={disabled || !fresh || !planId || !motionType || preparing || sending || !!uncertain || status?.busy} onClick={()=>void prepare()}>Przygotuj {selectedType} robota</button>
-            <button className="secondary-button" disabled={!ready} onClick={()=>void preview()}>Podgląd przygotowanego {selectedType}</button></div>
-        <div className="motion-summary" aria-label="Podsumowanie programu" data-program-id={status?.program_id ?? ""}>
-            <span className={`badge ${fresh?status?.busy?"planning-badge":"ok":"stale"}`}>{!fresh?"Status nieaktualny":preparing?"Przygotowywanie":expected.current && status?.preparation?.id!==expected.current?"Oczekiwanie na aktualny program":motionStateLabels[status?.state ?? "idle"] ?? "Nieznany stan"}</span>
-            {status?.program_id && <><dl><div><dt>Wysyłanie</dt><dd>{status.dispatch_mode === "synchronized" ? "Streaming synchroniczny" : "Streaming"}</dd></div><div><dt>Typ</dt><dd>{status.motion_type ?? "—"}</dd></div><div><dt>Plan</dt><dd>{status.duration.toFixed(2)} s</dd></div><div><dt>Czas</dt><dd>{(status.elapsed ?? 0).toFixed(2)} s</dd></div><div><dt>Osie</dt><dd>{status.participating.map((yes,i)=>yes?`J${i+1}`:"").filter(Boolean).join(", ") || "—"}</dd></div>{status.dispatch_mode === "synchronized" && <><div><dt>Cykl SYNC</dt><dd>{status.sync_cycle ?? 0}</dd></div><div><dt>Spóźnienie SYNC</dt><dd>{(status.sync_lateness_ms ?? 0).toFixed(3)} ms</dd></div></>}</dl>
-                <div className="motion-progress"><progress aria-label="Postęp fizycznego programu" max={1} value={Math.max(0,Math.min(1,status.progress))}/><span>{Math.round(status.progress*100)}%</span></div>
-                <details><summary>Pozycje osi · start → cel</summary><table><thead><tr><th>Oś</th><th>Start [°]</th><th>Cel [°]</th></tr></thead><tbody>{status.participating.map((yes,i)=>yes && <tr key={i}><th>J{i+1}</th><td>{(status.start_positions[i]*180/Math.PI).toFixed(2)}</td><td>{(status.target_positions[i]*180/Math.PI).toFixed(2)}</td></tr>)}</tbody></table></details></>}
+        <div className="motion-player">
+            <button className="motion-play" aria-label={`Wykonaj ${selectedType}`} title="Wykonuje zatwierdzony program. Program trwa po zamknięciu panelu i utracie LAN." disabled={!ready || !confirmed} onClick={()=>void execute()}>▶</button>
+            <div className="motion-summary" aria-label="Podsumowanie programu" data-program-id={status?.program_id ?? ""}>
+                <div className="motion-progress"><progress aria-label="Postęp fizycznego programu" max={1} value={progress}/></div>
+                <div className="motion-meta"><span><span className={`badge ${fresh?status?.busy?"planning-badge":"ok":"stale"}`}>{stateLabel}</span> {status?.program_id ? `${status.motion_type ?? "—"} · ${axes.length===6?"J1–J6":axes.join(", ") || "—"}` : ""}</span>
+                    {status?.program_id && <span><b>{Math.round(progress*100)}%</b> · pozostało {remaining!.toFixed(1)} s</span>}</div>
+            </div>
+            <button className="secondary-button motion-player-stop" aria-label="STOP programu" title="Żądanie STOP programu; postój wymaga potwierdzenia pomiarami" disabled={!status?.busy && !sending} onClick={()=>void stop()}>■</button>
         </div>
-        <header className="motion-stage-heading"><span className="motion-stage-number">3</span><div><h3>Zatwierdzenie i wykonanie</h3><small>Sprawdź zakres i gotowość stanowiska</small></div></header>
-        <label className="motion-confirm"><input type="checkbox" checked={confirmed} disabled={!ready} onChange={e=>setConfirmed(e.target.checked)}/>Zatwierdzam fizyczny ruch wymienionych osi{status?.tcp_verified?".":" mimo niepotwierdzonej pozycji TCP."}</label>
-        <small className="motion-persistence">Program trwa po zamknięciu panelu i utracie LAN. Szczegóły stanu oraz rozwiązania problemów: Centrum komunikatów.</small>
-        <div className="motion-action-bar"><button className="primary-button" disabled={!ready || !confirmed} onClick={()=>void execute()}>Wykonaj {selectedType}</button></div>
+        {children}
+        <div className="motion-prepare-actions">
+            <button className="secondary-button" aria-label={`Podgląd przygotowanego ${selectedType}`} disabled={!ready} onClick={()=>void preview()}>Podgląd</button>
+            <button className="secondary-button" aria-label={`Przygotuj ${selectedType} robota`} disabled={disabled || !fresh || !planId || !motionType || preparing || sending || !!uncertain || status?.busy} onClick={()=>void prepare()}>Przygotuj</button>
+            <label className="motion-confirm"><input type="checkbox" checked={confirmed} disabled={!ready} onChange={e=>setConfirmed(e.target.checked)}/>Zatwierdzam fizyczny ruch wymienionych osi{status?.tcp_verified?".":" mimo niepotwierdzonej pozycji TCP."}</label>
+        </div>
     </section>;
 }

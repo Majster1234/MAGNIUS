@@ -27,6 +27,7 @@ from robot_control_interfaces.msg import ManualState
 from robot_control_interfaces.msg import TcpJogStatus
 from robot_control_interfaces.msg import ShaftTraceBatch
 from .shaft_trace import ShaftTraceStore
+from .system_overview import DEFAULT_UNITS, SystemOverview
 from std_srvs.srv import Trigger
 
 
@@ -109,6 +110,7 @@ def main(args=None):
                 return bool(result.success), result.message
             except Exception:
                 return False, 'Nie udało się przekazać operacji do diagnostyki CAN'
+        overview = SystemOverview(node, node.declare_parameter('overview_units', list(DEFAULT_UNITS)).value)
         executor.add_node(node)
 
         def spin():
@@ -120,7 +122,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace, overview), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

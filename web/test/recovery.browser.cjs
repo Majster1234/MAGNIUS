@@ -46,7 +46,7 @@ const dist=path.resolve(__dirname,'../dist');
       await page.setViewportSize({width,height:1000});
       const header=await page.locator('.manual-header').boundingBox(),banner=await page.locator('.manual-recovery').boundingBox();
       const workspace=await page.locator('.manual-workspace').boundingBox();
-      assert(banner.y>=header.y+header.height-1);assert(workspace.y>=banner.y+banner.height-1);
+      const messages=await page.locator('.manual-messages').boundingBox();assert(banner.y>=messages.y && banner.y+banner.height<=messages.y+messages.height,'Baner odzyskiwania jest w panelu komunikatów');assert(workspace.y<=header.y+header.height+12,'Baner nie przesuwa obszaru roboczego');
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     }
     state.busy=false;state.fault=false;state.recovery_state='idle_disabled';

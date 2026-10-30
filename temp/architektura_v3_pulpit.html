@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architektura — wariant 3: Pulpit ćwiartek</title>
+<!-- Makieta statyczna: dane przykładowe, brak skryptów i połączeń z API/ROS/CAN. -->
+<style>
+:root {
+    --bg-app:#0b1017; --bg-panel:#131b24; --bg-elevated:#192430; --border:#283648;
+    --text:#e0e8f0; --muted:#9aaaba; --live:#10b981; --plan:#3b82f6; --warn:#f59e0b; --danger:#ef4444; --code:#8ec9ec;
+    color-scheme:dark; font-family:Inter,"Segoe UI",system-ui,sans-serif; color:var(--text); background:var(--bg-app); line-height:1.5;
+}
+* { box-sizing:border-box; }
+body { margin:0; padding:28px 32px 48px; }
+h1,h2,h3,p { margin:0; }
+.mono { font-family:"SFMono-Regular",Consolas,monospace; }
+.mock { display:inline-block; margin-bottom:18px; padding:4px 10px; border:1px dashed var(--warn); border-radius:6px; color:var(--warn); font-size:11px; }
+.eyebrow { color:var(--live); font-size:11px; letter-spacing:.14em; font-weight:600; }
+header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:18px; }
+header h1 { font-size:26px; }
+header p { color:var(--muted); font-size:13px; }
+.flow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; font:12px Consolas,monospace; color:#d5e4f2; }
+.flow b { padding:4px 9px; border-radius:5px; background:var(--bg-elevated); border:1px solid var(--border); font-weight:400; }
+.flow b.warn { border-color:var(--warn); }
+.flow span { color:var(--live); }
+
+.grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.quad { border:1px solid var(--border); background:var(--bg-panel); border-radius:8px; padding:16px 18px; border-top:3px solid var(--live); }
+.quad.warn { border-top-color:var(--warn); }
+.quad-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:14px; }
+.quad-head h2 { font-size:15px; }
+.quad-head small { color:var(--muted); font-size:11px; }
+.badge { font-size:11px; padding:2px 9px; border-radius:999px; background:rgba(16,185,129,.14); color:var(--live); white-space:nowrap; }
+.badge.warn { background:rgba(245,158,11,.14); color:var(--warn); }
+.kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
+.kpi { background:var(--bg-elevated); border-radius:6px; padding:10px; }
+.kpi small { display:block; color:var(--muted); font-size:10.5px; letter-spacing:.06em; }
+.kpi strong { font-size:19px; font-weight:600; }
+.kpi em { font-style:normal; color:var(--muted); font-size:11px; }
+.kpi.warn strong { color:var(--warn); }
+.spark { display:block; width:100%; height:22px; margin-top:4px; }
+.spark polyline { fill:none; stroke:var(--live); stroke-width:1.5; }
+.kpi.warn .spark polyline { stroke:var(--warn); }
+h3 { font-size:10.5px; letter-spacing:.12em; color:var(--muted); font-weight:600; margin:0 0 6px; }
+.proc { width:100%; border-collapse:collapse; font-size:12px; }
+.proc th { text-align:left; color:var(--muted); font-weight:500; font-size:10.5px; padding:4px 6px; border-bottom:1px solid var(--border); }
+.proc td { padding:5px 6px; border-bottom:1px solid #1d2835; }
+.proc td.n { text-align:right; font-family:Consolas,monospace; font-size:11.5px; }
+.st { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--live); margin-right:7px; }
+.st.warn { background:var(--warn); } .st.off { background:#5b6b7c; }
+
+.timeline { margin-top:16px; border:1px solid var(--border); background:var(--bg-panel); border-radius:8px; padding:16px 18px; }
+.timeline-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; }
+.timeline-head h2 { font-size:15px; }
+.filters { display:flex; gap:6px; }
+.filters span { font-size:11px; padding:3px 10px; border-radius:999px; border:1px solid var(--border); color:var(--muted); }
+.filters span.on { border-color:var(--plan); color:var(--text); background:rgba(59,130,246,.12); }
+.events { list-style:none; margin:0; padding:0 0 0 14px; border-left:2px solid var(--border); display:grid; gap:10px; }
+.events li { position:relative; font-size:12.5px; display:grid; grid-template-columns:70px 120px 1fr; gap:12px; }
+.events li::before { content:""; position:absolute; left:-20px; top:6px; width:10px; height:10px; border-radius:50%; background:var(--live); border:2px solid var(--bg-panel); }
+.events li.warn::before { background:var(--warn); }
+.events li.err::before { background:var(--danger); }
+.events time, .events .src { color:var(--muted); font-size:11px; }
+.events li.active { font-weight:600; }
+.events li.active .src::after { content:" · AKTYWNE"; color:var(--warn); font-weight:600; }
+@media (max-width:1000px) { .grid { grid-template-columns:1fr; } .kpis { grid-template-columns:repeat(2,1fr); } .events li { grid-template-columns:1fr; gap:0; } }
+</style>
+</head>
+<body>
+<div class="mock">MAKIETA · dane przykładowe · brak połączenia z systemem</div>
+<header>
+    <div>
+        <div class="eyebrow">TOPOLOGIA SYSTEMU</div>
+        <h1>Architektura</h1>
+        <p>Pulpit czterech sekcji z kluczowymi wskaźnikami, procesami i historią problemów.</p>
+    </div>
+    <div class="flow"><b>UI</b><span>↔</span><b>API :8080</b><span>↔</span><b class="warn">ROS 2</b><span>↔</span><b>can0 1 Mbit/s</b><span>↔</span><b>MKS ID 1–6</b></div>
+</header>
+
+<div class="grid">
+    <section class="quad">
+        <div class="quad-head"><div><h2>System</h2><small>Ubuntu 22.04 · jądro 6.8.0-138 · gs_usb</small></div><span class="badge">OK</span></div>
+        <div class="kpis">
+            <div class="kpi"><small>CPU</small><strong>23</strong><em> %</em><svg class="spark" viewBox="0 0 100 22"><polyline points="0,16 12,14 24,15 36,11 48,13 60,9 72,12 84,10 100,13"/></svg></div>
+            <div class="kpi"><small>RAM</small><strong>33</strong><em> %</em><svg class="spark" viewBox="0 0 100 22"><polyline points="0,14 25,14 50,13 75,13 100,12"/></svg></div>
+            <div class="kpi"><small>CAN OBCIĄŻENIE</small><strong>31</strong><em> / 60 %</em><svg class="spark" viewBox="0 0 100 22"><polyline points="0,18 15,18 30,8 45,7 60,9 75,17 100,10"/></svg></div>
+            <div class="kpi"><small>BŁĘDY CAN</small><strong>0</strong><em> bus-off 0</em><svg class="spark" viewBox="0 0 100 22"><polyline points="0,20 100,20"/></svg></div>
+        </div>
+        <h3>USŁUGI I URZĄDZENIA</h3>
+        <table class="proc">
+            <tr><th>Element</th><th>Stan</th><th style="text-align:right">Szczegóły</th></tr>
+            <tr><td><span class="st"></span>Autostart ROS 2 (systemd)</td><td>active</td><td class="n">PID 47062</td></tr>
+            <tr><td><span class="st"></span>Konfiguracja SocketCAN</td><td>exited</td><td class="n">can0 UP</td></tr>
+            <tr><td><span class="st"></span>BIGTREETECH U2C v2.1</td><td>podłączony</td><td class="n">ERROR-ACTIVE</td></tr>
+            <tr><td><span class="st"></span>Napędy J1–J6</td><td>6/6 online</td><td class="n">EN 0 · 0 RPM</td></tr>
+        </table>
+    </section>
+
+    <section class="quad warn">
+        <div class="quad-head"><div><h2>ROS 2</h2><small>Humble · install/stop-recovery-ros</small></div><span class="badge warn">1 ostrzeżenie</span></div>
+        <div class="kpis">
+            <div class="kpi"><small>WĘZŁY</small><strong>6</strong><em> / 6</em></div>
+            <div class="kpi"><small>/joint_states</small><strong>100</strong><em> Hz</em><svg class="spark" viewBox="0 0 100 22"><polyline points="0,11 20,11 40,12 60,11 80,11 100,11"/></svg></div>
+            <div class="kpi warn"><small>ODCZYT CAN MAX</small><strong>19,1</strong><em> / 24 ms</em><svg class="spark" viewBox="0 0 100 22"><polyline points="0,15 20,13 40,9 60,6 80,8 100,5"/></svg></div>
+            <div class="kpi"><small>MASKA AWARII</small><strong>0</strong><em> idle_disabled</em></div>
+        </div>
+        <h3>WĘZŁY I KONTROLERY</h3>
+        <table class="proc">
+            <tr><th>Węzeł</th><th>Rola</th><th style="text-align:right">CPU</th></tr>
+            <tr><td><span class="st warn"></span>controller_manager</td><td>CanSystem · SYNC</td><td class="n">11,4%</td></tr>
+            <tr><td><span class="st"></span>robot_motion_planner</td><td>KDL · TOTG</td><td class="n">2,0%</td></tr>
+            <tr><td><span class="st"></span>robot_can_diagnostics</td><td>diagnostyka C++</td><td class="n">1,2%</td></tr>
+            <tr><td><span class="st"></span>robot_system_monitor</td><td>host i CAN</td><td class="n">0,4%</td></tr>
+            <tr><td><span class="st off"></span>joint_trajectory_controller</td><td>inactive</td><td class="n">—</td></tr>
+        </table>
+    </section>
+
+    <section class="quad">
+        <div class="quad-head"><div><h2>Backend Python</h2><small>robot_web_bridge · FastAPI · uvicorn</small></div><span class="badge">OK</span></div>
+        <div class="kpis">
+            <div class="kpi"><small>KLIENCI WS</small><strong>2</strong></div>
+            <div class="kpi"><small>ŻĄDANIA / MIN</small><strong>38</strong><svg class="spark" viewBox="0 0 100 22"><polyline points="0,14 20,12 40,16 60,10 80,13 100,11"/></svg></div>
+            <div class="kpi"><small>WIEK SNAPSHOTU</small><strong>0,4</strong><em> s</em></div>
+            <div class="kpi"><small>BŁĘDY 5xx</small><strong>0</strong><em> / 1 h</em></div>
+        </div>
+        <h3>PUNKTY KOŃCOWE</h3>
+        <table class="proc">
+            <tr><th>Ścieżka</th><th>Typ</th><th style="text-align:right">p95</th></tr>
+            <tr><td><span class="st"></span>/ws/status</td><td>WebSocket</td><td class="n">—</td></tr>
+            <tr><td><span class="st"></span>/api/v1/status</td><td>GET</td><td class="n">4 ms</td></tr>
+            <tr><td><span class="st"></span>/api/v1/config</td><td>GET/POST</td><td class="n">18 ms</td></tr>
+            <tr><td><span class="st"></span>/api/v1/can/reset</td><td>POST</td><td class="n">—</td></tr>
+        </table>
+    </section>
+
+    <section class="quad warn">
+        <div class="quad-head"><div><h2>Frontend</h2><small>React · TypeScript · web/dist</small></div><span class="badge warn">1 uwaga</span></div>
+        <div class="kpis">
+            <div class="kpi"><small>WERSJA</small><strong style="font-size:15px" class="mono">ccb1fbc</strong><em> +dirty</em></div>
+            <div class="kpi warn"><small>TESTY TS</small><strong>144</strong><em> / 145</em></div>
+            <div class="kpi"><small>RTT WS</small><strong>3</strong><em> ms</em></div>
+            <div class="kpi"><small>ODPYTYWANIE</small><strong>250</strong><em> ms</em></div>
+        </div>
+        <h3>OTWARTE SESJE PANELU</h3>
+        <table class="proc">
+            <tr><th>Klient</th><th>Widok</th><th style="text-align:right">Od</th></tr>
+            <tr><td><span class="st"></span>192.168.1.20 · Chromium</td><td>Architektura</td><td class="n">ta karta</td></tr>
+            <tr><td><span class="st"></span>192.168.1.34 · Firefox</td><td>Sterowanie ręczne</td><td class="n">12 min</td></tr>
+        </table>
+    </section>
+</div>
+
+<section class="timeline">
+    <div class="timeline-head"><h2>Problemy i zdarzenia</h2><div class="filters"><span class="on">Wszystkie</span><span>Aktywne</span><span>System</span><span>ROS</span><span>Backend</span><span>Frontend</span></div></div>
+    <ul class="events">
+        <li class="warn active"><time>15:41</time><span class="src">Frontend · build</span><span>Test <span class="mono">controlMessages.test.ts</span> nie przechodzi (zastany)</span></li>
+        <li class="warn active"><time>14:02</time><span class="src">ROS · SYNC</span><span>Automatyczne odblokowanie SYNC włączone wyjątkiem; odbiór J4 niezaliczony</span></li>
+        <li class="warn active"><time>13:20</time><span class="src">ROS · CAN</span><span>Maksymalna odpowiedź odczytu 19,1 ms przy timeoucie 24 ms</span></li>
+        <li><time>14:03</time><span class="src">ROS · odzyskiwanie</span><span>Odzyskiwanie zakończone: idle_disabled, fault=false, maska 0</span></li>
+        <li class="err"><time>11:47</time><span class="src">System · CAN</span><span>CAN_ERR_PROT_BIT1 przy serii STOP (rozwiązane)</span></li>
+    </ul>
+</section>
+</body>
+</html>

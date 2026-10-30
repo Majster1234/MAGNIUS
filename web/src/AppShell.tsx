@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { StatusMonitor } from "./StatusMonitor";
 
 export const pages = [
     { id: "overview", label: "Przegląd systemu", icon: "◫" },
@@ -16,8 +17,9 @@ export function pageFromHash(hash: string): PageId {
 export type ManualHeaderState = { connected: boolean; fresh: boolean; planning: boolean; recording: boolean };
 export const emptyManualHeader: ManualHeaderState = { connected: false, fresh: false, planning: false, recording: false };
 
-export function AppShell({ view, manual, online, connecting, children }: {
+export function AppShell({ view, manual, online, connecting, pulse, children }: {
     view: PageId; manual: ManualHeaderState; online: boolean; connecting: boolean; children: ReactNode;
+    pulse?: React.ComponentProps<typeof StatusMonitor>;
 }) {
     const [collapsed, setCollapsed] = useState(view === "manual");
     useEffect(() => { setCollapsed(view === "manual"); }, [view]);
@@ -47,6 +49,7 @@ export function AppShell({ view, manual, online, connecting, children }: {
         </aside>
         <main className="app-workspace">
             <header className="topbar app-topbar"><div className="breadcrumbs">Stanowisko robota <span className="divider">/</span><span>{pages.find(page => page.id === view)!.label}</span></div>
+                {pulse && <StatusMonitor {...pulse} />}
                 <div className="topbar-statuses" role="status" aria-live="polite">
                     {isManual && manual.planning && <span className="badge planning-badge"><span className="dot" />PLANOWANIE · bliźniak</span>}
                     {isManual && manual.recording && <span className="badge warn">Nagrywanie diagnostyki</span>}

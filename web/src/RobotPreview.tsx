@@ -101,7 +101,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     useEffect(()=>{onCondition?.("model-trace-partial",executionTrace?.partial?{source:"model-trace-partial",severity:"warning",code:"partial",context:"Ślad modelu",message:"Tor modelu — niepełne pomiary. Historia śladu zawiera niepełny zestaw pozycji."}:null);},[executionTrace?.partial,onCondition]);
     const canStartPlanning = !message && (usable && count > 0 || simulationAllowed) && !pending && !physicalJogActive && !state?.busy;
     return <section className="robot-preview" aria-label="Wizualizacja robota" aria-busy={!!message}>
-        <header><h2>Wizualizacja robota</h2><span className="badge warn">{modelKind === "configured" ? "Geometria konfiguracji" : "Geometria demonstracyjna"} · {state?.axes.some(axis => axis.joint_configured) ? "przełożenia osi" : "wały 1:1"}</span>
+        <header><h2>Wizualizacja robota</h2><span className="badge warn" title={`${modelKind === "configured" ? "Geometria konfiguracji" : "Geometria demonstracyjna"} · ${state?.axes.some(axis => axis.joint_configured) ? "przełożenia osi" : "wały 1:1"}`}>{modelKind === "configured" ? "Geometria konfiguracji" : "Geometria demonstracyjna"} · {state?.axes.some(axis => axis.joint_configured) ? "przełożenia osi" : "wały 1:1"}</span>
             {planning && <span className="badge planning-badge">Planowanie — JOG / TCP</span>}
             <span className={`preview-completeness ${count === 6 ? "complete" : "partial"}`}>{count === 6 ? "Pozycja kompletna — 6/6 osi" : `Pozycja częściowa — ${count}/6 osi`}</span>
         </header>

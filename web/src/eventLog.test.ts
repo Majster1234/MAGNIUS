@@ -30,7 +30,7 @@ it("zapisuje zmiany stanu, awarię i powrót zamiast powtarzanych snapshotów", 
     expect(log.entries.map(entry => entry.severity)).toEqual(["info", "info", "warning", "error", "info"]);
 });
 
-it("ogranicza pamięć do 100 wpisów i 800 znaków na komunikat", () => {
+it("ogranicza pamięć do 100 wpisów i 800 znaków na komunikat bez awarii", () => {
     const log = new EventLog();
     expect(log.append({ source: "test", severity: "info", message: "  " })).toBe(false);
     for (let i = 0; i < 1000; i++) log.append({ source: "test", severity: "info", message: `${i}: ${"x".repeat(1000)}` }, i);
@@ -38,4 +38,14 @@ it("ogranicza pamięć do 100 wpisów i 800 znaków na komunikat", () => {
     expect(log.entries[0].timestamp).toBe(900);
     expect(log.entries[99].timestamp).toBe(999);
     expect(log.entries.every(entry => entry.message.length <= 800)).toBe(true);
+});
+
+it("zachowuje pełną treść awarii i nie usuwa jej jako pierwszej przy przepełnieniu", () => {
+    const log = new EventLog();
+    const fault = `Awaria J2: ${"opis ".repeat(400)}koniec`;
+    log.append({ source: "controller", severity: "error", message: fault }, 0);
+    for (let i = 1; i <= 150; i++) log.append({ source: "test", severity: "info", message: `Wpis ${i}` }, i);
+    expect(log.entries).toHaveLength(100);
+    expect(log.entries[0]).toMatchObject({ severity: "error", message: fault.trim() });
+    expect(log.entries.at(-1)!.message).toBe("Wpis 150");
 });

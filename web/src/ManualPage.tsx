@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { JogControl, MANUAL_STATE_TIMEOUT_MS } from "./manualControl";
 import { RobotPreview } from "./RobotPreview";
 import { PlanningJog } from "./planningJog";
@@ -12,24 +12,26 @@ import { TcpControls } from "./TcpControls";
 import { PlanningTcpStep } from "./planningTcpStep";
 import { PhysicalTcpJog } from "./physicalTcpJog";
 import type { MotionTrace } from "./previewMotionTrail";
-import { ControlMessageCenter, useControlMessages } from "./ControlMessageCenter";
+import { ControlAnnouncements, ControlMessageCenter, useControlMessages } from "./ControlMessageCenter";
 import { previewLimits } from "./previewLimits";
 import type { Axis, ManualState } from "./manualTypes";
 import type { ManualHeaderState } from "./AppShell";
-import type { MotionObservation } from "./motionStatus";
+import { motionStateLabels, type MotionObservation } from "./motionStatus";
 
 function calibrationRepair(axis: Axis) {
     return axis.joint_configured && !axis.calibration_valid ?
         `J${axis.axis}: nieważne odniesienie przegubu. Pozycja dotyczy wału, JOG przegubu jest zablokowany. Opis i rozwiązanie: Centrum komunikatów.` : undefined;
 }
 
-export function MotorPosition({ axis, position, plannedPosition, stale = false, lower = -3600, upper = 3600, shaftFallback = false }: { axis: number; position: number | null; plannedPosition?: number | null; stale?: boolean; lower?: number; upper?: number; shaftFallback?: boolean }) {
+// Pasek pozycji v5c: wartość (w Planowaniu „rzeczywista / plan”) nad cienkim torem z suwakiem, limity pod torem.
+export function MotorPosition({ axis, position, plannedPosition, planText, stale = false, lower = -3600, upper = 3600, shaftFallback = false }: { axis: number; position: number | null; plannedPosition?: number | null; planText?: ReactNode; stale?: boolean; lower?: number; upper?: number; shaftFallback?: boolean }) {
     const known = position !== null && Number.isFinite(position);
     const bounded = known ? Math.max(lower, Math.min(upper, position)) : 0;
     const plannedKnown = plannedPosition !== null && plannedPosition !== undefined && Number.isFinite(plannedPosition);
     const plannedLabel = plannedKnown ? `Bliźniak J${axis}: ${plannedPosition.toFixed(1)}°` : "";
+    const note = [shaftFallback && "wał · brak kalibracji", known && stale && "ostatni pomiar"].filter(Boolean).join(" · ");
     return <div className={`motor-position ${stale ? "measurement-stale" : ""}`}>
-        <span className="position-value"><span>{known ? `${position.toFixed(1)}°` : "—"}</span>{shaftFallback && <em>wał · brak kalibracji</em>}{known && stale && <em>ostatni pomiar</em>}</span>
+        <span className="position-value"><span>{known ? `${position.toFixed(1)}°` : "—"}</span>{planText}</span>
         <div className={`position-track ${known ? "" : "unknown"}`} role={known ? "meter" : "img"}
             aria-label={`Pozycja ${shaftFallback ? "wału " : ""}J${axis} względem limitów${known ? "" : ": brak danych"}`}
             aria-valuemin={known ? lower : undefined} aria-valuemax={known ? upper : undefined}
@@ -38,7 +40,7 @@ export function MotorPosition({ axis, position, plannedPosition, stale = false, 
             {known && <span className="position-thumb" style={{ left: `${(bounded - lower) / (upper - lower) * 100}%` }} />}
             {plannedKnown && <span className="position-planned-thumb" title={plannedLabel} aria-hidden="true" data-position={plannedPosition}
                 style={{ left: `${(Math.max(lower, Math.min(upper, plannedPosition)) - lower) / (upper - lower) * 100}%` }} />}
-        </div><div className="position-limits"><span>{Number(lower.toFixed(2))}°</span><span>{upper > 0 ? "+" : ""}{Number(upper.toFixed(2))}°</span></div>
+        </div><div className="position-limits"><span>{Number(lower.toFixed(2))}°</span>{note && <em>{note}</em>}<span>{upper > 0 ? "+" : ""}{Number(upper.toFixed(2))}°</span></div>
     </div>;
 }
 
@@ -47,12 +49,18 @@ export function AxisPosition({ axis, usable, planning = false, plannedPosition, 
     const joint = !!axis.joint_configured && !shaftFallback;
     const title = shaftFallback ? calibrationRepair(axis) :
         joint ? `Przegub; wał: ${axis.position_known ? axis.position_degrees.toFixed(1) + "°" : "brak danych"}` : "Wał silnika — brak pełnego profilu przegubu";
+    const planText = planning ? <span className={`planned-position ${planAvailable ? "" : "plan-unavailable"}`} aria-label={`Plan: ${plannedPosition == null ? "brak" : `${plannedPosition.toFixed(1)}°`}`}> / <b>{plannedPosition == null ? "—" : `${plannedPosition.toFixed(1)}°`}</b></span> : undefined;
     return <div className="manual-position-reading" title={title}><MotorPosition axis={axis.axis}
         position={joint ? axis.joint_position_known ? axis.joint_position_degrees! : null : axis.position_known ? axis.position_degrees : null}
         lower={joint ? axis.joint_lower_degrees : -3600} upper={joint ? axis.joint_upper_degrees : 3600} stale={!usable} shaftFallback={shaftFallback}
-        plannedPosition={planning && !shaftFallback ? plannedPosition : undefined}/>{planning && <small className={`planned-position ${planAvailable ? "" : "plan-unavailable"}`}>Plan: {plannedPosition == null ? "—" : `${plannedPosition.toFixed(1)}°`}</small>}</div>;
+        plannedPosition={planning && !shaftFallback ? plannedPosition : undefined} planText={planText}/></div>;
 }
 
+function remarks(count: number) {
+    return `${count} ${count === 1 ? "uwaga" : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? "uwagi" : "uwag"}`;
+}
+
+type DockTab = "tcp" | "motion";
 
 export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: ManualHeaderState) => void } = {}) {
     const [state, setState] = useState<ManualState | null>(null);
@@ -64,6 +72,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const [held, setHeld] = useState<{ axis: number; direction: number } | null>(null);
     const [planning, setPlanning] = useState(false);
     const [showMotionFrames, setShowMotionFrames] = useState(true);
+    const [dockTab, setDockTab] = useState<DockTab>("tcp");
     useEffect(() => { onHeaderStatus?.({ connected, fresh, planning, recording: !!state?.recording }); }, [onHeaderStatus, connected, fresh, planning, state?.recording]);
     const [simulationPositions, setSimulationPositions] = useState<number[] | null>(null);
     const [motionTrace, setMotionTrace] = useState<MotionTrace | null>(null);
@@ -105,6 +114,9 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const preparedPreview = useRef<((plan: CartesianPlan) => void) | null>(null);
     const registerPreparedPreview = useCallback((callback: ((plan: CartesianPlan) => void) | null) => { preparedPreview.current = callback; }, []);
     const showPreparedPreview = useCallback((plan: CartesianPlan) => { preparedPreview.current?.(plan); }, []);
+    const restartPreview = useRef<(() => void) | null>(null);
+    const registerPreviewRestart = useCallback((callback: (() => void) | null) => { restartPreview.current = callback; }, []);
+    const restartMotionPreview = useCallback(() => { restartPreview.current?.(); }, []);
     const planningMode = useRef(false);
     const latestState = useRef<ManualState | null>(null);
     const modelStatus = useRef(previewModel); modelStatus.current = previewModel;
@@ -342,7 +354,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                 }
             }}
             onPointerUp={stopJog} onPointerCancel={stopJog} onLostPointerCapture={stopJog}
-            onContextMenu={(event) => event.preventDefault()}>{direction > 0 ? "→" : "←"}</button>;
+            onContextMenu={(event) => event.preventDefault()}>{direction > 0 ? "›" : "‹"}</button>;
     }
     function stopTcp(emergency = false) { physicalTcp.current?.stop(emergency); tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null); }
     function startTcp(axis: TcpAxis, direction: number, frame: TcpFrame, speed: number, step?: number) {
@@ -382,6 +394,26 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const recovering = !!state?.recovery_state && !["idle", "idle_disabled"].includes(state.recovery_state);
     const recoveryPending = Array.from({length: 6}, (_, index) => (state?.recovery_pending_mask ?? 0) & (1 << index) ? `J${index + 1}` : "").filter(Boolean).join(", ");
     const axes = state?.axes ?? Array.from({ length: 6 }, (_, index) => ({ axis: index + 1 } as Axis));
+    // PTP/LIN jest dostępny w Planowaniu; w LIVE zakładka pozostaje otwarta tylko podczas trwającego programu (postęp i STOP).
+    const motionTabAvailable = planning || !!execution?.status.busy;
+    useEffect(() => { if (!motionTabAvailable && dockTab === "motion") setDockTab("tcp"); }, [motionTabAvailable, dockTab]);
+    const tabs: [DockTab, string][] = [["tcp", planning ? "TCP" : "TCP · LIVE"], ["motion", "PTP / LIN"]];
+    function tabKey(event: KeyboardEvent) {
+        if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+        const order = tabs.map(([id]) => id).filter(id => id !== "motion" || motionTabAvailable);
+        const next = order[(order.indexOf(dockTab) + (event.key === "ArrowRight" ? 1 : order.length - 1)) % order.length];
+        setDockTab(next); document.getElementById(`manual-tab-${next}`)?.focus();
+    }
+    // Linia stanu pod wizualizacją: trwający ruch, potem najważniejszy problem, potem ostatni komunikat.
+    const heldAxis = held ? axes[held.axis - 1] : undefined, issue = active[0], latest = entries.at(-1);
+    const recoveryVisible = !!state?.recovery_state && state.recovery_state !== "idle";
+    const statusLine = recoveryVisible ? { level: state!.recovery_state === "recovery_failed" ? "error" : "warn", title: state!.recovery_state === "idle_disabled" ? "Gotowy do ponownego załączenia" : state!.recovery_state === "recovery_failed" ? "Odzyskiwanie nieudane" : "Odzyskiwanie po STOP", detail: recoveryPending ? `oczekujące osie: ${recoveryPending}` : "" } :
+        held ? { level: "ok", title: planning ? `JOG J${held.axis} · bliźniak` : `JOG J${held.axis} w ruchu`, detail: `${held.direction > 0 ? "kierunek +" : "kierunek −"} · ${speeds[held.axis - 1]} ${heldAxis?.joint_configured ? "°/s" : "obr./min"}` } :
+        tcpHeld ? { level: "ok", title: `TCP ${tcpHeld.axis.toUpperCase()}${tcpHeld.direction > 0 ? "+" : "−"} ${planning ? "· cel w symulacji" : "w ruchu"}`, detail: tcpHeld.impulse ? "impuls" : "ruch ciągły" } :
+        execution?.status.busy ? { level: "ok", title: `${execution.status.motion_type ?? "Program"} · ${motionStateLabels[execution.status.state] ?? "w toku"}`, detail: `${Math.round(Math.max(0, Math.min(1, execution.status.progress)) * 100)}%` } :
+        issue ? { level: issue.severity === "error" ? "error" : "warn", title: issue.title ?? issue.message, detail: issue.context ?? "" } :
+        { level: latest?.severity === "error" ? "error" : latest?.severity === "warning" ? "warn" : "ok", title: latest?.title ?? latest?.message ?? "Oczekiwanie na stan sterowania", detail: latest?.context ?? "" };
+    const simulationStatus = statuses.filter(n => n.source === "simulation" || n.source === "motion-preparation");
     return <section className={`manual-screen ${planning ? "mode-planning" : "mode-live"}`} data-usable={usable} aria-label="Sterowanie ręczne">
         <header className="manual-header">
             <h1>Sterowanie ręczne</h1>
@@ -393,41 +425,58 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             <button className="motion-stop" disabled={!stopRobot && !physicalTcpBusy && !state?.tcp_jog?.busy} onClick={()=>{if(stopRobot){physicalTcp.current?.stop();stopRobot();}else physicalTcp.current?.stop(true);}} title="Żądanie STOP robota; postój wymaga potwierdzenia pomiarami">STOP robota</button>
             <button className="secondary-button" disabled={canResetBlocked} onClick={() => void resetCan()} title="Reset CAN jest blokowany podczas aktywnego sterowania">{resettingCan ? "Resetowanie…" : "Reset CAN"}</button>
         </header>
-        {state?.recovery_state && state.recovery_state !== "idle" && <div className={`manual-recovery ${state.recovery_state === "idle_disabled" ? "ready" : state.recovery_state === "recovery_failed" ? "failed" : "active"}`} role="status">
-            <strong>{state.recovery_state === "idle_disabled" ? "Gotowy do ponownego załączenia" : state.recovery_state === "recovery_failed" ? "Odzyskiwanie nieudane" : "Odzyskiwanie po STOP"}</strong>
-            <span>{state.recovery_message || state.message}{recoveryPending ? ` · oczekujące osie: ${recoveryPending}` : ""}</span>
-        </div>}
         <div className="manual-workspace"><div className="manual-observation">
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onCondition={condition} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
             simulationPositions={simulationPositions} motionTrace={motionTrace} execution={execution} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} />
-        <ControlMessageCenter entries={entries} active={active} statuses={statuses}/>
+        <div className={`manual-status-line level-${statusLine.level}`} aria-label="Stan sterowania"><span className="manual-status-dot" aria-hidden="true"/><strong>{statusLine.title}</strong>{statusLine.detail && <span>· {statusLine.detail}</span>}
+            <button type="button" className="manual-status-link" onClick={() => { const panel = document.getElementById("manual-messages"); panel?.scrollIntoView({ block: "nearest" }); panel?.focus({ preventScroll: true }); }}>{active.length ? remarks(active.length) : "Komunikaty"} →</button></div>
         </div><div className="manual-controls-row"><div className="manual-table"><table><colgroup>
-            <col className="manual-col-jog"/><col className="manual-col-axis"/><col/>
+            <col className="manual-col-axis"/><col/><col className="manual-col-motion"/>
             <col className="manual-col-drive"/><col className="manual-col-zero"/><col className="manual-col-speed"/>
-        </colgroup><thead><tr><th>JOG</th><th>Oś / CAN</th><th title="Pozycja osi / wału">Pozycja</th><th>Napęd / ENABLE</th><th>Zero wału</th><th>Prędkość</th></tr></thead><tbody>
+        </colgroup><thead><tr><th>Oś / CAN</th><th title={planning ? "JOG i TCP poruszają bliźniakiem. Pozycja: rzeczywista / plan." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, › kierunek dodatni. Pozostałe: obr./min wału, › CW. Limit wału ±3600° · jedna oś naraz."}>JOG · Pozycja</th><th>Stan ruchu</th><th>Napęd / ENABLE</th><th>Zero wału</th><th>Prędkość</th></tr></thead><tbody>
             {axes.map((axis) => <tr key={axis.axis} title={calibrationRepair(axis)} className={[
                 planning ? plan.activeAxis === axis.axis ? "manual-active manual-planned-active" : "" : state?.active_axis === axis.axis ? "manual-active" : "",
                 calibrationRepair(axis) ? "manual-axis-error" : "",
             ].filter(Boolean).join(" ")}>
-                <td><div className={`jog-controls ${planning ? "jog-planning" : ""}`}>{arrow(axis, -1)}{!planning && <span className={`motion-indicator ${usable && axis.motion === "w prędkości" ? "moving" : ""}`} aria-live="polite"><span>{usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span></span>}{arrow(axis, 1)}</div></td>
                 <td className="manual-axis"><strong>J{axis.axis}</strong><small>CAN {axis.axis}</small>
                     <span className={`badge ${usable && axis.available ? "ok" : "stale"}`}>{!usable ? "Dane nieaktualne" : axis.available ? "Połączony" : "Niedostępny"}</span></td>
-                <td><AxisPosition axis={axis} usable={usable} planning={planning} plannedPosition={plan.positions[axis.axis - 1]} planAvailable={plan.available[axis.axis - 1]}/></td>
+                <td className="manual-jog-position"><div className={`jog-controls ${planning ? "jog-planning" : ""}`}>{arrow(axis, -1)}
+                    <AxisPosition axis={axis} usable={usable} planning={planning} plannedPosition={plan.positions[axis.axis - 1]} planAvailable={plan.available[axis.axis - 1]}/>{arrow(axis, 1)}</div></td>
+                <td><span className={`motion-indicator ${!planning && usable && axis.motion === "w prędkości" ? "moving" : planning && plan.activeAxis === axis.axis ? "moving" : ""}`} aria-live="polite">{planning ? "bliźniak" : usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span></td>
                 <td className="manual-drive"><span className={`badge ${usable && axis.enable_known ? axis.enabled ? "ok" : "warn" : "stale"}`}>{usable && axis.enable_known ? axis.enabled ? "Włączony" : "Wyłączony" : "Nieznany"}</span>
                     <div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || state?.fault || recovering || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
                     <button className="secondary-button" disabled={planning || !usable || !axis.available || pending || (!state?.fault && state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
-                <td><button className="link-button" title={calibrationRepair(axis) ?? "Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu"} disabled={planning || !usable || !axis.can_zero || state?.fault || recovering || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
+                <td><button className="zero-button" title={calibrationRepair(axis) ?? "Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu"} disabled={planning || !usable || !axis.can_zero || state?.fault || recovering || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
                 <td>{jogSpeed(axis)}</td>
             </tr>)}
         </tbody></table></div>
-        <div className="manual-tools"><TcpControls key={planning ? "plan" : "live"} allowed={planning ? tcpAllowed && plan.activeAxis === 0 : liveTcpAllowed} planning={planning} held={tcpHeld} stepAvailable={planning ? !!context?.tcp_step_available : true}
-            liveStatus={state?.tcp_jog} busy={!planning && (physicalTcpBusy || !!state?.tcp_jog?.busy)}
-            missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} onNotice={notice} onCondition={condition}/>
-        <section className="motion-workflow" aria-label="Ruch PTP i LIN"><header className="motion-workflow-heading"><h2>Ruch PTP / LIN</h2><span className="badge planning-badge">Cel → program → ruch</span></header>
-        {planning && <div className="manual-simulation"><CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}
-            showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={receivePhysicalPlan} onPreparedPreview={registerPreparedPreview} onNotice={notice} onCondition={condition}/></div>}
-        <MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onStatus={setExecution} onNotice={notice} onCondition={condition} onStopReady={registerStop}/></section>
-        <aside className="can-note"><span className="manual-info-icon" aria-hidden="true">i</span><div><h2>{planning ? "Plan lokalny" : "Obsługa JOG"}</h2><p>{planning ? "JOG i TCP poruszają bliźniakiem. Fizyczny PTP/LIN wymaga osobnego przygotowania i zatwierdzenia. ENABLE i zerowanie są tu zablokowane. Brak wykrywania kolizji." : "Przytrzymaj strzałkę; puszczenie hamuje. Skonfigurowane osie: °/s przegubu, → kierunek dodatni. Pozostałe: obr./min wału, → CW. Limit wału ±3600° · acc=1 · Jedna oś naraz."}</p></div></aside>
-        </div></div></div>
+        <section className="manual-dock" aria-label="Narzędzia ruchu">
+            <div className="manual-dock-tabs" role="tablist" aria-label="Narzędzia ruchu" onKeyDown={tabKey}>{tabs.map(([id, label]) => {
+                const locked = id === "motion" && !motionTabAvailable;
+                return <button key={id} type="button" role="tab" id={`manual-tab-${id}`} aria-controls={`manual-pane-${id}`} aria-selected={dockTab === id} tabIndex={dockTab === id ? 0 : -1}
+                    disabled={locked} title={locked ? "Dostępne w trybie Planowanie" : undefined} onClick={() => setDockTab(id)}>{label}{locked && " 🔒"}</button>;
+            })}</div>
+            <div className="manual-dock-pane" role="tabpanel" id="manual-pane-tcp" aria-labelledby="manual-tab-tcp" hidden={dockTab !== "tcp"}>
+                <TcpControls key={planning ? "plan" : "live"} allowed={planning ? tcpAllowed && plan.activeAxis === 0 : liveTcpAllowed} planning={planning} held={tcpHeld} stepAvailable={planning ? !!context?.tcp_step_available : true}
+                    liveStatus={state?.tcp_jog} busy={!planning && (physicalTcpBusy || !!state?.tcp_jog?.busy)}
+                    missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} onNotice={notice} onCondition={condition}/></div>
+            <div className="manual-dock-pane motion-workflow" role="tabpanel" id="manual-pane-motion" aria-labelledby="manual-tab-motion" aria-label="Ruch PTP i LIN" hidden={dockTab !== "motion"}>
+                <MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onExecuteRequest={restartMotionPreview} onStatus={setExecution} onNotice={notice} onCondition={condition} onStopReady={registerStop}>
+                    <div className="motion-plan-area">{planning ? <CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}
+                        showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={receivePhysicalPlan} onPreparedPreview={registerPreparedPreview} onRestartReady={registerPreviewRestart} onNotice={notice} onCondition={condition}/> :
+                        <p className="motion-locked">Cel i parametry PTP/LIN ustawia się w trybie Planowanie. Trwający program można obserwować i zatrzymać.</p>}</div>
+                    <div className="motion-pane-status" aria-label="Stan podglądu i przygotowania">{simulationStatus.map(n => <div key={n.source}><span>{n.context}</span><strong>{n.title}</strong>{typeof n.progress === "number" && <span>{n.progress}%</span>}</div>)}</div>
+                </MotionExecution></div>
+        </section>
+        <section className="manual-messages" id="manual-messages" aria-label="Komunikaty" tabIndex={-1}>
+            <header><h2>Komunikaty</h2><span className={`badge ${active.some(n => n.severity === "error") ? "error" : active.length ? "warn" : "ok"}`}>{active.length ? remarks(active.length) : "Bez zgłoszonych problemów"}</span></header>
+            {recoveryVisible && <div className={`manual-recovery ${state!.recovery_state === "idle_disabled" ? "ready" : state!.recovery_state === "recovery_failed" ? "failed" : "active"}`} role="status">
+                <strong>{state!.recovery_state === "idle_disabled" ? "Gotowy do ponownego załączenia" : state!.recovery_state === "recovery_failed" ? "Odzyskiwanie nieudane" : "Odzyskiwanie po STOP"}</strong>
+                <span>{state!.recovery_message || state!.message}{recoveryPending ? ` · oczekujące osie: ${recoveryPending}` : ""}</span>
+            </div>}
+            <div className="manual-messages-body"><ControlMessageCenter entries={entries} active={active} statuses={statuses}/></div>
+            <ControlAnnouncements entries={entries} active={active}/>
+        </section>
+        </div></div>
     </section>;
 }

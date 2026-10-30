@@ -16,6 +16,11 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
   const manual={fresh:true,busy:false,fault:false,recording:false,active_axis:0,max_rpm:30,operation:'idle',message:'Test nawigacji',
     axes:Array.from({length:6},(_,i)=>({axis:i+1,available:[1,2,5].includes(i+1),position_known:[1,2,5].includes(i+1),position_degrees:0,
       position_age_seconds:0,enable_known:true,enabled:false,prepared:false,can_jog:false,can_zero:false,motion:'zatrzymany'}))};
+  const overview={schema_version:1,age_seconds:0,host:{os:'Ubuntu 22.04.5 LTS',kernel:'6.8.0-test',hostname:'robot'},
+    ros:{distro:'humble',overlay:'install/test-ros',nodes:['/robot_web_bridge','/robot/planner'],
+      processes:[{pid:101,name:'planner',package:'robot_motion_planner',overlay:'install/test-ros',cpu_percent:2,memory_rss_bytes:50331648,threads:12,uptime_seconds:90}]},
+    backend:{pid:102,cpu_percent:3,memory_rss_bytes:150994944,threads:9,uptime_seconds:95,websocket_clients:{status:1,can:1}},
+    services:[{unit:'robot-web-status.service',active_state:'active',sub_state:'running',result:'success',main_pid:100}]};
   function publish(){for(const item of sockets)item.socket.send(JSON.stringify(item.kind==='manual'?{type:'state',state:manual}:item.kind==='can'?can:status));}
   const timer=setInterval(publish,50);
   context.on('page',page=>page.on('pageerror',error=>errors.push(error.message)));
@@ -29,6 +34,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     const request=route.request(),url=new URL(request.url());
     if(request.method()!=='GET'){writes.push(url.pathname);return route.abort();}
     if(url.pathname==='/api/v1/robot/description')return route.fulfill({contentType:'application/xml',body:fs.readFileSync(path.resolve(__dirname,'../../ros2_ws/src/robot_description/urdf/preview_6dof.example.urdf'),'utf8')});
+    if(url.pathname==='/api/v1/system/overview')return route.fulfill({contentType:'application/json',body:JSON.stringify(overview)});
     if(url.pathname.startsWith('/api/'))return route.fulfill({status:503,contentType:'application/json',body:'{"detail":"Brak usługi w teście nawigacji"}'});
     const name=url.pathname==='/'?'index.html':url.pathname.slice(1),file=path.resolve(dist,name);assert(file.startsWith(dist+path.sep));
     return route.fulfill({path:file,contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.svg')?'image/svg+xml':'text/html'});
@@ -48,6 +54,8 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
       assert.equal(new URL(page.url()).hash,`#${id}`);
       assert.equal(await nav.locator('a.active').count(),1);assert.equal(await nav.getByRole('link',{name:label,exact:true}).getAttribute('aria-current'),'page');
       assert.equal(await page.locator('.app-topbar').count(),1);assert(await sidebar.isVisible());
+      assert.equal(await page.locator('.app-topbar .pulse-monitor').count(),1,'Monitor pracy na każdym widoku');
+      assert.equal(await page.locator('.app-topbar .pulse-statuses .pulse-status').count(),4);
       assert.equal(await page.evaluate(()=>window.navigationSentinel),'same-document');
       assert.equal(await page.locator('.breadcrumbs > span:last-child').textContent(),label);
       if(id==='can'){
@@ -96,8 +104,21 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     can.devices.find(device=>device.id===5).values.online=false;publish();await page.getByText('2/6 dostępnych',{exact:true}).waitFor();
     can.fresh=false;publish();await page.waitForFunction(()=>[...document.querySelectorAll('.joints > span')].every(el=>el.dataset.present==='unknown'));
     await nav.getByRole('link',{name:'Architektura',exact:true}).click();await page.screenshot({path:'/tmp/robot-shell-architecture.png',fullPage:true});
-    assert.equal(await page.locator('.architecture-cards .card').count(),6);
+    const monitor=page.locator('.app-topbar .pulse-monitor'),width=(await monitor.boundingBox()).width;
+    // can.fresh=false: ROS ostrzega (brak świeżej diagnostyki CAN), napędy bez danych; szerokość monitora się nie zmienia.
+    await page.waitForFunction(()=>document.querySelector('.pulse-statuses .pulse-status:nth-child(2)').classList.contains('warn'));
+    assert.equal((await monitor.boundingBox()).width,width);
+    assert.equal(await monitor.locator('.pulse-drives i.stale').count(),6);
+    await monitor.locator('.pulse-status').nth(1).hover();
+    assert(await monitor.locator('.pulse-status').nth(1).locator('.pulse-tip').getByText('Diagnostyka CAN: brak świeżych danych',{exact:true}).isVisible());
+    await page.locator('.arch-table').getByText('planner',{exact:true}).waitFor();
+    assert(await page.locator('.arch-table').getByText('robot-web-status.service',{exact:true}).isVisible());
+    assert(await page.locator('.arch-table').getByText('status 1 · CAN 1 · ręczne 0',{exact:true}).isVisible());
+    await page.getByRole('tab',{name:'Tylko problemy'}).click();
+    assert.equal(await page.locator('.arch-table').getByText('planner',{exact:true}).count(),0);
+    assert(await page.locator('.arch-table').getByText('Diagnostyka CAN',{exact:true}).isVisible());
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     assert.deepEqual(writes,[]);assert.deepEqual(commands,[]);assert.deepEqual(errors,[]);
-    console.log(JSON.stringify({result:'OK',checks:['5 tras bez przeładowania','aktywny link i wspólny topbar','mini-rail i resize bez restartu WebSocket/3D','3/6 osi z CAN i wygaszanie danych','ERROR-ACTIVE jako OK','szczegóły CAN bez pustej wysokości','CAN ID→J','Z/Rz osobno','symulacja poza sceną','architektura 6 kart','brak komend sprzętowych']}));
+    console.log(JSON.stringify({result:'OK',checks:['5 tras bez przeładowania','aktywny link i wspólny topbar','mini-rail i resize bez restartu WebSocket/3D','3/6 osi z CAN i wygaszanie danych','ERROR-ACTIVE jako OK','szczegóły CAN bez pustej wysokości','CAN ID→J','Z/Rz osobno','symulacja poza sceną','monitor pracy na każdym widoku, stała szerokość i dymek','architektura: procesy, usługi, klienci WS, filtr problemów','brak komend sprzętowych']}));
   }finally{clearInterval(timer);await context.close();await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

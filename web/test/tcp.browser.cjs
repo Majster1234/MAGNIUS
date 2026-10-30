@@ -64,7 +64,10 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     const tcp=page.getByRole('region',{name:'Sterowanie TCP',exact:true}),preview=page.getByRole('region',{name:'Wizualizacja robota',exact:true});
     const button=(axis='X',sign='plus')=>tcp.getByRole('button',{name:`TCP ${axis} ${sign}`,exact:true});
     const target=()=>page.locator('.robot-preview canvas').getAttribute('data-planned-joint-angles');
-    const hold=async(axis='X',sign='plus')=>{await button(axis,sign).hover();await page.mouse.down();};
+    // Numpad pokazuje jedną grupę (Przesuw/Obrót) naraz.
+    const show=async axis=>{const group=tcp.getByRole('radio',{name:axis.startsWith('R')?'Obrót':'Przesuw',exact:true});if(await group.getAttribute('aria-checked')!=='true')await group.click();};
+    const tab=name=>page.getByRole('tab',{name,exact:true});
+    const hold=async(axis='X',sign='plus')=>{await show(axis);await button(axis,sign).hover();await page.mouse.down();};
     const waitRequests=async count=>{for(let i=0;i<100&&requests.length<count;i++)await delay(30);assert(requests.length>=count,'Brak kroku TCP');};
     await preview.locator('canvas').waitFor();assert(await button().isDisabled());
     assert((await page.locator('.control-issue[data-source=axes]').textContent()).includes('J3'));
@@ -80,10 +83,10 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.mouse.up();await delay(100);const retained=await target();await delay(160);assert.equal(await target(),retained);
     assert.equal(await page.locator('.robot-preview canvas').getAttribute('data-joint-angles'),actual);
     state.axes[0].position_degrees=-123;publish();await delay(100);assert.equal(await target(),retained);
-    await tcp.getByLabel('Układ TCP',{exact:true}).selectOption('tool');
+    await tcp.getByRole('radio',{name:'Narzędzie',exact:true}).click();
     const beforeTool=requests.length;await hold('RZ','minus');await waitRequests(beforeTool+1);await page.mouse.up();await delay(100);
     assert.equal(requests.at(-1).frame,'tool');assert.equal(requests.at(-1).axis,'rz');assert.equal(requests.at(-1).velocity,5);
-    await tcp.getByLabel('Prędkość przesuwu TCP',{exact:true}).fill('100');
+    await show('X');await tcp.getByLabel('Prędkość przesuwu TCP',{exact:true}).fill('100');
     const fastBefore=requests.length;await hold('X','plus');await waitRequests(fastBefore+1);await page.mouse.up();await delay(100);
     assert.equal(requests.at(-1).velocity,100);assert.equal(requests[fastBefore].duration_s,.05,'100 mm/s zadaje 5 mm na 50 ms');
     await tcp.getByLabel('Prędkość przesuwu TCP',{exact:true}).fill('10');
@@ -92,14 +95,14 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     await jog.hover();await page.mouse.down();await delay(160);assert(await button().isDisabled());await page.mouse.up();
     assert.notEqual(await target(),beforeJog);
     // TCP czeka na potwierdzone anulowanie poprzednich obliczeń.
-    slow=true;const ptp=page.getByLabel('Podgląd ruchu PTP/LIN',{exact:true});
-    await ptp.getByRole('button',{name:'PTP',exact:true}).click();await page.locator(".control-current").getByText(/PTP · IK/).waitFor();
-    const beforeCancel=requests.length;await hold();await waitRequests(beforeCancel+1);
+    slow=true;await tab('PTP / LIN').click();const ptp=page.getByLabel('Podgląd ruchu PTP/LIN',{exact:true});
+    await ptp.getByRole('button',{name:'PTP',exact:true}).click();await page.locator(".motion-pane-status").getByText(/PTP · IK/).waitFor();
+    await tab('TCP').click();const beforeCancel=requests.length;await hold();await waitRequests(beforeCancel+1);
     assert(events.indexOf('cancelled')<events.lastIndexOf('tcp'));slow=false;await page.mouse.up();
-    await page.locator(".control-current").getByText(/PTP · 0.60 s/).waitFor();
+    await tab('PTP / LIN').click();await page.locator(".motion-pane-status").getByText(/PTP · 0.60 s/).waitFor();
     // Spóźnione odpowiedzi po puszczeniu, blur i zmianie ustawień nie zmieniają celu.
     await ptp.getByRole('button',{name:'Zatrzymaj podgląd',exact:true}).click();
-    assert.equal(await tcp.getByRole('button').count(),12);
+    await tab('TCP').click();assert.equal(await tcp.getByRole('button').count(),7);
     for(const axis of ['X','Y','Z','RX','RY','RZ'])for(const sign of ['plus','minus']){
       const count=requests.length;await hold(axis,sign);await waitRequests(count+1);await page.mouse.up();await delay(70);
       assert.equal(requests.at(-1).axis,axis.toLowerCase());assert.equal(requests.at(-1).direction,sign==='plus'?1:-1);
@@ -119,7 +122,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     const invalidated=await target();await delay(750);assert.equal(await target(),invalidated);
     delayed=false;settings={revision:'s3',ignore_missing_drivers:true};
     await page.waitForFunction(()=>!document.querySelector('[aria-label="TCP X plus"]').disabled);
-    fail=true;count=requests.length;await hold();await waitRequests(count+1);await page.locator('.control-issue').filter({hasText:'Brak rozwiązania IK'}).waitFor();await page.mouse.up();
+    fail=true;count=requests.length;await hold();await waitRequests(count+1);await page.locator('.control-issue').filter({hasText:'Brak rozwiązania IK'}).waitFor({state:'attached'});await page.mouse.up();
     const rejected=await target();await delay(150);assert.equal(await target(),rejected);fail=false;
     // Kokpit: tabela obok modelu, TCP pod tabelą; zachowane wszystkie statusy.
     for(const size of [{width:1280,height:800},{width:1366,height:768},{width:1920,height:1080}]){
@@ -128,7 +131,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
       await page.screenshot({path:`/tmp/robot-tcp-${size.width}.png`,fullPage:true});
       assert.equal(await page.locator('.manual-table th').count(),6);assert(table.x>=model.x+model.width);assert(panel.y>=table.y+table.height);
       assert(panel.y+panel.height<=size.height);
-      for(const direction of await tcp.locator('.tcp-direction').all()){const box=await direction.boundingBox();assert.equal(box.width,44);assert.equal(box.height,44);}
+      for(const direction of await tcp.locator('.tcp-direction').all()){const box=await direction.boundingBox();assert.equal(box.width,40);assert.equal(box.height,40);}
       const overflow=await page.locator('.manual-table td,.manual-table th').evaluateAll(cells=>cells.filter(c=>c.scrollWidth>c.clientWidth+1).map(c=>({text:c.innerText,width:c.clientWidth,scroll:c.scrollWidth})));
       assert.deepEqual(overflow,[],JSON.stringify(overflow));assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       assert((await page.locator('.manual-table tbody tr').first().boundingBox()).height<=50);
@@ -141,14 +144,14 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
     // Geometria desktop została sprawdzona powyżej. Interakcje wykonujemy w bazowym
     // oknie testu, aby programowy WebGL nie wprowadzał przerw zegara watchdog.
     await page.setViewportSize({width:1366,height:768});await delay(200);
-    await tcp.getByLabel('Tryb TCP',{exact:true}).selectOption('step');
+    await tcp.getByRole('radio',{name:'Impuls',exact:true}).click();
     const slider=tcp.getByRole('slider',{name:'Wielkość impulsu TCP',exact:true}),stop=tcp.getByRole('button',{name:'Zatrzymaj impuls',exact:true});
     assert.equal(await slider.getAttribute('max'),'4');assert.equal(await slider.getAttribute('step'),'1');
     for(const axis of ['X','RZ'])for(const [index,amount] of [.1,1,5,10,20].entries()){
       await slider.focus();await slider.press('Home');for(let i=0;i<index;i++)await slider.press('ArrowRight');
       assert.equal(await slider.getAttribute('aria-valuetext'),`${amount} mm / ${amount}°`);
       const before=JSON.parse(await target()),count=stepRequests.length;
-      await button(axis).click();await page.waitForFunction(()=>!document.querySelector('.tcp-step-stop').disabled);
+      await show(axis);await button(axis).click();await page.waitForFunction(()=>!document.querySelector('.tcp-step-stop').disabled);
       assert(await page.getByRole('button',{name:'JOG J1 prawo',exact:true}).isDisabled());
       await page.waitForFunction(()=>document.querySelector('.tcp-step-stop').disabled);
       // Oczekujemy publikacji końcowej pozy w scenie, zamiast zakładać czas renderu WebGL.
