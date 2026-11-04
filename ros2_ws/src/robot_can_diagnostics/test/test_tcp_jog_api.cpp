@@ -7,6 +7,7 @@
 #include <cmath>
 #include <iterator>
 #include <mutex>
+#include <algorithm>
 using namespace std::chrono_literals;
 namespace {
 class Port final : public mks_servo_can::Transport {
@@ -26,12 +27,16 @@ std::string xml() {
   tinyxml2::XMLPrinter printer;document.Print(&printer);return printer.CStr();
 }
 }
-TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {
+namespace {
+// release=false: panel milknie bez STOP; oczekiwane hamowanie bez awarii całego robota.
+// drive_offset: uchyb układu celu F5 napędu J6 względem enkodera (impulsy wału), jak na sprzęcie.
+void physical_session(bool release,std::int64_t drive_offset=0) {
   setenv("ROS_LOCALHOST_ONLY","1",1);setenv("ROS_DOMAIN_ID","194",1);
   rclcpp::init(0,nullptr);
   auto config=streaming_test::config();auto transport=std::make_unique<Port>();
   const std::array<double,6> seed{.3,-.4,.7,.3,.6,-.2};
   for(unsigned j=0;j<6;++j) transport->port.positions[j+1]=std::llround(seed[j]*10*16384/(2*std::acos(-1.)));
+  transport->port.drive_offset[6]=drive_offset;
   auto runtime=std::make_shared<mks_servo_can::BusRuntime>(config,std::move(transport));
   runtime->require_configuration();runtime->start(false);
   mks_servo_can::RobotProfile profile;profile.revision="bench";profile.changed.fill(true);
@@ -73,7 +78,7 @@ TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {
   const bool started=send();
   if(started) {
     EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_max_jerk",.25)}).successful);
-    EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("joint_stop_tolerance_deg",.1)}).successful);
+    EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("motor_stop_tolerance_deg",.5)}).successful);
   }
   mks_servo_can::ControlState control;
   const bool got_control=runtime->try_read(control);
@@ -86,14 +91,15 @@ TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {
     if(!send()) break;
     {std::lock_guard<std::mutex> lock(mutex);advanced=advanced || status.progress>0;}
   }
-  request->action=Service::Request::STOP;request->sequence=5;
-  const bool stopped=started && send();
+  bool stopped=started;
+  if(release) {request->action=Service::Request::STOP;request->sequence=5;stopped=started && send();}
   if(started && !stopped) wait([](const auto &s){return !s.busy && s.generation>0;});
   const bool confirmed=stopped && wait([](const auto &s){return !s.busy && s.state=="stopped";});
   std::string execution_message;
   {std::lock_guard<std::mutex> lock(mutex);execution_message=status.message;}
   execution_message+="; CAN: "+runtime->snapshot().message;
-  cleanup();EXPECT_TRUE(started)<<response_message;EXPECT_TRUE(foreign_rejected);EXPECT_TRUE(advanced)<<execution_message;
+  const bool faulted=runtime->snapshot().fault;
+  cleanup();EXPECT_FALSE(faulted)<<execution_message;EXPECT_TRUE(started)<<response_message;EXPECT_TRUE(foreign_rejected);EXPECT_TRUE(advanced)<<execution_message;
   EXPECT_TRUE(stopped)<<response_message<<"; "<<execution_message;EXPECT_TRUE(confirmed)<<execution_message;
   bool got_sample=false;
   std::ofstream captured("/tmp/tcp-precision-telemetry-test.jsonl");
@@ -107,7 +113,13 @@ TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {
     }
   }
   EXPECT_TRUE(got_sample);
+  const bool keepalive_lost=std::any_of(telemetry.begin(),telemetry.end(),[](const auto &line) {return line.find("keepalive_lost")!=std::string::npos;});
+  EXPECT_EQ(keepalive_lost,!release);
 }
+}
+TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {physical_session(true);}
+TEST(TcpJogApi, MissingKeepaliveBrakesWithoutBusFault) {physical_session(false);}
+TEST(TcpJogApi, DriveOffsetAfterBrakingIsCorrectedAndStopConfirmed) {physical_session(false,25);}
 TEST(TcpJogApi, ParametersEnableDisabledWorkerAndRejectInvalidLimits) {
   setenv("ROS_LOCALHOST_ONLY","1",1);setenv("ROS_DOMAIN_ID","194",1);rclcpp::init(0,nullptr);
   auto runtime=std::make_shared<mks_servo_can::BusRuntime>(mks_servo_can::BusConfig{});
@@ -117,9 +129,9 @@ TEST(TcpJogApi, ParametersEnableDisabledWorkerAndRejectInvalidLimits) {
     EXPECT_FALSE(runtime->config_snapshot().tcp_jog_enabled);
     for(double invalid:{0.,-.1,10.01,double(NAN),double(INFINITY)})
       EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_max_jerk",invalid)}).successful);
-    for(double invalid:{.019,1.01,double(NAN),double(INFINITY)})
-      EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("joint_stop_tolerance_deg",invalid)}).successful);
-    EXPECT_TRUE(node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_max_jerk",.5),rclcpp::Parameter("joint_stop_tolerance_deg",.1)}).successful);
+    for(double invalid:{.049,10.01,double(NAN),double(INFINITY)})
+      EXPECT_FALSE(node->set_parameters_atomically({rclcpp::Parameter("motor_stop_tolerance_deg",invalid)}).successful);
+    EXPECT_TRUE(node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_max_jerk",.5),rclcpp::Parameter("motor_stop_tolerance_deg",.3)}).successful);
     auto result=node->set_parameters_atomically({rclcpp::Parameter("tcp_jog_enabled",true),
       rclcpp::Parameter("tcp_jog_max_linear_velocity",.02),rclcpp::Parameter("tcp_jog_linear_acceleration",.1)});
     EXPECT_TRUE(result.successful)<<result.reason;EXPECT_TRUE(runtime->config_snapshot().tcp_jog_enabled);
@@ -146,12 +158,21 @@ TEST(TcpJogApi, ParametersEnableDisabledWorkerAndRejectInvalidLimits) {
 }
 
 #include "robot_can_diagnostics/tcp_parameters.hpp"
-TEST(TcpStop, ValidatesRangeAndKeepsPointOneDegreeBoundary) {
+TEST(TcpStop, MotorShaftToleranceUsesGearRatioAndStandstillIgnoresEncoderNoise) {
   using namespace robot_can_diagnostics;
-  EXPECT_TRUE(tcp_stop_within(.1*std::acos(-1.)/180,.1));
-  EXPECT_FALSE(tcp_stop_within(.10001*std::acos(-1.)/180,.1));
-  EXPECT_NO_THROW(validate_tcp_parameters(.5,.02));
-  EXPECT_NO_THROW(validate_tcp_parameters(10.,1.));
-  EXPECT_THROW(validate_tcp_parameters(.5,.019),std::invalid_argument);
-  EXPECT_THROW(validate_tcp_parameters(0,.1),std::invalid_argument);
+  const double deg=std::acos(-1.)/180;
+  // 0,3° wału przy przełożeniu 10:1 = 0,03° przegubu.
+  EXPECT_TRUE(tcp_stop_within(.03*deg,.3,10));
+  EXPECT_FALSE(tcp_stop_within(.03001*deg,.3,10));
+  EXPECT_TRUE(tcp_stop_within(-.3*deg,.3,1));
+  EXPECT_FALSE(tcp_stop_within(.01*deg,.3,0));
+  EXPECT_NO_THROW(validate_tcp_parameters(.5,.05));
+  EXPECT_NO_THROW(validate_tcp_parameters(10.,10.));
+  EXPECT_THROW(validate_tcp_parameters(.5,.049),std::invalid_argument);
+  EXPECT_THROW(validate_tcp_parameters(0,.3),std::invalid_argument);
+  // Szum pochodnej enkodera magnetycznego (zmierzone ±0,026 RPM) to postój; 0,6 RPM już nie.
+  EXPECT_TRUE(shaft_at_standstill(-.0257));
+  EXPECT_TRUE(shaft_at_standstill(.5));
+  EXPECT_FALSE(shaft_at_standstill(.6));
+  EXPECT_FALSE(shaft_at_standstill(double(NAN)));
 }

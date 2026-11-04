@@ -34,3 +34,8 @@ it("blokuje brak gotowości i przekroczenie fizycznego limitu",()=>{
     const s=setup();s.status({ready:false});expect(s.jog.start("x",1,"base",1)).toBe(false);
     s.status({ready:true});expect(s.jog.start("x",1,"base",21)).toBe(false);expect(s.sent).toEqual([]);
 });
+it("KEEPALIVE TCP przy tyknięciu 45 ms zamiast przeskoku do 100 ms", ()=>{
+    const s=setup();expect(s.jog.start("z",1,"base",10)).toBe(true);s.jog.ack(1,true);s.status({ready:false,busy:true,generation:1});
+    s.time(30);s.jog.pulse();expect(s.sent).toHaveLength(1);
+    s.time(45);s.jog.pulse();expect(s.sent[1]).toMatchObject({action:"keepalive"});
+});

@@ -19,6 +19,8 @@ class Port final : public Transport {
   unsigned absent{},extra_absent{},missing_position{},stalled{};
   unsigned refuse_disable{};
   std::array<bool,7> enabled{false,true,true,true,true,true,true},frozen{},respond{},complete{},sync{};
+  std::array<unsigned,7> drop_position{};  // liczba kolejnych odpowiedzi 0x31 do pominięcia
+  std::array<std::int64_t,7> drive_offset{};  // układ celu F5 napędu przesunięty względem enkodera 0x31
   std::array<std::int64_t,7> positions{},targets{};
   std::array<unsigned,256> counts{};
   struct Event {Time stamp;unsigned axis;std::vector<std::uint8_t> data;};
@@ -35,6 +37,12 @@ class Port final : public Transport {
   std::array<bool,7> pending_stops{};
   std::vector<Time> open_attempts;
   std::array<Clock::duration,7> axis_ack_delay{};
+  std::array<unsigned,7> drop_ack{};
+  std::array<unsigned,7> speed_blips{};  // N kolejnych odczytów 0x32 zwraca speed_blip_rpm (drgania w trzymaniu)
+  std::uint8_t speed_blip_rpm{1};
+  // Diagnostyka napędu: prąd [mA] (FFFF = bez odczytu), PID vFOC Kp/Ki/Kd/Kv (domyślne MKS), błąd kąta 39h.
+  std::uint16_t work_current_ma{1600};std::array<std::uint16_t,4> pid{0xdc,0x64,0x10e,0x140};
+  bool pid_without_sub{},silent_pid{};std::array<std::int32_t,7> angle_error{};  // gubi N kolejnych ACK F5/05 danej osi (F5 trafia do bufora)
   Clock::duration sync_echo_delay{0ms};
   std::array<std::int64_t,7> pending_targets{};
   std::array<bool,7> pending_targets_valid{};
@@ -67,6 +75,13 @@ class Port final : public Transport {
       case 0x40:reply={0x40,0x12,1,0,static_cast<uint8_t>(bad_firmware ? 7 : 9),0x20};break;
       case 0:
         if(data[1]==0x8c) reply={0x8c,static_cast<uint8_t>(bad_response_mode || respond[axis]),static_cast<uint8_t>(complete[axis])};
+        else if(data[1]==0x83) reply={0x83,static_cast<uint8_t>(work_current_ma>>8),static_cast<uint8_t>(work_current_ma)};
+        else if(data[1]==0x96) {
+          if(silent_pid) return;
+          const auto a=pid[data[2]*2],b=pid[data[2]*2+1];
+          reply={0x96};if(!pid_without_sub) reply.push_back(data[2]);
+          for(auto v:{a,b}) {reply.push_back(static_cast<uint8_t>(v>>8));reply.push_back(static_cast<uint8_t>(v));}
+        }
         else if(data[1]==0x98) {
           const auto value=bad_watchdog ? 256u : watchdog;
           reply={0x98,static_cast<uint8_t>(value>>24),static_cast<uint8_t>(value>>16),static_cast<uint8_t>(value>>8),static_cast<uint8_t>(value)};
@@ -81,10 +96,12 @@ class Port final : public Transport {
       case 0x92:positions[axis]=0;reply={0x92,1};break;
       case 0x3a:reply={0x3a,static_cast<uint8_t>(enabled[axis])};break;
       case 0x3e:reply={0x3e,static_cast<uint8_t>(stalled==axis)};break;
-      case 0x32:if(missing_speed) return;reply={0x32,0,0};break;
+      case 0x32:if(missing_speed) return;reply={0x32,0,static_cast<std::uint8_t>(speed_blips[axis] && speed_blips[axis]-- ? speed_blip_rpm : 0)};break;
       case 0xf1:reply={0xf1,1};break;
+      case 0x39:{const auto v=static_cast<std::uint32_t>(angle_error[axis]);reply={0x39,static_cast<uint8_t>(v>>24),static_cast<uint8_t>(v>>16),static_cast<uint8_t>(v>>8),static_cast<uint8_t>(v)};break;}
       case 0x31: {
         if(axis==missing_position) return;
+        if(drop_position[axis]) {--drop_position[axis];return;}
         reply={0x31};const auto value=static_cast<std::uint64_t>(positions[axis]);
         for(int shift=40;shift>=0;shift-=8) reply.push_back(static_cast<std::uint8_t>(value>>shift));break;
       }
@@ -97,14 +114,14 @@ class Port final : public Transport {
             pending_targets[axis]=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : static_cast<std::int32_t>(raw);
             pending_targets_valid[axis]=true;pending_stops[axis]=stop;
           }
-          if(axis==missing_ack) return;
+          if(axis==missing_ack || (drop_ack[axis] && drop_ack[axis]--)) return;
           reply={0xf5,static_cast<uint8_t>(rejected ? 0 : 5)};
           reply.push_back(checksum(axis,reply));
           rx.push_back({axis,reply,false,0,now+(axis==late_ack ? 20ms : axis_ack_delay[axis]!=Clock::duration{} ? axis_ack_delay[axis] : delay)});return;
         }
         if(stop || rejected) return;
         targets[axis]=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : static_cast<std::int32_t>(raw);
-        if(!frozen[axis]) positions[axis]=targets[axis];return; // brak jakiegokolwiek ACK
+        if(!frozen[axis]) positions[axis]=targets[axis]+drive_offset[axis];return; // brak jakiegokolwiek ACK
       }
       case 0xf6:case 0xfe:return;
       default:return;

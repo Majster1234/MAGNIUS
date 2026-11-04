@@ -1,4 +1,5 @@
 #include "mks_servo_can/bus_manager.hpp"
+#include "mks_servo_can/trace.hpp"
 #include "mks_servo_can/diagnostic_message.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
 #include <algorithm>
@@ -122,23 +123,37 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
   execution_keys_[execution_key_cursor_++%execution_keys_.size()]=key;
   s.execution_key=key;s.busy=true;s.state="arming";s.message=s.dispatch_mode=="synchronized" ? "Weryfikacja postoju, ACK i SYNC" : "Weryfikacja postoju i CanRSP=Disable";
   e.preparation_deadline=now+3s;e.setup_axis=e.setup_step=0;e.waiting=false;
-  active_=true;source_=Source::program;stop_sent_=false;latest_.reset();
+  active_=true;source_=Source::program;stop_sent_=false;latest_.reset();drive_parameters_requested_=false;
   streaming_states_={};
   for(auto &pending:pending_) pending.used=false;
   manual_->invalidate_program_handover();return true;
 }
-void CanBusManager::program_setup_reply(const Frame &frame,Time) {
+namespace {
+constexpr unsigned kArmingSpeedReads=5;
+constexpr auto kArmingSpeedRetry=20ms;
+}
+void CanBusManager::program_setup_reply(const Frame &frame,Time now) {
   auto &e=executor_;
   const bool restoring=e.status.state=="restoring";
   const bool synchronized=e.status.dispatch_mode=="synchronized" && !restoring;
   if((e.status.state!="arming" && !restoring) || !e.waiting || frame.address!=config_.axes[e.setup_axis].address) { fault("Nieoczekiwane potwierdzenie uzbrojenia");return; }
-  bool good=false;
+  bool good=false;std::string detail;
+  if(!restoring && e.setup_step==0) {
+    const auto speed=parse_speed(frame.address,frame.data);
+    detail=speed ? "; odczyt="+std::to_string(*speed)+" RPM, wymagane |RPM| ≤ "+std::to_string(kHoldingSpeedNoiseRpm)+" w "+std::to_string(kArmingSpeedReads)+" odczytach co "+
+        std::to_string(kArmingSpeedRetry.count())+" ms" : "; nieprawidłowa odpowiedź 0x32";
+    // SYNC wymaga postoju: niezerowe RPM odczytujemy ponownie, zanim uznamy brak postoju (F1=1 sprawdza krok 1).
+    if(speed && std::abs(*speed)>kHoldingSpeedNoiseRpm && synchronized && ++e.setup_retries<kArmingSpeedReads) {
+      trace_note("arming_speed_retry",std::to_string(*speed)+" RPM",frame.address,0x32);
+      e.waiting=false;e.setup_retry_at=now+kArmingSpeedRetry;return;
+    }
+  }
   if(restoring) {
     good=e.setup_step%2==0 ? frame.data[1]==1 : frame.data[1]==0 && (e.setup_step==1 || frame.data[2]==0);
     if(good && e.setup_step==1) {devices_[frame.address].synchronization_known=true;devices_[frame.address].synchronization_disabled=true;}
     if(good && e.setup_step==3) {devices_[frame.address].responses_known=true;devices_[frame.address].responses_disabled=true;}
   } else switch(e.setup_step) {
-    case 0:{const auto speed=parse_speed(frame.address,frame.data);good=speed && (!synchronized || *speed==0);break;}
+    case 0:{const auto speed=parse_speed(frame.address,frame.data);good=speed && (!synchronized || std::abs(*speed)<=kHoldingSpeedNoiseRpm);break;}
     case 1:{const auto state=parse_motor_state(frame.address,frame.data);good=state && *state==1;break;}
     case 2:case 4:good=frame.data[1]==1;break;
     case 3:good=frame.data[1]==(synchronized ? 1 : 0) && frame.data[2]==0;devices_[frame.address].responses_known=good;devices_[frame.address].responses_disabled=good && !synchronized;break;
@@ -157,9 +172,9 @@ void CanBusManager::program_setup_reply(const Frame &frame,Time) {
     std::string condition=restoring ? restore_conditions[e.setup_step] : conditions[e.setup_step];
     if(synchronized && e.setup_step==3) condition="CanRSP=01/00 (0x8C)";
     if(synchronized && e.setup_step==5) condition="SYNC=1 (0x4A)";
-    fault(axis_diagnostic_label(e.setup_axis+1,frame.address)+": niepotwierdzony warunek uzbrojenia/odtwarzania: "+condition);return;
+    fault(axis_diagnostic_label(e.setup_axis+1,frame.address)+": niepotwierdzony warunek uzbrojenia/odtwarzania: "+condition+detail);return;
   }
-  e.waiting=false;if(++e.setup_step==(restoring ? 4u : 9u)) {++e.setup_axis;e.setup_step=0;}
+  e.waiting=false;e.setup_retries=0;if(++e.setup_step==(restoring ? 4u : 9u)) {++e.setup_axis;e.setup_step=0;}
 }
 void CanBusManager::begin_program_check(Time now) {
   auto &e=executor_;e.checking_position=true;e.check_started=now;
@@ -175,6 +190,48 @@ bool CanBusManager::check_program_positions(Time now) {
   if(!fresh) {e.status.state="waiting_feedback";e.status.message="Dolot końcowy: brak pomiarów"+missing;return false;}
   if(!within) {e.settled={};e.status.state="waiting_position";e.status.message="Dolot końcowy: poza tolerancją"+outside;return false;}
   e.checking_position=false;e.next_check=now+100ms;return true;
+}
+// Napęd MKS pozycjonuje F5 we własnym układzie zadanej pozycji, który przy postoju różni się od enkodera
+// 0x31 o uchyb regulatora (setki impulsów). Sama ostatnia ramka może więc nie doprowadzić osi do celu
+// w tolerancji, a wykonawca czekałby bez końca. Korekta: rozkaz += (cel − pomiar), w granicach osi.
+void CanBusManager::final_approach(Time now) {
+  auto &e=executor_;auto &s=e.status;const auto &program=*e.program;
+  if(e.final_started==Time{}) {e.final_started=now;e.final_next=now+kFinalApproachDelay;e.final_command=program.target;}
+  bool outside=false;std::string axes;
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    const auto &d=devices_[config_.axes[j].address];
+    const double error=program.target[j]-position_to_joint(config_.axes[j],d.position.value);
+    if(std::abs(error)>config_.program_position_tolerance[j]) {outside=true;axes+=" J"+std::to_string(j+1)+"="+diagnostic_number(error*180/std::acos(-1.))+"°";}
+  }
+  if(!outside) return;
+  if(now-e.final_started>=kFinalApproachTimeout) {
+    fault("Dolot końcowy nieudany po "+std::to_string(kFinalApproachTimeout.count())+" ms; uchyb (cel − pomiar):"+axes+
+        ", tolerancja ±"+diagnostic_number(config_.program_position_tolerance[0]*180/std::acos(-1.))+"°");return;
+  }
+  // Ta sama faza co odczyty programu: F5 tylko bez oczekującej odpowiedzi osi robota.
+  if(now<e.final_next || e.started==Time{} || now<e.started || (now-e.started)%kStreamingCycle>=kTcpSendWindow ||
+      std::any_of(pending_.begin(),pending_.end(),[this](const Pending &p){return p.used && axis_index(p.address)<kAxes;})) return;
+  unsigned count=0;
+  for(unsigned j=0;j<kAxes;++j) count+=s.participating[j];
+  const auto budget=config_.bitrate*std::chrono::duration<double>(config_.cycle).count()*std::min(kPlannedUtilization,config_.utilization_limit);
+  if(spent_bits_+count*can_frame_bits(8)>budget) return;
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    auto axis=config_.axes[j];axis.streaming=config_.program_streaming[j];
+    const auto &d=devices_[axis.address];
+    if(!d.position.fresh(now,kProgramFeedbackTimeout)) return;
+    const double measured=position_to_joint(axis,d.position.value),error=program.target[j]-measured;
+    if(std::abs(error)>config_.program_position_tolerance[j])
+      e.final_command[j]=std::clamp(e.final_command[j]+error,axis.lower,axis.upper);
+    // Uchyb dla prędkości korekty liczony w układzie enkodera (cel − pomiar), nie względem rozkazu.
+    const auto sample=streaming_setpoint(axis,program.target[j],0.,streaming_states_[j],measured,d.microstep.value,0.,0.,
+        std::chrono::duration<double>(now-d.position.stamp).count(),e.final_command[j]);
+    std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
+  }
+  spent_bits_+=count*can_frame_bits(8);
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) send_stream_payload(j,stream_payloads_[j],now);
+  e.final_next=now+kFinalApproachPeriod;
+  s.message="Dolot końcowy: korekta pozycji"+axes;
+  trace_note("final_approach",axes);
 }
 void CanBusManager::schedule_program(Time now) {
   auto &e=executor_;auto &s=e.status;if(!s.busy || !e.program) return;
@@ -209,7 +266,7 @@ void CanBusManager::schedule_program(Time now) {
       if(synchronized) schedule_synchronized_program(now);
       return;
     }
-    const auto address=config_.axes[e.setup_axis].address;if(!can_send(address,now)) return;
+    const auto address=config_.axes[e.setup_axis].address;if(!can_send(address,now) || now<e.setup_retry_at) return;
     std::vector<std::uint8_t> data;std::size_t length=3;std::uint8_t command{};
     if(restoring) {
       switch(e.setup_step) {
@@ -240,14 +297,17 @@ void CanBusManager::schedule_program(Time now) {
   s.elapsed=e.started==Time{} ? 0 : std::max(0.,std::chrono::duration<double>(now-e.started).count());
   s.progress=std::min(.99,s.elapsed/program.duration);
   if(e.frame==program.frames.size()) {
+    // Dolot i potwierdzenie: referencją jest cel; ciągła linia pokazuje odchylenie od pozycji docelowej.
+    for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) record_shaft_reference(j,program.target[j],now);
+    if(!synchronized) {final_approach(now);if(fault_) return;}
     if(!e.checking_position && now>=e.next_check) begin_program_check(now);
     if(!e.checking_position || !check_program_positions(now)) return;
     if(synchronized) {
       for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
         const auto &d=devices_[config_.axes[j].address];
-        if(!d.speed.fresh(now,150ms) || d.speed.value!=0 || d.speed.stamp<e.last_sync ||
+        if(!d.speed.fresh(now,150ms) || std::abs(d.speed.value)>kHoldingSpeedNoiseRpm || d.speed.stamp<e.last_sync ||
             !d.motor_state.fresh(now,150ms) || d.motor_state.value!=1 || d.motor_state.stamp<e.last_sync) {
-          e.settled={};s.state="settling";s.message="Oczekiwanie na świeże 0 RPM i postój wszystkich uczestników";return;
+          e.settled={};s.state="settling";s.message="Oczekiwanie na świeży postój (|RPM| ≤ 1, F1=1) wszystkich uczestników";return;
         }
       }
     }
@@ -294,7 +354,7 @@ void CanBusManager::schedule_program(Time now) {
   }
   // Jedna aktualna klatka. Po opóźnieniu nie odtwarzamy kolejki starych celów.
   stats_.dropped_commands+=index-e.frame;
-  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) send_stream_payload(j,stream_payloads_[j]);
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {send_stream_payload(j,stream_payloads_[j],now);record_shaft_reference(j,point.positions[j],now);}
   streaming_states_=next_streaming;
   e.frame=index+1;e.last_sync=now;++stats_.committed;
   s.state="running";s.message="Streaming 100 Hz: lookahead, korekcja pozycji i dithering RPM";

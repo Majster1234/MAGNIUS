@@ -3,11 +3,13 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <chrono>
 #include <atomic>
 #include <thread>
+#include <mutex>
 
 namespace mks_servo_can {
 
@@ -43,6 +45,12 @@ class FrameQueue {
   std::atomic<std::size_t> head_{0},tail_{0};
 };
 
+// Pełna kolejka nadawcza (EAGAIN/ENOBUFS): ramka nie została nadana, gniazdo pozostaje sprawne.
+class TransmitQueueFull : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
+
 class Transport {
  public:
   virtual ~Transport() = default;
@@ -55,6 +63,9 @@ class Transport {
   virtual void set_receive_poll_timeout(unsigned) {}
   virtual unsigned bitrate() const { return 0; } // 0: transport emulowany, bez zegara przewodu
   virtual bool supports_tx_confirmation() const { return false; }
+  // Priorytet wątku odbiorczego (stosowany przy każdym open); pusty status = zastosowany lub wyłączony.
+  virtual void set_realtime_priority(int) {}
+  virtual std::string realtime_status() const { return {}; }
 };
 
 class SocketCan : public Transport {
@@ -73,8 +84,13 @@ class SocketCan : public Transport {
   void set_receive_poll_timeout(unsigned timeout_ms) override;
   unsigned bitrate() const override { return link_bitrate_; }
   bool supports_tx_confirmation() const override { return true; }
+  void set_realtime_priority(int priority) override { realtime_priority_=priority; }
+  std::string realtime_status() const override;
 
  private:
+  int realtime_priority_{};
+  mutable std::mutex realtime_mutex_;
+  std::string realtime_status_;
   friend struct SocketCanTestAccess;
   int fd_{-1};
   int lock_fd_{-1};

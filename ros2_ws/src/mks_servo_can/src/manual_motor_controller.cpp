@@ -12,6 +12,7 @@ namespace mks_servo_can {
 namespace {
 double degrees(std::int64_t ticks) { return static_cast<double>(ticks) * 360.0 / 16384.0; }
 constexpr double kJogRestToleranceDegrees = 1.0;
+constexpr unsigned kManualRetries = 2;
 }
 bool ManualMotorController::stopped(unsigned axis, Time now, std::chrono::milliseconds window) const {
   const auto &d = bus_.devices_[axis];
@@ -69,7 +70,7 @@ bool ManualMotorController::begin(unsigned axis, Operation op, Time now) {
   if(!group_active_) idle_disable_=false;
   bus_.scanning_ = false;
   axis_ = axis; operation_ = op; phase_ = Phase::sequence;
-  step_ = step_count_ = 0; waiting_ = false; disable_after_ = false; retry_at_ = {};
+  step_ = step_count_ = 0; waiting_ = false; disable_after_ = false; retry_at_ = {}; attempts_ = 0;
   operation_deadline_ = now + 2s;
   message_ = "Wykonywanie operacji osi J" + std::to_string(axis);
   return true;
@@ -319,6 +320,14 @@ void ManualMotorController::recovery_complete() {
   prepared_.fill(false);owner_.clear();message_="Gotowy do ponownego załączenia";
 }
 void ManualMotorController::timeout() {
+  // Kroki sekwencji to odczyty i idempotentne zapisy (ENABLE, zero, parametry): pojedyncza
+  // zgubiona odpowiedź nie wymaga resetu CAN. Termin operacji (2 s) nadal ogranicza całość.
+  if(phase_==Phase::sequence && step_<step_count_ && attempts_<kManualRetries) {
+    ++attempts_;waiting_=false;
+    trace_note("manual_retry","ponowienie "+std::to_string(attempts_)+"/"+std::to_string(kManualRetries),axis_,
+        steps_[step_].data.empty() ? 0 : steps_[step_].data.front());
+    return;
+  }
   const auto command=step_<step_count_ && !steps_[step_].data.empty() ?
       "; kod komendy="+std::to_string(steps_[step_].data.front()) : std::string{};
   fail("Brak potwierdzenia operacji ręcznej"+command+" — wymagany reset CAN");
@@ -401,7 +410,7 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
   }
   if (data[0] == 0x3a) d.enable.set(value != 0, stamp);
   if (data[0] == 0xf1) d.motor_state.set(static_cast<std::uint8_t>(value), stamp);
-  ++step_;
+  ++step_; attempts_ = 0;
   if (step_ == step_count_) {
     if (operation_ == Operation::jog) phase_ = Phase::moving;
     else complete(stamp);
@@ -499,7 +508,7 @@ void ManualMotorController::tick(Time now) {
     const auto timeout = opcode == 0x92 || opcode == 0x82 || opcode == 0x98 || opcode == 0x4a || opcode == 0x8c ? 100ms : 0ms;
     if (bus_.send_manual(axis_, s.data, s.length, now, false, timeout)) {
       if(opcode==0xf5 || opcode==0xf6 || opcode==0xf7 || opcode==0xfe) {
-        waiting_=false;++step_;
+        waiting_=false;++step_;attempts_=0;
         if(step_==step_count_) {
           if(operation_==Operation::jog) phase_=Phase::moving;
           else complete(now);

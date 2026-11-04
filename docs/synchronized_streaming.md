@@ -63,10 +63,38 @@ pomiar do referencji z czasu RX tej osi. FF, Kp, dithering, mikrokrok, offset,
 przełożenie i limity pozostają obowiązujące.
 
 Wykonawca rezerwuje cały zestaw F5, odpowiedzi F5 oraz pojedynczy broadcast 4B.
-Wymaga poprawnego `F5 05` każdego uczestnika ze znacznikiem wcześniejszym od Tk.
-ACK przyjęcia nie potwierdza ruchu ani postoju. W Tk można wysłać jeden SYNC,
-ze spóźnieniem najwyżej 2,5 ms. Brak kompletu ACK nie przesuwa terminu. Nie ma
-ponawiania SYNC, nadrabiania zestawów ani przejścia awaryjnego na zwykły streaming.
+ACK przyjęcia (`F5 05`) nie potwierdza ruchu ani postoju. W Tk można wysłać jeden SYNC,
+ze spóźnieniem najwyżej 2,5 ms. Nie ma ponawiania SYNC, nadrabiania zestawów ani
+przejścia awaryjnego na zwykły streaming.
+
+Od 02.11.2026 (audyt SYNC, punkty 1, 2, 4):
+
+- **Brak kolizji tego samego ID:** napęd odpowiada ACK tym samym identyfikatorem co host.
+  Zapytanie do osi, której ACK jeszcze nie dotarł (lub spóźnił się w poprzednim cyklu), nie jest
+  wysyłane (`sync_ack_outstanding` w `can_send`). Oś czekająca na odpowiedź na zapytanie jest
+  pomijana w zestawie (`sync_axis_skipped`) zamiast wysyłać F5 w trakcie jej odpowiedzi.
+- **Tolerancja braku ACK:** brak `05` w terminie nie przerywa ruchu — SYNC wychodzi, oś bez nowego
+  F5 jedzie do poprzedniego celu (~75 ms dalej na trajektorii). Awaria przy trzecim kolejnym cyklu
+  bez ACK tej samej osi (`kSyncMissedAckLimit`=2). Odrzucenie (status ≠ 05), uszkodzona ramka i
+  podwójny ACK nadal zatrzymują od razu. Spóźniony ACK jest ignorowany raz (`sync_ack_late`);
+  ramka F5/05 nie ma numeru cyklu, więc przy stałym opóźnieniu ACK może zostać przypisany
+  późniejszemu zestawowi. Licznik: `statistics.sync_missed_acks`, zdarzenie `sync_ack_missing`.
+- **Wykresy wałów:** referencja oraz cel F5/RPM są zapisywane w chwili potwierdzenia SYNC
+  (wtedy napęd wykonuje zestaw); oś bez ACK nie dostaje nowego punktu celu F5.
+
+Od 02.11.2026 (audyt SYNC, punkt 3 — terminy):
+
+- **Wybudzenie na Tk:** pętla IO (siatka 1 ms) budzi się dokładnie w terminie przygotowanego zestawu
+  (`CanBusManager::next_deadline`), timer slack wątku 1 µs. Wcześniej SYNC wychodził 0–1 ms po Tk.
+- **Priorytet RT:** parametr `can_io_realtime_priority` (0 = wyłączony; produkcja: 50) ustawia
+  `SCHED_FIFO` wątkom IO i RX (RX niesie ACK i echo SYNC). Wymaga `LimitRTPRIO` w usłudze; bez niego
+  log `Wątki IO/RX CAN bez priorytetu RT` i zwykły planista. Mutex `BusRuntime` dziedziczy priorytet
+  (`PTHREAD_PRIO_INHERIT`), więc wątek ROS trzymający blokadę nie opóźnia IO przez inwersję priorytetów.
+- **Przesunięcie osi czasu zamiast awarii:** spóźnienie wyzwolenia lub echa SYNC powyżej 2,5 ms,
+  a także zbyt późne przygotowanie zestawu (mniej niż 3 ms przed Tk) przesuwa początek osi czasu
+  programu (`sync_shift`). Wszystkie osie wykonują zestaw później o tę samą wartość — tor bez zmian,
+  ruch trwa dłużej. Awaria dopiero powyżej 10 ms (`kSyncMaxShift`). ACK odebrany po Tk, ale przed
+  wysłaniem SYNC, jest ważny. Liczniki: `statistics.sync_shifts`, `sync_shift_ms`; zdarzenie `sync_shifted`.
 
 SocketCAN rozróżnia własne potwierdzenie nadania MSG_CONFIRM od odpowiedzi napędu.
 Do managera trafia tylko własne echo SYNC; pozostałe własne echa nie zmieniają
@@ -81,6 +109,23 @@ kolejną wysyłką F5. RX działa niezależnie. Koszt konserwatywny dla sześciu
 przy 1 Mbit/s: dotychczasowe 26,58% + ACK 5,10% + SYNC 0,75% = **32,43%**.
 To rezerwacja modelowa, nie pomiar przewodu. Nadal obowiązuje 40% dla robota,
 20 punktów rezerwy i 60% łącznie; sześć osi przy 500 kbit/s jest odrzucane.
+
+## Próba sprzętowa 03.11.2026 (wały rozsprzęglone)
+
+Build z poprawkami audytu (punkty 1–4) i postojem |RPM| ≤ 1 + F1=1 (`kHoldingSpeedNoiseRpm`), `SCHED_FIFO 50`,
+zapis `--record`. Ruch uruchamiany przez API na zgodę operatora. Wcześniejsze dwa podejścia (20:27) zatrzymało
+uzbrajanie: napędy w trzymaniu stale zgłaszają ±1 RPM (0x32), a wymagano 0.
+
+| Próba | Ruch | Cykle SYNC | Maks. spóźnienie SYNC | Uchyb końcowy | Maks. \|pomiar − ref\| (przegub) | Wynik |
+| --- | --- | --- | --- | --- | --- | --- |
+| A1 20:34:03 | PTP 6 osi +5°, 8 °/s, 50 °/s² | 117 | 0,173 ms | ≤ 0,08° | 0,34–0,46° | sukces |
+| A2 20:34:08 | PTP powrót | 120 | 0,143 ms | ≤ 0,031° | (łącznie z A1) | sukces |
+| B1 20:35:23 | LIN +20 mm Z bazy, 10 mm/s | 259 | 0,166 ms | ≤ 0,041° | J3 0,23°, J5 0,28° | sukces |
+| B2 20:35:28 | LIN powrót | 227 | 0,154 ms | ≤ 0,033° | (łącznie z B1) | sukces |
+
+Zapis CAN: SYNC wysłane = potwierdzone (239 w A, 488 w B), ACK = wysłane F5 (1434, 2928); zero
+`sync_ack_missing`, `sync_shifted`, `sync_axis_skipped`, ramek błędu CAN, `io_loop_gap` i przepełnień RX.
+Ograniczenie: bez obciążenia mechanicznego (wały rozsprzęglone) — nie jest to odbiór dynamiki z obciążeniem.
 
 ## STOP, zakończenie i ograniczenia
 

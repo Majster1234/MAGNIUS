@@ -1,10 +1,12 @@
 #pragma once
 #include <atomic>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include "mks_servo_can/bus_manager.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
 #include "mks_servo_can/realtime_mailbox.hpp"
+#include "mks_servo_can/realtime.hpp"
 
 namespace mks_servo_can {
 // Właściciel wątku IO. Interfejsy try_* nie czekają na mutex ani transport.
@@ -16,22 +18,28 @@ class BusRuntime {
   void shutdown();
   void reset_session(ResetMode mode = ResetMode::clear_discovery);
   bool scan();
+  // Pusty: SCHED_FIFO wątków IO i RX zastosowany albo wyłączony (priorytet 0).
+  std::string realtime_status() const;
   bool reset_allowed();
   bool activate(Source source);
   void configure_tcp_jog(bool enabled);
+  // slot_origin: początek siatki F5 sesji (slot co 10 ms), dla fazy generatora TCP.
   std::uint64_t begin_tcp_jog(const std::string &session,const std::string &revision,
-      const std::string &model,std::uint64_t sequence,Time issued);
-  bool tcp_jog_control(const std::string &session,std::uint64_t generation,std::uint64_t sequence,Time issued,bool brake);
+      const std::string &model,std::uint64_t sequence,Time issued,Time *slot_origin=nullptr);
+  bool tcp_jog_control(const std::string &session,std::uint64_t generation,std::uint64_t sequence,Time issued);
+  bool append_tcp_points(const std::string &session,std::uint64_t generation,const std::vector<ProgramPoint> &points,bool closed);
+  bool cut_tcp_jog(const std::string &session,std::uint64_t generation,const std::string &reason);
+  TcpTrajectoryState tcp_trajectory();
   bool finish_tcp_jog(const std::string &session,std::uint64_t generation);
-  bool brake_tcp_jog(const std::string &session,std::uint64_t generation);
   bool tcp_jog_available();
+  bool request_drive_parameters();
   TcpStreamingSnapshot tcp_streaming_snapshot();
   void stop(const std::string &reason, bool critical = true);
   void renew_source_lease(Source source, Time created);
   bool try_submit(const CommandBatch &batch);
   bool try_read(ControlState &state);
   AxisFeedback encoder_feedback(unsigned address) const { return manager_.encoder_feedback(address); }
-  BusConfig config_snapshot() { std::lock_guard<std::mutex> guard(mutex_);return manager_.config(); }
+  BusConfig config_snapshot() { std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.config(); }
   BusSnapshot snapshot();
   ManualState manual_snapshot();
   std::size_t drain_shaft_trace(ShaftPositionSample *out,std::size_t maximum) { return manager_.drain_shaft_trace(out,maximum); }
@@ -53,7 +61,9 @@ class BusRuntime {
   ConfigurationResult configure(ConfigurationPhase phase, const std::string &operation,
       const std::string &expected, const RobotProfile &profile);
  private:
-  std::mutex mutex_;
+  mutable PriorityInheritanceMutex mutex_;
+  int realtime_priority_{};
+  std::string io_realtime_status_;
   CanBusManager manager_;
   std::atomic<bool> running_{false};
   std::thread worker_;

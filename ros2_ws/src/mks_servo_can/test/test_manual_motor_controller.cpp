@@ -18,6 +18,8 @@ class Port final : public Transport {
  public:
   bool opened{}, disconnected{}, echo{};
   unsigned drop_command{}, no_read_command{}, corrupt_command{}, refuse_command{};
+  unsigned lose_command{}, lose_replies{};  // komenda wykonana, odpowiedź zgubiona
+  bool queue_full{};
   std::chrono::milliseconds zero_delay{1};
   int idle_speed{};
   int zero_result_ticks{};
@@ -41,6 +43,7 @@ class Port final : public Transport {
   }
   void send(std::uint16_t address, const std::vector<std::uint8_t> &data) override {
     if (disconnected) throw std::runtime_error("USB odłączone");
+    if (queue_full) throw TransmitQueueFull("No buffer space available");
     ++counts[data[0]];
     if (data[0] == 0xf6 || data[0] == 0xf3 || data[0] == 0x92) writes.emplace_back(address, data);
     if (echo) rx.push_back({address, data, false, 0, now + 1ms});
@@ -93,6 +96,7 @@ class Port final : public Transport {
       }
       default: reply.push_back(1); break;
     }
+    if (lose_replies && cmd == lose_command) { --lose_replies; return; }
     reply.push_back(checksum(address, reply));
     if (cmd == corrupt_command && cmd) ++reply.back();
     rx.push_back({address, reply, false, 0, now + (cmd == 0x92 ? zero_delay : 1ms) +
@@ -373,8 +377,36 @@ TEST(ManualMotor, LeftArrowMovesNegativeAndStops) {
 }
 TEST(ManualMotor, UnsupportedParameterReadDoesNotEnableMotor) {
   Rig r; r.port->no_read_command = 0x4a;
-  ASSERT_TRUE(r.manual().set_enable(1, true, r.now)); r.step(100);
+  ASSERT_TRUE(r.manual().set_enable(1, true, r.now)); r.step(300);  // 2 ponowienia przed awarią
   EXPECT_NE(r.state().recovery_state,"idle"); EXPECT_FALSE(r.port->motors[1].enabled);
+}
+TEST(ManualMotor, LostEnableReplyIsRetriedWithoutCanReset) {
+  Rig baseline; ASSERT_TRUE(baseline.manual().set_enable(1, true, baseline.now)); baseline.step(400);
+  Rig r; r.port->lose_command = 0xf3; r.port->lose_replies = 2;
+  ASSERT_TRUE(r.manual().set_enable(1, true, r.now)); r.step(400);
+  EXPECT_FALSE(r.state().fault) << r.state().message;
+  EXPECT_EQ(r.state().recovery_state, "idle");
+  EXPECT_TRUE(r.port->motors[1].enabled);
+  EXPECT_EQ(r.port->counts[0xf3], baseline.port->counts[0xf3] + 2);
+}
+TEST(ManualMotor, RepeatedLostReplyStillFails) {
+  Rig r; r.port->lose_command = 0xf3; r.port->lose_replies = 3;
+  ASSERT_TRUE(r.manual().set_enable(1, true, r.now)); r.step(400);
+  EXPECT_TRUE(r.state().fault);
+  EXPECT_NE(r.state().message.find("Brak potwierdzenia operacji ręcznej"), std::string::npos) << r.state().message;
+}
+TEST(ManualMotor, ShortTransmitQueueOverflowKeepsSocketAndControl) {
+  Rig r; r.enable(); r.port->queue_full = true; r.step(100); r.port->queue_full = false; r.step(300);
+  EXPECT_TRUE(r.port->opened); EXPECT_FALSE(r.state().fault) << r.state().message;
+  EXPECT_GT(r.bus.snapshot().statistics.tx_queue_full, 0u);
+  EXPECT_TRUE(r.state().axes[0].can_jog) << r.state().message;
+}
+TEST(ManualMotor, PersistentTransmitQueueOverflowReopensSocket) {
+  Rig r; r.enable(); r.port->queue_full = true; r.step(450);
+  EXPECT_TRUE(r.port->opened); EXPECT_FALSE(r.state().fault);
+  r.step(100);
+  EXPECT_FALSE(r.port->opened); EXPECT_TRUE(r.state().fault);
+  EXPECT_NE(r.state().message.find("Kolejka nadawcza CAN pełna"), std::string::npos) << r.state().message;
 }
 TEST(ManualMotor, FullScanEchoCannotInventDevices) {
   Rig r; r.port->echo = true; r.step(44000);

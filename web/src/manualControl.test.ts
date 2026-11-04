@@ -56,3 +56,10 @@ describe("JOG przytrzymywany przez operatora", () => {
         r.control.stop();expect(r.commands.at(-1)).toMatchObject({action:"stop",space:"joint",revision:"revision-1"});
     });
 });
+describe("Podtrzymanie przy jitterze zegara panelu", () => {
+    it("tyknięcie 45 ms po poprzedniej komendzie wysyła KEEPALIVE (bez przeskoku do 100 ms), 30 ms nie", () => {
+        const r = rig(); r.control.start(2, 1, 30); r.control.ack(1, true);
+        r.advance(30); r.control.pulse(); expect(r.commands).toHaveLength(1);
+        r.advance(15); r.control.pulse(); expect(r.commands[1].action).toBe("keepalive");
+    });
+});

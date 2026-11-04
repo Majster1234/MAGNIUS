@@ -18,7 +18,8 @@ add_library(${PROJECT_NAME} SHARED
   src/streaming_motion.cpp
   src/tcp_jog.cpp
   src/manual_motor_controller.cpp
-  src/bus_runtime.cpp)
+  src/bus_runtime.cpp
+  src/realtime.cpp)
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 target_include_directories(${PROJECT_NAME} PUBLIC

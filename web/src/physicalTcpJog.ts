@@ -1,5 +1,5 @@
 import type { TcpAxis, TcpFrame, TcpHeld } from "./planningTcpJog";
-import type { JogSocket } from "./manualControl";
+import { KEEPALIVE_MIN_INTERVAL_MS, type JogSocket } from "./manualControl";
 export type TcpJogStatus = {
     fresh: boolean; ready: boolean; busy: boolean; state: string; message: string;
     axis: number; direction: number; frame: string; impulse: boolean;
@@ -58,7 +58,9 @@ export class PhysicalTcpJog {
             this.pending && this.clock() - this.sentAt >= 100 || this.status.generation <= this.generation && this.clock() - this.startedAt >= 500) {
             this.stop(true); return;
         }
-        if (this.holding && !this.pending && this.clock() - this.sentAt >= 50) this.send("keepalive");
+        // Zegar panelu tyka co 50 ms z jitterem: próg 40 ms, żeby nie pomijać co drugiego tyknięcia (odstęp 100 ms,
+        // próba 03.11: 168 ms > 150 ms ucięło kolejkę TCP mimo trzymanego przycisku).
+        if (this.holding && !this.pending && this.clock() - this.sentAt >= KEEPALIVE_MIN_INTERVAL_MS) this.send("keepalive");
     }
     stop(emergency = false) {
         if (!this.active || this.aborted || !emergency && !this.holding) return;

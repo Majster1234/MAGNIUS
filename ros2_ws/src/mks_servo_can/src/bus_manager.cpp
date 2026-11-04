@@ -71,7 +71,40 @@ void CanBusManager::shaft_reference_changed(unsigned axis) {
   if(axis<1 || axis>6) return;
   const auto next=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   shaft_segments_[axis-1]=std::max(shaft_segments_[axis-1]+1,static_cast<std::uint64_t>(next));
-  shaft_flags_[axis-1]|=1;
+  shaft_flags_[axis-1]|=1;shaft_reference_flags_[axis-1]|=1;shaft_command_flags_[axis-1]|=1;shaft_rpm_flags_[axis-1]|=1;
+}
+void CanBusManager::record_shaft_reference(unsigned joint,double position,Time stamp) {
+  if(joint>=kAxes) return;
+  const auto &axis=config_.axes[joint];
+  if(!axis.address || axis.address>kAxes || !std::isfinite(position)) return;
+  const auto j=axis.address-1;
+  if(shaft_reference_stamps_[j]!=Time{} && stamp>=shaft_reference_stamps_[j] && stamp-shaft_reference_stamps_[j]<std::chrono::milliseconds(9)) return;
+  const double ticks=(position-axis.offset)*axis.gear_ratio/axis.direction*16384/(2*kPi);
+  if(!std::isfinite(ticks) || std::abs(ticks)>9e15) return;
+  const auto utc=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  ShaftPositionSample sample{++shaft_reference_sequences_[j],shaft_segments_[j],static_cast<std::uint64_t>(trace_ns(stamp)),
+    static_cast<std::uint64_t>(utc),static_cast<std::int64_t>(std::llround(ticks)),shaft_reference_flags_[j]|kShaftReferenceFlag,
+    static_cast<std::uint8_t>(axis.address)};
+  if(shaft_trace_.push(sample)) {shaft_reference_flags_[j]=0;shaft_reference_stamps_[j]=stamp;}
+}
+void CanBusManager::record_shaft_command(unsigned joint,const std::vector<std::uint8_t> &payload,Time stamp) {
+  if(joint>=kAxes || payload.size()!=8 || payload[0]!=0xf5) return;
+  const auto &axis=config_.axes[joint];
+  if(!axis.address || axis.address>kAxes) return;
+  const auto j=axis.address-1;
+  if(shaft_command_stamps_[j]!=Time{} && stamp>=shaft_command_stamps_[j] && stamp-shaft_command_stamps_[j]<std::chrono::milliseconds(9)) return;
+  const auto raw=(std::uint32_t(payload[4])<<16)|(std::uint32_t(payload[5])<<8)|payload[6];
+  const auto ticks=raw&0x800000 ? static_cast<std::int64_t>(raw)-0x1000000 : static_cast<std::int64_t>(raw);
+  const double rpm=(((payload[1]&0x0f)<<8)|payload[2])*speed_scale(devices_[axis.address].microstep.value);
+  const auto utc=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  const auto mono=static_cast<std::uint64_t>(trace_ns(stamp));
+  ShaftPositionSample target{++shaft_command_sequences_[j],shaft_segments_[j],mono,static_cast<std::uint64_t>(utc),ticks,
+    shaft_command_flags_[j]|kShaftCommandFlag,static_cast<std::uint8_t>(axis.address)};
+  if(shaft_trace_.push(target)) shaft_command_flags_[j]=0;
+  ShaftPositionSample speed{++shaft_rpm_sequences_[j],shaft_segments_[j],mono,static_cast<std::uint64_t>(utc),
+    static_cast<std::int64_t>(std::llround(rpm*100)),shaft_rpm_flags_[j]|kShaftRpmFlag,static_cast<std::uint8_t>(axis.address)};
+  if(shaft_trace_.push(speed)) shaft_rpm_flags_[j]=0;
+  shaft_command_stamps_[j]=stamp;
 }
 void CanBusManager::record_shaft_position(unsigned axis,std::int64_t ticks,Time stamp,std::int64_t kernel_utc_ns) {
   if(axis<1 || axis>6) return;
@@ -105,8 +138,9 @@ double CanBusManager::mandatory_cycle_bits() const {
   if(active_) return stream_cycle_bits(participants);
   return ((participants+1)/2)*(bits(2)+bits(8));
 }
-void CanBusManager::send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload) {
+void CanBusManager::send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload,Time now) {
   transport_->send(config_.axes[joint].address,payload);++stats_.tx;
+  record_shaft_command(joint,payload,now);
   trace_note("stream_point","bez ACK",config_.axes[joint].address,0xf5);
 }
 Sample<double> CanBusManager::streaming_feedback_position(unsigned joint,Time now) const {
@@ -248,12 +282,13 @@ bool CanBusManager::activate(Source source, Time now) {
   try {
     for(unsigned j=0;j<kAxes;++j) (void)streaming_setpoint(config_.axes[j],committed_positions_[j],0,devices_[config_.axes[j].address].microstep.value);
   } catch(const std::exception &e) { message_=e.what();return false; }
-  active_ = true; source_ = source; last_command_ = now; lease_stamp_ = now; latest_.reset();
+  active_ = true; source_ = source; last_command_ = now; lease_stamp_ = now; latest_.reset();drive_parameters_requested_=false;
   previous_velocity_.fill(0);streaming_states_={}; last_sequence_ = 0; message_ = "Sterowanie aktywne"; return true;
 }
 bool CanBusManager::submit(const CommandBatch &batch) {
   if(!configuration_ready_ || configuration_locked_ || batch.configuration_generation!=configuration_generation_) return false;
-  if (executor_.status.busy || batch.source == Source::program) return false;
+  // JOG TCP przekazuje kolejkę punktów (append_tcp_points), nie pojedyncze paczki.
+  if (executor_.status.busy || batch.source == Source::program || batch.source == Source::tcp_jog) return false;
   if (!active_ || fault_ || batch.source != source_ || batch.sequence <= last_sequence_) return false;
   if(batch.control_generation!=control_generation_) return false;
   if (latest_) ++stats_.dropped_commands;
@@ -345,7 +380,7 @@ void CanBusManager::send_zero_stop(Time now) {
   trace_note("stop_zero_all");
 }
 bool CanBusManager::can_send(std::uint16_t address, Time now) const {
-  if (now < quarantine_[address]) return false;
+  if (now < quarantine_[address] || sync_ack_outstanding(address)) return false;
   for (const auto &p : pending_) if (p.used && p.address == address) return false;
   return std::count_if(pending_.begin(),pending_.end(),[](const Pending &p){return p.used;})<4;
 }
@@ -374,24 +409,41 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
     case Kind::motor: command = 0xf1; break;
     case Kind::speed: command = 0x32; length = 4; break;
     case Kind::watchdog:command=0x98;length=6;break;
+    // Długość odpowiedzi 0 = zmienna (wartość albo FFFFh „bez odczytu”); suma kontrolna nadal sprawdzana.
+    case Kind::work_current:command=0x83;length=0;break;
+    case Kind::pid_kp_ki: case Kind::pid_kd_kv:command=0x96;length=0;break;
+    case Kind::angle_error:command=0x39;length=6;break;
     case Kind::manual: case Kind::program_setup: case Kind::recovery:return false;
   }
-  const bool parameter=kind==Kind::mode || kind==Kind::response_mode || kind==Kind::sync_mode || kind==Kind::microstep || kind==Kind::watchdog;
-  query_payload_.resize(parameter ? 3 : 2);
+  const bool parameter=kind==Kind::mode || kind==Kind::response_mode || kind==Kind::sync_mode || kind==Kind::microstep || kind==Kind::watchdog ||
+      kind==Kind::work_current || kind==Kind::pid_kp_ki || kind==Kind::pid_kd_kv;
+  const bool sub=kind==Kind::pid_kp_ki || kind==Kind::pid_kd_kv;
+  query_payload_.assign(parameter ? 3 : 2,0);
   query_payload_[0]=parameter ? 0 : command;
   query_payload_[1]=parameter ? command : static_cast<std::uint8_t>(address+command);
   if(parameter) query_payload_[2]=static_cast<std::uint8_t>(address+command);
+  if(sub) {query_payload_[2]=kind==Kind::pid_kd_kv ? 1 : 0;query_payload_.push_back(static_cast<std::uint8_t>(address+command+query_payload_[2]));}
   payload=&query_payload_;
   now=current_time(now);
-  if (!reserve(payload->size(), length, critical)) return false;
+  if (!reserve(payload->size(), length ? length : 7, critical)) return false;
   transport_->send(address, *payload); ++stats_.tx;
   for (auto &p : pending_) if (!p.used) {
     auto deadline = now + config_.response_timeout;
+    // JOG TCP: odczyt nie może zajmować adresu w następnym slocie (F5 i nowa pozycja).
+    if (tcp_streaming()) deadline = std::min(deadline, tcp_slot_end(now) - kTcpReplyMargin);
     p = {true, address, kind, command, length, now, deadline};
     TraceEvent e; e.event = "request"; e.axis = address; e.command = command;
     e.request_ns = trace_ns(now); e.deadline_ns = trace_ns(deadline); trace(e); return true;
   }
   return false;
+}
+bool CanBusManager::request_drive_parameters() {
+  if(active_ || fault_ || scanning_ || manual_->busy() || !transport_->is_open()) return false;
+  for(unsigned n=0;n<known_count_;++n) {
+    auto &d=devices_[known_addresses_[n]];
+    d.parameter_attempts.fill(0);d.work_current_ma.valid=d.pid_kp_ki.valid=d.pid_kd_kv.valid=d.angle_error.valid=false;
+  }
+  drive_parameters_requested_=true;trace_note("drive_parameters_requested");return true;
 }
 bool CanBusManager::send_manual(std::uint16_t address, const std::vector<std::uint8_t> &data,
     std::size_t response_length, Time now, bool urgent, std::chrono::milliseconds timeout) {
@@ -457,6 +509,24 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
     case Kind::stall: { const auto v = parse_stall(p.address, frame.data); if (!v) return false; d.stall.set(*v, stamp); break; }
     case Kind::motor: { const auto v = parse_motor_state(p.address, frame.data); if (!v) return false; d.motor_state.set(*v, stamp); break; }
     case Kind::speed: { const auto v = parse_speed(p.address, frame.data); if (!v) return false; d.speed.set(*v, stamp); break; }
+    case Kind::work_current: {
+      if(frame.data.size()!=4) return false;
+      const auto value=static_cast<std::uint16_t>((frame.data[1]<<8)|frame.data[2]);
+      if(value!=0xffff) d.work_current_ma.set(value,stamp);break;
+    }
+    case Kind::pid_kp_ki: case Kind::pid_kd_kv: {
+      // Format jak przy zapisie: 96h sub v1 v2 (DLC7) albo bez sub (DLC6); 96h FFh FFh = brak odczytu.
+      const auto &f=frame.data;const unsigned slot=p.kind==Kind::pid_kp_ki ? 1 : 2;
+      if(f.size()==4 && f[1]==0xff && f[2]==0xff) break;
+      const std::size_t o=f.size()==7 ? 2 : f.size()==6 ? 1 : 0;if(!o) return false;
+      if(f.size()==7 && f[1]!=(slot==1 ? 0 : 1)) return false;
+      const std::array<std::uint16_t,2> v{static_cast<std::uint16_t>((f[o]<<8)|f[o+1]),static_cast<std::uint16_t>((f[o+2]<<8)|f[o+3])};
+      (slot==1 ? d.pid_kp_ki : d.pid_kd_kv).set(v,stamp);break;
+    }
+    case Kind::angle_error: {
+      const auto &f=frame.data;
+      d.angle_error.set(static_cast<std::int32_t>((std::uint32_t(f[1])<<24)|(std::uint32_t(f[2])<<16)|(std::uint32_t(f[3])<<8)|f[4]),stamp);break;
+    }
     case Kind::watchdog:
       if(frame.data.size()!=6 || frame.data[0]!=0x98) return false;
       d.watchdog_ms.set((std::uint32_t(frame.data[1])<<24)|(std::uint32_t(frame.data[2])<<16)|
@@ -521,7 +591,7 @@ void CanBusManager::receive(Time now) {
       e.deadline_ns = trace_ns(p.deadline); e.duration_ns = trace_ns(stamp) - trace_ns(p.sent);
       e.kernel_utc_ns = frame->kernel_utc_ns;
       if (stamp < p.sent || stamp >= p.deadline) { e.event = "reply_late"; trace(e); ++stats_.late; break; }
-      if (!validate_response(p.address, frame->data, p.command, p.length).valid || !decode(p, *frame, stamp)) {
+      if (!validate_response(p.address, frame->data, p.command, p.length ? p.length : frame->data.size()).valid || !decode(p, *frame, stamp)) {
         e.event = "reply_invalid"; trace(e);
         ++stats_.invalid; ++devices_[frame->address].invalid; break;
       }
@@ -538,13 +608,22 @@ void CanBusManager::expire(Time now) {
     TraceEvent e; e.event = "request_timeout"; e.axis = p.address; e.command = p.command;
     e.request_ns = trace_ns(p.sent); e.deadline_ns = trace_ns(p.deadline);
     e.duration_ns = trace_ns(now) - trace_ns(p.sent); e.flags = p.kind == Kind::manual; trace(e);
-    quarantine_[p.address] = now + config_.response_timeout;
+    // W JOG TCP odczyt kończy się przed kolejnym F5; spóźniona odpowiedź sprzed nowego zapytania
+    // jest odrzucana warunkiem stamp<sent, więc kwarantanna tylko opóźniałaby świeżą pozycję.
+    const bool tcp_slot_query=tcp_streaming() && (p.kind==Kind::position || p.kind==Kind::enable ||
+        p.kind==Kind::stall || p.kind==Kind::speed || p.kind==Kind::motor);
+    quarantine_[p.address] = tcp_slot_query ? now : now + config_.response_timeout;
     if (p.kind == Kind::identity) next_scan(p.address);
     else {
-      auto &d = devices_[p.address]; ++d.timeouts; ++d.consecutive_timeouts;
+      auto &d = devices_[p.address]; ++d.timeouts;
+      // Brak odpowiedzi na odczyt diagnostyczny (parametr bez obsługi w firmware) nie oznacza utraty osi.
+      const bool diagnostic=p.kind==Kind::work_current || p.kind==Kind::pid_kp_ki || p.kind==Kind::pid_kd_kv || p.kind==Kind::angle_error;
+      if(!diagnostic) ++d.consecutive_timeouts;
       const auto axis=axis_index(p.address);
       if(fault_ && axis<kAxes && d.consecutive_timeouts>=3) fault_probe_after_[axis]=now+std::chrono::seconds(1);
-      if (d.consecutive_timeouts >= 3) {
+      // Slot TCP trwa 10 ms: unieważnienie stanu dopiero po ciszy równej limitowi świeżości pozycji (60 ms).
+      const unsigned silent_limit=tcp_slot_query ? static_cast<unsigned>(config_.feedback_timeout/kStreamingCycle) : 3u;
+      if (d.consecutive_timeouts >= std::max(3u,silent_limit)) {
         d.mode.valid = d.enable.valid = d.stall.valid = d.motor_state.valid = false;d.responses_known=d.synchronization_known=false;d.microstep.valid=false;
       }
     }
@@ -616,6 +695,8 @@ void CanBusManager::schedule_background(Time now) {
       for(unsigned j=0;j<kAxes;++j) if(source_==Source::tcp_jog || executor_.status.participating[j]) {
         const auto address=config_.axes[j].address;
         if(!can_send(address,now)) continue;
+        // Zaległa pozycja ma pierwszeństwo przed diagnostyką tej osi w bieżącym slocie TCP.
+        if(source_==Source::tcp_jog && next_position_[address]<=now) continue;
         auto consider=[&](Kind kind,Time &next,std::chrono::milliseconds interval) {
           if(next<=now && next<oldest) { oldest=next;due=&next;selected=address;selected_kind=kind;period=interval; }
         };
@@ -644,6 +725,15 @@ void CanBusManager::schedule_background(Time now) {
     if(!active_ && !d.synchronization_known) { if(send_query(address,Kind::sync_mode,now,false)) continue; }
     if(!active_ && !d.microstep.valid) { if(send_query(address,Kind::microstep,now,false)) continue; }
     if((!d.mode.valid || (!active_ && now>=next_mode_[address])) && try_read(Kind::mode,next_mode_[address],std::chrono::milliseconds(5000))) continue;
+    // Odczyt diagnostyczny na żądanie, tylko w bezczynności: każdy parametr najwyżej 3 próby.
+    if(drive_parameters_requested_ && !active_ && !scanning_ && !manual_->busy()) {
+      const auto read=[&](Kind kind,bool valid,unsigned slot) {
+        if(valid || d.parameter_attempts[slot]>=3 || !send_query(address,kind,now,false)) return false;
+        ++d.parameter_attempts[slot];return true;
+      };
+      if(read(Kind::work_current,d.work_current_ma.valid,0) || read(Kind::pid_kp_ki,d.pid_kp_ki.valid,1) ||
+          read(Kind::pid_kd_kv,d.pid_kd_kv.valid,2) || read(Kind::angle_error,d.angle_error.valid,3)) continue;
+    }
     if(try_read(Kind::enable,next_enable_[address],std::chrono::milliseconds(100))) continue;
     if(try_read(Kind::stall,next_stall_[address],std::chrono::milliseconds(100))) continue;
     const auto period=(source_==Source::program || manual_->fast_feedback(address)) ? std::chrono::milliseconds(50) : std::chrono::milliseconds(500);
@@ -651,15 +741,26 @@ void CanBusManager::schedule_background(Time now) {
     if(d.mode.valid && supports_motor_state(d.mode.value)) try_read(Kind::motor,next_motor_[address],period);
   }
   if(known_count_) cursor_=(cursor_+1)%known_count_;
+  if(drive_parameters_requested_) {
+    bool done=true;
+    for(unsigned n=0;n<known_count_;++n) {
+      const auto &d=devices_[known_addresses_[n]];
+      if(d.identity.model!=Model::kServo42D || d.consecutive_timeouts>=3) continue;
+      const std::array<bool,4> valid{d.work_current_ma.valid,d.pid_kp_ki.valid,d.pid_kd_kv.valid,d.angle_error.valid};
+      for(unsigned slot=0;slot<valid.size();++slot) if(!valid[slot] && d.parameter_attempts[slot]<3) done=false;
+    }
+    if(done && std::none_of(pending_.begin(),pending_.end(),[](const Pending &p){return p.used && (p.kind==Kind::work_current || p.kind==Kind::pid_kp_ki || p.kind==Kind::pid_kd_kv || p.kind==Kind::angle_error);})) {
+      drive_parameters_requested_=false;trace_note("drive_parameters_done");
+    }
+  }
   if(scanning_ && can_send(scan_address_,now)) {
     const bool pending=std::any_of(pending_.begin(),pending_.end(),[](const Pending &p){return p.used && p.kind==Kind::identity;});
     if(!pending) send_query(scan_address_,Kind::identity,now,false);
   }
 }
 void CanBusManager::schedule_motion(Time now) {
-  const bool tcp=source_==Source::tcp_jog;
-  if(tcp && !tcp_braking_ && (now<tcp_lease_ || now-tcp_lease_>=std::chrono::milliseconds(200))) {fault("JOG TCP: brak podtrzymania KEEPALIVE; wiek "+diagnostic_number(milliseconds(now,tcp_lease_))+" ms, limit < 200 ms (cały robot)");return;}
-  if(!tcp && config_.source_lease_required && (now<lease_stamp_ || now-lease_stamp_>=config_.source_lease_timeout)) {fault("Utrata źródła trajektorii; wiek podtrzymania "+diagnostic_number(milliseconds(now,lease_stamp_))+" ms, limit < "+std::to_string(config_.source_lease_timeout.count())+" ms (cały robot)");return;}
+  if(source_==Source::tcp_jog) {schedule_tcp_trajectory(now);return;}
+  if(config_.source_lease_required && (now<lease_stamp_ || now-lease_stamp_>=config_.source_lease_timeout)) {fault("Utrata źródła trajektorii; wiek podtrzymania "+diagnostic_number(milliseconds(now,lease_stamp_))+" ms, limit < "+std::to_string(config_.source_lease_timeout.count())+" ms (cały robot)");return;}
   if(now-last_command_>=config_.command_timeout) {fault("Brak świeżej komendy generatora; wiek "+diagnostic_number(milliseconds(now,last_command_))+" ms, limit < "+std::to_string(config_.command_timeout.count())+" ms (cały robot)");return;}
   if(!feedback_good(now)) {fault("Zatrzymanie sterowania: "+feedback_failure_reason(now));return;}
   if(!latest_ || motion_this_cycle_) return;
@@ -673,30 +774,14 @@ void CanBusManager::schedule_motion(Time now) {
     const auto &axis=config_.axes[j];
     const auto label=axis_diagnostic_label(j+1,axis.address);
     if(!std::isfinite(batch.velocities[j]) || std::abs(batch.velocities[j])>axis.max_velocity+1e-6) {fault(label+": prędkość referencji "+diagnostic_number(batch.velocities[j]*180/kPi)+" °/s poza limitem ±"+diagnostic_number(axis.max_velocity*180/kPi)+" °/s");return;}
-    if(tcp && (!std::isfinite(batch.accelerations[j]) || std::abs(batch.accelerations[j])>axis.max_acceleration+1e-6 ||
-        !std::isfinite(batch.remaining_time_sec) || batch.remaining_time_sec<0)) {fault(label+": nieprawidłowe hamowanie TCP; przyspieszenie="+diagnostic_number(batch.accelerations[j]*180/kPi)+" °/s², limit ±"+diagnostic_number(axis.max_acceleration*180/kPi)+" °/s², czas do zatrzymania="+diagnostic_number(batch.remaining_time_sec)+" s");return;}
     const auto feedback=streaming_feedback_position(j,now);
-    if(tcp && feedback.valid) {
-      if(std::abs(batch.positions[j]-feedback.value)>1.25*kPi/180) {
-        fault(label+": uchyb śledzenia JOG TCP="+diagnostic_number((batch.positions[j]-feedback.value)*180/kPi)+"°, limit |uchyb| ≤ 1.25°; referencja="+diagnostic_number(batch.positions[j]*180/kPi)+"°, pomiar="+diagnostic_number(feedback.value*180/kPi)+"°");return;
-      }
-      const double quantization=kPi/(axis.streaming.encoder_cpr*axis.gear_ratio);
-      if(!std::isfinite(feedback.value) || feedback.value<axis.lower-quantization-1e-9 || feedback.value>axis.upper+quantization+1e-9) {
-        fault(label+": pomiar TCP="+diagnostic_number(feedback.value*180/kPi)+"° poza limitem mechanicznym ["+diagnostic_number(axis.lower*180/kPi)+", "+diagnostic_number(axis.upper*180/kPi)+"]°");return;
-      }
-    }
-    const auto sample=tcp ? tcp_streaming_setpoint(axis,batch.positions[j],committed_positions_[j],next_streaming[j],
+    const auto sample=streaming_setpoint(axis,batch.positions[j],batch.velocities[j],next_streaming[j],
         feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,
-        batch.accelerations[j],batch.remaining_time_sec,feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.,batch.lookahead_positions[j]) :
-        streaming_setpoint(axis,batch.positions[j],batch.velocities[j],next_streaming[j],
-        feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,
-        tcp ? batch.accelerations[j] : 0.,tcp ? batch.remaining_time_sec : axis.streaming.lookahead_time_sec,
-        feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.,
-        tcp ? std::optional<double>(batch.lookahead_positions[j]) : std::nullopt);
+        0.,axis.streaming.lookahead_time_sec,feedback.valid ? std::chrono::duration<double>(now-feedback.stamp).count() : 0.);
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
   }
   spent_bits_+=cost;
-  for(unsigned j=0;j<kAxes;++j) send_stream_payload(j,stream_payloads_[j]);
+  for(unsigned j=0;j<kAxes;++j) {send_stream_payload(j,stream_payloads_[j],now);record_shaft_reference(j,batch.positions[j],now);}
   streaming_states_=next_streaming;
   committed_positions_=batch.positions;previous_velocity_=batch.velocities;last_command_=batch.created;
   motion_this_cycle_=true;++stats_.committed;
@@ -713,6 +798,8 @@ void CanBusManager::tick(Time now) {
       expire(now);
       manual_->tick(now);
       schedule_recovery(now);schedule_fault_diagnostics(now);
+    } catch(const TransmitQueueFull &e) {
+      transmit_queue_full(now,e.what());
     } catch(const std::exception &e) {
       trace_note("fault_diagnostic_transport_error",e.what());transport_lost(now,e.what());
     }
@@ -755,6 +842,8 @@ void CanBusManager::tick(Time now) {
       }
     }
     schedule_background(now);
+  } catch (const TransmitQueueFull &e) {
+    transmit_queue_full(now,e.what());
   } catch (const std::exception &e) {
     const auto reason=std::string("Błąd transportu CAN: ")+e.what();transport_lost(now,e.what());fault(reason);
   }

@@ -101,7 +101,7 @@ def test_tcp_ws_uses_si_session_and_stop_on_release_or_disconnect(manual_app, di
     first, last = calls[0][1], calls[-1][1]
     assert first['velocity'] == .05 and first['step'] == .1 and first['axis'] == 3 and first['frame'] == 'tool'
     assert first['session'] == last['session'] and last['sequence'] == (2 if disconnect else 3)
-    assert last['action'] == 2 and last['emergency']
+    assert last['action'] == 2 and not last['emergency']
     if not disconnect:
         assert calls[1][1]['action'] == 2 and not calls[1][1]['emergency']
 
@@ -228,8 +228,11 @@ def test_manual_ws_accepts_heartbeat_burst_after_network_jitter(manual_app):
         for sequence, action in enumerate(('start', 'keepalive', 'keepalive', 'stop'), 1):
             await incoming.put({'type': 'websocket.receive', 'text': json.dumps(
                 dict(action=action, axis=1, sequence=sequence, direction=1, rpm=30))})
-        await incoming.put({'type': 'websocket.disconnect', 'code': 1000})
-        async def send(event): events.append(event)
+        async def send(event):
+            events.append(event)
+            # ACK wysyła pętla nadawcza; rozłączenie dopiero po odebraniu ostatniego.
+            if event['type'] == 'websocket.send' and json.loads(event['text']) == {**json.loads(event['text']), 'type': 'ack', 'sequence': 4}:
+                await incoming.put({'type': 'websocket.disconnect', 'code': 1000})
         await asyncio.wait_for(app(scope('websocket', '/api/v1/manual/ws'), incoming.get, send), 1.)
         acks = [json.loads(e['text']) for e in events if e['type'] == 'websocket.send' and json.loads(e['text'])['type'] == 'ack']
         assert [ack['sequence'] for ack in acks] == [1, 2, 3, 4]
@@ -294,3 +297,30 @@ def test_manual_ws_flood_still_stops_owner(manual_app):
         await asyncio.wait_for(app(scope('websocket', '/api/v1/manual/ws'), incoming.get, send), 1.)
     asyncio.run(scenario())
     assert [values['action'] for operation, values in calls] == [0, 1, 1, 1, 2]
+
+
+def test_stalled_browser_does_not_block_keepalive_and_closes_after_limit(manual_app, monkeypatch):
+    import time
+    import robot_web_bridge.app as module
+    monkeypatch.setattr(module, 'SEND_STALL_LIMIT', .4)
+    app, calls = manual_app
+    forwarded = []
+    closed = []
+    async def scenario():
+        incoming = asyncio.Queue()
+        await incoming.put({'type': 'websocket.connect'})
+        for sequence, action in enumerate(('start', 'keepalive', 'keepalive'), 1):
+            await incoming.put({'type': 'websocket.receive', 'text': json.dumps(dict(
+                action=action, axis=1, direction=1, rpm=10, sequence=sequence))})
+        started = time.monotonic()
+        async def send(event):
+            if event['type'] == 'websocket.send':
+                forwarded.append((len(calls), time.monotonic() - started))
+                await asyncio.sleep(10)  # zator TCP do przeglądarki
+            elif event['type'] == 'websocket.close':
+                closed.append(time.monotonic() - started)
+        await asyncio.wait_for(app(scope('websocket', '/api/v1/manual/ws'), incoming.get, send), 2.)
+    asyncio.run(scenario())
+    assert [values['action'] for _, values in calls[:3]] == [0, 1, 1]
+    assert calls[-1][1]['action'] == 2  # STOP po zamknięciu sesji
+    assert closed and .35 <= closed[0] < 1.

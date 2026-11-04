@@ -83,3 +83,20 @@ Szczegóły matematyki, limitów i budżetu: [wykonanie PTP](motion_execution.md
 Fizyczny can0 zachowuje 500 kbit/s. Wdrożenie źródeł nie jest zmianą CanRate,
 CanRSP/trybu rzeczywistych napędów ani odbiorem płynności. Ręczne ENABLE/zero/JOG:
 [sterowanie ręczne](manual_control.md). Nieznane parametry osi pozostają do ustalenia.
+
+## Odczyt parametrów napędów na żądanie — 03.11.2026
+
+Usługa `/robot/can/read_drive_parameters` (`std_srvs/Trigger`) zleca jednorazowy odczyt parametrów wszystkich
+wykrytych napędów. Działa wyłącznie bez aktywnego sterowania, skanu i operacji ręcznej; start ruchu anuluje żądanie.
+Każdy parametr ma najwyżej 3 próby, a brak odpowiedzi nie zwiększa `consecutive_timeouts` (nie oznacza osi jako utraconej).
+Wyniki trafiają do `/api/v1/can/status` (`devices[].values`). Źródło formatów: instrukcja MKS CAN V1.0.9.
+
+| Zapytanie | Odpowiedź | Pole statusu |
+| --- | --- | --- |
+| `00 83 CRC` (§5.1.10) | `83 hi lo CRC`, prąd roboczy [mA]; `FF FF` = bez odczytu | `work_current_ma` |
+| `00 96 00 CRC` (§5.3.1) | Kp, Ki trybu vFOC (uint16; domyślnie DCh, 64h) | `pid_vfoc_kp`, `pid_vfoc_ki` |
+| `00 96 01 CRC` (§5.3.2) | Kd, Kv trybu vFOC (domyślnie 10Eh, 140h) | `pid_vfoc_kd`, `pid_vfoc_kv` |
+| `39 CRC` (§5.1.6) | `39 int32 CRC`, błąd kąta zadany − rzeczywisty, 51200 = 360° wału | `angle_error_degrees` |
+
+Format odpowiedzi PID nie jest w instrukcji jednoznaczny: przyjmowane są oba warianty (z bajtem podkomendy, DLC 7,
+i bez niego, DLC 6). Prąd trzymania (9Bh) nie jest odczytywany, bo według §3.4 nie działa w trybie vFOC.

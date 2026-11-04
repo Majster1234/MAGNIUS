@@ -5,10 +5,10 @@ import { createLimitGlows } from "./previewLimitGlow";
 import type { LimitIndicator } from "./previewLimits";
 import { createMotionTrail, type MotionTrace } from "./previewMotionTrail";
 import { robotSingularity, type Singularity } from "./previewSingularity";
-import { createExecutionTrail, type ExecutionFrame } from "./previewExecutionTrail";
+import { createExecutionTrail, createLiveTrail, type ExecutionFrame } from "./previewExecutionTrail";
 
 export type CameraView = "iso" | "front" | "side" | "top" | "fit";
-export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null; showMotionFrames?: boolean; executionFrame?: ExecutionFrame };
+export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null; showMotionFrames?: boolean; executionFrame?: ExecutionFrame; liveTrace?: boolean };
 export function createPreviewScene(host: HTMLElement, xml: string, frame: () => PoseFrame, onAssessment?:(subject:string,result:Singularity|null)=>void) {
     const document = new DOMParser().parseFromString(xml, "application/xml");
     if (document.querySelector("parsererror, mesh, texture") || document.documentElement.tagName !== "robot")
@@ -68,6 +68,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
     });
     const trail = createMotionTrail(scene, robot);
     const executionTrail = createExecutionTrail(scene, robot);
+    const liveTrail = createLiveTrail(scene, robot);
     const glowCanvas = window.document.createElement("canvas"); glowCanvas.width = glowCanvas.height = 64;
     const glowContext = glowCanvas.getContext("2d");
     if (!glowContext) throw Error("Brak obsługi poświaty osobliwości");
@@ -145,6 +146,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
         }
         if (trail.update(state.motionTrace, state.planning)) dirty = true;
         if (executionTrail.update(state.executionFrame, performance.now())) dirty = true;
+        if (liveTrail.update(state.executionFrame, !!state.liveTrace, performance.now())) dirty = true;
         scene.updateMatrixWorld(true);
         for (const [i, indicator] of singularities.entries()) {
             const complete = i === 0 ? state.valid.length === 6 && state.valid.every(Boolean) : i === 1 ? completeTarget : completeMotion;
@@ -220,6 +222,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
         })));
         renderer.domElement.dataset.motionTrace = JSON.stringify(trail.snapshot());
         renderer.domElement.dataset.executionTrace = JSON.stringify(executionTrail.snapshot());
+        renderer.domElement.dataset.liveTrace = JSON.stringify(liveTrail.snapshot());
         renderer.domElement.dataset.singularities = JSON.stringify(singularities.map(indicator => ({ subject: indicator.element.dataset.subject, ...indicator.result,
             anchor: indicator.marker.visible ? indicator.marker.parent?.name : null,
             position: indicator.marker.visible ? indicator.marker.getWorldPosition(new THREE.Vector3()).toArray() : null,
@@ -231,7 +234,8 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
     renderer.domElement.addEventListener("webglcontextlost", restore);
     renderer.domElement.addEventListener("webglcontextrestored", restore);
     request = requestAnimationFrame(draw);
-    return { view, executionTrace: () => executionTrail.snapshot(), clearExecutionTrace() { executionTrail.clear(); dirty = true; }, dispose() {
+    return { view, executionTrace: () => executionTrail.snapshot(), clearExecutionTrace() { executionTrail.clear(); dirty = true; },
+        liveTrace: () => liveTrail.snapshot(), clearLiveTrace() { liveTrail.clear(); dirty = true; }, dispose() {
         disposed = true; cancelAnimationFrame(request); resize.disconnect(); controls.dispose();
         reducedMotion.removeEventListener("change", motionPreferenceChanged);
         renderer.domElement.removeEventListener("webglcontextlost", restore);

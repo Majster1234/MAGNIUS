@@ -1,6 +1,7 @@
 """Diagnostyka i żądania ręcznego sterowania, jeden origin strony/API/WS."""
 
 import asyncio
+from collections import deque
 import itertools
 from ipaddress import ip_address, ip_network
 import mimetypes
@@ -18,6 +19,8 @@ from wsproto.utilities import LocalProtocolError
 from .trace import trace, recording
 
 _connections = itertools.count(1)
+# Ciągły zator zapisu do przeglądarki, po którym sesja sterowania jest zamykana.
+SEND_STALL_LIMIT = 2.0
 
 
 class PanelFiles:
@@ -271,28 +274,46 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
         tcp_active = False
         tcp_generation = 0
         tcp_started_at = 0.
-        send_lock = asyncio.Lock()
+        # Jedyny nadawca to publish(): odbiór komend nie czeka na zator sieci do przeglądarki.
+        # Bez ACK przeglądarka zatrzymuje JOG po 100 ms, C++ po 200 ms bez KEEPALIVE;
+        # sesję zamykamy dopiero po SEND_STALL_LIMIT ciągłego zatoru (martwy klient).
+        outbox = deque(maxlen=32)
+        wake = asyncio.Event()
         stopped = False
         close_reason = 'completed'
         close_code = None
 
+        def reply(body):
+            outbox.append(body)
+            wake.set()
+
         async def send(body):
-            async with send_lock:
-                await asyncio.wait_for(websocket.send_json(body), timeout=.1)
+            await asyncio.wait_for(websocket.send_json(body), timeout=SEND_STALL_LIMIT)
 
         async def publish():
             nonlocal tcp_active
+            next_state = 0.
             while not stopped:
-                state = manual_store.snapshot()
-                tcp_status = state.get('tcp_jog', {})
-                if tcp_active and tcp_status.get('fresh') and not tcp_status.get('busy') and (
-                        tcp_status.get('generation', 0) > tcp_generation or
-                        tcp_status.get('ready') and time.monotonic() - tcp_started_at >= .5):
-                    tcp_active = False
-                begin = time.monotonic_ns()
-                await send({'type': 'state', 'state': state})
-                trace('ws_state_sent', connection=connection, duration_ns=time.monotonic_ns() - begin, state=state)
-                await asyncio.sleep(.05)
+                wake.clear()
+                while outbox:
+                    await send(outbox.popleft())
+                if time.monotonic() >= next_state:
+                    state = manual_store.snapshot()
+                    tcp_status = state.get('tcp_jog', {})
+                    if tcp_active and tcp_status.get('fresh') and not tcp_status.get('busy') and (
+                            tcp_status.get('generation', 0) > tcp_generation or
+                            tcp_status.get('ready') and time.monotonic() - tcp_started_at >= .5):
+                        tcp_active = False
+                    begin = time.monotonic_ns()
+                    # Zawsze najnowszy snapshot; przy zatorze ramki są pomijane, nie kolejkowane.
+                    await send({'type': 'state', 'state': state})
+                    duration = time.monotonic_ns() - begin
+                    trace('ws_state_sent', connection=connection, duration_ns=duration, state=state)
+                    next_state = time.monotonic() + .05
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout=max(0., next_state - time.monotonic()))
+                except asyncio.TimeoutError:
+                    pass
 
         async def commands():
             nonlocal last_sequence, active_axis, active_space, active_revision, close_reason, close_code, tcp_active
@@ -356,12 +377,12 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                     return
                 last_sequence = sequence
                 if tcp_active and action != 'stop':
-                    await send({'type': 'ack', 'sequence': sequence, 'accepted': False, 'message': 'Zakończ JOG TCP przed sterowaniem osią'})
+                    reply({'type': 'ack', 'sequence': sequence, 'accepted': False, 'message': 'Zakończ JOG TCP przed sterowaniem osią'})
                     continue
                 trace('ws_command_received', connection=connection, action=action, axis=axis,
                       sequence=sequence, direction=direction, rpm=rpm)
                 if action == 'start' and active_axis and active_axis != axis:
-                    await send({'type': 'ack', 'sequence': sequence, 'accepted': False, 'message': 'Zatrzymaj poprzednią oś przed wyborem kolejnej'})
+                    reply({'type': 'ack', 'sequence': sequence, 'accepted': False, 'message': 'Zatrzymaj poprzednią oś przed wyborem kolejnej'})
                     continue
                 # Zachowaj oś nawet gdy potwierdzenie START zaginie: finally zleci STOP.
                 if action == 'start':
@@ -372,7 +393,7 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                     axis=axis, direction=direction, session=session, sequence=sequence, **values)
                 if action == 'stop' and accepted:
                     active_axis = 0
-                await send({'type': 'ack', 'sequence': sequence, 'accepted': accepted, 'message': message})
+                reply({'type': 'ack', 'sequence': sequence, 'accepted': accepted, 'message': message})
 
         async def tcp_command(cmd, rate_limit):
             nonlocal last_sequence, tcp_active, tcp_generation, tcp_started_at
@@ -401,7 +422,7 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                 if any(not isinstance(cmd.get(key), str) or not 0 < len(cmd[key]) <= 64 for key in ('model_id', 'revision')):
                     raise ValueError('Nieprawidłowa rewizja TCP')
                 if active_axis or tcp_active:
-                    await send({'type': 'tcp_ack', 'sequence': sequence, 'accepted': False, 'message': 'Poprzedni ruch nadal trwa'})
+                    reply({'type': 'tcp_ack', 'sequence': sequence, 'accepted': False, 'message': 'Poprzedni ruch nadal trwa'})
                     return
                 values.update(axis=('x', 'y', 'z', 'rx', 'ry', 'rz').index(axis), direction=direction, frame=frame,
                               impulse=impulse, velocity=float(velocity), step=float(step), model_id=cmd['model_id'], revision=cmd['revision'])
@@ -412,8 +433,8 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
             accepted, message = await manual_action('jog_tcp', action={'start': 0, 'keepalive': 1, 'stop': 2}[action],
                                                     session=session, sequence=sequence, **values)
             # Przyjęcie STOP nie potwierdza postoju. publish() zwalnia sesję
-            # dopiero po statusie; rozłączenie w trakcie hamowania zleca STOP awaryjny.
-            await send({'type': 'tcp_ack', 'sequence': sequence, 'accepted': accepted, 'message': message})
+            # dopiero po statusie; rozłączenie w trakcie ruchu zleca zwykłe hamowanie.
+            reply({'type': 'tcp_ack', 'sequence': sequence, 'accepted': accepted, 'message': message})
 
         tasks = [asyncio.create_task(publish()), asyncio.create_task(commands())]
         try:
@@ -431,9 +452,10 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             if tcp_active:
+                # Utrata panelu = brak KEEPALIVE: hamowanie generatorem w limitach, nie awaria całego robota.
                 try:
                     await asyncio.wait_for(manual_action('jog_tcp', action=2, axis=0, direction=0, frame='base', impulse=False,
-                        emergency=True, velocity=0., step=0., model_id='', revision='', session=session, sequence=last_sequence+1), timeout=.1)
+                        emergency=False, velocity=0., step=0., model_id='', revision='', session=session, sequence=last_sequence+1), timeout=.1)
                 except (asyncio.TimeoutError, RuntimeError, OSError):
                     pass
             if active_axis:
@@ -445,7 +467,7 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                     pass
             try:
                 await asyncio.wait_for(websocket.close(), timeout=.1)
-            except (RuntimeError, OSError, LocalProtocolError):
+            except (RuntimeError, OSError, asyncio.TimeoutError, LocalProtocolError):
                 pass
 
     @app.websocket('/api/v1/manual/ws')

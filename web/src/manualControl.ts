@@ -1,3 +1,5 @@
+// Podtrzymanie JOG: zegar 50 ms z jitterem; próg 40 ms nie pomija co drugiego tyknięcia.
+export const KEEPALIVE_MIN_INTERVAL_MS = 40;
 export type JogCommand = { action: "start" | "keepalive" | "stop"; axis: number; direction: number; rpm: number; sequence: number; space?: "joint"; velocity_degrees_s?: number; revision?: string };
 export interface JogSocket { readyState: number; send(data: string): void }
 export const MANUAL_STATE_TIMEOUT_MS = 500;
@@ -35,7 +37,8 @@ export class JogControl {
         if (this.socket.readyState !== 1 || this.clock() - this.stateAt >= MANUAL_STATE_TIMEOUT_MS || (this.pending && this.clock() - this.sentAt >= 100)) {
             this.stop(this.socket.readyState !== 1 ? "socket_closed" : this.clock() - this.stateAt >= MANUAL_STATE_TIMEOUT_MS ? "state_timeout" : "ack_timeout"); return;
         }
-        if (!this.pending && this.clock() - this.sentAt >= 50) this.send("keepalive");
+        // Ten sam próg co JOG TCP: tyknięcie 50 ms z jitterem nie przesuwa podtrzymania do 100 ms.
+        if (!this.pending && this.clock() - this.sentAt >= KEEPALIVE_MIN_INTERVAL_MS) this.send("keepalive");
     }
     stop(reason: StopReason = "release") {
         if (this.held) this.onStop?.(reason, this.held.axis);

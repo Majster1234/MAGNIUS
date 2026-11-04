@@ -15,8 +15,19 @@ namespace robot_can_diagnostics {
 using namespace std::chrono_literals;
 using mks_servo_can::Clock;
 using mks_servo_can::Time;
-TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntime> runtime):runtime_(std::move(runtime)) {
+namespace {
+// Próg ucięcia kolejki po ciszy panelu; musi być < 200 ms dzierżawy JOG TCP w CanBusManager.
+constexpr auto kKeepaliveBrake=150ms;
+// Generator wyprzedza wykonanie o tyle (kolejka q/v/a jak program LIN); ucięcie nie czeka na jej koniec.
+constexpr double kHorizon=.2;
+constexpr unsigned kMaxStepsPerTick=25;
+// Budżet IK jednego kroku generatora (przekroczenie = hamowanie po sprawdzonej drodze).
+constexpr auto kStepBudget=7ms;
+}
+TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntime> runtime,
+    rclcpp::CallbackGroup::SharedPtr group):runtime_(std::move(runtime)) {
   node_=node;
+  rclcpp::SubscriptionOptions options;options.callback_group=group;
   enabled_=node->declare_parameter("tcp_jog_enabled",false);
   linear_velocity_=node->declare_parameter("tcp_jog_max_linear_velocity",0.);
   angular_velocity_=node->declare_parameter("tcp_jog_max_angular_velocity",0.);
@@ -25,7 +36,7 @@ TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntim
   ik_position_tolerance_=node->declare_parameter("tcp_jog_ik_position_tolerance",1e-9);
   ik_orientation_tolerance_=node->declare_parameter("tcp_jog_ik_orientation_tolerance",1e-8);
   max_jerk_=node->declare_parameter("tcp_jog_max_jerk",.5);
-  stop_tolerance_deg_=node->declare_parameter("joint_stop_tolerance_deg",.5);
+  stop_tolerance_deg_=node->declare_parameter("motor_stop_tolerance_deg",.3);
   validate_tcp_parameters(max_jerk_,stop_tolerance_deg_);
   runtime_->configure_tcp_jog(enabled_);
   parameter_callback_=node->add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> &parameters) {
@@ -44,7 +55,7 @@ TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntim
         else if(p.get_name()=="tcp_jog_ik_position_tolerance") pt=p.as_double();
         else if(p.get_name()=="tcp_jog_ik_orientation_tolerance") rt=p.as_double();
         else if(p.get_name()=="tcp_jog_max_jerk") jerk=p.as_double();
-        else if(p.get_name()=="joint_stop_tolerance_deg") tolerance=p.as_double();
+        else if(p.get_name()=="motor_stop_tolerance_deg") tolerance=p.as_double();
       }
       for(double value:{linear,angular,la,aa}) if(!std::isfinite(value) || value<0) throw std::runtime_error("Limity TCP muszą być skończone i nieujemne; 0 oznacza brak konfiguracji");
       if((la>0 && linear/la>10) || (aa>0 && angular/aa>10)) throw std::runtime_error("Hamowanie TCP dłuższe niż 10 s");
@@ -55,7 +66,7 @@ TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntim
       const auto manual=runtime_->manual_snapshot();
       bool moving=manual.busy;
       const auto parameter_time=Clock::now();
-      for(const auto &axis:manual.axes) moving=moving || (axis.speed.fresh(parameter_time,250ms) && axis.speed.value!=0);
+      for(const auto &axis:manual.axes) moving=moving || (axis.speed.fresh(parameter_time,250ms) && !shaft_at_standstill(axis.speed.value));
       if(changed && (generator_ || moving))
         throw std::runtime_error("Zmiana limitów TCP wymaga postoju");
       if(!enabled && generator_) fail("Fizyczny JOG TCP wyłączony w ROS");
@@ -67,14 +78,7 @@ TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntim
     return result;
   });
   configuration_subscription_=node->create_subscription<robot_control_interfaces::msg::RobotConfiguration>("/robot/configuration/active",rclcpp::QoS(1).transient_local(),
-    [this,node](robot_control_interfaces::msg::RobotConfiguration::ConstSharedPtr value) {
-      const auto result=node->set_parameters_atomically({
-        rclcpp::Parameter("tcp_jog_max_linear_velocity",value->tcp_jog_max_linear_velocity),
-        rclcpp::Parameter("tcp_jog_max_angular_velocity",value->tcp_jog_max_angular_velocity),
-        rclcpp::Parameter("tcp_jog_linear_acceleration",value->tcp_jog_linear_acceleration),
-        rclcpp::Parameter("tcp_jog_angular_acceleration",value->tcp_jog_angular_acceleration)});
-      if(result.successful) {std::lock_guard<std::mutex> lock(mutex_);limits_revision_=value->revision;}
-    });
+    [this](robot_control_interfaces::msg::RobotConfiguration::ConstSharedPtr value) {apply_limits(*value);},options);
   status_.state="blocked";
   model_subscription_=node->create_subscription<std_msgs::msg::String>("/robot/preview/robot_description",rclcpp::QoS(1).transient_local(),
     [this](std_msgs::msg::String::ConstSharedPtr value) {
@@ -91,14 +95,18 @@ TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntim
       geometry_ready_=kind && std::string(kind)=="configured" && tcp && std::string(tcp)=="true" && revision;
       if(revision) revision_=revision;
       model_=robot_kinematics::model_id(xml_);
-    });
+    },options);
   service_=node->create_service<robot_control_interfaces::srv::JogTcp>("/robot/manual/jog_tcp",
     [this](std::shared_ptr<Request> request,std::shared_ptr<robot_control_interfaces::srv::JogTcp::Response> response) {
       std::lock_guard<std::mutex> lock(mutex_);command(*request,*response);
-    });
+    },rmw_qos_profile_services_default,group);
   publisher_=node->create_publisher<Status>("/robot/manual/tcp_status",rclcpp::QoS(1));
   telemetry_publisher_=node->create_publisher<std_msgs::msg::String>("/robot/manual/tcp_telemetry",rclcpp::QoS(100).best_effort());
   timer_=node->create_wall_timer(50ms,[this] {
+    // Konfiguracja przychodzi raz (transient local); odrzucone limity ponawiamy do skutku.
+    std::optional<robot_control_interfaces::msg::RobotConfiguration> pending;
+    {std::lock_guard<std::mutex> lock(mutex_);pending=pending_limits_;}
+    if(pending) apply_limits(*pending);
     std::lock_guard<std::mutex> lock(mutex_);const auto now=Clock::now();
     status_.monotonic_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
     status_.ready=false;status_.model_id=model_;status_.configuration_revision=revision_;
@@ -111,7 +119,8 @@ TcpJogApi::TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntim
     }
     publisher_->publish(status_);
     while(!telemetry_.empty()) {std_msgs::msg::String item;item.data=std::move(telemetry_.front());telemetry_.pop_front();telemetry_publisher_->publish(item);}
-  });
+  },group);
+  // Kolejka 200 ms do przodu: faza wątku względem slotów F5 nie ma znaczenia.
   worker_=std::thread([this] {
     auto deadline=Clock::now();
     while(running_) {
@@ -153,7 +162,7 @@ std::string TcpJogApi::unavailable(Time now) {
     if(!axis.enable.fresh(now,300ms)) return label+mks_servo_can::sample_diagnostic(axis.enable,now,300ms,"ENABLE");
     if(!axis.enable.value) return label+"ENABLE=0 — napęd wyłączony";
     if(!axis.speed.fresh(now,250ms)) return label+mks_servo_can::sample_diagnostic(axis.speed,now,250ms,"prędkość wału");
-    if(axis.speed.value!=0) return label+"brak potwierdzonego postoju; prędkość="+mks_servo_can::diagnostic_number(axis.speed.value)+" RPM";
+    if(!shaft_at_standstill(axis.speed.value)) return label+"brak potwierdzonego postoju; prędkość="+mks_servo_can::diagnostic_number(axis.speed.value)+" RPM, próg ±"+mks_servo_can::diagnostic_number(kStandstillShaftRpm)+" RPM";
   }
   if(!runtime_->tcp_jog_available()) return "Właściciel CAN oczekuje na zakończenie skanu, wolne sterowanie i gotowy profil napędów";
   return {};
@@ -164,7 +173,8 @@ void TcpJogApi::command(const Request &r,robot_control_interfaces::srv::JogTcp::
     response.message="Nieprawidłowa lub przeterminowana komenda TCP";return;
   }
   if(r.action!=Request::START) {
-    response.accepted=generator_ && runtime_->tcp_jog_control(r.session,generation_,r.sequence,issued,r.action==Request::STOP);
+    response.accepted=generator_ && runtime_->tcp_jog_control(r.session,generation_,r.sequence,issued);
+    if(response.accepted) keepalive_=issued;
     if(response.accepted && r.action==Request::STOP) {
       if(r.emergency) fail("Awaryjne przerwanie JOG TCP przez panel/most");else stop_requested_=true;
     }
@@ -189,14 +199,18 @@ void TcpJogApi::command(const Request &r,robot_control_interfaces::srv::JogTcp::
     }
     auto generator=std::make_unique<robot_kinematics::TcpJog>(robot_kinematics::Model(xml_,lower,upper),start,vmax,amax,
       robot_kinematics::TcpJogRequest{r.axis,r.direction,r.frame=="base" ? robot_kinematics::TcpFrame::base : robot_kinematics::TcpFrame::tool,
-        r.velocity,r.axis<3 ? linear_acceleration_ : angular_acceleration_,r.step,config.program_streaming[0].lookahead_time_sec,ik_position_tolerance_,ik_orientation_tolerance_,
+        r.velocity,r.axis<3 ? linear_acceleration_ : angular_acceleration_,r.step,0.,ik_position_tolerance_,ik_orientation_tolerance_,
         r.axis<3 ? max_jerk_ : angular_acceleration_*max_jerk_/linear_acceleration_});
     generation_=runtime_->begin_tcp_jog(r.session,r.revision,r.model_id,r.sequence,issued);
     if(!generation_) throw std::runtime_error("Właściciel CAN odrzucił start TCP: profil napędów, świeżość lub zajęte sterowanie");
-    configuration_generation_=state.configuration_generation;session_=r.session;sequence_=0;stop_requested_=false;
-    settling_=confirmed_=last_position_=brake_deadline_={};generator_=std::move(generator);
-    last_feedback_=state.positions;previous_reference_=start;reverse_distance_.fill(0);reference_direction_.fill(0);
-    measured_velocity_.fill(std::numeric_limits<double>::quiet_NaN());zero_speed_since_.fill({});warning_at_={};
+    // Pierwszy punkt kolejki: zmierzony start w postoju (t=0).
+    mks_servo_can::ProgramPoint origin;origin.positions=start;
+    if(!runtime_->append_tcp_points(r.session,generation_,{origin},false)) {
+      runtime_->stop("JOG TCP: właściciel CAN odrzucił punkt startowy");throw std::runtime_error("Właściciel CAN odrzucił punkt startowy JOG TCP");
+    }
+    configuration_generation_=state.configuration_generation;session_=r.session;sequence_=0;stop_requested_=false;keepalive_=issued;keepalive_lost_=false;
+    generator_=std::move(generator);step_=0;cut_=closed_=false;last_sample_=generator_->current();
+    last_feedback_=state.positions;measured_velocity_.fill(std::numeric_limits<double>::quiet_NaN());
     session_deadline_=r.impulse ? Clock::now()+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(std::max(10.,generator_->duration()+3.))) : Time{};
     status_.busy=true;status_.state="running";status_.message="JOG TCP w ruchu";
     status_.axis=r.axis;status_.direction=r.direction;status_.frame=r.frame;status_.impulse=r.impulse;
@@ -204,6 +218,19 @@ void TcpJogApi::command(const Request &r,robot_control_interfaces::srv::JogTcp::
     response.accepted=true;response.message="JOG TCP uruchomiony";
     telemetry_event("start",status_.message);
   } catch(const std::exception &e) {response.message=e.what();}
+}
+void TcpJogApi::apply_limits(const robot_control_interfaces::msg::RobotConfiguration &value) {
+  // Bez mutex_: set_parameters wywołuje callback walidacji, który sam go zajmuje.
+  const auto result=node_->set_parameters_atomically({
+    rclcpp::Parameter("tcp_jog_max_linear_velocity",value.tcp_jog_max_linear_velocity),
+    rclcpp::Parameter("tcp_jog_max_angular_velocity",value.tcp_jog_max_angular_velocity),
+    rclcpp::Parameter("tcp_jog_linear_acceleration",value.tcp_jog_linear_acceleration),
+    rclcpp::Parameter("tcp_jog_angular_acceleration",value.tcp_jog_angular_acceleration)});
+  std::lock_guard<std::mutex> lock(mutex_);
+  if(result.successful) {limits_revision_=value.revision;pending_limits_.reset();return;}
+  if(!pending_limits_ || pending_limits_->revision!=value.revision)
+    RCLCPP_WARN(node_->get_logger(),"Limity TCP rewizji %s odłożone: %s; ponawianie co 50 ms",value.revision.c_str(),result.reason.c_str());
+  pending_limits_=value;
 }
 void TcpJogApi::fail(const std::string &message) {
   telemetry_event("fault",message);
@@ -231,80 +258,61 @@ void TcpJogApi::tick() {
     throw std::runtime_error("JOG TCP: zmieniła się generacja sterowania; oczekiwana="+std::to_string(generation_)+", aktualna="+std::to_string(state.control_generation));
   if(state.configuration_generation!=configuration_generation_)
     throw std::runtime_error("JOG TCP: zmieniła się generacja konfiguracji; oczekiwana="+std::to_string(configuration_generation_)+", aktualna="+std::to_string(state.configuration_generation));
-  const auto axis_label=[this](unsigned j) {return mks_servo_can::axis_diagnostic_label(j+1,runtime_->config_snapshot().axes[j].address);};
-  for(unsigned j=0;j<state.positions.size();++j) if(!state.positions[j].fresh(now,60ms))
-    throw std::runtime_error(axis_label(j)+": JOG TCP — "+mks_servo_can::sample_diagnostic(state.positions[j],now,60ms,"pozycja przegubu"));
-  auto sample=generator_->next(stop_requested_,[now] {return Clock::now()-now>=7ms;});
-  const double compute_ms=std::chrono::duration<double,std::milli>(Clock::now()-now).count();
-  if(compute_ms>=7)throw std::runtime_error("Przekroczony budżet cyklu IK: "+mks_servo_can::diagnostic_number(compute_ms)+" ms, limit < 7 ms (generator całego TCP)");
-  for(unsigned j=0;j<6;++j) {
+  for(unsigned j=0;j<state.positions.size();++j) {
     const auto &position=state.positions[j];
-    if(std::abs(sample.positions[j]-position.value)>1.25*std::acos(-1.)/180)
-      throw std::runtime_error(axis_label(j)+": uchyb śledzenia TCP="+mks_servo_can::diagnostic_number((sample.positions[j]-position.value)*180/std::acos(-1.))+"°, limit |uchyb| ≤ 1.25°; referencja="+mks_servo_can::diagnostic_number(sample.positions[j]*180/std::acos(-1.))+"°, pomiar="+mks_servo_can::diagnostic_number(position.value*180/std::acos(-1.))+"°");
+    if(!position.fresh(now,60ms))
+      throw std::runtime_error(mks_servo_can::axis_diagnostic_label(j+1,runtime_->config_snapshot().axes[j].address)+": JOG TCP — "+mks_servo_can::sample_diagnostic(position,now,60ms,"pozycja przegubu"));
     if(position.stamp>last_feedback_[j].stamp) {
-      const double delta=position.value-last_feedback_[j].value;
-      measured_velocity_[j]=delta/std::chrono::duration<double>(position.stamp-last_feedback_[j].stamp).count();
-      const double ref_delta=sample.positions[j]-previous_reference_[j];
-      if(std::abs(ref_delta)>1e-8) {
-        const double direction=ref_delta>0 ? 1. : -1.;
-        if(direction!=reference_direction_[j])reverse_distance_[j]=0;
-        reference_direction_[j]=direction;reverse_distance_[j]=std::max(0.,reverse_distance_[j]-direction*delta);
-      }
-      if(reverse_distance_[j]>.5*std::acos(-1.)/180)throw std::runtime_error(axis_label(j)+": ruch przeciwny do referencji TCP="+mks_servo_can::diagnostic_number(reverse_distance_[j]*180/std::acos(-1.))+"°, limit ≤ 0.5°");
+      measured_velocity_[j]=(position.value-last_feedback_[j].value)/std::chrono::duration<double>(position.stamp-last_feedback_[j].stamp).count();
       last_feedback_[j]=position;
     }
   }
-  previous_reference_=sample.positions;
-  if(!sample.braking) {
-    status_.state=sample.progress==0 ? "arming" : "running";
-    status_.message=sample.progress==0 ? "Oczekiwanie na obliczenie pierwszego kroku TCP" : "JOG TCP w ruchu";
+  // Brak KEEPALIVE traktujemy jak puszczenie przycisku: kolejka ucięta przed limitem 200 ms właściciela CAN.
+  if(!cut_ && !stop_requested_ && keepalive_!=Time{} && now-keepalive_>=kKeepaliveBrake) {
+    stop_requested_=keepalive_lost_=true;
+    telemetry_event("keepalive_lost","Brak KEEPALIVE "+mks_servo_can::diagnostic_number(std::chrono::duration<double,std::milli>(now-keepalive_).count())+" ms — ucięcie kolejki TCP");
   }
-  if(sample.braking) {
-    if(!runtime_->brake_tcp_jog(session_,generation_)) throw std::runtime_error("Utrata sesji hamowania TCP");
-    if(brake_deadline_==Time{}) brake_deadline_=session_deadline_!=Time{} ? session_deadline_ : now+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(sample.remaining))+3s;
-    if(now>=brake_deadline_) throw std::runtime_error("Nie potwierdzono zatrzymania TCP; wymagany reset");
-    status_.state="braking";status_.message=stop_requested_ || generator_->stop_reason().empty() ? "Hamowanie TCP" : "Hamowanie TCP: "+generator_->stop_reason();
+  // Bez rampy hamowania: napęd kończy na celu, do którego już jedzie, i wyhamowuje własną dynamiką (acc F5).
+  if(!cut_ && stop_requested_) {
+    if(!runtime_->cut_tcp_jog(session_,generation_,keepalive_lost_ ? "Brak KEEPALIVE z panelu" : "STOP panelu")) throw std::runtime_error("Utrata sesji JOG TCP przy ucięciu kolejki");
+    cut_=true;telemetry_event("cut",keepalive_lost_ ? "Brak KEEPALIVE" : "STOP panelu");
   }
-  status_.progress=sample.progress;
-  if(sample.done) {
-    status_.state="settling";status_.message="Oczekiwanie na pomiarowe potwierdzenie postoju TCP";
-    if(settling_==Time{}) settling_=now;
-    const auto manual=runtime_->manual_snapshot();const auto confirmation_time=Clock::now();bool stopped=true;Time oldest=now;
-    std::ostringstream errors;bool deadband=false;
-    for(unsigned j=0;j<6;++j) {
-      const auto &axis=manual.axes[j];oldest=std::min(oldest,state.positions[j].stamp);
-      stopped=stopped && state.positions[j].stamp>settling_ && axis.speed.fresh(confirmation_time,250ms) && axis.speed.value==0 &&
-        tcp_stop_within(state.positions[j].value-sample.positions[j],stop_tolerance_deg_);
-      const bool zero=axis.speed.fresh(confirmation_time,250ms) && axis.speed.value==0;
-      if(!zero)zero_speed_since_[j]={};else if(zero_speed_since_[j]==Time{})zero_speed_since_[j]=now;
-      const double error=(state.positions[j].value-sample.positions[j])*180/std::acos(-1.);
-      errors<<" J"<<j+1<<"="<<std::setprecision(9)<<error<<" deg";
-      deadband=deadband || (zero && now-zero_speed_since_[j]>=300ms && std::abs(error)>stop_tolerance_deg_ && std::abs(error)<=.5);
+  auto trajectory=runtime_->tcp_trajectory();
+  cut_=cut_ || trajectory.cut;
+  double compute_ms=0;bool submitted=false;
+  if(!cut_ && !closed_) {
+    std::vector<mks_servo_can::ProgramPoint> points;bool done=false;const auto begin=Clock::now();
+    while(points.size()<kMaxStepsPerTick && (step_+1)*.01<=trajectory.elapsed+kHorizon+1e-9 && Clock::now()-begin<kStepBudget) {
+      const auto started=Clock::now();
+      last_sample_=generator_->next(false,[started] {return Clock::now()-started>=kStepBudget;});
+      mks_servo_can::ProgramPoint point;point.seconds=static_cast<double>(++step_)*.01;
+      point.positions=last_sample_.positions;point.velocities=last_sample_.velocities;point.accelerations=last_sample_.accelerations;
+      points.push_back(point);
+      if(last_sample_.done) {done=true;break;}
     }
-    if(deadband) {
-      status_.message="Postój 0 RPM poza tolerancją; uchyby:"+errors.str();
-      if(warning_at_==Time{} || now-warning_at_>=1s) {warning_at_=now;RCLCPP_WARN(node_->get_logger(),"%s",status_.message.c_str());telemetry_event("stop_deadband",status_.message);}
+    compute_ms=std::chrono::duration<double,std::milli>(Clock::now()-begin).count();
+    if(!points.empty()) {
+      if(!runtime_->append_tcp_points(session_,generation_,points,done)) throw std::runtime_error("Właściciel CAN odrzucił punkty JOG TCP (limity, ciągłość lub horyzont)");
+      submitted=true;closed_=done;
     }
-    if(stopped && oldest>last_position_) {
-      last_position_=oldest;if(confirmed_==Time{}) confirmed_=oldest;
-      else if(oldest-confirmed_>=100ms && runtime_->finish_tcp_jog(session_,generation_)) {
-        status_.message="Zatrzymanie TCP potwierdzone";
-        if(!stop_requested_ && status_.impulse && sample.progress<status_.requested_step-1e-7)
-          status_.message+="; impuls zakończony wcześniej: "+generator_->stop_reason();
-        else if(!stop_requested_ && !status_.impulse) status_.message+="; "+generator_->stop_reason();
-        record(state,sample,false,compute_ms);telemetry_event("stopped",status_.message);
-        generator_.reset();status_.busy=false;status_.state="stopped";return;
-      }
-    } else if(!stopped) confirmed_={};
   }
-  mks_servo_can::CommandBatch batch;batch.positions=sample.positions;batch.velocities=sample.velocities;
-  batch.lookahead_positions=sample.lookahead_positions;
-  batch.accelerations=sample.accelerations;batch.remaining_time_sec=sample.remaining;batch.velocities_valid=true;
-  batch.created=Clock::now();batch.expires=batch.created+20ms;batch.source=mks_servo_can::Source::tcp_jog;
-  batch.sequence=++sequence_;batch.configuration_generation=configuration_generation_;batch.control_generation=generation_;
-  // Chwilowa kolizja publikacji lub zapisu snapshotu nie tworzy kolejki.
-  // Trwałą utratę referencji zatrzymuje niezależnie watchdog IO (60 ms).
-  const bool submitted=runtime_->try_submit(batch);
-  record(state,sample,submitted,compute_ms);
+  status_.progress=last_sample_.progress;
+  if(!cut_) {
+    status_.state=!trajectory.started ? "arming" : last_sample_.braking ? "braking" : "running";
+    status_.message=!trajectory.started ? "Wypełnianie kolejki TCP" : last_sample_.braking ? "Hamowanie TCP: "+generator_->stop_reason() : "JOG TCP w ruchu";
+  } else if(!trajectory.done && trajectory.elapsed<trajectory.end) {
+    status_.state="braking";status_.message="Kolejka TCP ucięta ("+trajectory.reason+"); napęd hamuje własną dynamiką";
+  } else {
+    status_.state="settling";status_.message="Dolot końcowy i potwierdzenie pozycji (jak LIN)";
+  }
+  if(trajectory.done && runtime_->finish_tcp_jog(session_,generation_)) {
+    status_.message="Zatrzymanie TCP potwierdzone";
+    if(!stop_requested_ && status_.impulse && last_sample_.progress<status_.requested_step-1e-7)
+      status_.message+="; impuls zakończony wcześniej: "+generator_->stop_reason();
+    else if(!stop_requested_ && !status_.impulse) status_.message+="; "+(generator_->stop_reason().empty() ? trajectory.reason : generator_->stop_reason());
+    record(state,last_sample_,submitted,compute_ms);telemetry_event("stopped",status_.message);
+    generator_.reset();status_.busy=false;status_.state="stopped";return;
+  }
+  record(state,last_sample_,submitted,compute_ms);
 }
 }

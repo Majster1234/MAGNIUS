@@ -7,6 +7,8 @@
 #include <optional>
 #include <string>
 #include <functional>
+#include <deque>
+#include <vector>
 #include <limits>
 #include "mks_servo_can/protocol.hpp"
 #include "mks_servo_can/socketcan.hpp"
@@ -50,6 +52,13 @@ struct DeviceState {
   Sample<std::uint8_t> mode, motor_state;
   Sample<std::int16_t> speed;
   Sample<std::uint32_t> watchdog_ms;
+  // Parametry napędu (odczyt 00h, wyłącznie bez aktywnego sterowania; instrukcja MKS CAN V1.0.9 §5.1.10, §5.3):
+  // prąd roboczy [mA] (83h), PID vFOC Kp/Ki (96h 00h) i Kd/Kv (96h 01h); FFFFh = parametr bez odczytu.
+  // Błąd kąta 39h: zadany − rzeczywisty, 51200 = 360° wału.
+  Sample<std::uint16_t> work_current_ma;
+  Sample<std::array<std::uint16_t,2>> pid_kp_ki, pid_kd_kv;
+  Sample<std::int32_t> angle_error;
+  std::array<unsigned,4> parameter_attempts{};
   Aggregate rtt;
   double last_rtt_ms{};
   std::uint64_t timeouts{}, invalid{};
@@ -82,12 +91,20 @@ struct TcpStreamingSnapshot {
   std::uint64_t generation{};
   bool command_available{};
 };
+// Kolejka JOG TCP wykonywana jak LIN: czasy w sekundach osi trajektorii (t=0 przy pierwszym F5).
+struct TcpTrajectoryState {
+  bool started{}, cut{}, closed{}, done{};
+  double elapsed{}, buffered_until{}, end{};
+  std::string reason;
+};
 struct BusConfig {
   std::string interface{"can0"};
   unsigned bitrate{500000};
   std::chrono::milliseconds cycle{kStreamingCycle}, response_timeout{20}, feedback_timeout{60}, command_timeout{60};
   bool use_ack{false};
   unsigned rx_poll_timeout_ms{1};
+  // SCHED_FIFO wątków IO i RX CAN (0 = zwykły planista). Wymaga LimitRTPRIO w usłudze systemd.
+  int io_realtime_priority{0};
   double utilization_limit{0.5};
   bool motion_enabled{false};
   bool commissioning_verified{false};
@@ -110,9 +127,9 @@ struct BusConfig {
 struct BusStatistics {
   std::uint64_t tx{}, rx{}, invalid{}, late{}, timeouts{}, errors{}, deferred{}, missed_cycles{}, committed{}, dropped_commands{};
   Aggregate rtt, rx_interval_ms, cycle_ms, feedback_span_ms, feedback_round_ms;
-  Aggregate ack_margin_ms, sync_lateness_ms;
+  Aggregate ack_margin_ms, sync_lateness_ms, sync_shift_ms;
   double scheduled_utilization{}, peak_scheduled_utilization{}, cycle_bits{}, stop_elapsed_ms{};
-  std::uint64_t completion_reports{}, endstop_reports{};
+  std::uint64_t completion_reports{}, endstop_reports{}, tx_queue_full{}, sync_missed_acks{}, sync_shifts{};
   bool stop_pending{};
   unsigned stop_f7_acks{}, stop_zero_acks{}, stop_rejected{}, stop_failed{};
 };
@@ -149,14 +166,22 @@ class CanBusManager {
   bool service_allowed() const;
   bool reset_allowed() const;
   bool activate(Source source, Time now);
-  void configure_tcp_jog(bool enabled) { config_.tcp_jog_enabled=enabled; }
+  void configure_tcp_jog(bool enabled) {config_.tcp_jog_enabled=enabled;}
   std::uint64_t begin_tcp_jog(const std::string &session,const std::string &revision,
       const std::string &model,std::uint64_t sequence,Time issued,Time now);
   bool tcp_jog_control(const std::string &session,std::uint64_t generation,std::uint64_t sequence,
-      Time issued,Time now,bool brake);
+      Time issued,Time now);
+  // Punkty q/v/a co ≤ 50 ms, pierwszy t=0 z v=0; closed: generator zakończył drogę (koniec kolejki = ostatni punkt).
+  bool append_tcp_points(const std::string &session,std::uint64_t generation,const std::vector<ProgramPoint> &points,bool closed,Time now);
+  // Ucięcie kolejki bez rampy: koniec w punkcie, do którego napęd już jedzie (t + lookahead F5).
+  bool cut_tcp_jog(const std::string &session,std::uint64_t generation,const std::string &reason,Time now);
+  TcpTrajectoryState tcp_trajectory(Time now) const;
+  // Zwalnia sterowanie wyłącznie po potwierdzonym dolocie (jak koniec programu LIN).
   bool finish_tcp_jog(const std::string &session,std::uint64_t generation);
-  bool brake_tcp_jog(const std::string &session,std::uint64_t generation);
   bool tcp_jog_available(Time now) const;
+  // Jednorazowy odczyt parametrów napędów (prąd, PID vFOC, błąd kąta) — wyłącznie bez aktywnego sterowania.
+  bool request_drive_parameters();
+  bool drive_parameters_pending() const { return drive_parameters_requested_; }
   TcpStreamingSnapshot tcp_streaming_snapshot() const;
   bool submit(const CommandBatch &batch);
   void renew_source_lease(Source source, Time now);
@@ -192,7 +217,18 @@ class CanBusManager {
   ShaftTraceQueue shaft_trace_;
   std::array<std::uint64_t,6> shaft_sequences_{}, shaft_segments_{};
   std::array<std::uint32_t,6> shaft_flags_{};
-  enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, watchdog, manual, program_setup, recovery };
+  // Referencja ruchu (cel planowany, bez wyprzedzenia i korekty F5) w impulsach wału, maks. co 10 ms na oś.
+  void record_shaft_reference(unsigned joint,double position,Time stamp);
+  std::array<std::uint64_t,6> shaft_reference_sequences_{};
+  std::array<std::uint32_t,6> shaft_reference_flags_{};
+  std::array<Time,6> shaft_reference_stamps_{};
+  // Wysłana ramka F5: cel (impulsy) i RPM wału, maks. co 10 ms na oś.
+  void record_shaft_command(unsigned joint,const std::vector<std::uint8_t> &payload,Time stamp);
+  std::array<std::uint64_t,6> shaft_command_sequences_{}, shaft_rpm_sequences_{};
+  std::array<std::uint32_t,6> shaft_command_flags_{}, shaft_rpm_flags_{};
+  std::array<Time,6> shaft_command_stamps_{};
+  enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, watchdog,
+    work_current, pid_kp_ki, pid_kd_kv, angle_error, manual, program_setup, recovery };
   struct Pending {
     bool used{false};
     std::uint16_t address{};
@@ -226,21 +262,35 @@ class CanBusManager {
   void schedule_fault_diagnostics(Time now);
   void reconnect(Time now);
   void transport_lost(Time now,const std::string &reason);
+  void transmit_queue_full(Time now,const std::string &reason);
   Time current_time(Time fallback) const;
   bool phased_program() const;
   unsigned feedback_group() const;
   void rebuild_axis_lookup();
   double mandatory_cycle_bits() const;
   double stream_cycle_bits(unsigned participants) const;
-  void send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload);
+  void send_stream_payload(unsigned joint,const std::vector<std::uint8_t> &payload,Time now);
   Sample<double> streaming_feedback_position(unsigned joint,Time now) const;
   bool feedback_good(Time now) const;
   std::string feedback_failure_reason(Time now) const;
   void schedule_feedback(Time now);
   void schedule_background(Time now);
   void schedule_motion(Time now);
+  void schedule_tcp_trajectory(Time now);
+  ProgramPoint tcp_reference(double seconds) const;
+  void tcp_cut(double seconds,const std::string &reason,Time now);
+  void tcp_final(Time now,double cost);
   void schedule_program(Time now);
   void schedule_synchronized_program(Time now);
+ public:
+  // Najbliższy termin wymagający dokładnego wybudzenia pętli IO (SYNC przygotowanego zestawu); Time{} = brak.
+  Time next_deadline() const;
+  std::string transport_realtime_status() const { return transport_->realtime_status(); }
+ private:
+  // Napęd może jeszcze odpowiadać ACK F5 tym samym ID co host: zapytanie do tej osi zderzyłoby się z odpowiedzią.
+  bool sync_ack_outstanding(std::uint16_t address) const;
+  // Przesuwa oś czasu SYNC tak, by termin wypadł w `due` (≤ kSyncMaxShift); inaczej awaria.
+  bool sync_shift(Time due,Time now,const char *reason);
   bool synchronized_reply(const Frame &frame,Time stamp);
   void synchronized_confirmation(const Frame &frame,Time now);
   bool synchronized_query_window(Time now) const;
@@ -250,6 +300,7 @@ class CanBusManager {
   bool program_feedback_good(Time now) const;
   void begin_program_check(Time now);
   bool check_program_positions(Time now);
+  void final_approach(Time now);
   void program_setup_reply(const Frame &frame, Time now);
 
   void start_cycle(Time now);
@@ -277,6 +328,7 @@ class CanBusManager {
   std::array<Pending, 4> pending_{};
   std::array<Time, 2048> quarantine_{};
   std::array<Time, 2048> next_position_{}, next_enable_{}, next_stall_{}, next_motor_{}, next_mode_{}, next_speed_{};
+  bool drive_parameters_requested_{};
   std::array<double, kAxes> committed_positions_{}, previous_velocity_{};
   BusStatistics stats_;
   std::optional<CommandBatch> latest_;
@@ -303,11 +355,26 @@ class CanBusManager {
   std::array<Time,kAxes> fault_probe_after_{};
   Time next_reconnect_{};
   unsigned reconnect_attempt_{};
+  // Seria pełnej kolejki TX: początek i licznik nadań w chwili ostatniej odmowy.
+  Time tx_full_since_{};
+  std::uint64_t tx_full_sent_{};
   Source source_{Source::none};
   std::string tcp_owner_;
   std::uint64_t control_generation_{}, tcp_sequence_{};
   Time tcp_lease_{}, tcp_started_{}, tcp_last_stop_{};
-  bool tcp_braking_{};
+  // Kolejka q/v/a generatora TCP próbkowana jak program LIN; tcp_end_ ≥ 0 po ucięciu/zamknięciu.
+  std::deque<ProgramPoint> tcp_points_;
+  Time tcp_origin_{};
+  double tcp_end_{-1};
+  bool tcp_closed_{}, tcp_done_{};
+  std::string tcp_reason_;
+  // Dolot końcowy jak PTP: rozkaz F5 += cel − pomiar co kFinalApproachPeriod; dwa pomiary w tolerancji ≥ 100 ms.
+  std::array<double,kAxes> tcp_target_{}, tcp_final_command_{};
+  Time tcp_final_started_{}, tcp_final_next_{}, tcp_within_since_{}, tcp_check_started_{};
+  // Siatka F5 JOG TCP: następny slot do wysłania.
+  std::uint64_t tcp_slot_{};
+  bool tcp_streaming() const { return active_ && source_==Source::tcp_jog; }
+  Time tcp_slot_end(Time now) const;
   double spent_bits_{}, background_bits_{};
   struct StopSequence {
     enum class Phase { idle, f7, zero, done } phase{Phase::idle};

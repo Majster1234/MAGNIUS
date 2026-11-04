@@ -20,23 +20,67 @@ TEST(SynchronizedProgram, SixAxesStageThenStartTogetherOnFixedGridAndRestore) {
   for(unsigned j=1;j<=6;++j) {EXPECT_FALSE(h.port->sync[j]);EXPECT_FALSE(h.port->respond[j]);EXPECT_FALSE(h.port->pending_targets_valid[j]);}
   EXPECT_FALSE(h.bus->snapshot().fault);
 }
-TEST(SynchronizedProgram, MissingRejectedAndLateAckNeverReleasePartialSet) {
+TEST(SynchronizedProgram, RejectedAckStopsAtOnceAndPersistentMissingOrLateAckAfterLimit) {
   for(unsigned kind=0;kind<3;++kind) {
-    Rig h;h.ready();h.synchronized();
-    if(kind==0) h.port->missing_ack=3;else if(kind==1) h.port->rejected_ack=3;else h.port->late_ack=3;
+    Rig h;h.ready();h.synchronized();const bool rejected=kind==0;
+    if(rejected) h.port->rejected_ack=3;else if(kind==1) h.port->missing_ack=3;else h.port->late_ack=3;
     h.execute(h.program());h.run(300);
-    EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
+    EXPECT_TRUE(h.bus->snapshot().fault);
+    // Odrzucenie (status≠05) zatrzymuje od razu; brak ACK jest dopuszczony w dwóch kolejnych cyklach.
+    // ACK spóźniony stale o 20 ms bywa przypisany późniejszemu zestawowi (brak numeru cyklu), więc tylko ≥ 2.
+    if(kind==2) EXPECT_GE(h.port->counts[0x4b],2u);else EXPECT_EQ(h.port->counts[0x4b],rejected ? 0u : 2u);
+    if(kind==1) EXPECT_NE(h.bus->snapshot().message.find("3 kolejnych cyklach"),std::string::npos) << h.bus->snapshot().message;
     EXPECT_GE(h.port->counts[0xf5],6u);EXPECT_GT(h.port->counts[0xf7],0u);
-    h.bus->clear_fault();h.run(200);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
+    const auto syncs=h.port->counts[0x4b];
+    h.bus->clear_fault();h.run(200);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],syncs);
   }
 }
-TEST(SynchronizedProgram, LostOrLateTransmitConfirmationNeverStagesNextSet) {
-  for(bool late:{false,true}) {
-    Rig h;h.ready();h.synchronized();h.port->drop_sync_confirmation=!late;h.port->sync_echo_delay=late ? 3ms : 0ms;
-    h.execute(h.program());h.run(300);
-    EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],1u);EXPECT_GE(h.port->counts[0xf5],6u);
-    EXPECT_EQ(h.bus->snapshot().statistics.committed,0u);
+TEST(SynchronizedProgram, OccasionalMissingAckKeepsMotionAndIsCounted) {
+  Rig h;h.ready();h.synchronized();h.port->drop_ack[3]=2;
+  h.execute(h.program());h.run(1600);
+  const auto s=h.bus->program_status();EXPECT_EQ(s.state,"succeeded") << s.message << "; " << h.bus->snapshot().message;
+  EXPECT_EQ(h.port->activated_sets,101u);EXPECT_EQ(h.bus->snapshot().statistics.sync_missed_acks,2u);
+}
+TEST(SynchronizedProgram, NoRequestToAxisWhileItsF5AckIsOutstanding) {
+  Rig h;h.ready();h.synchronized();for(unsigned j=1;j<=6;++j) h.port->axis_ack_delay[j]=3ms;
+  h.execute(h.program());h.run(1600);ASSERT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  unsigned checked=0;
+  for(std::size_t i=0;i<h.port->events.size();++i) {
+    const auto &f5=h.port->events[i];if(f5.data[0]!=0xf5 || !f5.axis) continue;++checked;
+    // ACK tej osi przychodzi po 3 ms tym samym ID co host: wcześniej żadna inna ramka do tej osi.
+    for(auto k=i+1;k<h.port->events.size() && h.port->events[k].stamp<f5.stamp+3ms;++k)
+      EXPECT_NE(h.port->events[k].axis,f5.axis) << "opcode=" << int(h.port->events[k].data[0]) << " ms=" << (h.port->events[k].stamp-f5.stamp).count()/1e6;
   }
+  EXPECT_GE(checked,600u);
+}
+TEST(SynchronizedProgram, ShaftTraceRecordsReferenceAndF5AtActivation) {
+  Rig h;h.ready();h.synchronized();h.execute(h.program());
+  std::array<ShaftPositionSample,4096> out;std::array<unsigned,7> references{},targets{},speeds{};
+  for(unsigned i=0;i<16;++i) {
+    h.run(100);const auto count=h.bus->drain_shaft_trace(out.data(),out.size());
+    for(std::size_t k=0;k<count;++k) {
+      const auto &p=out[k];
+      if(p.flags&kShaftReferenceFlag) ++references[p.axis];
+      if(p.flags&kShaftCommandFlag) ++targets[p.axis];
+      if(p.flags&kShaftRpmFlag) ++speeds[p.axis];
+    }
+  }
+  ASSERT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  for(unsigned axis=1;axis<=6;++axis) {
+    EXPECT_GE(targets[axis],95u) << axis;EXPECT_EQ(targets[axis],speeds[axis]) << axis;EXPECT_GE(references[axis],95u) << axis;
+  }
+}
+TEST(SynchronizedProgram, LostTransmitConfirmationNeverStagesNextSet) {
+  Rig h;h.ready();h.synchronized();h.port->drop_sync_confirmation=true;
+  h.execute(h.program());h.run(300);
+  EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],1u);EXPECT_GE(h.port->counts[0xf5],6u);
+  EXPECT_EQ(h.bus->snapshot().statistics.committed,0u);
+}
+TEST(SynchronizedProgram, LateTransmitConfirmationShiftsTimeBaseInsteadOfStopping) {
+  Rig h;h.ready();h.synchronized();h.port->sync_echo_delay=3ms;
+  h.execute(h.program());h.run(2000);
+  EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message << "; " << h.bus->snapshot().message;
+  EXPECT_EQ(h.port->activated_sets,101u);EXPECT_GT(h.bus->snapshot().statistics.sync_shifts,0u);
 }
 TEST(SynchronizedProgram, SubmitDoesNotCommitUntilOwnTransmitConfirmation) {
   Rig h;h.ready();h.synchronized();h.port->sync_echo_delay=2ms;h.execute(h.program());wait_for(h,"waiting_tx_confirmation");
@@ -51,10 +95,19 @@ TEST(SynchronizedProgram, TwoMillisecondSchedulerSlipKeepsOriginalEpoch) {
   std::vector<Time> times;for(const auto &e:h.port->events) if(e.data[0]==0x4b) times.push_back(e.stamp);
   ASSERT_GE(times.size(),2u);EXPECT_EQ(times[1]-times[0],8ms);
 }
-TEST(SynchronizedProgram, SlipBeyondToleranceStopsWithoutSyncOrCatchup) {
+TEST(SynchronizedProgram, SlipWithinShiftLimitMovesTimeBaseWithoutCatchup) {
   Rig h;h.ready();h.synchronized();h.execute(h.program());wait_for(h,"waiting_ack");h.run(3);
   const auto due=Time{std::chrono::nanoseconds(h.bus->program_status().sync_due_monotonic_ns)};
-  h.now=due+3ms;h.run(100);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
+  h.now=due+5ms;h.run(1);EXPECT_EQ(h.port->counts[0x4b],1u);h.run(30);
+  EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;EXPECT_EQ(h.bus->snapshot().statistics.sync_shifts,1u);
+  // Kolejne terminy liczone od przesuniętej osi czasu: pełne 10 ms, bez nadrabiania.
+  std::vector<Time> times;for(const auto &e:h.port->events) if(e.data[0]==0x4b) times.push_back(e.stamp);
+  ASSERT_GE(times.size(),3u);EXPECT_EQ(times[1]-times[0],10ms);EXPECT_EQ(times[2]-times[1],10ms);
+}
+TEST(SynchronizedProgram, SlipBeyondShiftLimitStopsWithoutSyncOrCatchup) {
+  Rig h;h.ready();h.synchronized();h.execute(h.program());wait_for(h,"waiting_ack");h.run(3);
+  const auto due=Time{std::chrono::nanoseconds(h.bus->program_status().sync_due_monotonic_ns)};
+  h.now=due+11ms;h.run(100);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
 }
 TEST(SynchronizedProgram, StopAtPreparationAcceptedAndSubmittedPhasesBlocksFurtherSync) {
   for(unsigned phase=0;phase<3;++phase) {
@@ -119,12 +172,18 @@ TEST(SynchronizedProgram, CorruptOrDuplicateAcknowledgementLatchesFault) {
     h.run(50);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
   }
 }
-TEST(SynchronizedProgram, ExactLatenessBoundaryIsInclusive) {
-  for(unsigned us:{2500,2501}) {
+TEST(SynchronizedProgram, LatenessBoundariesShiftAboveToleranceAndStopAboveLimit) {
+  for(unsigned us:{2500,2501,10000,10001}) {
     Rig h;h.ready();h.synchronized();h.execute(h.program());wait_for(h,"waiting_ack");h.run(4);
     h.now=Time{std::chrono::nanoseconds(h.bus->program_status().sync_due_monotonic_ns)}+std::chrono::microseconds(us);
-    h.run(3);EXPECT_EQ(h.port->counts[0x4b],us==2500 ? 1u : 0u);EXPECT_EQ(h.bus->snapshot().fault,us>2500);
+    h.run(3);EXPECT_EQ(h.port->counts[0x4b],us<=10000 ? 1u : 0u) << us;EXPECT_EQ(h.bus->snapshot().fault,us>10000) << us;
+    EXPECT_EQ(h.bus->snapshot().statistics.sync_shifts,us>2500 && us<=10000 ? 1u : 0u) << us;
   }
+}
+TEST(SynchronizedProgram, NextDeadlineIsPreparedSyncTerm) {
+  Rig h;h.ready();EXPECT_EQ(h.bus->next_deadline(),Time{});
+  h.synchronized();h.execute(h.program());wait_for(h,"waiting_ack");
+  EXPECT_EQ(h.bus->next_deadline(),Time{std::chrono::nanoseconds(h.bus->program_status().sync_due_monotonic_ns)});
 }
 TEST(SynchronizedProgram, FinalRestorationRequiresSpeedMeasuredAfterLastActivation) {
   Rig h;h.ready();h.synchronized();h.execute(h.program());
@@ -238,4 +297,20 @@ TEST(SynchronizedProgram, TransportReconnectNeverResumesOldSynchronizedTrajector
   EXPECT_FALSE(h.bus->snapshot().fault)<<h.bus->snapshot().message;
   EXPECT_EQ(h.bus->manual().snapshot(h.now).recovery_state,"idle_disabled");
   EXPECT_NE(h.bus->program_status().state,"running");
+}
+TEST(SynchronizedProgram, HoldingSpeedNoiseOfOneRpmCountsAsStandstill) {
+  // Napędy w trzymaniu stale zgłaszają ±1 RPM: uzbrojenie i potwierdzenie końca nie mogą na tym utknąć.
+  Rig h;h.ready();h.synchronized();h.port->speed_blips.fill(100000);
+  h.execute(h.program());h.run(1800);
+  EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message << "; " << h.bus->snapshot().message;
+}
+TEST(SynchronizedProgram, ArmingRereadsTransientMotionAndReportsPersistentOne) {
+  for(unsigned blips:{3u,50u}) {
+    Rig h;h.ready();h.synchronized();h.port->speed_blip_rpm=2;h.port->speed_blips[6]=blips;
+    h.execute(h.program());h.run(1800);
+    if(blips<5) {EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;continue;}
+    EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
+    EXPECT_NE(h.bus->snapshot().message.find("J6 (CAN ID 6): niepotwierdzony warunek uzbrojenia/odtwarzania: odczyt prędkości (0x32); odczyt=2 RPM"),std::string::npos)
+        << h.bus->snapshot().message;
+  }
 }

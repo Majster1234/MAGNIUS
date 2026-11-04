@@ -10,7 +10,9 @@ ProgramPoint program_reference(const PreparedMotionProgram &p,double t) {
   if(t<=0) return p.points.front();
   if(t>=p.duration) return p.points.back();
   auto right=std::upper_bound(p.points.begin(),p.points.end(),t,[](double value,const auto &point){return value<point.seconds;});
-  const auto &a=*(right-1),&b=*right;
+  return interpolate_points(*(right-1),*right,t);
+}
+ProgramPoint interpolate_points(const ProgramPoint &a,const ProgramPoint &b,double t) {
   const double dt=b.seconds-a.seconds,u=(t-a.seconds)/dt;
   ProgramPoint out;out.seconds=t;
   for(unsigned j=0;j<6;++j) {

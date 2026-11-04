@@ -59,7 +59,8 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
     : Node("robot_can_diagnostics"), runtime_(std::move(runtime)), config_(config), restart_action_(std::move(restart_action)) {
   if(!restart_action_) restart_action_=restart_service;
   program_api_=std::make_shared<ProgramApi>(this,runtime_);
-  tcp_jog_api_=std::make_shared<TcpJogApi>(this,runtime_);
+  control_group_=create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  tcp_jog_api_=std::make_shared<TcpJogApi>(this,runtime_,control_group_);
   runtime_->require_configuration();
   using Configure = robot_control_interfaces::srv::ConfigureRobot;
   configuration_ = create_service<Configure>("/robot/configuration/control",
@@ -110,37 +111,38 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
   enable_ = create_service<Enable>("/robot/manual/enable", [this, fresh_request](std::shared_ptr<Enable::Request> req, std::shared_ptr<Enable::Response> res) {
     res->accepted = !resetting_ && fresh_request(req->issued_monotonic_ns) && runtime_->manual_enable(req->axis, req->enabled);
     res->message = res->accepted ? "Operacja ENABLE przyjęta; wynik w statusie" : "ENABLE odrzucone: brak osi, postój niepotwierdzony lub zajęte sterowanie";
-  });
+  }, rmw_qos_profile_services_default, control_group_);
   zero_ = create_service<Zero>("/robot/manual/zero", [this, fresh_request](std::shared_ptr<Zero::Request> req, std::shared_ptr<Zero::Response> res) {
     res->accepted = !resetting_ && fresh_request(req->issued_monotonic_ns) && runtime_->manual_zero(req->axis);
     res->message = res->accepted ? "Zerowanie przyjęte; wynik w statusie" : "Zerowanie wymaga dostępnej osi i potwierdzonego postoju";
-  });
+  }, rmw_qos_profile_services_default, control_group_);
   jog_ = create_service<Jog>("/robot/manual/jog", [this, fresh_request](std::shared_ptr<Jog::Request> req, std::shared_ptr<Jog::Response> res) {
     res->accepted = !resetting_ && req->action <= Jog::Request::STOP && fresh_request(req->issued_monotonic_ns) &&
         runtime_->manual_jog(static_cast<mks_servo_can::JogAction>(req->action), req->axis, req->direction,
           req->rpm, req->session, req->sequence, mks_servo_can::Time(std::chrono::nanoseconds(req->issued_monotonic_ns)));
     res->message = res->accepted ? "Komenda JOG przyjęta" : "JOG odrzucony: ENABLE, świeżość danych, limit lub inny właściciel ruchu";
-  });
+  }, rmw_qos_profile_services_default, control_group_);
   using JointJog = robot_control_interfaces::srv::JogJoint;
   using EnableAll=robot_control_interfaces::srv::SetAllMotorsEnable;
   enable_all_=create_service<EnableAll>("/robot/manual/enable_all",[this,fresh_request](std::shared_ptr<EnableAll::Request> req,std::shared_ptr<EnableAll::Response> res) {
     res->accepted=!resetting_ && fresh_request(req->issued_monotonic_ns) && runtime_->manual_enable_all(req->enabled);
     res->message=res->accepted ? "Zbiorcze ENABLE przyjęte; wynik potwierdzają stany napędów" : "Zbiorcze ENABLE odrzucone: wymagany postój, świeże pomiary i wolne sterowanie";
-  });
+  }, rmw_qos_profile_services_default, control_group_);
   joint_jog_ = create_service<JointJog>("/robot/manual/jog_joint", [this, fresh_request](std::shared_ptr<JointJog::Request> req, std::shared_ptr<JointJog::Response> res) {
     res->accepted = !resetting_ && req->action <= JointJog::Request::STOP && fresh_request(req->issued_monotonic_ns) &&
         runtime_->joint_jog(static_cast<mks_servo_can::JogAction>(req->action), req->axis, req->direction,
             req->velocity_rad_s, req->revision, req->session, req->sequence,
             mks_servo_can::Time(std::chrono::nanoseconds(req->issued_monotonic_ns)));
     res->message = res->accepted ? "JOG przegubu przyjęty" : "JOG przegubu odrzucony: rewizja, profil, limit lub gotowość osi";
-  });
+  }, rmw_qos_profile_services_default, control_group_);
   manual_publisher_ = create_publisher<robot_control_interfaces::msg::ManualState>("/robot/manual/state", rclcpp::QoS(1));
   // Podgląd nie może czekać na potwierdzenia wolnego odbiorcy DDS.
   preview_publisher_ = create_publisher<sensor_msgs::msg::JointState>("/robot/preview/joint_states", rclcpp::QoS(6).best_effort());
-  manual_timer_ = create_wall_timer(50ms, [this] { publish_manual(); });
+  manual_timer_ = create_wall_timer(50ms, [this] { publish_manual(); }, control_group_);
   shaft_publisher_=create_publisher<robot_control_interfaces::msg::ShaftTraceBatch>("/robot/diagnostics/shaft_trace",rclcpp::QoS(20).best_effort());
   shaft_timer_=create_wall_timer(50ms,[this]{publish_shaft_trace();});
   if (config.motion_enabled) {
+    rclcpp::SubscriptionOptions lease_options; lease_options.callback_group = control_group_;
     lease_ = create_subscription<std_msgs::msg::UInt64MultiArray>("/robot/motion/lease", rclcpp::QoS(1).best_effort(),
         [this](std_msgs::msg::UInt64MultiArray::ConstSharedPtr message) {
           if (message->data.size() != 2 || message->data[1] > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) return;
@@ -148,17 +150,23 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
               message->data[0] == 2 ? mks_servo_can::Source::jog : mks_servo_can::Source::none;
           const auto created = mks_servo_can::Time(std::chrono::nanoseconds(message->data[1]));
           runtime_->renew_source_lease(source, created);
-        });
+        }, lease_options);
   }
   stop_ = create_service<std_srvs::srv::Trigger>("/robot/motion/stop",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
         runtime_->stop("Żądanie zatrzymania operatora",false);
         response->success = true; response->message = "STOP wysłany; trwa wyłączanie ENABLE i odzyskiwanie sterowania";
-      });
+      }, rmw_qos_profile_services_default, control_group_);
   scan_ = create_service<std_srvs::srv::Trigger>("/robot/can/scan",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
         response->success = !resetting_ && runtime_->scan();
         response->message = response->success ? "Skanowanie przyjęte" : "SCAN zablokowany: ruch, błąd lub inna operacja";
+      });
+  // Jednorazowy odczyt parametrów napędów (prąd 83h, PID vFOC 96h, błąd kąta 39h); wynik w /robot/can/status.
+  drive_parameters_ = create_service<std_srvs::srv::Trigger>("/robot/can/read_drive_parameters",
+      [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+        response->success = !resetting_ && runtime_->request_drive_parameters();
+        response->message = response->success ? "Odczyt parametrów napędów przyjęty" : "Odczyt zablokowany: aktywne sterowanie, skan, błąd lub operacja ręczna";
       });
   reset_ = create_service<std_srvs::srv::Trigger>("/robot/can/reset",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -262,7 +270,7 @@ void DiagnosticsNode::publish() {
       kv("stop_result",quote(s.stop_pending ? "F7 → F5 STOP → ENABLE=0 w toku (zgodnie z polityką ENABLE)" : s.stop_failed ? "Niepotwierdzony STOP" : !config_.use_ack && s.stop_elapsed_ms>0 ? "STOP wysłano bez ACK; postój wymaga pomiaru" :
           (s.stop_f7_acks || s.stop_zero_acks) ? "ACK odebrane; kasowanie celu wymaga odbioru" :
           s.stop_elapsed_ms>0 ? "Wysłano STOP; brak potwierdzonych napędów" : "Brak próby")),
-      kv("completion_reports",std::to_string(s.completion_reports)),kv("endstop_reports",std::to_string(s.endstop_reports)),
+      kv("completion_reports",std::to_string(s.completion_reports)),kv("tx_queue_full",std::to_string(s.tx_queue_full)),kv("endstop_reports",std::to_string(s.endstop_reports)),
       kv("scheduled_utilization_percent", number(s.scheduled_utilization * 100)), kv("utilization_kind", quote("planowany koszt ramek i odpowiedzi; bez retransmisji")),
       kv("errors", std::to_string(s.errors)), kv("timeouts", std::to_string(s.timeouts)), kv("invalid_responses", std::to_string(s.invalid)), kv("late_responses", std::to_string(s.late)),
       kv("rx_frames", std::to_string(s.rx)), kv("tx_frames", std::to_string(s.tx)), kv("deferred", std::to_string(s.deferred)), kv("missed_cycles", std::to_string(s.missed_cycles)),
@@ -287,6 +295,12 @@ void DiagnosticsNode::publish() {
         kv("enable_age_seconds", age(d.enable, now)), kv("stall_age_seconds", age(d.stall, now)), kv("motor_state_age_seconds", age(d.motor_state, now)),
         kv("rtt_ms", number(d.last_rtt_ms)), kv("rtt_min_ms", number(d.rtt.minimum)), kv("rtt_max_ms", number(d.rtt.maximum)), kv("rtt_mean_ms", number(d.rtt.mean)),
         kv("timeouts", std::to_string(d.timeouts)), kv("invalid_responses", std::to_string(d.invalid)),
+        kv("microstep", d.microstep.valid ? std::to_string(d.microstep.value) : "null"),
+        kv("work_current_ma", d.work_current_ma.valid ? std::to_string(d.work_current_ma.value) : "null"),
+        kv("pid_vfoc_kp", d.pid_kp_ki.valid ? std::to_string(d.pid_kp_ki.value[0]) : "null"), kv("pid_vfoc_ki", d.pid_kp_ki.valid ? std::to_string(d.pid_kp_ki.value[1]) : "null"),
+        kv("pid_vfoc_kd", d.pid_kd_kv.valid ? std::to_string(d.pid_kd_kv.value[0]) : "null"), kv("pid_vfoc_kv", d.pid_kd_kv.valid ? std::to_string(d.pid_kd_kv.value[1]) : "null"),
+        // Błąd kąta 39h: zadany − rzeczywisty, 51200 = 360° wału.
+        kv("angle_error_degrees", d.angle_error.valid ? number(d.angle_error.value*360./51200.) : "null"), kv("angle_error_age_seconds", age(d.angle_error, now)),
         kv("last_ok_age_seconds", d.last_ok==mks_servo_can::Time{} ? "null" : number(std::chrono::duration<double>(now - d.last_ok).count())),
         kv("sampled_at", d.last_ok==mks_servo_can::Time{} ? "null" : timestamp(d.last_ok, now))}));
   }

@@ -32,6 +32,10 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
         input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames };
     });
     const [message, setMessage] = useState("Wczytywanie modelu z ROS…");
+    // Trace TCP rzeczywistego modelu (pomiary enkoderów); wybór zapamiętany w przeglądarce.
+    const [liveTrace, setLiveTrace] = useState(() => { try { return localStorage.getItem("robot-preview-live-trace-v1") === "1"; } catch { return false; } });
+    const liveTraceRef = useRef(liveTrace); liveTraceRef.current = liveTrace;
+    useEffect(() => { try { localStorage.setItem("robot-preview-live-trace-v1", liveTrace ? "1" : "0"); } catch { /* bez pamięci przeglądarki */ } }, [liveTrace]);
     const [modelKind, setModelKind] = useState("partial-demo");
     const [, refresh] = useState(0);
     useEffect(() => {
@@ -70,7 +74,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                             motionTrace: input.current.motionTrace, showMotionFrames: input.current.showMotionFrames,
                             executionFrame: { state: sample.current.state === current ? current : null, usable: online,
                                 receivedAt: sample.current.receivedAt, sampleKey: sample.current.key,
-                                execution: input.current.execution, revision: revisionToLoad } };
+                                execution: input.current.execution, revision: revisionToLoad }, liveTrace: liveTraceRef.current };
                     },(subject,result)=>{
                         const warning=result && result.level!=="clear";
                         onCondition?.(`singularity-${subject}`,warning?{source:`singularity-${subject}`,severity:"warning",code:"singularity",context:subject,title:result.level==="critical"?"Bardzo blisko osobliwości modelu":"Blisko osobliwości modelu",message:`${subject}: ${result.source==="wrist"?"nadgarstek J4–J6":"ramię"} · ${result.level}.`}:null,result?undefined:`${subject}: ocena osobliwości niedostępna — brak pełnej pozycji.`);
@@ -98,6 +102,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     const valid = Array.from({ length: 6 }, (_, i) => !!(usable && state?.axes[i]?.available && state.axes[i].position_known && (!state.axes[i].joint_configured || state.axes[i].joint_position_known) && pose.current.fresh(i, now)));
     const count = valid.filter(Boolean).length;
     const executionTrace = scene.current?.executionTrace();
+    const liveTraceSnapshot = scene.current?.liveTrace();
     useEffect(()=>{onCondition?.("model-trace-partial",executionTrace?.partial?{source:"model-trace-partial",severity:"warning",code:"partial",context:"Ślad modelu",message:"Tor modelu — niepełne pomiary. Historia śladu zawiera niepełny zestaw pozycji."}:null);},[executionTrace?.partial,onCondition]);
     const canStartPlanning = !message && (usable && count > 0 || simulationAllowed) && !pending && !physicalJogActive && !state?.busy;
     return <section className="robot-preview" aria-label="Wizualizacja robota" aria-busy={!!message}>
@@ -107,6 +112,10 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
         </header>
         <div className="preview-trail-legend" aria-label="Ślady TCP">
             <span className="trail-planned">Plan PTP/LIN</span><span className="trail-executed">Wykonane PTP/LIN</span>
+            <label className="trail-live" title="Rysuje drogę TCP rzeczywistego robota z enkoderów przy każdym ruchu (JOG osi, JOG TCP, PTP/LIN). Do 20 000 punktów, co ≥ 0,2 mm.">
+                <input type="checkbox" checked={liveTrace} onChange={event => setLiveTrace(event.target.checked)} />Trace TCP</label>
+            <button type="button" disabled={!liveTraceSnapshot?.points} title="Usuwa narysowaną drogę Trace TCP."
+                onClick={() => { scene.current?.clearLiveTrace(); refresh(value => value + 1); }}>Kasuj trace</button>
             <button type="button" disabled={!executionTrace?.points} title="Usuwa złotą historię w tym panelu. Historia obejmuje do 20 000 punktów."
                 onClick={() => { scene.current?.clearExecutionTrace(); refresh(value => value + 1); }}>Wyczyść ślad</button>
         </div>

@@ -5,7 +5,9 @@
     tcp_jog_ik_position_tolerance: 0.000001
     tcp_jog_ik_orientation_tolerance: 0.00001
     tcp_jog_max_jerk: 0.5
-    joint_stop_tolerance_deg: 0.10
+    motor_stop_tolerance_deg: 0.3  # tolerancja dojazdu TCP w stopniach wału silnika (operator 30.10.2026)
+    # SCHED_FIFO wątków IO/RX CAN (terminy SYNC); bez LimitRTPRIO w usłudze tylko ostrzeżenie w logu.
+    can_io_realtime_priority: 50
     execution_enabled: true
     # Jawny wyjątek operatora 29.10.2026: włączone mimo niepełnego odbioru J4.
     # Nie stanowi potwierdzenia pozytywnego odbioru sprzętowego wszystkich osi.

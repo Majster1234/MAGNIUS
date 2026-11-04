@@ -1,8 +1,18 @@
-export type ShaftPoint = {axis:number;sequence:string;segment:string;monotonic_ns:string;utc_ns:string;time_ms:number;position_cdeg:number;gap:boolean;ordinal?:number};
+/** reference: referencja ruchu (cel planowany PTP/LIN/TCP); command: cel F5 wysłany do napędu;
+ * rpm: prędkość F5 wału — position_cdeg to wtedy 0,01 RPM, nie stopnie. */
+export type ShaftPoint = {axis:number;sequence:string;segment:string;monotonic_ns:string;utc_ns:string;time_ms:number;position_cdeg:number;gap:boolean;ordinal?:number;reference?:boolean;command?:boolean;rpm?:boolean};
 export type ShaftAxisStatus = {axis:number;limit_bytes:number;file_bytes:number;retained_records:number;fresh:boolean;age_seconds:number|null;recording:boolean;error:string|null;first_ms:number|null;last_ms:number|null;latest:ShaftPoint|null;corrupt_records:number};
 export type ShaftStatus = {recording:boolean;connected:boolean;source_dropped:number;missing_samples:number;writer_dropped:number;queued:number;saved:number;cursor:number;server_time_ms:number;axes:ShaftAxisStatus[]};
 export type ShaftFrame = {cursor:number;expired:boolean;samples:ShaftPoint[];status:ShaftStatus};
-export type ShaftHistory = {axes:{axis:number;samples:ShaftPoint[];next_cursor:number|null}[];status:ShaftStatus};
+export type ShaftHistory = {axes:{axis:number;samples:ShaftPoint[];reference?:ShaftPoint[];command?:ShaftPoint[];rpm?:ShaftPoint[];next_cursor:number|null}[];status:ShaftStatus};
+/** Grupy po 6 kanałów (J1–J6): pomiar, referencja, cel F5, RPM F5. */
+export const traceGroups = ["samples","reference","command","rpm"] as const;
+export const traceChannelCount = traceGroups.length*6;
+export function traceGroup(point:ShaftPoint) {return point.rpm?3:point.command?2:point.reference?1:0;}
+export function historyChannel(data:ShaftHistory,channel:number):ShaftPoint[] {
+    const axis=data.axes.find(a=>a.axis===channel%6+1);
+    return axis?.[traceGroups[Math.floor(channel/6)]]??[];
+}
 export type YScale = {auto:boolean;minimum:number;maximum:number};
 export const traceBase = "/api/v1/diagnostics/trace";
 export const emptyScales = ():YScale[] => Array.from({length:6},()=>({auto:true,minimum:-1,maximum:1}));

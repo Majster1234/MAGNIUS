@@ -1,3 +1,4 @@
+import {historyChannel,traceGroup} from "./shaftTrace";
 import {expect,it,vi} from "vitest";
 import {ShaftHistoryCache} from "./shaftHistoryCache";
 import type {ShaftHistory,ShaftPoint} from "./shaftTrace";
@@ -73,4 +74,11 @@ it("błąd HTTP nie zapętla pobierania; zamknięcie anuluje zapytania i opóźn
         cache.setView(10000,20000,false,1000000);await flush();expect(read).toHaveBeenCalledTimes(4);expect(error).toHaveBeenCalledTimes(4);
         cache.dispose();await vi.advanceTimersByTimeAsync(2000);expect(read).toHaveBeenCalledTimes(4);
     } finally {cache.dispose();vi.useRealTimers();}
+});
+it("mapuje 24 kanały historii na grupy pomiar/referencja/cel F5/RPM",()=>{
+    const p=(axis:number,position_cdeg:number,extra={})=>({axis,sequence:"1",segment:"1",monotonic_ns:"1",utc_ns:"1",time_ms:1,position_cdeg,gap:false,...extra});
+    const data={axes:[{axis:2,samples:[p(2,1)],reference:[p(2,2,{reference:true})],command:[p(2,3,{command:true})],rpm:[p(2,4,{rpm:true})],next_cursor:null}],status:{} as ShaftHistory["status"]};
+    expect([1,7,13,19].map(i=>historyChannel(data,i)[0].position_cdeg)).toEqual([1,2,3,4]);
+    expect(historyChannel(data,0)).toEqual([]);
+    expect(data.axes[0].rpm.map(traceGroup)).toEqual([3]);expect(data.axes[0].command.map(traceGroup)).toEqual([2]);
 });

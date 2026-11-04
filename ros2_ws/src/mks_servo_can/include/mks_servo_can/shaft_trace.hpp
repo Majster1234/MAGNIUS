@@ -5,6 +5,11 @@
 #include <cstddef>
 #define MKS_SHAFT_TRACE_AVAILABLE 1
 namespace mks_servo_can {
+// flags: bit 0 nowy segment (zmiana zera), kShaftReferenceFlag — pozycja referencyjna ruchu zamiast pomiaru 0x31,
+// kShaftCommandFlag — cel F5 faktycznie wysłany do napędu (impulsy wału), kShaftRpmFlag — prędkość F5 wału w 0,01 RPM.
+inline constexpr std::uint32_t kShaftReferenceFlag=0x100;
+inline constexpr std::uint32_t kShaftCommandFlag=0x200;
+inline constexpr std::uint32_t kShaftRpmFlag=0x400;
 struct ShaftPositionSample {
   std::uint64_t sequence{}, segment{}, monotonic_ns{}, utc_ns{};
   std::int64_t ticks{};

@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { Scene, Vector3, type LineSegments } from "three";
 import { URDFRobot, URDFJoint } from "urdf-loader/src/URDFClasses.js";
-import { createExecutionTrail, EXECUTION_TRAIL_CAPACITY, type ExecutionFrame } from "./previewExecutionTrail";
+import { createExecutionTrail, createLiveTrail, EXECUTION_TRAIL_CAPACITY, type ExecutionFrame } from "./previewExecutionTrail";
 
 function model() {
     const robot = new URDFRobot(); robot.joints = {}; robot.links = {}; robot.visual = {}; robot.colliders = {};
@@ -156,4 +156,26 @@ it("bufor usuwa najstarsze punkty bez łączenia przerw i czyści metadane czę�
     }
     expect(renderedEdges).toBe(3);
     expect(() => createExecutionTrail(new Scene(), model(), 1)).toThrow();
+});
+
+it("Trace TCP rysuje pomiar także poza programem (JOG), tylko po włączeniu, i jest kasowany", () => {
+    const robot = model(), scene = new Scene(), trail = createLiveTrail(scene, robot);
+    const jog = (time: number, degrees: number) => ({ ...sample(time, degrees), execution: null });
+    trail.update(jog(0, 0), false, 0); trail.update(jog(60, 20), false, 60);
+    expect(trail.snapshot().points).toBe(0);
+    trail.update(jog(120, 0), true, 120); trail.update(jog(180, 20), true, 180); trail.update(jog(240, 40), true, 240);
+    expect(trail.snapshot()).toMatchObject({ points: 3, edges: 2, visible: true, color: "#3ad6ff" });
+    trail.update(jog(300, 40.0001), true, 300);
+    expect(trail.snapshot().points).toBe(3);  // szum postoju < 0,2 mm nie dodaje punktów
+    trail.update(jog(360, 60), false, 360); expect(trail.snapshot()).toMatchObject({ points: 3, visible: false });
+    trail.update(jog(420, 60), true, 420); expect(trail.snapshot().visible).toBe(true);
+    trail.clear(); expect(trail.snapshot()).toMatchObject({ points: 0, visible: false });
+});
+it("Trace TCP rozcina drogę przy niepełnych lub nieświeżych pomiarach", () => {
+    const robot = model(), trail = createLiveTrail(new Scene(), robot);
+    const jog = (time: number, degrees: number) => ({ ...sample(time, degrees), execution: null });
+    trail.update(jog(0, 0), true, 0); trail.update(jog(60, 20), true, 60);
+    const broken = jog(120, 40); broken.state!.axes[3] = { ...broken.state!.axes[3], position_known: false };
+    trail.update(broken, true, 120); trail.update(jog(180, 60), true, 180);
+    expect(trail.snapshot()).toMatchObject({ points: 3, edges: 1, segments: 2 });
 });

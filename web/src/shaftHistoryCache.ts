@@ -1,4 +1,4 @@
-import {mergeTrace,type ShaftHistory,type ShaftPoint} from "./shaftTrace";
+import {historyChannel,mergeTrace,type ShaftHistory,type ShaftPoint} from "./shaftTrace";
 
 type Tile={start:number;end:number;through:number;axes:ShaftPoint[][]};
 type View={start:number;end:number;span:number;live:boolean;now:number;token:number};
@@ -24,7 +24,8 @@ export class ShaftHistoryCache {
     private view:View|null=null;
     private generation=0;
     private disposed=false;
-    constructor(private read:Read,private changed:()=>void,private result:(data:ShaftHistory)=>void,private error:(error:unknown)=>void) {}
+    /** channels=24: kanały 0–5 pomiar J1–J6, 6–11 referencja, 12–17 cel F5, 18–23 RPM F5 (traceGroups). */
+    constructor(private read:Read,private changed:()=>void,private result:(data:ShaftHistory)=>void,private error:(error:unknown)=>void,private channels=6) {}
 
     setView(start:number,end:number,live:boolean,now:number,token=0) {
         if(this.disposed||!Number.isFinite(start)||!Number.isFinite(end)||end<=start) return;
@@ -68,8 +69,8 @@ export class ShaftHistoryCache {
             this.pending.set(key,controller);
             this.read(start,end,controller.signal).then(data=>{
                 if(this.disposed||generation!==this.generation) return;
-                this.tiles.set(key,{start,end,through:Math.min(end,data.status.server_time_ms),axes:Array.from({length:6},(_,i)=>
-                    [...(data.axes.find(a=>a.axis===i+1)?.samples??[])].slice(0,2000).sort((a,b)=>a.time_ms-b.time_ms))});
+                this.tiles.set(key,{start,end,through:Math.min(end,data.status.server_time_ms),axes:Array.from({length:this.channels},(_,i)=>
+                    [...historyChannel(data,i)].slice(0,2000).sort((a,b)=>a.time_ms-b.time_ms))});
                 const wanted=new Set(this.wanted());
                 for(const old of this.tiles.keys()) {
                     if(this.tiles.size<=ShaftHistoryCache.capacity) break;
@@ -91,7 +92,7 @@ export class ShaftHistoryCache {
 
     select(start:number,end:number,live:ShaftPoint[][]):ShaftPoint[][] {
         const tiles=[...this.tiles.values()].filter(t=>t.end>=start&&t.start<=end);
-        return Array.from({length:6},(_,axis)=>{
+        return Array.from({length:this.channels},(_,axis)=>{
             const recent=live[axis]??[];
             const intervals=tiles.map(t=>({start:t.start,end:t.through}));
             if(recent.length) intervals.push({start:recent[0].time_ms,end:recent.at(-1)!.time_ms});

@@ -97,6 +97,8 @@ class ManualMotorController {
   bool waiting_{}, stop_sent_{}, disable_after_{};
   Time lease_{}, stop_at_{}, stop_deadline_{}, last_stop_{}, operation_deadline_{};
   Time retry_at_{};
+  // Ponowienia bieżącego kroku po braku odpowiedzi; zerowane po przejściu do następnego kroku.
+  unsigned attempts_{};
   Time next_trace_{};
   std::string owner_, message_{"Sterowanie ręczne gotowe"};
   std::uint64_t sequence_{};

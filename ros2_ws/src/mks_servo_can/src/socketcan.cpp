@@ -1,4 +1,5 @@
 #include "mks_servo_can/socketcan.hpp"
+#include "mks_servo_can/realtime.hpp"
 #include "mks_servo_can/trace.hpp"
 #include "mks_servo_can/protocol.hpp"
 
@@ -100,7 +101,12 @@ void SocketCan::open(const std::string &interface) {
   receiving_=true;
   try { receiver_=std::thread([this]{receive_loop();}); }
   catch(...) { receiving_=false;close();throw; }
+  // ACK F5 i echo SYNC muszą trafić do kolejki przed terminem Tk także przy obciążonym CPU.
+  auto status=mks_servo_can::set_realtime_priority(receiver_,realtime_priority_);
+  if(!status.empty()) trace_note("realtime_rx",status);
+  std::lock_guard<std::mutex> guard(realtime_mutex_);realtime_status_=std::move(status);
 }
+std::string SocketCan::realtime_status() const { std::lock_guard<std::mutex> guard(realtime_mutex_);return realtime_status_; }
 void SocketCan::close() {
   receiving_=false;
   if(receiver_.joinable()) receiver_.join();
@@ -121,8 +127,10 @@ void SocketCan::send(std::uint16_t address, const std::vector<std::uint8_t> &dat
   std::copy(data.begin(), data.end(), frame.data);
   const auto started = std::chrono::steady_clock::now();
   if (::write(fd_, &frame, sizeof(frame)) != static_cast<ssize_t>(sizeof(frame))) {
-    trace_note("can_send_error", std::strerror(errno), address, data.empty() ? 0 : data[0]);
-    throw std::runtime_error(std::strerror(errno));
+    const auto error = errno;
+    trace_note("can_send_error", std::strerror(error), address, data.empty() ? 0 : data[0]);
+    if (error == EAGAIN || error == EWOULDBLOCK || error == ENOBUFS) throw TransmitQueueFull(std::strerror(error));
+    throw std::runtime_error(std::strerror(error));
   }
   TraceEvent e; e.event = "can_tx"; e.axis = address; e.command = data.empty() ? 0 : data[0];
   e.duration_ns = trace_ns(std::chrono::steady_clock::now()) - trace_ns(started);

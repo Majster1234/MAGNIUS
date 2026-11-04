@@ -39,7 +39,7 @@ void TcpJogApi::telemetry_event(const std::string &event,const std::string &deta
     out<<",\"requested_step\":"<<status_.requested_step<<",\"velocity\":"<<status_.velocity;
     out<<",\"linear_acceleration\":"<<linear_acceleration_<<",\"ik_position_tolerance\":"<<ik_position_tolerance_<<",\"ik_orientation_tolerance\":"<<ik_orientation_tolerance_;
     out<<",\"deadline_ns\":"<<ns(session_deadline_);
-    out<<",\"max_jerk_m_s3\":"<<max_jerk_<<",\"joint_stop_tolerance_deg\":"<<stop_tolerance_deg_;
+    out<<",\"max_jerk_m_s3\":"<<max_jerk_<<",\"motor_stop_tolerance_deg\":"<<stop_tolerance_deg_;
   }
   out<<'}';
   if(telemetry_.size()>=256) {telemetry_.pop_front();++telemetry_dropped_;}
@@ -64,7 +64,7 @@ void TcpJogApi::record(const mks_servo_can::ControlState &state,const robot_kine
   out<<",\"fk_ref\":";pose(out,generator_->fk(io.reference));out<<",\"fk_raw\":";pose(out,generator_->fk(raw));
   out<<",\"fk_sync\":";pose(out,generator_->fk(aligned.positions));out<<",\"fk_target\":";pose(out,generator_->target(sample.progress));
   out<<",\"s\":"<<sample.progress<<",\"v\":"<<sample.speed<<",\"a\":"<<sample.scalar_acceleration<<",\"jerk\":"<<sample.scalar_jerk;
-  out<<",\"max_jerk_m_s3\":"<<max_jerk_<<",\"joint_stop_tolerance_deg\":"<<stop_tolerance_deg_;
+  out<<",\"max_jerk_m_s3\":"<<max_jerk_<<",\"motor_stop_tolerance_deg\":"<<stop_tolerance_deg_;
   out<<",\"requested_step\":"<<status_.requested_step<<",\"axis\":"<<unsigned(status_.axis)<<",\"direction\":"<<int(status_.direction);
   out<<",\"submitted\":"<<submitted<<",\"done\":"<<sample.done<<",\"braking\":"<<sample.braking<<",\"ik_wall_ms\":"<<wall_ms;
   out<<",\"telemetry_dropped\":"<<telemetry_dropped_<<'}';

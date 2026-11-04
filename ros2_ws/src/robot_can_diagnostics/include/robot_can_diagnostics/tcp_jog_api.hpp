@@ -9,13 +9,15 @@
 #include <std_msgs/msg/string.hpp>
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <deque>
 
 namespace robot_can_diagnostics {
 class TcpJogApi {
  public:
-  TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntime> runtime);
+  TcpJogApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntime> runtime,
+      rclcpp::CallbackGroup::SharedPtr group={});
   ~TcpJogApi();
  private:
   using Request=robot_control_interfaces::srv::JogTcp::Request;
@@ -35,19 +37,26 @@ class TcpJogApi {
   std::unique_ptr<robot_kinematics::TcpJog> generator_;
   Status status_;
   std::string xml_,model_,revision_,session_,limits_revision_;
-  bool enabled_{},geometry_ready_{},stop_requested_{};
+  bool enabled_{},geometry_ready_{},stop_requested_{},keepalive_lost_{};
+  // Czas wysłania ostatniej przyjętej komendy panelu (ta sama podstawa co dzierżawa właściciela CAN).
+  mks_servo_can::Time keepalive_{};
   double linear_velocity_{},angular_velocity_{},linear_acceleration_{},angular_acceleration_{};
   double ik_position_tolerance_{},ik_orientation_tolerance_{};
   double max_jerk_{.5},stop_tolerance_deg_{.5};
-  robot_kinematics::Joints previous_reference_{},measured_velocity_{},reverse_distance_{},reference_direction_{};
+  // Prędkość zmierzona wyłącznie do telemetrii.
+  robot_kinematics::Joints measured_velocity_{};
   std::array<mks_servo_can::Sample<double>,6> last_feedback_{};
-  std::array<mks_servo_can::Time,6> zero_speed_since_{};
-  mks_servo_can::Time warning_at_{};
   mks_servo_can::Time session_deadline_{};
+  // Kolejka jak LIN: krok generatora (t = krok·10 ms), ostatni wygenerowany punkt, ucięcie/zamknięcie.
+  std::uint64_t step_{};
+  robot_kinematics::TcpJogSample last_sample_{};
+  bool cut_{},closed_{};
+  // Limity TCP z /robot/configuration/active odrzucone (np. brak postoju) — ponawiane w timerze statusu.
+  std::optional<robot_control_interfaces::msg::RobotConfiguration> pending_limits_;
+  void apply_limits(const robot_control_interfaces::msg::RobotConfiguration &value);
   std::deque<std::string> telemetry_;
   std::uint64_t telemetry_dropped_{};
   std::uint64_t generation_{},configuration_generation_{},sequence_{};
-  mks_servo_can::Time settling_{},confirmed_{},last_position_{},brake_deadline_{};
   rclcpp::Service<robot_control_interfaces::srv::JogTcp>::SharedPtr service_;
   rclcpp::Publisher<Status>::SharedPtr publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr telemetry_publisher_;

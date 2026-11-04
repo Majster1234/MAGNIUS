@@ -369,3 +369,12 @@ Lokalne dowody/kopia: `log/ptp-trails/20261024T221348Z/` (znacznik katalogu UTC)
 Pasywna kontrola Chromium działającego panelu LAN po odświeżeniu bez cache
 potwierdziła WebGL, legendę i oba kolory. Blokowano polecenia HTTP/WS:
 zero prób sterowania i zero błędów JavaScript (`live.json` w katalogu dowodów).
+
+## Trace TCP rzeczywistego modelu — 04.11.2026
+
+Przełącznik **Trace TCP** w legendzie podglądu (zapamiętywany w przeglądarce, `robot-preview-live-trace-v1`) rysuje
+błękitną (#3ad6ff) drogę TCP liczoną z FK pomiarów enkoderów przy każdym ruchu: JOG osi, JOG TCP i PTP/LIN.
+Punkt dochodzi co ≥ 50 ms i po przesunięciu TCP o ≥ 0,2 mm (szum postoju nie wypełnia historii); pojemność 20 000
+punktów w pierścieniu. Brak pełnego zestawu sześciu świeżych pozycji lub przerwa ≥ 250 ms rozcina drogę.
+Wyłączenie przełącznika ukrywa drogę i wstrzymuje zapis; **Kasuj trace** usuwa narysowaną drogę.
+Złoty ślad „Wykonane PTP/LIN” działa bez zmian (`createExecutionTrail`), obie ścieżki korzystają ze wspólnego bufora.

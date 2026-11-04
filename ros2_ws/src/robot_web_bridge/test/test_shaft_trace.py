@@ -239,3 +239,42 @@ def test_websocket_initial_heartbeat_new_samples_and_disconnect(store):
         assert frames[0]['samples']==[]
         assert frames[-1]['samples'][0]['sequence']=='1'
     asyncio.run(scenario())
+
+
+def test_reference_samples_use_separate_ring_and_do_not_change_measurement(store, tmp_path):
+    measured = [sample(n, 1, 100*n) for n in range(1, 11)]
+    reference = [NS(**{**vars(sample(n, 1, 100*n+10)), 'flags': 0x100}) for n in range(1, 11)]
+    store.ingest(batch(*measured, *reference))
+    store.wait_idle()
+    status = store.status()
+    assert status['missing_samples'] == 0 and status['writer_dropped'] == 0
+    assert status['axes'][0]['retained_records'] == 10 and status['axes'][0]['latest']['position_cdeg'] == centidegrees(1000)
+    assert 'reference' not in status['axes'][0]['latest']
+    axis = store.history([1], float('-inf'), float('inf'))['axes'][0]
+    assert [p['position_cdeg'] for p in axis['samples']] == [centidegrees(100*n) for n in range(1, 11)]
+    assert [p['position_cdeg'] for p in axis['reference']] == [centidegrees(100*n+10) for n in range(1, 11)]
+    assert all(p['reference'] for p in axis['reference'])
+    live = store.live(0)['samples']
+    assert sum(1 for p in live if p.get('reference')) == 10 and sum(1 for p in live if not p.get('reference')) == 10
+    assert len(list(csv.DictReader(store.export(1)))) == 10
+    assert (tmp_path/'reference-1.bin').exists()
+
+
+def test_f5_command_and_rpm_samples_use_own_rings(store, tmp_path):
+    measured = [sample(n, 2, 100*n) for n in range(1, 6)]
+    command = [NS(**{**vars(sample(n, 2, 100*n+50)), 'flags': 0x200}) for n in range(1, 6)]
+    rpm = [NS(**{**vars(sample(n, 2, 1234)), 'flags': 0x400}) for n in range(1, 6)]
+    store.ingest(batch(*measured, *command, *rpm))
+    store.wait_idle()
+    status = store.status()
+    assert status['missing_samples'] == 0 and status['writer_dropped'] == 0
+    assert status['axes'][1]['retained_records'] == 5 and status['axes'][1]['latest']['position_cdeg'] == centidegrees(500)
+    axis = store.history([2], float('-inf'), float('inf'))['axes'][0]
+    assert [p['position_cdeg'] for p in axis['command']] == [centidegrees(100*n+50) for n in range(1, 6)]
+    assert all(p['command'] for p in axis['command'])
+    # RPM bez przeliczenia na stopnie: 1234 = 12,34 RPM wału.
+    assert [p['position_cdeg'] for p in axis['rpm']] == [1234]*5
+    assert axis['reference'] == []
+    live = store.live(0)['samples']
+    assert sum(1 for p in live if p.get('command')) == 5 and sum(1 for p in live if p.get('rpm')) == 5
+    assert (tmp_path/'command-2.bin').exists() and (tmp_path/'rpm-2.bin').exists()

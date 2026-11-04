@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <future>
 #include <functional>
 #include "robot_can_diagnostics/program_api.hpp"
@@ -33,13 +34,15 @@ class DiagnosticsNode : public rclcpp::Node {
   mks_servo_can::BusConfig config_;
   std::shared_ptr<ProgramApi> program_api_;
   std::shared_ptr<TcpJogApi> tcp_jog_api_;
-  bool resetting_{false};
+  // Grupa sterowania: stan ręczny, JOG, STOP i dzierżawy; nie czeka na programy ani diagnostykę.
+  rclcpp::CallbackGroup::SharedPtr control_group_;
+  std::atomic<bool> resetting_{false};
   mks_servo_can::Time last_manual_publish_{};
   std::string reset_error_;
   std::future<int> reset_future_;
   std::function<int()> restart_action_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr publisher_;
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr scan_, reset_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr scan_, reset_, drive_parameters_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr stop_;
   rclcpp::Subscription<std_msgs::msg::UInt64MultiArray>::SharedPtr lease_;
   rclcpp::TimerBase::SharedPtr timer_;

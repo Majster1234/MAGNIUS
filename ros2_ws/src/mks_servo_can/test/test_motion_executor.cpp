@@ -36,11 +36,26 @@ TEST(MotionProgram, NoReadRequestsInLastFourMillisecondsBeforeNextSet) {
 }
 TEST(MotionProgram, IntermediateDeviationDoesNotGateAnyAxis) {
   Rig h;h.ready();h.port->frozen[1]=true;h.execute(h.program(.4,2));h.run(2300);
-  EXPECT_EQ(h.port->counts[0xf5],1206u);EXPECT_EQ(h.bus->program_status().state,"waiting_position");
+  EXPECT_EQ(h.bus->program_status().state,"waiting_position");EXPECT_FALSE(h.bus->snapshot().fault);
+  // Dolot końcowy koryguje oś poza tolerancją; po odblokowaniu napęd dochodzi do celu.
+  const auto commands=h.port->counts[0xf5];h.run(1000);EXPECT_GT(h.port->counts[0xf5],commands);
+  h.port->frozen[1]=false;h.run(1500);
+  EXPECT_EQ(h.bus->program_status().state,"succeeded")<<h.bus->program_status().message;EXPECT_FALSE(h.bus->snapshot().fault);
+}
+TEST(MotionProgram, FinalApproachCompensatesDriveFrameOffset) {
+  // Napęd zatrzymuje się 600 impulsów (≈1,3° przegubu) za celem F5; tolerancja ±0,5°.
+  Rig h;h.ready();h.port->drive_offset[6]=600;h.execute(h.program(.4,1));h.run(3000);
+  EXPECT_EQ(h.bus->program_status().state,"succeeded")<<h.bus->program_status().message;
+  const double target=.4*10*16384/(2*std::acos(-1.));
+  EXPECT_LT(std::abs(h.port->positions[6]-target),.5/360*10*16384);
   EXPECT_FALSE(h.bus->snapshot().fault);
-  const auto commands=h.port->counts[0xf5];h.run(2000);EXPECT_EQ(h.port->counts[0xf5],commands);
-  h.port->frozen[1]=false;h.port->positions[1]=h.port->targets[1];h.run(400);
-  EXPECT_EQ(h.bus->program_status().state,"succeeded");EXPECT_EQ(h.port->counts[0xf5],commands);
+}
+TEST(MotionProgram, FinalApproachFailsWithDiagnosisInsteadOfWaitingForever) {
+  Rig h;h.ready();h.port->frozen[2]=true;h.execute(h.program(.4,1));h.run(7500);
+  const auto status=h.bus->program_status();
+  EXPECT_EQ(status.state,"failed");EXPECT_FALSE(status.busy);
+  EXPECT_NE(status.message.find("Dolot końcowy nieudany"),std::string::npos) << status.message;
+  EXPECT_NE(status.message.find("J2="),std::string::npos) << status.message;
 }
 TEST(MotionProgram, MissingPositionNeverBlocksIntermediateStreamButBlocksFinalSuccess) {
   Rig h;h.ready();auto p=h.program(.4,1);h.execute(p);h.run(180);h.port->missing_position=2;h.run(1400);

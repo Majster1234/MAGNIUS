@@ -16,6 +16,23 @@ HEADER_BYTES = 4096
 HEADER = struct.Struct('<8sIIQQ')
 RECORD = struct.Struct('<QQQQQqII')
 MAGIC = b'SHAFT01\0'
+# Kanały dodatkowe z C++ zamiast pomiaru; każdy w osobnym pierścieniu o kluczu oś+klucz kanału.
+# reference: cel planowany, command: cel F5 wysłany do napędu, rpm: prędkość F5 wału (0,01 RPM w position_cdeg).
+REFERENCE_FLAG = 0x100
+REFERENCE_KEY = 10
+CHANNELS = (('reference', REFERENCE_FLAG, REFERENCE_KEY), ('command', 0x200, 20), ('rpm', 0x400, 30))
+KEYS = [*range(1, 7), *(key+axis for _, _, key in CHANNELS for axis in range(1, 7))]
+
+
+def ring_name(key):
+    for name, _, base in CHANNELS:
+        if base < key <= base+6:
+            return f'{name}-{key-base}.bin'
+    return f'axis-{key}.bin'
+
+
+def channel_of(flags):
+    return next(((name, base) for name, flag, base in CHANNELS if flags & flag), (None, 0))
 BLOCK = 256
 
 
@@ -246,13 +263,13 @@ class ShaftTraceStore:
         self.start_error = None
         try:
             self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            for axis in range(1, 7):
-                path = self.directory/f'axis-{axis}.bin'
+            for key in KEYS:
+                path = self.directory/ring_name(key)
                 if path.exists():
                     try:
-                        self.rings[axis] = AxisRing(path, axis, maximum)
+                        self.rings[key] = AxisRing(path, key % 10, maximum)
                     except (OSError, ValueError) as error:
-                        self.errors[axis] = str(error)
+                        self.errors[key] = str(error)
         except OSError as error:
             self.start_error = str(error)
         self.thread = threading.Thread(target=self._write, name='shaft-position-writer', daemon=True)
@@ -268,7 +285,9 @@ class ShaftTraceStore:
                 axis = int(sample.axis)
                 if axis not in range(1, 7) or sample.monotonic_ns <= 0 or sample.utc_ns <= 0:
                     continue
-                previous = self.previous.get(axis)
+                channel, base = channel_of(int(sample.flags))
+                key = axis+base
+                previous = self.previous.get(key)
                 segment, sequence = int(sample.segment), int(sample.sequence)
                 if previous and previous[0] == segment and sequence <= previous[1]:
                     continue
@@ -279,9 +298,13 @@ class ShaftTraceStore:
                     gap = True
                 point = dict(axis=axis, sequence=str(sequence), segment=str(segment),
                              monotonic_ns=str(int(sample.monotonic_ns)), utc_ns=str(int(sample.utc_ns)),
-                             time_ms=int(sample.utc_ns)/1e6, position_cdeg=centidegrees(sample.ticks), gap=gap)
-                self.previous[axis] = (segment, sequence, int(sample.monotonic_ns))
-                self.latest[axis] = point
+                             time_ms=int(sample.utc_ns)/1e6,
+                             position_cdeg=int(sample.ticks) if channel == 'rpm' else centidegrees(sample.ticks), gap=gap)
+                self.previous[key] = (segment, sequence, int(sample.monotonic_ns))
+                if channel:
+                    point[channel] = True
+                else:
+                    self.latest[axis] = point
                 self.cursor += 1
                 self.points.append((self.cursor, point))
                 try:
@@ -298,13 +321,13 @@ class ShaftTraceStore:
             except queue.Empty:
                 point = None
             if point is not None:
-                axis = point['axis']
+                axis = point['axis']+next((base for name, _, base in CHANNELS if point.get(name)), 0)
                 try:
                     if self.start_error or axis in self.errors:
                         raise OSError(self.start_error or self.errors[axis])
                     ring = self.rings.get(axis)
                     if ring is None:
-                        ring = AxisRing(self.directory/f'axis-{axis}.bin', axis, self.maximum)
+                        ring = AxisRing(self.directory/ring_name(axis), point['axis'], self.maximum)
                         with self.lock:
                             self.rings[axis] = ring
                     old = last_written.get(axis)
@@ -352,7 +375,9 @@ class ShaftTraceStore:
                 ring = self.rings.get(axis)
                 info = ring.status() if ring else dict(file_bytes=0, retained_records=0, first_ms=None, last_ms=None, corrupt_records=0)
                 axes.append(dict(axis=axis, limit_bytes=self.maximum, recording=not self.start_error and axis not in self.errors,
-                                 error=self.start_error or self.errors.get(axis), fresh=age is not None and 0 <= age < .25,
+                                 error=self.start_error or self.errors.get(axis) or next(
+                                     (f'{label}: '+self.errors[axis+base] for (_, _, base), label in zip(CHANNELS, ('Referencja', 'Cel F5', 'RPM F5'))
+                                      if axis+base in self.errors), None), fresh=age is not None and 0 <= age < .25,
                                  age_seconds=age, latest=point, **info))
             return dict(recording=not self.stopping.is_set() and not self.start_error and not self.errors,
                         server_time_ms=time.time_ns()/1e6,
@@ -386,7 +411,11 @@ class ShaftTraceStore:
                 points, more = ring.page(start, end, maximum, cursor)
             else:
                 points = ring.history(start, end, maximum, cursor) if ring else []
-            result.append(dict(axis=axis, samples=points, has_more=more,
+            extra = {}
+            for name, _, base in CHANNELS:
+                ring = self.rings.get(axis+base)
+                extra[name] = [dict(p, **{name: True}) for p in ring.history(start, end, maximum)] if ring else []
+            result.append(dict(axis=axis, samples=points, **extra, has_more=more,
                                next_cursor=points[-1]['ordinal'] if more and points else None))
         return dict(axes=result, status=self.status(), reduced=reduction != 'none')
 

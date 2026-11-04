@@ -32,7 +32,7 @@ void CanBusManager::begin_recovery(const std::string &reason,bool force_disable,
   unverified_sync_buffer_=unverified_sync_buffer_ || executor_.sync_uncertain || recovery_.staged_buffer_seen ||
       (source_==Source::program && sync_recovery_required_);
   ++control_generation_;++program_generation_;latest_.reset();active_=false;source_=Source::none;
-  tcp_owner_.clear();tcp_braking_=false;tcp_last_stop_=now;lease_stamp_={};program_owned_=false;scanning_=false;
+  tcp_owner_.clear();tcp_last_stop_=now;lease_stamp_={};program_owned_=false;scanning_=false;
   executor_.staged=false;executor_.sync_waiting_confirmation=false;
   if(executor_.status.busy || executor_.status.state=="ready") {
     executor_.status.busy=false;executor_.status.state="failed";executor_.status.message=reason;
@@ -286,6 +286,21 @@ void CanBusManager::reconnect(Time now) {
   } catch(const std::exception &e) {
     transport_lost(now,e.what());
   }
+}
+
+void CanBusManager::transmit_queue_full(Time now,const std::string &reason) {
+  // Ramka nie wyszła; zapytania wygasną, a JOG ręczny i STOP ponawiają nadanie w kolejnych cyklach.
+  // Gniazdo zamykamy dopiero, gdy przez kTransmitQueueFullLimit żadna ramka nie została nadana.
+  ++stats_.tx_queue_full;
+  if(tx_full_since_==Time{} || stats_.tx!=tx_full_sent_) tx_full_since_=now;
+  tx_full_sent_=stats_.tx;
+  trace_note("can_tx_queue_full",reason);
+  if(now-tx_full_since_>=kTransmitQueueFullLimit) {
+    const auto message="Kolejka nadawcza CAN pełna przez "+diagnostic_number(std::chrono::duration<double,std::milli>(now-tx_full_since_).count())+" ms: "+reason;
+    tx_full_since_={};transport_lost(now,message);fault(message);return;
+  }
+  // Pominięta ramka F5 strumienia lub programu zmienia trajektorię: zatrzymaj ruch, zachowaj gniazdo dla STOP.
+  if(active_) fault("Kolejka nadawcza CAN pełna podczas ruchu ("+reason+"); pominięto ramkę sterowania");
 }
 
 void CanBusManager::transport_lost(Time now,const std::string &reason) {

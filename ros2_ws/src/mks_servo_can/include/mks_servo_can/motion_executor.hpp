@@ -48,6 +48,9 @@ class MotionExecutor {
   std::optional<PreparedMotionProgram> program;
   MotionProgramStatus status;
   std::size_t frame{}, setup_axis{}, setup_step{};
+  // Uzbrajanie SYNC: ponowne odczyty 0x32, gdy napęd w postoju zgłosi chwilowe ±RPM (drgania enkodera przy trzymaniu).
+  unsigned setup_retries{};
+  Time setup_retry_at{};
   bool waiting{}, staged{};
   Time started{}, due{}, preparation_deadline{}, settled{}, last_settle_sample{};
   Time phase_origin{}, warmup_started{};
@@ -55,15 +58,24 @@ class MotionExecutor {
   Time batch_started{}, batch_deadline{}, last_sync{}, next_check{}, check_started{};
   bool checking_position{};
   std::array<double,6> last_target{};
+  // Aktywny dolot końcowy (streamed): rozkaz F5 = poprzedni rozkaz + zmierzony uchyb do celu.
+  std::array<double,6> final_command{};
+  Time final_started{}, final_next{};
   bool sync_waiting_confirmation{}, sync_uncertain{};
   std::array<Time,6> staged_sent{};
   std::uint8_t staged_ack_mask{};
+  // SYNC: osie, którym wysłano F5 bieżącego zestawu; osie bez ACK poprzedniego zestawu (ACK może jeszcze przyjść);
+  // kolejne cykle bez ACK per oś (awaria dopiero po przekroczeniu limitu).
+  std::uint8_t staged_sent_mask{}, late_ack_mask{};
+  std::array<unsigned,6> missed_acks{};
   Time stage_origin{}, sync_sent{};
   ProgramPoint staged_reference{};
   double staged_horizon{};
 };
 // Kompilacja poza cyklem IO. Sampler nie alokuje pamięci.
 ProgramPoint program_reference(const PreparedMotionProgram &program, double seconds);
+// Hermite 5. stopnia między węzłami q/v/a (a.seconds ≤ t ≤ b.seconds); wspólna dla PTP/LIN i JOG TCP.
+ProgramPoint interpolate_points(const ProgramPoint &a,const ProgramPoint &b,double seconds);
 void compile_program_reversals(PreparedMotionProgram &program);
 double program_lookahead_time(const PreparedMotionProgram &program,double phase,double horizon);
 // Otoczka referencji dla nieznanej chwili próbkowania między zapytaniem a RX.
