@@ -77,6 +77,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         profile.confirm_calibration = req->confirm_calibration;
         profile.ptp_lin_dispatch_mode = req->configuration.ptp_lin_dispatch_mode;
         profile.disable_enable_on_critical_fault = req->configuration.disable_enable_on_critical_fault;
+        profile.position_integral = req->configuration.position_integral;
         for (std::size_t i = 0; i < 6; ++i) {
           const auto &a = req->configuration.axes[i];
           if (a.axis != i + 1) { res->message = "Wymagane osie 1–6 w stałej kolejności"; return; }
@@ -91,6 +92,7 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         res->resolved_configuration.revision=resolved.revision;
         res->resolved_configuration.ptp_lin_dispatch_mode=resolved.ptp_lin_dispatch_mode;
         res->resolved_configuration.disable_enable_on_critical_fault=resolved.disable_enable_on_critical_fault;
+        res->resolved_configuration.position_integral=resolved.position_integral;
         res->resolved_configuration.changed=resolved.changed;
         res->resolved_configuration.calibration_invalid=resolved.calibration_invalid;
         for(std::size_t i=0;i<6;++i) {
@@ -167,6 +169,14 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
         response->success = !resetting_ && runtime_->request_drive_parameters();
         response->message = response->success ? "Odczyt parametrów napędów przyjęty" : "Odczyt zablokowany: aktywne sterowanie, skan, błąd lub operacja ręczna";
+      });
+  // Zmiana mikrokroku jednej osi (84h): tylko bez sterowania i przy ENABLE=0; wynik w /robot/can/status (microstep).
+  using Microstep=robot_control_interfaces::srv::SetDriveMicrostep;
+  microstep_ = create_service<Microstep>("/robot/can/set_drive_microstep",
+      [this](std::shared_ptr<Microstep::Request> request, std::shared_ptr<Microstep::Response> response) {
+        response->success = !resetting_ && runtime_->request_microstep(request->axis, request->microstep);
+        response->message = response->success ? "Zapis mikrokroku wysłany; potwierdzenie w ponownym odczycie 84h" :
+            "Zapis odrzucony: wymagane ENABLE=0, brak sterowania, oś 1–6 i mikrokrok 16/32/64/128";
       });
   reset_ = create_service<std_srvs::srv::Trigger>("/robot/can/reset",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {

@@ -587,3 +587,18 @@ Wdrożenie zweryfikowano również uruchamiając scenariusz centrum na zasobach
 z nowego prefiksu, nadal z atrapami API. PID usługi 66323, licznik restartów 0
 oraz konfiguracja CAN 1 Mbit/s / TX1000 były identyczne przed i po operacji.
 Nie restartowano usługi, nie otwierano fizycznego CAN ani nie wykonywano ruchu.
+
+## Korekcja całkująca celu F5 (opcja konfiguracji) — 04.11.2026
+
+Przełącznik **Konfiguracja → Ustawienia systemowe → Wykonanie i zabezpieczenia → „Korekcja całkująca uchybu (PI)”**
+(klucz snapshotu `motion.position_integral`, domyślnie `false`; pole `RobotConfiguration.position_integral`,
+`RobotProfile::position_integral`). Zapis do ROS idzie tą samą transakcją co tryb wysyłania PTP/LIN i jest
+potwierdzany przez właściciela CAN.
+
+Po włączeniu `streaming_setpoint` w trakcie ruchu (`remaining > 0`) — PTP/LIN Streaming i Synchroniczny oraz JOG TCP —
+akumuluje `integral += gain · (q_ref − q_pomiar) · 10 ms`, ograniczony do ±limit, i dolicza go do celu F5
+(w granicach osi). Dolot końcowy (cel jawny, `remaining = 0`) działa bez zmian. Stan zeruje się na starcie każdego
+programu i sesji JOG TCP. Parametry ROS (wartości domyślne do strojenia na sprzęcie):
+`execution_position_integral_gain` = 2,0 1/s (stała czasowa 0,5 s), `execution_position_integral_limit_rad`
+= 0,01745 (1° przegubu). Cel: usuwanie stałego uchybu napędów (np. przesunięcia układu F5 obserwowanego na J4/J6)
+i opóźnienia przy stałej prędkości; nie usuwa chwilowych zatrzymań napędu przy ~2–3 RPM.

@@ -8,3 +8,5 @@ float64 tcp_jog_linear_acceleration
 float64 tcp_jog_angular_acceleration
 bool disable_enable_on_critical_fault true
 string ptp_lin_dispatch_mode "streamed"
+# Człon całkujący celu F5 w PTP/LIN i JOG TCP (korekcja stałego uchybu napędów).
+bool position_integral false

@@ -39,6 +39,11 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
   const auto lookahead=node->declare_parameter("execution_lookahead_time_sec",.085);
   const auto ff=node->declare_parameter("execution_velocity_ff_scale",1.0);
   const auto kp=node->declare_parameter("execution_position_kp",2.5);
+  // Człon całkujący (włączany opcją konfiguracji robota): wzmocnienie [1/s] i limit [rad przegubu].
+  const auto integral_gain=node->declare_parameter("execution_position_integral_gain",2.0);
+  const auto integral_limit=node->declare_parameter("execution_position_integral_limit_rad",0.017453292519943295);
+  if(!std::isfinite(integral_gain) || integral_gain<0 || integral_gain>20 || !std::isfinite(integral_limit) || integral_limit<0 || integral_limit>.0873)
+    throw std::invalid_argument("Człon całkujący: wzmocnienie 0–20 1/s, limit 0–0,0873 rad (5°)");
   const auto minimum=node->declare_parameter("execution_min_holding_rpm",1);
   const auto maximum=node->declare_parameter("execution_max_rpm",2500);
   if(minimum<1 || maximum<minimum || maximum>3000) throw std::invalid_argument("Nieprawidłowe RPM streaming");
@@ -52,6 +57,7 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
       throw std::invalid_argument("Nieprawidłowy lookahead/feed-forward/acc");
     authorization.axes[j].acceleration_code=static_cast<std::uint8_t>(codes[j]);
     auto &stream=authorization.program_streaming[j];stream.lookahead_time_sec=lookahead;stream.velocity_ff_scale=ff;stream.position_kp=kp;
+    stream.integral_gain=integral_gain;stream.integral_limit=integral_limit;
     stream.min_holding_rpm=minimum;stream.max_rpm=maximum;stream.acceleration=static_cast<std::uint8_t>(codes[j]);
   }
   runtime_->configure_program_authorization(authorization);

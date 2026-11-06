@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EventConsole, useEventConsole } from "./EventConsole";
 import { ConfigurationPreview } from "./ConfigurationPreview";
-import { dispatchModeKey, criticalFaultPolicyKey, systemConfigurationKeys, dirtyKeys, fieldErrors } from "./configurationData";
+import { dispatchModeKey, criticalFaultPolicyKey, positionIntegralKey, systemConfigurationKeys, dirtyKeys, fieldErrors } from "./configurationData";
 import { useConfiguration } from "./useConfiguration";
 import { useSystemSettings } from "./planningContext";
 
@@ -53,8 +53,9 @@ const draftFields: Record<string, Field> = Object.fromEntries([
     ...tcpMotionFields.map(field => [`tcp.${field.key}`, field]),
     [dispatchModeKey, {key:"ptp_lin_dispatch_mode",label:"Wysyłanie PTP/LIN"}],
     [criticalFaultPolicyKey, {key:"disable_enable_on_critical_fault",label:"Wyłącz ENABLE przy awarii krytycznej"}],
+    [positionIntegralKey, {key:"position_integral",label:"Korekcja całkująca uchybu (PI)"}],
 ]);
-const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : ""]));
+const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : key===positionIntegralKey ? "false" : ""]));
 function legacyValue(value: string, field: Field) {
     const scale = field.unit === "mm" ? 1000 : field.unit?.startsWith("°") ? 180 / Math.PI : 1;
     if (!value.trim() || scale === 1) return value;
@@ -67,7 +68,7 @@ function readDraft() {
         const text = legacy ? sessionStorage.getItem(legacyStorageKey) : current;
         const stored = text && text.length <= 65536 ? JSON.parse(text) : null;
         return Object.fromEntries(Object.entries(draftFields).map(([key, field]) => {
-            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : "";
+            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : key===positionIntegralKey ? "false" : "";
             return [key, legacy ? legacyValue(value, field) : value];
         }));
     } catch { return { ...emptyDraft }; }
@@ -222,6 +223,13 @@ export function ConfigurationPage() {
                             <span>{label}</span>
                         </label>)}
                     </div>
+                </SystemSetting>
+                <SystemSetting id="system-position-integral" label="Korekcja całkująca uchybu (PI)"
+                    description="Domyślnie wyłączone. W trakcie PTP/LIN (Streaming i Synchroniczny) oraz JOG TCP do celu F5 każdej osi dochodzi wolno narastająca korekta stałego uchybu napędu (ograniczona, parametry execution_position_integral_*). Dolot końcowy bez zmian. Wymaga zapisu do ROS; działa od następnego ruchu."
+                    pending={dirty.has(positionIntegralKey)} status={dirty.has(positionIntegralKey) ? "Niezapisana zmiana" : !configuration.online ? "Szkic lokalny" : draft[positionIntegralKey] === "true" ? "Włączone" : "Wyłączone"}>
+                    <input id="system-position-integral" className="system-setting-switch" type="checkbox" role="switch" aria-invalid={!!errors[positionIntegralKey]}
+                        checked={draft[positionIntegralKey] === "true"} disabled={Boolean(applying) || configuration.busy}
+                        onChange={event => setDraft(previous => ({...previous, [positionIntegralKey]: String(event.target.checked)}))}/>
                 </SystemSetting>
                 <footer className="system-settings-actions"><span>Zabezpieczenie i sposób wysyłania wymagają zapisu do ROS.</span>
                     <button className="configuration-apply" onClick={configuration.applySystemSettings}

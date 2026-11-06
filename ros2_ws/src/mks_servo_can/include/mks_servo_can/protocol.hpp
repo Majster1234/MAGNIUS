@@ -59,6 +59,16 @@ std::vector<std::uint8_t> synchronize_request();
 std::vector<std::uint8_t> stop_request(std::uint16_t address);
 std::vector<std::uint8_t> speed_request(std::uint16_t address, bool clockwise,
                                        std::uint16_t rpm, std::uint8_t acceleration = 1);
+// Kod acc rampy JOG F6 o tej samej szybkości co acc=1 przy mikrokroku 16 (~78 RPM/s): rampa MKS to +1 jednostka
+// prędkości co (256−acc)·50 µs, a jednostka maleje z mikrokrokiem (128: 0,125 RPM → acc 224). Nieznany mikrokrok: 1.
+std::uint8_t manual_acceleration_code(std::uint16_t microstep);
+// Rampa JOG F6 [RPM/s wału] dla kodu z manual_acceleration_code.
+double manual_ramp_rpm_s(std::uint16_t microstep);
+// Rampa F6 [RPM/s wału] dla dowolnego kodu acc (0 = zatrzymanie natychmiastowe, tu nieużywane).
+double f6_ramp_rpm_s(std::uint16_t microstep, std::uint8_t acceleration);
+// Kod acc zatrzymania JOG F6 (prędkość 0): najszybsza rampa nieprzekraczająca limit_rpm_s (limit przyspieszenia
+// przegubu × przełożenie), nigdy wolniejsza niż rampa startu JOG. Brak limitu (≤0, NaN) → kod startu JOG.
+std::uint8_t manual_stop_acceleration_code(std::uint16_t microstep, double limit_rpm_s);
 std::vector<std::uint8_t> enable_request(std::uint16_t address, bool enabled);
 std::vector<std::uint8_t> zero_request(std::uint16_t address);
 std::vector<std::uint8_t> encoder_position_request(std::uint16_t address);

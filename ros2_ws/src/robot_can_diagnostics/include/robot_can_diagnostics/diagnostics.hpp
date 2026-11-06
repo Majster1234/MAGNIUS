@@ -12,6 +12,7 @@
 #include "robot_control_interfaces/msg/manual_state.hpp"
 #include "robot_control_interfaces/msg/shaft_trace_batch.hpp"
 #include "robot_control_interfaces/srv/set_motor_enable.hpp"
+#include "robot_control_interfaces/srv/set_drive_microstep.hpp"
 #include "robot_control_interfaces/srv/set_all_motors_enable.hpp"
 #include "robot_control_interfaces/srv/zero_motor.hpp"
 #include "robot_control_interfaces/srv/jog_motor.hpp"
@@ -43,6 +44,7 @@ class DiagnosticsNode : public rclcpp::Node {
   std::function<int()> restart_action_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr publisher_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr scan_, reset_, drive_parameters_;
+  rclcpp::Service<robot_control_interfaces::srv::SetDriveMicrostep>::SharedPtr microstep_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr stop_;
   rclcpp::Subscription<std_msgs::msg::UInt64MultiArray>::SharedPtr lease_;
   rclcpp::TimerBase::SharedPtr timer_;

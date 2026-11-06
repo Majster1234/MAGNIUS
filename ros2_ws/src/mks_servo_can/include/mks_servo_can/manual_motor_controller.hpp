@@ -50,6 +50,8 @@ class ManualMotorController {
   std::uint16_t microstep(unsigned axis) const { return microstep_.at(axis-1); }
   bool prepared(unsigned axis) const { return prepared_.at(axis-1); }
   void invalidate_program_handover() { prepared_.fill(false); profile_verified_.fill(false); }
+  // Po zmianie mikrokroku napędu: skala prędkości F6 wymaga ponownego odczytu 84h przy przygotowaniu osi.
+  void forget_microstep(unsigned axis) { if(axis && axis<=kAxes) {microstep_[axis-1]=0;prepared_[axis-1]=profile_verified_[axis-1]=false;} }
   bool busy() const { return phase_ != Phase::idle || group_active_; }
   unsigned axis() const { return axis_; }
   bool fast_feedback(unsigned axis) const { return axis <= kAxes && axis && prepared_[axis - 1]; }
@@ -104,6 +106,12 @@ class ManualMotorController {
   std::uint64_t sequence_{};
   bool group_active_{}, group_step_{}, group_enabled_{}, group_committing_{};
   Time group_sent_{}, group_next_{};
+  // Po ENABLE=0 w przygotowaniu wał osiada (05.11: J1 o 6 impulsów 0x31): czekamy na stabilną pozycję zamiast
+  // przerywać od razu; awaria dopiero, gdy pozycja nie ustabilizuje się do tego terminu.
+  Time group_settle_deadline_{};
+  // Stabilność przed ENABLE oceniamy tylko z pozycji odczytanych po zakończeniu przygotowania (podczas
+  // sekwencji odczyty 0x31 osi są wstrzymane, a ENABLE=0/F7 może przesunąć wał).
+  Time group_commit_started_{};
   unsigned group_axis_{};
   std::array<bool,kAxes> group_targets_{}, group_done_{};
   IdleEnableMonitor idle_monitor_;

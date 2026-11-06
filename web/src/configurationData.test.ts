@@ -81,3 +81,12 @@ it("zapis ustawień systemowych zachowuje aktywną geometrię i niezastosowany s
     expect(merged['joint.1.lower']).toBe('999');expect(merged['tool.mass']).toBe('niepoprawna liczba');
     expect(dirtyKeys(merged,document)).toEqual(new Set(['joint.1.lower','tool.mass']));
 });
+it("korekcja całkująca: domyślnie wyłączona, stary snapshot bez pola, zapis w ustawieniach systemowych",async()=>{
+    const {systemConfigurationDocument,positionIntegralKey,systemConfigurationKeys}=await import('./configurationData');
+    expect(systemConfigurationKeys).toContain(positionIntegralKey);
+    const active=emptyDocument();expect(active.values[positionIntegralKey]).toBe(false);
+    const draft=toDraft(active);expect(draft[positionIntegralKey]).toBe('false');
+    draft[positionIntegralKey]='true';
+    expect(dirtyKeys(draft,active)).toEqual(new Set([positionIntegralKey]));
+    expect(systemConfigurationDocument(draft,active).values[positionIntegralKey]).toBe(true);
+});

@@ -48,7 +48,7 @@ std::uint64_t CanBusManager::begin_tcp_jog(const std::string &session,const std:
   if(program_owned_ && !active_ && !executor_.status.busy && executor_.status.state!="ready") program_owned_=false;
   if(!activate(Source::tcp_jog,now)) return 0;
   // Te same parametry F5 co PTP/LIN (lookahead, FF, Kp, dithering, acc).
-  for(unsigned j=0;j<6;++j) config_.axes[j].streaming=config_.program_streaming[j];
+  for(unsigned j=0;j<6;++j) config_.axes[j].streaming=program_streaming(j);
   tcp_owner_=session;tcp_sequence_=sequence;tcp_lease_=issued;tcp_started_=now;tcp_slot_=0;
   tcp_points_.clear();tcp_origin_={};tcp_end_=-1;tcp_closed_=tcp_done_=false;tcp_reason_.clear();tcp_final_started_={};
   ++control_generation_;return control_generation_;

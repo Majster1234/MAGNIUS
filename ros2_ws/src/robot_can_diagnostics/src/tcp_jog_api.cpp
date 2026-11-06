@@ -1,4 +1,5 @@
 #include "robot_can_diagnostics/tcp_jog_api.hpp"
+#include "mks_servo_can/trace.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
 #include "mks_servo_can/diagnostic_message.hpp"
 #include "robot_can_diagnostics/tcp_parameters.hpp"
@@ -234,6 +235,7 @@ void TcpJogApi::apply_limits(const robot_control_interfaces::msg::RobotConfigura
 }
 void TcpJogApi::fail(const std::string &message) {
   telemetry_event("fault",message);
+  mks_servo_can::trace_note("tcp_jog_failed", message);  // wyzwalacz migawki awarii
   mks_servo_can::ControlState state;
   const bool have_state=runtime_->try_read(state);
   if(generator_ && (!have_state || (!state.fault && state.active &&

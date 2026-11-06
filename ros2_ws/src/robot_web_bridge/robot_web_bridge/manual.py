@@ -3,7 +3,7 @@ import asyncio
 from copy import deepcopy
 import threading
 import time
-from .trace import trace, recording, freeze_after_fault
+from .trace import trace, recording, fault_state
 
 
 class ManualStore:
@@ -54,8 +54,7 @@ class ManualStore:
             self.stamp_ns = message.monotonic_ns
         trace('ros_state_received', state_monotonic_ns=message.monotonic_ns,
               transport_age_ns=time.monotonic_ns() - message.monotonic_ns, state=state)
-        if message.fault:
-            freeze_after_fault()
+        fault_state(message.fault, state.get('message', '') if isinstance(state, dict) else '')
 
     def snapshot(self):
         with self.lock:

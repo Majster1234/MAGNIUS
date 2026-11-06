@@ -19,6 +19,7 @@ struct RobotProfile {
   std::array<bool, 6> confirm_calibration{};
   bool disable_enable_on_critical_fault{true};
   std::string ptp_lin_dispatch_mode{"streamed"};
+  bool position_integral{false};
 };
 struct JointConversion {
   double gear_ratio{1}, direction{1}, offset{};

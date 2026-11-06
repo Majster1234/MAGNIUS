@@ -527,3 +527,19 @@ def test_dispatch_mode_requires_runtime_confirmation():
     resolved, invalid = resolve(previous, candidate, response)
     assert resolved['document']['values'][DISPATCH_MODE] == 'synchronized'
     assert invalid == [False] * 6
+
+
+def test_position_integral_defaults_off_is_strict_boolean_and_not_axis_change():
+    from robot_configuration.schema import POSITION_INTEGRAL, changed_axes
+    legacy = configured()
+    legacy['values'].pop(POSITION_INTEGRAL, None)
+    migrated = validate(legacy)
+    assert migrated['values'][POSITION_INTEGRAL] is False
+    enabled = deepcopy(migrated)
+    enabled['values'][POSITION_INTEGRAL] = True
+    assert validate(enabled)['values'][POSITION_INTEGRAL] is True
+    assert changed_axes(migrated, enabled) == [False] * 6
+    for invalid in (None, 0, 1, 'true'):
+        enabled['values'][POSITION_INTEGRAL] = invalid
+        with pytest.raises(ValueError, match='true albo false'):
+            validate(enabled)

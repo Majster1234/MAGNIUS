@@ -1375,3 +1375,39 @@ Nie zwiększono tolerancji pozycji i nie odblokowano automatycznego odzyskiwania
 Wyniki okien 100 ms i 600 ms są rozróżnione w
 [raporcie kolejnego etapu](sync_recovery_timing_2026-10-29.md), wraz z pełnymi
 licznikami i SHA-256 [zapisów](sync_recovery_timing_2026-10-29.json).
+
+## Mikrokrok J1 16 → 128 — 04.11.2026
+
+Ruch: LIN Y bazy +60 mm, 10 mm/s, i powrót, ta sama poza startowa (J1 −3,1°, J2 1,67°, J3 −6,0°, J4 −9,0°, J5 47,7°,
+J6 −29,6°), tryb `synchronized`, wały rozsprzęglone. Metryki z trace wałów i FK (`trial_metrics.py`).
+
+| Metryka | Mikrokrok 16 (20:56) | J1 = 128 (21:19) |
+| --- | --- | --- |
+| J1 \|pomiar − ref\| w ruchu, średnio / max | 0,119° / 0,241° | **0,044° / 0,185°** |
+| J1 okna 100 ms z ruchem < 50% referencji | 14–17% | 14–17% (bez zmian) |
+| J1 RPM F5 (mediana) | 2,0 (krok 1 RPM) | 2,5 (krok 0,125 RPM) |
+| Błąd TCP pomiar − ref, średnio / max | 1,13–1,26 / 1,60–1,94 mm | **0,56–0,60 / 1,11–1,37 mm** |
+| Odchyłka od prostej, max | 1,33–1,77 mm | 1,05–1,34 mm |
+| Prędkość TCP wzdłuż prostej | 7,6–7,8 ± 10,8–11,3 mm/s | 7,1–7,9 ± 10,4–10,5 mm/s |
+
+Wniosek: drobniejsza jednostka prędkości zmniejsza średni uchyb J1 o ~63% i średni błąd TCP o ~50%; chwilowe
+zatrzymania napędu przy ~2–3 RPM wału pozostają (właściwość napędu, nie kwantyzacji). J4/J6 bez zmian (mikrokrok 16).
+
+### Wszystkie osie 128, acc 241 — 04.11.2026 22:00
+
+Ten sam ruch i poza; napędy po resecie zasilania (błąd kąta 0), `execution_acceleration_codes` = 241.
+
+| Metryka | 16/16 (20:56) | J1 = 128 (21:19) | Wszystkie 128, acc 241 (22:00) |
+| --- | --- | --- | --- |
+| J1 \|pomiar − ref\| śr. / max | 0,119° / 0,241° | 0,044° / 0,185° | **0,042° / 0,131°** |
+| J4 śr. / max | 0,116° / 0,356° | 0,108° / 0,338° | **0,061° / 0,215°** |
+| J6 śr. / max | 0,154° / 0,413° | 0,144° / 0,372° | **0,057° / 0,181°** |
+| Błąd TCP śr. / max | 1,13–1,26 / 1,60–1,94 mm | 0,56–0,60 / 1,11–1,37 mm | 0,66–0,71 / 1,11–1,22 mm |
+| Odchyłka od prostej, max | 1,33–1,77 mm | 1,05–1,34 mm | **0,80–1,20 mm** |
+| Okna z ruchem < 50% ref.: J1 / J4 | 14–17% / 35–41% | 14–17% / 32–39% | 13–15% / 40–46% |
+| Prędkość TCP wzdłuż prostej | ± 10,8–11,3 mm/s | ± 10,4–10,5 mm/s | ± 10,9–11,0 mm/s |
+
+Zapis CAN: 1271 SYNC wysłanych = potwierdzonych, 0 braków ACK, przesunięć, korekt dolotu i ramek błędu
+(8 × `io_loop_gap` > 5 ms bez wpływu na terminy). Uchyby J4 i J6 spadły ~2–3×, maksima osi i odchyłka od prostej
+zmalały; średni błąd TCP zostaje na poziomie ~0,6–0,7 mm (dominuje J1). Chwilowe zatrzymania przy ~2–3 RPM wału
+pozostają (J4 — silnik pancake — 40–46% okien).

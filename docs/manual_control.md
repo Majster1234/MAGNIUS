@@ -143,6 +143,12 @@ Początkowe maksimum JOG wynosi 30 obr./min. Można je zmienić parametrem launc
    sekwencji F7 → F6(0) opisuje dokumentacja wykonania PTP.
    Odczytuje mikrokrok `00 84`, ustawia ochronę `98` na 300 ms i sprawdza odczyt,
    następnie załącza `F3` i potwierdza ENABLE przez `3A`.
+   **Załącz wszystkie** przygotowuje osie po kolei, a potem załącza je co ≥ 200 ms. Przed `F3` danej osi
+   wymaga świeżej pozycji odczytanej **po zakończeniu przygotowania** i stabilnej (±3 impulsy) przez 100 ms.
+   Wał po `F3 00`/`F7` może osiąść (05.11: J1 o 6 impulsów, ok. 0,13° wału), więc sekwencja czeka do 1 s
+   na stabilizację; dopiero potem zgłasza „Zmiana lub utrata pozycji przed ENABLE”. Ponowne
+   **Załącz wszystkie** przy osiach już przygotowanych nie zgłasza fałszywego „Przekroczony czas operacji
+   ręcznej” (termin `operation_deadline_` obowiązuje tylko w trwającej sekwencji osi).
 2. **Ustaw zero** wymaga świeżych odczytów, stanu postoju i stabilnej pozycji.
    Wysyła `92`, sprawdza ACK i współrzędną `31` w granicach ±3 impulsów od 0
    (około ±0,066°). Brak
@@ -414,3 +420,23 @@ STOP i zakończeniu ruchu, a znika przy opuszczeniu/odświeżeniu ekranu oraz zm
 modelu lub konfiguracji. Bufor ma 20 000 punktów. Przy brakujących osiach
 widnieje **Tor modelu — niepełne pomiary**; przerwy w pomiarach nie są łączone linią.
 Szczegóły: [podgląd robota](robot_preview.md#złota-historia-fizycznego-ptp).
+
+## Rampa JOG F6 a mikrokrok — 05.11.2026
+
+Rampa MKS F6 dodaje 1 jednostkę prędkości co (256 − acc)·50 µs, a jednostka maleje z mikrokrokiem (128: 0,125 RPM).
+Stałe acc = 1 przy mikrokroku 128 dawało ~9,8 RPM/s: JOG J5 do 31 RPM rozpędzał się 2,6 s i po puszczeniu przycisku
+hamował 2,4 s (nagranie 05.11 20:06). `manual_acceleration_code(microstep)` dobiera acc tak, by rampa była jak
+acc = 1 przy mikrokroku 16 (~78 RPM/s; 16/32/64 → 1, 128 → 224); używają go start i STOP JOG, STOP przy awarii
+i globalne zatrzymanie F6. Model drogi hamowania (miękkie limity), termin potwierdzenia STOP i kontrola
+przyspieszenia profilu liczą rampę z `manual_ramp_rpm_s`.
+
+### Szybsze zatrzymanie po puszczeniu przycisku
+
+Zatrzymanie F6 (prędkość 0) używa osobnego kodu `CanBusManager::f6_stop_code` →
+`manual_stop_acceleration_code(microstep, limit)`: najszybsza rampa MKS nieprzekraczająca **limitu przyspieszenia
+przegubu z konfiguracji × |przełożenie|** (zaokrąglenie w stronę wolniejszej rampy), nigdy wolniejsza niż rampa startu.
+Przy 500 °/s², przełożeniu 10 i mikrokroku 128: 833 RPM/s wału, acc = 253 (start JOG nadal ~78 RPM/s, acc = 224).
+Z 31 RPM wał staje po ~40 ms zamiast ~0,4 s. Oś bez konfiguracji przegubu (JOG wału) hamuje rampą startu.
+Ten sam kod mają: STOP JOG, STOP przy awarii JOG, zamknięcie komunikacji podczas JOG i globalne zatrzymanie F6
+(`send_zero_stop`, także STOP programu). Model drogi hamowania przy miękkich limitach i termin potwierdzenia STOP
+zostają na wolniejszej rampie startu — zapas na wypadek, gdy napęd pod obciążeniem nie wyhamuje zadaną rampą.

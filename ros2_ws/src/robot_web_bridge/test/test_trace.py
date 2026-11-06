@@ -1,5 +1,8 @@
 import importlib.util
 import json
+import time
+
+import pytest
 from pathlib import Path
 from robot_web_bridge.trace import TraceRecorder
 
@@ -38,15 +41,33 @@ def test_analysis_links_timeout_and_global_fault(tmp_path):
     assert 'globalny błąd' in analysis.render(report)
 
 
-def test_freeze_preserves_incident_without_stopping_application(tmp_path):
-    writer = TraceRecorder(tmp_path)
-    writer.record('incident')
-    writer.freeze_after(seconds=0)
-    writer.thread.join(timeout=1)
-    assert writer.stopped.is_set()
-    assert not writer.thread.is_alive()
+def test_fault_edge_creates_one_trigger_and_recording_continues(tmp_path):
+    writer = TraceRecorder(tmp_path, segments=3)
+    writer.fault_state(False)
+    writer.fault_state(True, 'J5: uchyb')
+    writer.fault_state(True, 'J5: uchyb')  # stan 20 Hz: bez kolejnych wyzwalaczy
+    writer.record('after_fault')
+    writer.fault_state(False)
+    writer.fault_state(True, 'J2: druga awaria')
+    writer.close()
+    triggers = sorted((tmp_path / 'faults').glob('trigger-*.json'))
+    assert [json.loads(path.read_text())['detail'] for path in triggers] == ['J5: uchyb', 'J2: druga awaria']
     rows = [json.loads(line) for line in (tmp_path / 'bridge-0.jsonl').read_text().splitlines()]
+    assert [row['event'] for row in rows].count('fault_trigger') == 2
+    assert 'after_fault' in [row['event'] for row in rows]
     assert rows[-1]['event'] == 'recording_finished'
+
+
+def test_ring_uses_configured_segment_count(tmp_path):
+    writer = TraceRecorder(tmp_path, max_bytes=2048, segments=6)
+    for i in range(400):
+        writer.record('sample', sample=i)
+        if i % 50 == 0:
+            time.sleep(0.01)
+    writer.close()
+    assert len(list(tmp_path.glob('bridge-*.jsonl'))) == 6
+    with pytest.raises(ValueError):
+        TraceRecorder(tmp_path, segments=1)
 
 
 def test_analysis_does_not_mix_recordings_or_previous_boots(tmp_path):

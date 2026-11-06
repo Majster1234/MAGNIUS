@@ -14,13 +14,15 @@
     execution_staged_reset_verified: true
     response_timeout_ms: 24  # Przetestowane 20 ms +20%; bez zmiany świeżości ruchu.
     execution_configuration_revision: 907f038cd3ed4db8968fd7d0cbc65ffb
+    # Mikrokrok 128 na wszystkich napędach (04.11.2026): jednostka prędkości 0,125 RPM, więc acc 241 daje tę samą
+    # rampę co acc 135 przy mikrokroku 16 (~165 RPM/s; co (256−acc)·50 µs +1 jednostka). Zgoda operatora 04.11.2026.
     execution_acceleration_codes:
-    - 135
-    - 135
-    - 135
-    - 135
-    - 135
-    - 135
+    - 241
+    - 241
+    - 241
+    - 241
+    - 241
+    - 241
     execution_use_ack: false
     execution_lookahead_time_sec: 0.085
     execution_velocity_ff_scale: 1.0

@@ -12,10 +12,15 @@ struct StreamingParameters {
   double lookahead_time_sec{.085}, velocity_ff_scale{1.0}, position_kp{2.5};
   unsigned min_holding_rpm{1}, max_rpm{2500}, encoder_cpr{16384};
   std::uint8_t acceleration{135};
+  // Człon całkujący celu F5 (opcja konfiguracji robota `motion.position_integral`): w trakcie ruchu
+  // integral += gain·uchyb·10 ms, ograniczony do ±limit [rad przegubu], doliczany do celu F5.
+  bool position_integral{false};
+  double integral_gain{2.0}, integral_limit{0.017453292519943295};
 };
 struct StreamingState {
   double rpm_dither_accum{};
   int direction{};
+  double integral{};
 };
 struct StreamingSetpoint {
   double lookahead_position{};

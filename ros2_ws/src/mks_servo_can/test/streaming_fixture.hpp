@@ -21,6 +21,7 @@ class Port final : public Transport {
   std::array<bool,7> enabled{false,true,true,true,true,true,true},frozen{},respond{},complete{},sync{};
   std::array<unsigned,7> drop_position{};  // liczba kolejnych odpowiedzi 0x31 do pominięcia
   std::array<std::int64_t,7> drive_offset{};  // układ celu F5 napędu przesunięty względem enkodera 0x31
+  std::array<std::int64_t,7> disable_settle{};  // osiadanie wału po ENABLE=0 [impulsy 0x31]
   std::array<std::int64_t,7> positions{},targets{};
   std::array<unsigned,256> counts{};
   struct Event {Time stamp;unsigned axis;std::vector<std::uint8_t> data;};
@@ -42,7 +43,8 @@ class Port final : public Transport {
   std::uint8_t speed_blip_rpm{1};
   // Diagnostyka napędu: prąd [mA] (FFFF = bez odczytu), PID vFOC Kp/Ki/Kd/Kv (domyślne MKS), błąd kąta 39h.
   std::uint16_t work_current_ma{1600};std::array<std::uint16_t,4> pid{0xdc,0x64,0x10e,0x140};
-  bool pid_without_sub{},silent_pid{};std::array<std::int32_t,7> angle_error{};  // gubi N kolejnych ACK F5/05 danej osi (F5 trafia do bufora)
+  bool pid_without_sub{},silent_pid{};std::array<std::int32_t,7> angle_error{};
+  std::array<std::uint8_t,7> microsteps{16,16,16,16,16,16,16};  // gubi N kolejnych ACK F5/05 danej osi (F5 trafia do bufora)
   Clock::duration sync_echo_delay{0ms};
   std::array<std::int64_t,7> pending_targets{};
   std::array<bool,7> pending_targets_valid{};
@@ -62,7 +64,7 @@ class Port final : public Transport {
     if(data[0]==0xf5 && fail_f5 && axis==3) throw std::runtime_error("Błąd wysyłki trzeciej osi");
     if(axis==0 && data[0]==0x4b) {
       for(unsigned j=1;j<=6;++j) if(pending_targets_valid[j]) {
-        if(!pending_stops[j]) {targets[j]=pending_targets[j];if(!frozen[j]) positions[j]=targets[j];}
+        if(!pending_stops[j]) {targets[j]=pending_targets[j];if(!frozen[j]) positions[j]=targets[j]+drive_offset[j];}
         pending_targets_valid[j]=false;pending_stops[j]=false;
       }
       ++activated_sets;
@@ -86,13 +88,15 @@ class Port final : public Transport {
           const auto value=bad_watchdog ? 256u : watchdog;
           reply={0x98,static_cast<uint8_t>(value>>24),static_cast<uint8_t>(value>>16),static_cast<uint8_t>(value>>8),static_cast<uint8_t>(value)};
         }
-        else reply={data[1],static_cast<uint8_t>(data[1]==0x82 ? 5 : data[1]==0x84 ? 16 : bad_sync_mode || sync[axis])};
+        else reply={data[1],static_cast<uint8_t>(data[1]==0x82 ? 5 : data[1]==0x84 ? microsteps[axis] : bad_sync_mode || sync[axis])};
         break;
       case 0x8c:respond[axis]=data[1];complete[axis]=data[2];reply={0x8c,1};break;
       case 0x4a:sync[axis]=data[1];if(!sync[axis] && clear_pending_on_sync_disable) pending_targets_valid[axis]=false;reply={0x4a,1};break;
       case 0xf7:if(f7_clears_pending) pending_targets_valid[axis]=false;reply={data[0],1};break;
       case 0x82:case 0x98:reply={data[0],1};break;
-      case 0xf3:if(data[1] || axis!=refuse_disable) enabled[axis]=data[1];reply={0xf3,static_cast<uint8_t>(axis==refuse_disable ? 0 : 1)};break;
+      case 0x84:microsteps[axis]=data[1];reply={0x84,1};break;
+      case 0xf3:if(!data[1] && enabled[axis]) positions[axis]+=disable_settle[axis];
+                if(data[1] || axis!=refuse_disable) enabled[axis]=data[1];reply={0xf3,static_cast<uint8_t>(axis==refuse_disable ? 0 : 1)};break;
       case 0x92:positions[axis]=0;reply={0x92,1};break;
       case 0x3a:reply={0x3a,static_cast<uint8_t>(enabled[axis])};break;
       case 0x3e:reply={0x3e,static_cast<uint8_t>(stalled==axis)};break;

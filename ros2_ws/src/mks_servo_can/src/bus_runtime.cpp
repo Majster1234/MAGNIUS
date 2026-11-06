@@ -1,4 +1,5 @@
 #include "mks_servo_can/bus_runtime.hpp"
+#include <cstdio>
 #include "mks_servo_can/trace.hpp"
 #include <stdexcept>
 
@@ -24,7 +25,7 @@ void BusRuntime::start(bool scan_on_start) {
   running_ = true;
   worker_ = std::thread([this] {
     reduce_timer_slack();
-    Time previous{};auto deadline=Clock::now();
+    Time previous{},planned{};auto deadline=Clock::now();
     while (running_) {
       const auto wake = Clock::now();Time exact{};
       { std::lock_guard<PriorityInheritanceMutex> guard(mutex_);
@@ -33,7 +34,12 @@ void BusRuntime::start(bool scan_on_start) {
         manager_.tick(begin);feedback_.publish(manager_.control_state());exact=manager_.next_deadline();const auto end = Clock::now();
         if (previous != Time{} && begin - previous > std::chrono::milliseconds(5)) {
           TraceEvent e; e.event = "io_loop_gap"; e.duration_ns = trace_ns(begin) - trace_ns(previous);
-          e.request_ns = trace_ns(wake); e.deadline_ns = trace_ns(begin); trace(e);
+          e.request_ns = trace_ns(wake); e.deadline_ns = trace_ns(begin);
+          // Rozróżnienie przyczyny: spóźnione wybudzenie z uśpienia (planowany termin co 1 ms) albo czekanie na mutex.
+          const double late_ms=planned==Time{} ? -1.0 : std::chrono::duration<double,std::milli>(wake-planned).count();
+          const double lock_ms=std::chrono::duration<double,std::milli>(begin-wake).count();
+          std::snprintf(e.detail.data(),e.detail.size(),"wybudzenie spóźnione o %.3f ms względem planu; mutex %.3f ms",late_ms,lock_ms);
+          trace(e);
         }
         if (end - begin > std::chrono::milliseconds(2)) {
           TraceEvent e; e.event = "io_tick_slow"; e.duration_ns = trace_ns(end) - trace_ns(begin); trace(e);
@@ -45,6 +51,7 @@ void BusRuntime::start(bool scan_on_start) {
       if(exact!=Time{} && exact<deadline) deadline=exact;
       const auto current=Clock::now();
       if(deadline<current) deadline=current;
+      planned=deadline;
       std::this_thread::sleep_until(deadline);
     }
   });
@@ -86,6 +93,9 @@ bool BusRuntime::finish_tcp_jog(const std::string &session,std::uint64_t generat
 }
 bool BusRuntime::request_drive_parameters() {
   std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.request_drive_parameters();
+}
+bool BusRuntime::request_microstep(unsigned axis,std::uint16_t microstep) {
+  std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.request_microstep(axis,microstep,Clock::now());
 }
 bool BusRuntime::tcp_jog_available() {
   std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.tcp_jog_available(Clock::now());

@@ -250,3 +250,21 @@ TEST(DriveParameters, NoDiagnosticParameterReadsDuringMotion) {
     EXPECT_FALSE(e.data[0]==0x39 || (e.data.size()>=2 && e.data[0]==0 && (e.data[1]==0x83 || e.data[1]==0x96))) << int(e.data[0]);
   }
 }
+TEST(DriveParameters, MicrostepWriteRequiresDisabledAxisRereadsAndRescalesF5Speed) {
+  Rig rig(tcp_config());rig.ready();
+  EXPECT_FALSE(rig.bus->request_microstep(1,128,rig.now)) << "ENABLE=1";
+  EXPECT_FALSE(rig.bus->request_microstep(1,256,rig.now)) << "256 niejednoznaczne w odczycie";
+  rig.port->enabled[1]=false;rig.run(300);
+  ASSERT_TRUE(rig.bus->request_microstep(1,128,rig.now));
+  rig.run(300);EXPECT_EQ(rig.port->microsteps[1],128);
+  ASSERT_TRUE(rig.bus->snapshot().devices[1].microstep.valid);EXPECT_EQ(rig.bus->snapshot().devices[1].microstep.value,128);
+  rig.port->enabled[1]=true;rig.run(300);
+  const auto generation=begin(rig);ASSERT_NE(generation,0u);
+  Feeder feed;feed.velocity=.02;feed.run(rig,generation,40);
+  ASSERT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+  // Ta sama prędkość wału: pole prędkości F5 przy mikrokroku 128 ma jednostkę 0,125 RPM (8× więcej).
+  double fields[3]{};unsigned counts[3]{};
+  for(const auto &e:rig.port->events) if(e.data[0]==0xf5 && (e.axis==1 || e.axis==2)) {fields[e.axis]+=((e.data[1]&0x0f)<<8)|e.data[2];++counts[e.axis];}
+  ASSERT_GT(counts[1],20u);ASSERT_GT(counts[2],20u);
+  EXPECT_NEAR(fields[1]/counts[1]/(fields[2]/counts[2]),8.,1.5);
+}

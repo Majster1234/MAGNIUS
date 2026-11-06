@@ -37,27 +37,50 @@ TEST(TraceRecorder, RotationIsBoundedAndEventsCarryBothClocks) {
 TEST(TraceRecorder, InvalidDirectoryFailsWithoutStartingWriter) {
   EXPECT_THROW(TraceRecorder("/dev/null/unavailable"), std::exception);
 }
-TEST(TraceRecorder, FreezePreservesIncidentWithoutStoppingApplication) {
-  char name[] = "/tmp/robot-trace-freeze-XXXXXX";
+TEST(TraceRecorder, FaultEventCreatesSnapshotTriggerAndRecordingContinues) {
+  char name[] = "/tmp/robot-trace-fault-XXXXXX";
   const auto directory = std::string(::mkdtemp(name));
   {
-    auto recorder = std::make_unique<TraceRecorder>(directory, 2048);
-    TraceEvent event; event.event = "incident";
-    EXPECT_TRUE(recorder->submit(event));
-    recorder->freeze_after(std::chrono::milliseconds(0));
-    bool stopped = false;
-    for (unsigned i = 0; i < 100; ++i) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      if (!recorder->submit(event)) { stopped = true; break; }
+    auto recorder = std::make_unique<TraceRecorder>(directory, 4096, 3);
+    TraceEvent fault; fault.event = "bus_fault";
+    const std::string detail = "J5: uchyb \"testowy\"";
+    std::copy(detail.begin(), detail.end(), fault.detail.begin());
+    TraceEvent normal; normal.event = "request_timeout";
+    EXPECT_TRUE(recorder->submit(normal));
+    EXPECT_TRUE(recorder->submit(fault));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    // Bez zamrożenia: kolejne zdarzenia nadal są przyjmowane.
+    TraceEvent after; after.event = "after_fault";
+    EXPECT_TRUE(recorder->submit(after));
+  }
+  unsigned triggers = 0; std::string trigger;
+  for (const auto &entry : std::filesystem::directory_iterator(directory + "/faults")) {
+    ++triggers; EXPECT_EQ(entry.path().extension(), ".json");
+    std::ifstream file(entry.path()); trigger.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+  }
+  EXPECT_EQ(triggers, 1u) << "tylko zdarzenie awarii tworzy wyzwalacz";
+  EXPECT_NE(trigger.find("\"event\":\"bus_fault\""), std::string::npos);
+  EXPECT_NE(trigger.find("\\\"testowy\\\""), std::string::npos);
+  std::ifstream log(directory + "/can-0.jsonl"); std::string text((std::istreambuf_iterator<char>(log)), std::istreambuf_iterator<char>());
+  EXPECT_NE(text.find("after_fault"), std::string::npos);
+  EXPECT_TRUE(is_fault_trace_event("manual_fault")); EXPECT_FALSE(is_fault_trace_event("manual_stop"));
+  EXPECT_FALSE(is_fault_trace_event(nullptr));
+  std::filesystem::remove_all(directory);
+}
+TEST(TraceRecorder, RingUsesConfiguredSegmentCount) {
+  char name[] = "/tmp/robot-trace-ring-XXXXXX";
+  const auto directory = std::string(::mkdtemp(name));
+  {
+    auto recorder = std::make_unique<TraceRecorder>(directory, 2048, 6);
+    for (unsigned i = 0; i < 3000; ++i) {
+      TraceEvent e; e.event = "ring";
+      while (!recorder->submit(e)) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    EXPECT_TRUE(stopped);
   }
-  std::string text;
-  for (const auto &entry : std::filesystem::directory_iterator(directory)) {
-    std::ifstream file(entry.path());
-    text.append(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-  }
-  EXPECT_NE(text.find("recording_finished"), std::string::npos);
+  unsigned files = 0;
+  for (const auto &entry : std::filesystem::directory_iterator(directory)) { ++files; EXPECT_LE(entry.file_size(), 2048u); }
+  EXPECT_EQ(files, 6u);
+  EXPECT_THROW(TraceRecorder(directory, 2048, 1), std::invalid_argument);
   std::filesystem::remove_all(directory);
 }
 TEST(TraceRecorder, ConcurrentProducersDoNotLoseEntriesDuringWriterDrain) {

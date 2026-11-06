@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include "mks_servo_can/protocol.hpp"
 
 #include <stdexcept>
@@ -21,6 +23,26 @@ std::optional<std::int16_t> parse_speed(std::uint16_t address, const std::vector
   if (!validate_response(address, data, 0x32, 4).valid) return std::nullopt;
   const auto raw = static_cast<std::uint16_t>((std::uint16_t(data[1]) << 8) | data[2]);
   return static_cast<std::int16_t>(raw >= 0x8000 ? static_cast<std::int32_t>(raw) - 65536 : raw);
+}
+std::uint8_t manual_acceleration_code(std::uint16_t microstep) {
+  try { return static_cast<std::uint8_t>(std::clamp(std::lround(256 - 255 * speed_scale(microstep)), 1L, 255L)); }
+  catch (const std::invalid_argument &) { return 1; }
+}
+double manual_ramp_rpm_s(std::uint16_t microstep) {
+  return f6_ramp_rpm_s(microstep, manual_acceleration_code(microstep));
+}
+double f6_ramp_rpm_s(std::uint16_t microstep, std::uint8_t acceleration) {
+  return speed_scale(microstep) / ((256 - std::max<int>(acceleration, 1)) * 0.00005);
+}
+std::uint8_t manual_stop_acceleration_code(std::uint16_t microstep, double limit_rpm_s) {
+  const auto start = manual_acceleration_code(microstep);
+  if (!std::isfinite(limit_rpm_s) || limit_rpm_s <= 0) return start;
+  double scale;
+  try { scale = speed_scale(microstep); } catch (const std::invalid_argument &) { return start; }
+  // Najmniejszy krok (256−acc) z rampą ≤ limitu; zaokrąglenie w górę, aby nie przekroczyć limitu.
+  const auto steps = std::max(1.0, std::ceil(scale / (limit_rpm_s * 0.00005) - 1e-9));
+  const auto code = static_cast<long>(256 - std::min(steps, 255.0));
+  return static_cast<std::uint8_t>(std::max<long>(code, start));
 }
 double speed_scale(std::uint16_t microstep) {
   if (!microstep || microstep > 256 || (microstep & (microstep - 1)))

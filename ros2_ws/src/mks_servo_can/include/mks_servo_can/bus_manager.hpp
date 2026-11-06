@@ -182,6 +182,9 @@ class CanBusManager {
   // Jednorazowy odczyt parametrów napędów (prąd, PID vFOC, błąd kąta) — wyłącznie bez aktywnego sterowania.
   bool request_drive_parameters();
   bool drive_parameters_pending() const { return drive_parameters_requested_; }
+  // Zapis mikrokroku (84h) jednej osi: tylko bez sterowania i przy potwierdzonym ENABLE=0; 16/32/64/128
+  // (256 = bajt 0 jest niejednoznaczny w odczycie). Po statusie 1 mikrokrok jest odczytywany ponownie.
+  bool request_microstep(unsigned axis,std::uint16_t microstep,Time now);
   TcpStreamingSnapshot tcp_streaming_snapshot() const;
   bool submit(const CommandBatch &batch);
   void renew_source_lease(Source source, Time now);
@@ -228,7 +231,7 @@ class CanBusManager {
   std::array<std::uint32_t,6> shaft_command_flags_{}, shaft_rpm_flags_{};
   std::array<Time,6> shaft_command_stamps_{};
   enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, watchdog,
-    work_current, pid_kp_ki, pid_kd_kv, angle_error, manual, program_setup, recovery };
+    work_current, pid_kp_ki, pid_kd_kv, angle_error, microstep_write, manual, program_setup, recovery };
   struct Pending {
     bool used{false};
     std::uint16_t address{};
@@ -251,6 +254,9 @@ class CanBusManager {
   void disable_enable_after_fault();
   void emergency_stop();
   void send_zero_stop(Time now);
+  // Kod acc F6 zatrzymania (prędkość 0): rampa = limit przyspieszenia przegubu × przełożenie z konfiguracji;
+  // oś bez konfiguracji przegubu (JOG wału) zatrzymuje się łagodną rampą startu JOG.
+  std::uint8_t f6_stop_code(unsigned address, std::uint16_t microstep) const;
   void begin_recovery(const std::string &reason,bool force_disable,Time now);
   void send_recovery_stop_phase(unsigned phase,Time now);
   void schedule_recovery(Time now);
@@ -289,8 +295,14 @@ class CanBusManager {
  private:
   // Napęd może jeszcze odpowiadać ACK F5 tym samym ID co host: zapytanie do tej osi zderzyłoby się z odpowiedzią.
   bool sync_ack_outstanding(std::uint16_t address) const;
+  // Parametry F5 programu i JOG TCP z opcją korekcji całkującej z zatwierdzonego profilu robota.
+  StreamingParameters program_streaming(unsigned joint) const {
+    auto s=config_.program_streaming[joint];s.position_integral=profile_.position_integral;return s;
+  }
   // Przesuwa oś czasu SYNC tak, by termin wypadł w `due` (≤ kSyncMaxShift); inaczej awaria.
   bool sync_shift(Time due,Time now,const char *reason);
+  // Dolot końcowy SYNC: korekta celu jak w final_approach, wysyłana zestawem ACK → SYNC; awaria po kFinalApproachTimeout.
+  void synchronized_final_approach(Time now);
   bool synchronized_reply(const Frame &frame,Time stamp);
   void synchronized_confirmation(const Frame &frame,Time now);
   bool synchronized_query_window(Time now) const;

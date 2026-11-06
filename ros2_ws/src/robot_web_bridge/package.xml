@@ -6,6 +6,7 @@
   <maintainer email="maintainer@example.com">Project maintainer (TODO)</maintainer>
   <license>TODO</license>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>robot_control_interfaces</exec_depend>

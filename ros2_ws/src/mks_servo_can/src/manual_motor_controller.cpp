@@ -144,6 +144,7 @@ bool ManualMotorController::set_enable_all(bool enabled, Time now) {
   if(std::none_of(targets.begin(),targets.end(),[](bool value){return value;})) return false;
   idle_disable_=false;
   group_active_=true;group_enabled_=enabled;group_committing_=false;group_targets_=targets;group_done_.fill(false);group_axis_=0;
+  group_settle_deadline_={};
   message_=enabled ? "Załączanie wszystkich dostępnych napędów" : "Wyłączanie wszystkich dostępnych napędów";
   return true;
 }
@@ -158,9 +159,14 @@ void ManualMotorController::group_tick(Time now) {
     }
     for(unsigned j=0;j<kAxes;++j) if(group_targets_[j] && !group_done_[j]) {
       if(now<group_next_) return;
-      if(!bus_.devices_[j+1].position.fresh(now,60ms) || !position_stable(j+1,now,100ms)) {
-        fail("Zmiana lub utrata pozycji przed ENABLE J"+std::to_string(j+1)+"; sekwencja przerwana");return;
+      const auto &position=bus_.devices_[j+1].position;
+      if(!position.fresh(now,60ms) || position.stamp<=group_commit_started_ || !position_stable(j+1,now,100ms)) {
+        if(group_settle_deadline_==Time{}) group_settle_deadline_=now+1s;
+        if(now<group_settle_deadline_) return;
+        fail("Zmiana lub utrata pozycji przed ENABLE J"+std::to_string(j+1)+
+             " (brak świeżej, stabilnej pozycji przez 1 s); sekwencja przerwana");return;
       }
+      group_settle_deadline_={};
       const double cost=2*can_frame_bits(3);
       const double budget=bus_.config_.bitrate*std::chrono::duration<double>(bus_.config_.cycle).count()*std::min(kPlannedUtilization,bus_.config_.utilization_limit);
       if(bus_.spent_bits_+cost>budget) return;
@@ -186,7 +192,7 @@ void ManualMotorController::group_tick(Time now) {
     }
     return;
   }
-  group_committing_=true;group_done_.fill(false);group_next_=now;group_axis_=0;
+  group_committing_=true;group_done_.fill(false);group_next_=now;group_axis_=0;group_commit_started_=now;
   message_="Napędy przygotowane; sekwencja ENABLE co najmniej co 200 ms";
 }
 bool ManualMotorController::group_reply(unsigned axis,const std::vector<std::uint8_t> &data,Time stamp) {
@@ -202,8 +208,7 @@ bool ManualMotorController::zero(unsigned axis, Time now) {
   return true;
 }
 double ManualMotorController::brake_distance(unsigned axis, double rpm, Time now) const {
-  const auto scale = speed_scale(microstep_[axis - 1]);
-  const auto acceleration = scale / (255.0 * 0.00005);  // RPM/s, acc=1
+  const auto acceleration = manual_ramp_rpm_s(microstep_[axis - 1]);  // RPM/s
   const auto age = std::max(0.0, std::chrono::duration<double>(now - bus_.devices_[axis].position.stamp).count());
   return 6.0 * rpm * rpm / (2.0 * acceleration) + 6.0 * rpm * (age + 0.06) + 1.0;
 }
@@ -282,7 +287,7 @@ bool ManualMotorController::jog_impl(JogAction action, unsigned axis, int direct
   owner_ = session; sequence_ = sequence; lease_ = issued; rpm_ = rpm; direction_ = direction;
   phase_ = Phase::starting;
   jog_rest_anchor_[axis - 1].valid = false;
-  add(speed_request(axis, direction > 0, static_cast<std::uint16_t>(raw)), 3, -2);
+  add(speed_request(axis, direction > 0, static_cast<std::uint16_t>(raw), manual_acceleration_code(microstep_[axis - 1])), 3, -2);
   message_ = "JOG osi J" + std::to_string(axis); return true;
 }
 void ManualMotorController::stop(Time now, const std::string &reason) {
@@ -292,9 +297,8 @@ void ManualMotorController::stop(Time now, const std::string &reason) {
   waiting_ = stop_sent_ = false;
   const auto &speed = bus_.devices_[axis_].speed;
   const auto rpm = std::max<double>(rpm_, speed.valid ? std::abs(speed.value) : 0);
-  const auto scale = speed_scale(microstep_[axis_ - 1]);
   // F1 kończy rampę wcześniej niż ustala się rzeczywista pozycja wału.
-  stop_deadline_ = now + std::chrono::milliseconds(static_cast<int>(rpm / scale * 12.75 + 2000));
+  stop_deadline_ = now + std::chrono::milliseconds(static_cast<int>(rpm / manual_ramp_rpm_s(microstep_[axis_ - 1]) * 1000 + 2000));
   for (auto &p : bus_.pending_) if (p.used && p.address == axis_) p.used = false;
   bus_.quarantine_[axis_] = {};
 }
@@ -303,7 +307,7 @@ void ManualMotorController::fail(const std::string &message, bool critical) {
   // Jeden ostatni STOP dla aktywnego źródła. Właściciel magistrali przejmuje
   // dalsze zatrzymanie i zachowuje ograniczoną diagnostykę podczas odzyskiwania.
   if (phase_ != Phase::fault && axis_ && bus_.transport_->is_open()) {
-    try { bus_.transport_->send(axis_, speed_request(axis_, false, 0)); ++bus_.stats_.tx; } catch (...) {}
+    try { bus_.transport_->send(axis_, speed_request(axis_, false, 0, bus_.f6_stop_code(axis_, microstep_[axis_ - 1]))); ++bus_.stats_.tx; } catch (...) {}
   }
   const auto reason = !group_active_ && axis_ ?
       "J"+std::to_string(axis_)+" (CAN ID "+std::to_string(axis_)+"): "+message : message;
@@ -384,14 +388,14 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
       microstep_[axis_ - 1] = static_cast<std::uint16_t>(value);d.microstep.set(static_cast<std::uint16_t>(value),stamp);
       const auto &profile = bus_.profile_.axes[axis_ - 1];
       if (profile.configured) {
-        const auto acceleration = speed_scale(microstep_[axis_ - 1]) / .01275 * 2 * std::acos(-1.0) / 60 / profile.gear_ratio;
+        const auto acceleration = manual_ramp_rpm_s(microstep_[axis_ - 1]) * 2 * std::acos(-1.0) / 60 / profile.gear_ratio;
         if (!calibrated_[axis_ - 1] || acceleration > profile.acceleration + 1e-9) {
           if (!calibrated_[axis_ - 1]) {
             configuration_messages_[axis_ - 1] = "Wymagane ponowne zatwierdzenie offsetu";
           } else {
             std::ostringstream description;
             description << std::fixed << std::setprecision(1)
-                << "JOG zablokowany: minimalne przyspieszenie MKS przy acc=1 wynosi "
+                << "JOG zablokowany: przyspieszenie rampy JOG MKS wynosi "
                 << acceleration * 180 / std::acos(-1.0) << " °/s², limit konfiguracji: "
                 << profile.acceleration * 180 / std::acos(-1.0) << " °/s². Przełożenie: "
                 << profile.gear_ratio << ". Większe acc oznacza szybszą rampę.";
@@ -484,7 +488,7 @@ void ManualMotorController::tick(Time now) {
   if (phase_ == Phase::stopping) {
     if (now >= stop_deadline_) { fail("Nie potwierdzono zatrzymania — stan ruchu nieznany"); return; }
     if (!stop_sent_ && !waiting_) {
-      if (bus_.send_manual(axis_, speed_request(axis_, false, 0), 0, now, true)) {
+      if (bus_.send_manual(axis_, speed_request(axis_, false, 0, bus_.f6_stop_code(axis_, microstep_[axis_ - 1])), 0, now, true)) {
         stop_sent_=true;stop_at_=now;waiting_=false;
       }
     }
@@ -499,7 +503,9 @@ void ManualMotorController::tick(Time now) {
     }
     return;
   }
-  if (phase_ == Phase::moving) return;
+  // Termin dotyczy tylko trwającej sekwencji. Zbiorcze ENABLE w fazie idle (np. wszystkie osie już
+  // przygotowane) ma własne terminy w group_tick; stary operation_deadline_ zgłaszał tu fałszywą awarię (05.11).
+  if (phase_ == Phase::moving || phase_ == Phase::idle) return;
   if (now >= operation_deadline_) { fail("Przekroczony czas operacji ręcznej"); return; }
   if (!waiting_ && step_ < step_count_ && now >= retry_at_) {
     const auto &s = steps_[step_];

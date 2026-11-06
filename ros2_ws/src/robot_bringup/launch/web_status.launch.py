@@ -1,5 +1,7 @@
 """Panel i diagnostyka, bez uruchamiania kontrolerów ani napędów."""
 
+import os
+
 from launch import LaunchDescription
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
@@ -20,6 +22,16 @@ def preview(context):
                  parameters=[{'robot_description': model, 'frame_prefix': 'preview/', 'publish_frequency': 20.0}],
                  remappings=[('joint_states', '/robot/preview/joint_states'),
                              ('/tf', '/robot/preview/tf'), ('/tf_static', '/robot/preview/tf_static')])]
+
+
+def fault_snapshots(context):
+    """Migawki awarii (10 s przed, 5 s po) tylko przy nagrywaniu diagnostyki (start_web_status.sh --record)."""
+    if not os.environ.get('ROBOT_TRACE_DIR'):
+        return []
+    return [Node(package='robot_web_bridge', executable='fault_snapshot', output='screen',
+                 respawn=True, respawn_delay=2.0,
+                 arguments=['--configuration-dir', LaunchConfiguration('configuration_dir').perform(context),
+                            '--execution-parameters', LaunchConfiguration('execution_parameters').perform(context)])]
 
 
 def generate_launch_description():
@@ -71,5 +83,6 @@ def generate_launch_description():
         # Bridge może wrócić po awarii bez przerywania lokalnego programu.
         # Zamknięcie launch przez operatora nadal zatrzymuje wszystkie procesy.
         monitor, can_diagnostics, bridge, configuration, planner,
+        OpaqueFunction(function=fault_snapshots),
         OpaqueFunction(function=preview, condition=IfCondition(LaunchConfiguration('preview_enabled'))),
     ])

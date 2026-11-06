@@ -85,7 +85,7 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
       throw std::runtime_error("J"+std::to_string(j+1)+": wymagane ENABLE, kalibracja i świeży stan SR_vFOC");
     if(p.points.empty() || std::abs(p.points.front().positions[j]-position_to_joint(a,d.position.value))>config_.program_position_tolerance[j])
       throw std::runtime_error("Zmieniła się pozycja początkowa; przelicz ruch");
-    microsteps[j]=d.microstep.value;axes[j].streaming=config_.program_streaming[j];
+    microsteps[j]=d.microstep.value;axes[j].streaming=program_streaming(j);
   }
   if(streaming_bus_utilization(participants,config_.bitrate)+(synchronized ? (participants*can_frame_bits(3)+can_frame_bits(2))*100/config_.bitrate : 0)>std::min(kPlannedUtilization,config_.utilization_limit)+1e-12)
     throw std::runtime_error("Streaming 100 Hz przekracza budżet robota 40%; sześć osi wymaga profilu 1 Mbit/s");
@@ -216,7 +216,7 @@ void CanBusManager::final_approach(Time now) {
   const auto budget=config_.bitrate*std::chrono::duration<double>(config_.cycle).count()*std::min(kPlannedUtilization,config_.utilization_limit);
   if(spent_bits_+count*can_frame_bits(8)>budget) return;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    auto axis=config_.axes[j];axis.streaming=config_.program_streaming[j];
+    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
     const auto &d=devices_[axis.address];
     if(!d.position.fresh(now,kProgramFeedbackTimeout)) return;
     const double measured=position_to_joint(axis,d.position.value),error=program.target[j]-measured;
@@ -300,6 +300,7 @@ void CanBusManager::schedule_program(Time now) {
     // Dolot i potwierdzenie: referencją jest cel; ciągła linia pokazuje odchylenie od pozycji docelowej.
     for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) record_shaft_reference(j,program.target[j],now);
     if(!synchronized) {final_approach(now);if(fault_) return;}
+    else {synchronized_final_approach(now);if(fault_ || e.staged || e.sync_waiting_confirmation) return;}
     if(!e.checking_position && now>=e.next_check) begin_program_check(now);
     if(!e.checking_position || !check_program_positions(now)) return;
     if(synchronized) {
@@ -338,7 +339,7 @@ void CanBusManager::schedule_program(Time now) {
   const auto point=program_reference(program,std::min(program.duration,std::chrono::duration<double>(elapsed).count()));
   auto next_streaming=streaming_states_;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    auto axis=config_.axes[j];axis.streaming=config_.program_streaming[j];
+    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
     const auto feedback=streaming_feedback_position(j,now);
     const auto sample=streaming_setpoint(axis,point.positions[j],point.velocities[j],next_streaming[j],
         feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,

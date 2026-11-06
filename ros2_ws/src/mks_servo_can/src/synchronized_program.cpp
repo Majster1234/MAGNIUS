@@ -2,6 +2,7 @@
 #include "mks_servo_can/diagnostic_message.hpp"
 #include "mks_servo_can/trace.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace mks_servo_can {
@@ -53,7 +54,7 @@ bool CanBusManager::sync_shift(Time due,Time now,const char *reason) {
 bool CanBusManager::sync_ack_outstanding(std::uint16_t address) const {
   const auto &e=executor_;const auto j=axis_index(address);
   if(!active_ || source_!=Source::program || e.status.dispatch_mode!="synchronized" || j>=kAxes ||
-      !e.program || e.frame>=e.program->frames.size()) return false;
+      !e.program || (e.frame>=e.program->frames.size() && !e.correction)) return false;
   return (((e.staged ? e.staged_sent_mask&~e.staged_ack_mask : 0)|e.late_ack_mask)>>j)&1u;
 }
 bool CanBusManager::synchronized_query_window(Time now) const {
@@ -99,6 +100,14 @@ void CanBusManager::synchronized_confirmation(const Frame &frame,Time now) {
   if(!e.sync_waiting_confirmation || stamp<e.sync_sent || stamp>e.due+kSyncLateness) {
     fault("SYNC: niezgodne lub spóźnione potwierdzenie nadania; cykl="+std::to_string(e.frame));return;
   }
+  if(e.correction) {
+    // Zestaw korekcyjny dolotu: bez zmiany numeru zestawu i referencji; nowa kontrola pozycji po wyzwoleniu.
+    sync_trace("sync_correction_activated",e,stamp);
+    for(unsigned j=0;j<kAxes;++j) if(s.participating[j] && (e.staged_ack_mask&(1u<<j))) record_shaft_command(j,stream_payloads_[j],stamp);
+    streaming_states_=staged_streaming_states_;last_command_=stamp;
+    e.correction=e.sync_waiting_confirmation=e.staged=false;e.last_sync=stamp;e.settled={};
+    s.sync_state="activated";begin_program_check(now);return;
+  }
   sync_trace("sync_activated",e,stamp);
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
     sync_trace("sync_reference_committed",e,stamp,config_.axes[j].address,&stream_payloads_[j]);
@@ -119,6 +128,51 @@ void CanBusManager::synchronized_confirmation(const Frame &frame,Time now) {
   e.sync_waiting_confirmation=e.staged=false;
   e.due=e.phase_origin+kStreamingCycle*e.frame;
   if(e.frame==e.program->frames.size()) {s.state="settling";e.next_check=now;begin_program_check(now);}
+}
+void CanBusManager::synchronized_final_approach(Time now) {
+  auto &e=executor_;auto &s=e.status;const auto &p=*e.program;
+  if(e.staged || e.sync_waiting_confirmation) {schedule_synchronized_program(now);return;}
+  if(e.final_started==Time{}) {e.final_started=now;e.final_next=now+kFinalApproachDelay;e.final_command=p.target;}
+  bool outside=false;std::string axes;
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    const auto &d=devices_[config_.axes[j].address];
+    if(!d.position.fresh(now,kProgramFeedbackTimeout)) return;
+    const double error=p.target[j]-position_to_joint(config_.axes[j],d.position.value);
+    if(std::abs(error)>config_.program_position_tolerance[j]) {outside=true;axes+=" J"+std::to_string(j+1)+"="+diagnostic_number(error*180/std::acos(-1.))+"°";}
+  }
+  if(!outside) return;
+  if(now-e.final_started>=kFinalApproachTimeout) {
+    fault("SYNC: dolot końcowy nieudany po "+std::to_string(kFinalApproachTimeout.count())+" ms; uchyb (cel − pomiar):"+axes+
+        ", tolerancja ±"+diagnostic_number(config_.program_position_tolerance[0]*180/std::acos(-1.))+"°");return;
+  }
+  // Odpowiedź osi na zapytanie zderzyłaby się z F5 o tym samym ID: korekta po jej odebraniu.
+  if(now<e.final_next || std::any_of(pending_.begin(),pending_.end(),[this](const Pending &q){return q.used && axis_index(q.address)<kAxes;})) return;
+  unsigned count=0;for(bool yes:s.participating) count+=yes;
+  const double cost=count*(can_frame_bits(8)+can_frame_bits(3))+can_frame_bits(2);
+  const double budget=config_.bitrate*.01*std::min(kPlannedUtilization,config_.utilization_limit);
+  if(spent_bits_+cost>budget) return;
+  staged_streaming_states_=streaming_states_;
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
+    const auto &d=devices_[axis.address];
+    const double measured=position_to_joint(axis,d.position.value),error=p.target[j]-measured;
+    if(std::abs(error)>config_.program_position_tolerance[j]) e.final_command[j]=std::clamp(e.final_command[j]+error,axis.lower,axis.upper);
+    const auto sample=streaming_setpoint(axis,p.target[j],0.,staged_streaming_states_[j],measured,d.microstep.value,0.,0.,
+        std::chrono::duration<double>(now-d.position.stamp).count(),e.final_command[j]);
+    std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
+  }
+  e.staged_reference=ProgramPoint{};e.staged_reference.seconds=p.duration;e.staged_reference.positions=p.target;
+  e.staged_ack_mask=e.staged_sent_mask=0;s.sync_ack_mask=0;e.batch_started=now;
+  e.due=now+kSyncPrepareMargin+2ms;e.staged=e.correction=true;s.sync_state="waiting_ack";s.sync_due_monotonic_ns=trace_ns(e.due);
+  spent_bits_+=cost;
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    e.staged_sent[j]=current_time(now);
+    try {transport_->send(config_.axes[j].address,stream_payloads_[j]);++stats_.tx;}
+    catch(const std::exception &error) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": błąd wysłania korekty F5 SYNC: "+error.what());return;}
+    e.staged_sent_mask|=1u<<j;sync_trace("sync_correction_prepared",e,e.staged_sent[j],config_.axes[j].address,&stream_payloads_[j]);
+  }
+  e.final_next=now+kFinalApproachPeriod;s.state="waiting_position";s.message="Dolot końcowy SYNC: korekta"+axes;
+  trace_note("sync_final_approach",axes);motion_this_cycle_=true;
 }
 void CanBusManager::schedule_synchronized_program(Time now) {
   auto &e=executor_;auto &s=e.status;const auto &p=*e.program;
@@ -165,7 +219,7 @@ void CanBusManager::schedule_synchronized_program(Time now) {
   s.sync_ack_mask=0;s.sync_state="waiting_ack";s.sync_due_monotonic_ns=trace_ns(e.due);
   e.batch_started=now;e.staged=true;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    auto axis=config_.axes[j];axis.streaming=config_.program_streaming[j];
+    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
     const auto feedback=streaming_feedback_position(j,now);
     std::optional<double> equivalent;
     if(feedback.valid) {

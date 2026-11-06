@@ -100,3 +100,10 @@ Wyniki trafiają do `/api/v1/can/status` (`devices[].values`). Źródło format�
 
 Format odpowiedzi PID nie jest w instrukcji jednoznaczny: przyjmowane są oba warianty (z bajtem podkomendy, DLC 7,
 i bez niego, DLC 6). Prąd trzymania (9Bh) nie jest odczytywany, bo według §3.4 nie działa w trybie vFOC.
+
+**Uwaga — zmiana mikrokroku (84h) w pozycji różnej od zera** (próba 04.11.2026): po zmianie 16 → 128 napęd J1
+jechał ze stałym przesunięciem układu F5 względem enkodera 0x31 równym pozycja × (1 − 16/128) (−30,96° × 7/8 =
+−27,1° wału; zmierzone 26,5–27°), w tym ruch w przeciwną stronę na starcie, i nie osiągnął celu. Błąd kąta 39h
+w postoju wynosił 0. Wyłączenie i włączenie zasilania napędu usunęło przesunięcie (po starcie pozycja 0, PTP z
+uchybem J1 0,015°). Procedura: zmiana mikrokroku tylko przy ENABLE=0, a przed ruchem reset zasilania napędu
+(albo zmiana w pozycji 0); po resecie sprawdzić `angle_error_degrees` i mały ruch z kontrolą uchybu końcowego.

@@ -67,6 +67,8 @@ class MotionExecutor {
   // SYNC: osie, którym wysłano F5 bieżącego zestawu; osie bez ACK poprzedniego zestawu (ACK może jeszcze przyjść);
   // kolejne cykle bez ACK per oś (awaria dopiero po przekroczeniu limitu).
   std::uint8_t staged_sent_mask{}, late_ack_mask{};
+  // SYNC: zestaw korekcyjny dolotu końcowego (po ostatnim zestawie trajektorii) — nie zwiększa numeru zestawu.
+  bool correction{};
   std::array<unsigned,6> missed_acks{};
   Time stage_origin{}, sync_sent{};
   ProgramPoint staged_reference{};

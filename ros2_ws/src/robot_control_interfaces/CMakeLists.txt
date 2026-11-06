@@ -14,7 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/ComputePreviewMotion.action"
   "srv/JogJoint.srv" "srv/ConfigureRobot.srv" "srv/ConfigurationCommand.srv"
   "srv/JogTcp.srv" "msg/TcpJogStatus.msg"
-  "srv/SetAllMotorsEnable.srv"
+  "srv/SetAllMotorsEnable.srv" "srv/SetDriveMicrostep.srv"
   "msg/MotionSettings.msg" "msg/MotionProgramStatus.msg"
   "srv/PrepareMotionProgram.srv" "srv/GetMotionProgram.srv" "action/ExecuteMotionProgram.action" "action/ComputePhysicalPtp.action"
   "action/ComputePhysicalMotion.action"

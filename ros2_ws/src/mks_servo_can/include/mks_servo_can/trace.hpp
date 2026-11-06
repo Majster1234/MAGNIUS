@@ -20,20 +20,24 @@ struct TraceEvent {
   std::array<std::uint8_t, 8> data{};
   std::array<char, 192> detail{};
 };
+// Zdarzenia awarii: po ich zapisaniu na dysk wątek zapisu tworzy faults/trigger-*.json dla migawki awarii
+// (robot_web_bridge/fault_snapshot.py). Nagranie ciągłe nie zatrzymuje się po awarii.
+bool is_fault_trace_event(const char *event) noexcept;
 class TraceRecorder {
  public:
-  explicit TraceRecorder(const std::string &directory, std::size_t max_bytes = 16 * 1024 * 1024);
+  // Pętla segments plików can-0…can-(segments−1).jsonl po segment_bytes; najstarszy segment jest nadpisywany.
+  explicit TraceRecorder(const std::string &directory, std::size_t segment_bytes = 16 * 1024 * 1024, unsigned segments = 4);
   ~TraceRecorder();
   bool submit(TraceEvent event) noexcept;
-  void freeze_after(std::chrono::milliseconds delay) noexcept;
   std::uint64_t dropped() const { return dropped_; }
  private:
   void write_loop();
   void write(const TraceEvent &event);
+  void write_fault_trigger(const TraceEvent &event) noexcept;
   std::string directory_;
   std::string recording_id_;
   std::size_t max_bytes_, written_{};
-  unsigned slot_{};
+  unsigned segments_, slot_{};
   std::ofstream file_;
   struct Cell { std::atomic<bool> ready{false}; TraceEvent event; };
   std::array<Cell, 4096> queue_{};
@@ -42,12 +46,10 @@ class TraceRecorder {
   std::mutex mutex_;
   std::condition_variable wake_;
   std::atomic<bool> running_{true};
-  std::atomic<std::int64_t> freeze_at_{0};
   std::atomic<std::uint64_t> dropped_{0}, sequence_{0};
   std::thread worker_;
 };
 std::int64_t trace_ns(std::chrono::steady_clock::time_point time);
 void trace(TraceEvent event) noexcept;
-void trace_freeze_after(std::chrono::milliseconds delay) noexcept;
 void trace_note(const char *event, const std::string &detail = "", unsigned axis = 0, unsigned command = 0) noexcept;
 }  // namespace mks_servo_can

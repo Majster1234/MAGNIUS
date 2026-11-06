@@ -28,3 +28,26 @@ TEST(Protocol, ParsesReadOnlyStatusValues) {
   EXPECT_FALSE(mks_servo_can::supports_motor_state(2));
   EXPECT_TRUE(mks_servo_can::supports_motor_state(5));
 }
+TEST(Protocol, ManualJogAccelerationKeepsRampIndependentOfMicrostep) {
+  using namespace mks_servo_can;
+  EXPECT_EQ(manual_acceleration_code(16),1);EXPECT_EQ(manual_acceleration_code(32),1);EXPECT_EQ(manual_acceleration_code(128),224);
+  EXPECT_EQ(manual_acceleration_code(0),1) << "nieznany mikrokrok: acc=1";
+  // ~78 RPM/s niezależnie od mikrokroku (bez kompensacji 128 dawało ~9,8 RPM/s, dobieg JOG ~3 s z 30 RPM).
+  EXPECT_NEAR(manual_ramp_rpm_s(16),78.43,.01);EXPECT_NEAR(manual_ramp_rpm_s(128),78.13,.01);
+  EXPECT_EQ(speed_request(1,false,0,manual_acceleration_code(128))[3],224);
+}
+TEST(Protocol, ManualJogStopRampFollowsJointAccelerationLimit) {
+  using namespace mks_servo_can;
+  // 500 °/s² przegubu × przełożenie 10 = 833,3 RPM/s wału.
+  const double limit = 500.0 * 10 / 6;
+  EXPECT_EQ(manual_stop_acceleration_code(128,limit),253);
+  EXPECT_NEAR(f6_ramp_rpm_s(128,253),833.3,.1);
+  EXPECT_EQ(manual_stop_acceleration_code(16,limit),232);
+  EXPECT_LE(f6_ramp_rpm_s(16,232),limit) << "zaokrąglenie nie może przekroczyć limitu";
+  EXPECT_GT(f6_ramp_rpm_s(16,233),limit);
+  // Nigdy wolniej niż start JOG; brak limitu lub mikrokroku → rampa startu.
+  EXPECT_EQ(manual_stop_acceleration_code(128,10),224);
+  EXPECT_EQ(manual_stop_acceleration_code(128,0),224);
+  EXPECT_EQ(manual_stop_acceleration_code(0,limit),1);
+  EXPECT_EQ(manual_stop_acceleration_code(128,1e9),255);
+}

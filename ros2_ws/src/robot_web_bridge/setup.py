@@ -21,5 +21,6 @@ setup(
     maintainer='Project maintainer (TODO)', maintainer_email='maintainer@example.com',
     description='Diagnostyka robota i lokalny panel ROS 2.', license='TODO',
     tests_require=['pytest'],
-    entry_points={'console_scripts': ['bridge = robot_web_bridge.bridge:main']},
+    entry_points={'console_scripts': ['bridge = robot_web_bridge.bridge:main',
+                                    'fault_snapshot = robot_web_bridge.fault_snapshot:main']},
 )

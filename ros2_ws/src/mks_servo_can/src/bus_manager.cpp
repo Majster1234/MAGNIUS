@@ -174,7 +174,7 @@ void CanBusManager::open(Time now) {
 }
 void CanBusManager::close() {
   if (manual_->busy() && !fault_) {
-    try { transport_->send(manual_->axis(), speed_request(manual_->axis(), false, 0)); ++stats_.tx; } catch (...) {}
+    try { transport_->send(manual_->axis(), speed_request(manual_->axis(), false, 0, f6_stop_code(manual_->axis(), devices_[manual_->axis()].microstep.value))); ++stats_.tx; } catch (...) {}
     fault("Zamknięcie komunikacji podczas sterowania ręcznego");
   }
   if (active_) stop("Zamknięcie komunikacji podczas sterowania");
@@ -307,8 +307,7 @@ void CanBusManager::renew_source_lease(Source source, Time now) {
 }
 void CanBusManager::fault(const std::string &message, bool critical) {
   if (fault_) return;
-  trace_note("bus_fault", message);
-  trace_freeze_after(std::chrono::seconds(5));
+  trace_note("bus_fault", message);  // Wyzwala migawkę awarii (10 s przed, 5 s po); nagranie trwa dalej.
   const bool program_failed=executor_.status.busy || executor_.status.state=="ready";
   if(program_failed) {
     executor_.status.busy=false;executor_.status.state="failed";executor_.status.message=message;
@@ -370,11 +369,16 @@ void CanBusManager::emergency_stop() {
   stop.phase=StopSequence::Phase::done;stats_.stop_pending=false;
   trace_note("stop_cleanup_done","STOP wysłano bez ACK; nie jest potwierdzeniem postoju");
 }
+std::uint8_t CanBusManager::f6_stop_code(unsigned address, std::uint16_t microstep) const {
+  if (!address || address > kAxes || !profile_.axes[address - 1].configured) return manual_acceleration_code(microstep);
+  const auto &axis = profile_.axes[address - 1];
+  return manual_stop_acceleration_code(microstep, axis.acceleration * std::abs(axis.gear_ratio) * 60 / (2 * std::acos(-1.0)));
+}
 void CanBusManager::send_zero_stop(Time now) {
   auto &stop=stop_sequence_;stop.phase=StopSequence::Phase::zero;stop.replied=0;stop.sent=now;
   (void)now;
   for(unsigned j=0;j<kAxes;++j) if(stop.addresses[j]) {
-    try { transport_->send(stop.addresses[j],speed_request(stop.addresses[j],false,0));++stats_.tx; }
+    try { transport_->send(stop.addresses[j],speed_request(stop.addresses[j],false,0,f6_stop_code(stop.addresses[j],devices_[stop.addresses[j]].microstep.value)));++stats_.tx; }
     catch(...) { stats_.stop_failed|=1u<<j; }
   }
   trace_note("stop_zero_all");
@@ -413,7 +417,7 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
     case Kind::work_current:command=0x83;length=0;break;
     case Kind::pid_kp_ki: case Kind::pid_kd_kv:command=0x96;length=0;break;
     case Kind::angle_error:command=0x39;length=6;break;
-    case Kind::manual: case Kind::program_setup: case Kind::recovery:return false;
+    case Kind::microstep_write: case Kind::manual: case Kind::program_setup: case Kind::recovery:return false;
   }
   const bool parameter=kind==Kind::mode || kind==Kind::response_mode || kind==Kind::sync_mode || kind==Kind::microstep || kind==Kind::watchdog ||
       kind==Kind::work_current || kind==Kind::pid_kp_ki || kind==Kind::pid_kd_kv;
@@ -434,6 +438,21 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
     p = {true, address, kind, command, length, now, deadline};
     TraceEvent e; e.event = "request"; e.axis = address; e.command = command;
     e.request_ns = trace_ns(now); e.deadline_ns = trace_ns(deadline); trace(e); return true;
+  }
+  return false;
+}
+bool CanBusManager::request_microstep(unsigned axis,std::uint16_t microstep,Time now) {
+  if(axis<1 || axis>kAxes || (microstep!=16 && microstep!=32 && microstep!=64 && microstep!=128)) return false;
+  const auto address=config_.axes[axis-1].address;auto &d=devices_[address];
+  if(active_ || fault_ || scanning_ || manual_->busy() || !transport_->is_open() || !d.detected || d.consecutive_timeouts>=3 ||
+      !d.enable.fresh(now,std::chrono::milliseconds(300)) || d.enable.value) return false;
+  now=current_time(now);
+  if(!can_send(address,now) || !reserve(3,3,true)) return false;
+  const std::vector<std::uint8_t> data{0x84,static_cast<std::uint8_t>(microstep),static_cast<std::uint8_t>(address+0x84+microstep)};
+  for(auto &p:pending_) if(!p.used) {
+    transport_->send(address,data);++stats_.tx;
+    p={true,address,Kind::microstep_write,0x84,3,now,now+config_.response_timeout};
+    trace_note("microstep_write",std::to_string(microstep),address,0x84);return true;
   }
   return false;
 }
@@ -523,6 +542,12 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
       const std::array<std::uint16_t,2> v{static_cast<std::uint16_t>((f[o]<<8)|f[o+1]),static_cast<std::uint16_t>((f[o+2]<<8)|f[o+3])};
       (slot==1 ? d.pid_kp_ki : d.pid_kd_kv).set(v,stamp);break;
     }
+    case Kind::microstep_write:
+      if(frame.data.size()!=3 || frame.data[1]>1) return false;
+      trace_note(frame.data[1] ? "microstep_written" : "microstep_write_failed","",p.address,0x84);
+      // Status 1: odczyt 84h od nowa (tło w bezczynności); do tego czasu PTP/LIN/JOG TCP są zablokowane.
+      if(frame.data[1]) {d.microstep.valid=false;manual_->forget_microstep(axis_index(p.address)+1);}
+      break;
     case Kind::angle_error: {
       const auto &f=frame.data;
       d.angle_error.set(static_cast<std::int32_t>((std::uint32_t(f[1])<<24)|(std::uint32_t(f[2])<<16)|(std::uint32_t(f[3])<<8)|f[4]),stamp);break;
@@ -618,6 +643,8 @@ void CanBusManager::expire(Time now) {
       auto &d = devices_[p.address]; ++d.timeouts;
       // Brak odpowiedzi na odczyt diagnostyczny (parametr bez obsługi w firmware) nie oznacza utraty osi.
       const bool diagnostic=p.kind==Kind::work_current || p.kind==Kind::pid_kp_ki || p.kind==Kind::pid_kd_kv || p.kind==Kind::angle_error;
+      // Brak odpowiedzi na zapis mikrokroku: stan napędu niepewny — ponowny odczyt 84h.
+      if(p.kind==Kind::microstep_write) {d.microstep.valid=false;manual_->forget_microstep(axis_index(p.address)+1);}
       if(!diagnostic) ++d.consecutive_timeouts;
       const auto axis=axis_index(p.address);
       if(fault_ && axis<kAxes && d.consecutive_timeouts>=3) fault_probe_after_[axis]=now+std::chrono::seconds(1);

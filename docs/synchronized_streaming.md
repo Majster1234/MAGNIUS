@@ -110,6 +110,14 @@ przy 1 Mbit/s: dotychczasowe 26,58% + ACK 5,10% + SYNC 0,75% = **32,43%**.
 To rezerwacja modelowa, nie pomiar przewodu. Nadal obowiązuje 40% dla robota,
 20 punktów rezerwy i 60% łącznie; sześć osi przy 500 kbit/s jest odrzucane.
 
+Od 04.11.2026 — **dolot końcowy SYNC**: po ostatnim zestawie, gdy oś jest poza `execution_position_tolerance_rad`,
+po 300 ms i dalej co 200 ms wykonawca wysyła zestaw korekcyjny przez ten sam mechanizm ACK → SYNC (cel osi
++= cel − pomiar, jak `final_approach` trybu streamed; `synchronized_final_approach`, zdarzenia
+`sync_correction_prepared/activated`, `sync_final_approach`). Zestaw nie zmienia numeru cyklu; po wyzwoleniu kontrola
+pozycji i postoju startuje od nowa. Brak tolerancji po `kFinalApproachTimeout` (5 s) = awaria „SYNC: dolot końcowy
+nieudany…” zamiast wcześniejszego bezterminowego `waiting_position` (próba 04.11, przesunięcie układu F5 po zmianie
+mikrokroku). Zapytania do osi z nieodebranym ACK korekty są blokowane jak w trakcie trajektorii.
+
 ## Próba sprzętowa 03.11.2026 (wały rozsprzęglone)
 
 Build z poprawkami audytu (punkty 1–4) i postojem |RPM| ≤ 1 + F1=1 (`kHoldingSpeedNoiseRpm`), `SCHED_FIFO 50`,

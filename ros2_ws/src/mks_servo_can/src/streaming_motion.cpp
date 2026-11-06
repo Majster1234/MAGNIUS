@@ -25,6 +25,8 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
       !std::isfinite(s.lookahead_time_sec) || s.lookahead_time_sec<0 || s.lookahead_time_sec>.2 ||
       !std::isfinite(s.velocity_ff_scale) || s.velocity_ff_scale<1 || s.velocity_ff_scale>3 ||
       !std::isfinite(s.position_kp) || s.position_kp<0 ||
+      !std::isfinite(s.integral_gain) || s.integral_gain<0 || !std::isfinite(s.integral_limit) || s.integral_limit<0 ||
+      !std::isfinite(state.integral) || std::abs(state.integral)>s.integral_limit+1e-12 ||
       (actual && !std::isfinite(*actual)) || !std::isfinite(state.rpm_dither_accum) ||
       state.rpm_dither_accum<0 || state.rpm_dither_accum>=1 ||
       s.encoder_cpr!=16384 || !s.min_holding_rpm || s.max_rpm>3000 || s.max_rpm<s.min_holding_rpm ||
@@ -44,12 +46,17 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
   // JOG TCP dostarcza punkt ze sprawdzonej drogi hamowania, również podczas
   // rozruchu. Ekstrapolacja bieżącego przyspieszenia mogłaby przekroczyć impuls.
   if(lookahead_position) out.lookahead_position=*lookahead_position;
-  const double pulses=a.direction*(out.lookahead_position-a.offset)*a.gear_ratio*s.encoder_cpr/(2*pi);
-  if(!std::isfinite(pulses)) throw std::invalid_argument("Nieprzedstawialne impulsy streaming");
-  out.ticks=static_cast<std::int32_t>(std::llround(std::clamp(pulses,-8388608.,8388607.)));
   const double clamped_age=std::clamp(actual_age_sec,0.,.05);
   const double q_ref_at_sample=q-v*clamped_age+.5*a_ref*clamped_age*clamped_age;
   const double pos_error=actual ? q_ref_at_sample-*actual : 0.;
+  // Tylko w trakcie ruchu (remaining > 0): dolot końcowy ma własną korektę celu. Usuwa stały uchyb napędu.
+  if(s.position_integral && remaining_time_sec>0) {
+    if(actual) state.integral=std::clamp(state.integral+s.integral_gain*pos_error*kStreamingCycleSeconds,-s.integral_limit,s.integral_limit);
+    out.lookahead_position=std::clamp(out.lookahead_position+state.integral,a.lower,a.upper);
+  }
+  const double pulses=a.direction*(out.lookahead_position-a.offset)*a.gear_ratio*s.encoder_cpr/(2*pi);
+  if(!std::isfinite(pulses)) throw std::invalid_argument("Nieprzedstawialne impulsy streaming");
+  out.ticks=static_cast<std::int32_t>(std::llround(std::clamp(pulses,-8388608.,8388607.)));
   constexpr double kDeadbandRad=.0005;
   const int direction=std::abs(v)>1e-6 ? (v>0)-(v<0) :
       (actual && std::abs(pos_error)>kDeadbandRad ? (pos_error>0)-(pos_error<0) : 0);

@@ -33,6 +33,7 @@ class BusRuntime {
   bool finish_tcp_jog(const std::string &session,std::uint64_t generation);
   bool tcp_jog_available();
   bool request_drive_parameters();
+  bool request_microstep(unsigned axis,std::uint16_t microstep);
   TcpStreamingSnapshot tcp_streaming_snapshot();
   void stop(const std::string &reason, bool critical = true);
   void renew_source_lease(Source source, Time created);

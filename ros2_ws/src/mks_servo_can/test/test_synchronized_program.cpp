@@ -314,3 +314,48 @@ TEST(SynchronizedProgram, ArmingRereadsTransientMotionAndReportsPersistentOne) {
         << h.bus->snapshot().message;
   }
 }
+TEST(SynchronizedProgram, FinalApproachCorrectsDriveOffsetWithSyncSetsAndTimesOutWhenStuck) {
+  {
+    // Przesunięcie układu F5 J3 ≈ 1,1° przegubu (> 0,5°): dolot SYNC koryguje cel i kończy programem udanym.
+    Rig h;h.ready();h.synchronized();h.port->drive_offset[3]=500;
+    h.execute(h.program());h.run(3000);
+    const auto s=h.bus->program_status();EXPECT_EQ(s.state,"succeeded") << s.message << "; " << h.bus->snapshot().message;
+    EXPECT_GT(h.port->counts[0x4b],101u) << "zestawy korekcyjne wyzwalane SYNC";
+    EXPECT_LE(std::abs(static_cast<double>(h.port->positions[3]-std::llround(.2*10*16384/(2*std::acos(-1.))))),1.);
+  }
+  {
+    // Oś zablokowana po trajektorii: zamiast wiecznego oczekiwania awaria po limicie dolotu.
+    Rig h;h.ready();h.synchronized();h.port->drive_offset[2]=1000;h.port->frozen[2]=false;h.execute(h.program());
+    for(unsigned i=0;i<3000 && h.bus->program_status().state!="waiting_position" && !h.bus->snapshot().fault;++i) h.run(1);
+    ASSERT_EQ(h.bus->program_status().state,"waiting_position") << h.bus->program_status().message;
+    h.port->frozen[2]=true;h.run(7000);EXPECT_TRUE(h.bus->snapshot().fault);
+    EXPECT_NE(h.bus->program_status().message.find("SYNC: dolot końcowy nieudany"),std::string::npos) << h.bus->program_status().message;
+  }
+}
+namespace {
+void set_position_integral(Rig &h,bool enabled) {
+  h.enabled_for_settings(false);
+  auto p=h.bus->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration;
+  const auto previous=p.revision;p.revision=enabled ? "integral-on" : "integral-off";p.position_integral=enabled;p.changed.fill(false);
+  if(!h.bus->configure(ConfigurationPhase::prepare,"integral",previous,p,h.now).accepted ||
+      !h.bus->configure(ConfigurationPhase::commit,"integral",previous,p,h.now).accepted ||
+      !h.bus->configure(ConfigurationPhase::finish,"integral",previous,p,h.now).accepted) throw std::runtime_error("integral-settings");
+  h.enabled_for_settings(true);
+}
+}
+TEST(PositionIntegral, ConfigurationOptionReachesF5TargetsAndCompensatesDriveOffset) {
+  std::array<std::int64_t,2> late{};
+  for(bool enabled:{false,true}) {
+    Rig h;h.ready();set_position_integral(h,enabled);
+    EXPECT_EQ(h.bus->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration.position_integral,enabled);
+    h.port->drive_offset[2]=200;  // napęd stale 200 impulsów przed celem F5 (≈0,44° przegubu)
+    h.execute(h.program(.2,2.));h.run(1500);
+    // Cel F5 J2 po ~1,5 s ruchu: z członem całkującym przesunięty w dół o narosłą korektę.
+    for(auto it=h.port->events.rbegin();it!=h.port->events.rend();++it) if(it->axis==2 && it->data[0]==0xf5) {
+      const auto raw=(std::uint32_t(it->data[4])<<16)|(std::uint32_t(it->data[5])<<8)|it->data[6];
+      late[enabled]=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : static_cast<std::int32_t>(raw);break;
+    }
+    h.run(3000);EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  }
+  EXPECT_LT(late[1],late[0]-100) << "korekta ~200 impulsów w stronę zmniejszenia celu";
+}

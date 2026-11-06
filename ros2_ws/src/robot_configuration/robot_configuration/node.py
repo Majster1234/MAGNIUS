@@ -17,7 +17,7 @@ from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 from std_msgs.msg import String
 from robot_control_interfaces.msg import JointConfiguration, RobotConfiguration, ManualState, MotionSettings
 from robot_control_interfaces.srv import ConfigurationCommand, ConfigureRobot
-from .schema import profiles, validate, CRITICAL_FAULT_POLICY, DISPATCH_MODE
+from .schema import profiles, validate, CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL
 from .storage import Storage, decode
 from .coordinator import Coordinator, Conflict
 
@@ -56,6 +56,7 @@ class RosTransport:
         configuration = RobotConfiguration(revision=state['revision'])
         configuration.ptp_lin_dispatch_mode = state['document']['values'].get(DISPATCH_MODE, 'streamed')
         configuration.disable_enable_on_critical_fault = state['document']['values'].get(CRITICAL_FAULT_POLICY, True)
+        configuration.position_integral = state['document']['values'].get(POSITION_INTEGRAL, False)
         configuration.axes = [JointConfiguration(**profile) for profile in profiles(state['document'])]
         configuration.changed = changed or [False] * 6
         if phase == 'bootstrap':
@@ -69,7 +70,7 @@ class RosTransport:
         resolved = result.resolved_configuration
         response['resolved_configuration'] = dict(revision=resolved.revision, calibration_invalid=list(resolved.calibration_invalid),
             disable_enable_on_critical_fault=resolved.disable_enable_on_critical_fault,
-            ptp_lin_dispatch_mode=resolved.ptp_lin_dispatch_mode,
+            ptp_lin_dispatch_mode=resolved.ptp_lin_dispatch_mode, position_integral=resolved.position_integral,
             axes=[{key: getattr(axis, key) for key in ('axis', 'configured', 'gear_ratio', 'direction', 'zero_offset_rad',
                   'lower_rad', 'upper_rad', 'velocity_rad_s', 'acceleration_rad_s2')} for axis in resolved.axes])
         return response
@@ -143,6 +144,7 @@ class ConfigurationNode(Node):
             self.active_publisher.publish(RobotConfiguration(revision=active['revision'],
                 ptp_lin_dispatch_mode=active['document']['values'].get(DISPATCH_MODE, 'streamed'),
                 disable_enable_on_critical_fault=active['document']['values'].get(CRITICAL_FAULT_POLICY, True),
+                position_integral=active['document']['values'].get(POSITION_INTEGRAL, False),
                 calibration_invalid=snapshot['calibration_invalid'],
                 tcp_jog_max_linear_velocity=(active['document']['values'].get('tcp.max_linear_velocity') or 0) / 1000,
                 tcp_jog_max_angular_velocity=math.radians(active['document']['values'].get('tcp.max_angular_velocity') or 0),

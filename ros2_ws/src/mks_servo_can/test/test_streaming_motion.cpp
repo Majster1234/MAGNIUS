@@ -183,3 +183,20 @@ TEST(Realtime, PriorityInheritanceMutexAndPriorityValidation) {
   EXPECT_NE(set_realtime_priority(worker,1000).find("poza zakresem"),std::string::npos);
   worker.join();
 }
+TEST(StreamingMath, PositionIntegralShiftsTargetOnlyDuringMotionAndIsLimited) {
+  auto a=axis();a.streaming.position_integral=true;a.streaming.integral_gain=2;a.streaming.integral_limit=.01;
+  StreamingState state;
+  // Stały uchyb 0,005 rad (oś za referencją): człon narasta 2·0,005·0,01 na cykl, aż do limitu 0,01 rad.
+  const auto first=streaming_setpoint(a,.1,0.,state,.095,16,0.,1.,0.);
+  EXPECT_NEAR(state.integral,1e-4,1e-12);
+  for(unsigned i=0;i<200;++i) (void)streaming_setpoint(a,.1,0.,state,.095,16,0.,1.,0.);
+  EXPECT_NEAR(state.integral,.01,1e-12);
+  const auto shifted=streaming_setpoint(a,.1,0.,state,.095,16,0.,1.,0.);
+  EXPECT_NEAR(shifted.lookahead_position,.11,1e-12);EXPECT_GT(shifted.ticks,first.ticks);
+  // remaining=0 (dolot, cel jawny): bez narastania i bez przesunięcia celu.
+  const auto final=streaming_setpoint(a,.1,0.,state,.095,16,0.,0.,0.,.1);
+  EXPECT_NEAR(final.lookahead_position,.1,1e-12);EXPECT_NEAR(state.integral,.01,1e-12);
+  // Wyłączona opcja: zachowanie jak dotąd.
+  auto off=axis();StreamingState plain;
+  EXPECT_NEAR(streaming_setpoint(off,.1,0.,plain,.095,16,0.,1.,0.).lookahead_position,.1,1e-12);EXPECT_EQ(plain.integral,0.);
+}
