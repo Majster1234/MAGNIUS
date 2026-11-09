@@ -543,3 +543,54 @@ def test_position_integral_defaults_off_is_strict_boolean_and_not_axis_change():
         enabled['values'][POSITION_INTEGRAL] = invalid
         with pytest.raises(ValueError, match='true albo false'):
             validate(enabled)
+
+
+def test_min_dither_defaults_to_mks_unit_validates_range_and_is_not_axis_change():
+    from robot_configuration.schema import MIN_DITHER_RPM, changed_axes
+    legacy = configured()
+    legacy['values'].pop(MIN_DITHER_RPM, None)
+    migrated = validate(legacy)
+    assert migrated['values'][MIN_DITHER_RPM] == 0.125
+    nulled = deepcopy(migrated)
+    nulled['values'][MIN_DITHER_RPM] = None
+    assert validate(nulled)['values'][MIN_DITHER_RPM] == 0.125
+    custom = deepcopy(migrated)
+    custom['values'][MIN_DITHER_RPM] = 0.5
+    assert validate(custom)['values'][MIN_DITHER_RPM] == 0.5
+    assert changed_axes(migrated, custom) == [False] * 6
+    for invalid in (0, -0.125, 10.5, float('nan')):
+        custom['values'][MIN_DITHER_RPM] = invalid
+        with pytest.raises(ValueError):
+            validate(custom)
+    custom['values'][MIN_DITHER_RPM] = 'x'
+    with pytest.raises(ValueError):
+        validate(custom)
+
+
+def test_f5_acceleration_optional_integer_range_and_resolution():
+    from robot_configuration.schema import F5_ACCELERATION, changed_axes
+    from robot_configuration.resolution import resolve
+    legacy = configured()
+    legacy['values'].pop(F5_ACCELERATION, None)
+    migrated = validate(legacy)
+    assert migrated['values'][F5_ACCELERATION] is None
+    custom = deepcopy(migrated)
+    custom['values'][F5_ACCELERATION] = 200.0
+    assert validate(custom)['values'][F5_ACCELERATION] == 200
+    assert changed_axes(migrated, custom) == [False] * 6
+    for invalid in (0, 256, -1, 12.5, float('nan'), 'x', True):
+        custom['values'][F5_ACCELERATION] = invalid
+        with pytest.raises(ValueError):
+            validate(custom)
+    document = empty_document()
+    previous = {'revision': 'before', 'document': document}
+    candidate = deepcopy(previous)
+    candidate['revision'] = 'after'
+    candidate['document']['values'][F5_ACCELERATION] = 135
+    response = {'resolved_configuration': {'revision': 'after', 'axes': profiles(document),
+                'calibration_invalid': [False] * 6, 'f5_acceleration_code': 0}}
+    with pytest.raises(RuntimeError, match='przyspieszenia F5'):
+        resolve(previous, candidate, response)
+    response['resolved_configuration']['f5_acceleration_code'] = 135
+    resolved, _ = resolve(previous, candidate, response)
+    assert resolved['document']['values'][F5_ACCELERATION] == 135

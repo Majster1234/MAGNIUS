@@ -118,7 +118,8 @@ TEST(BusManager, CompleteScanDetectsOnlyResponsesAndDoesNotMove) {
   EXPECT_LT(snapshot.devices[6].rtt.maximum, 2.0);
 }
 TEST(BusManager, ShaftTraceContainsEachAcceptedEncoderAndDoesNotDuplicateCache) {
-  Harness h;h.ready();std::array<ShaftPositionSample,4096> out;
+  // Skokowa zmiana pozycji wszystkich wałów to artefakt testu śladu, nie ruch napędu.
+  auto c=configured();c.hold_supervision=false;Harness h(c);h.ready();std::array<ShaftPositionSample,4096> out;
   h.manager->drain_shaft_trace(out.data(),out.size());
   const auto before=h.bus->position_requests;
   for(unsigned axis=1;axis<=6;++axis) h.bus->positions[axis]=-123*static_cast<std::int64_t>(axis);

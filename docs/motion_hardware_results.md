@@ -740,3 +740,28 @@ rozróżnić w diagnostyce odbiór F6=05 od zatrzymania. Osobno zbadać skokowy
 przebieg pozycji. Dopiero wtedy rozważać przeniesienie przetestowanych nastaw
 2,5 ms / 19 ms do wykonawcy i odbiór kolejnych osi; pojedyncza udana próba
 nie wyznacza maksymalnych opóźnień ani bezpiecznych nastaw całego robota.
+
+## 08.11.2026 — ucieczka J2 (napęd jedzie przeciwnie do celu F5)
+
+Zdarzenia (tryb `synchronized`, LIN 400 mm 40 mm/s powrotny z testu jakości TCP, wały rozsprzęglone):
+1. 13:39:58, acc 241, Kp 2,5 — na końcu trajektorii (cel F5 0°, pomiar −0,28°) J2 ruszył w dół; korekty dolotu
+   (+1,1° → +30°, limit osi) bez skutku, wał do −50,3°; awaria „dolot końcowy nieudany” po 5 s.
+2. 15:19:50, acc 254, Kp 4 — w trakcie trajektorii (t≈10 s, ok. 3 s po zmianie kierunku J2, pomiar −9,69°,
+   prędkość +1,8 °/s, cel F5 0,13–0,33° przed pomiarem) J2 zawrócił i przyspieszał w dół; regulator zwiększał
+   prędkość F5 do maksimum (dodatnie sprzężenie), uchyb 15° w trakcie ruchu bez awarii (SYNC bez nadzoru
+   uchybu śledzenia), awaria dopiero po 5 s dolotu (−63,7°). Po korektach (cel +30°) wał zatrzymywał się
+   przy −54,4°, czyli jakby cel napędu był przesunięty o ~84° przegubu (zdarzenie 1: ~80°).
+
+Komendy F5 (cel, prędkość, odstęp 10 ms, ACK `f505`) były w obu przypadkach poprawne; stan F1=4 (ruch),
+odczyt `32` zamrożony (+4/−6 RPM). Próba odtworzenia (`scripts/j2_reversal_probe.py`,
+`log/j2_probe/20261108-152854`): 32 pary PTP+LIN 400 mm 40 mm/s przy acc 254/241/200/100 (po 8) — **0 ucieczek**,
+maks. uchyb J2 0,34–1,41°. „Epizody” zgłoszone przez detektor to opóźnienie w punktach zawracania
+(J1 58°, J6 101°, J2 −15°), nie ruch przeciwny do komendy. Częstość: 2 ucieczki na ~25 wykonań tego ruchu
+przy acc ≥ 241 w seriach testu jakości (oba jako ostatni ruch przebiegu po ~5 min pracy), 0/16 w próbie
+odtworzenia. Przyczyna niepotwierdzona; komendy z hosta wykluczone jako źródło.
+
+Dodatkowy trop (próba J2, acc 200, para 4 LIN, 15:40:49): J6 na ~0,3 s zatrzymał się (pomiar 74,2°, referencja
+−15 °/s), a potem jechał z prędkością referencji z trwałym przesunięciem 5–7° przez 6 s, mimo korekty Kp. Napęd
+dojeżdżający do celu F5 w układzie enkodera nadrobiłby stratę — wskazuje to na przesunięcie wewnętrznego układu
+F5 napędu względem `31` po chwilowym utknięciu wału (ten sam mechanizm co ucieczki J2, mniejsza skala).
+Od 08.11.2026 nadzór ucieczki odczytuje 39h w chwili wykrycia (`docs/synchronized_streaming.md`).

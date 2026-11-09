@@ -253,6 +253,17 @@ static Plan compute_impl(const Context &c,const std::vector<Pose> &targets,doubl
   if(!retimer.computeTimeStamps(trajectory,velocity_limits,acceleration_limits)) throw std::runtime_error("TOTG odrzucił drogę");
   moveit_msgs::msg::RobotTrajectory message; trajectory.getRobotTrajectoryMsg(message);
   auto output=message.joint_trajectory;
+  // TOTG (próbkowanie co cycle) dokłada punkt końcowy także wtedy, gdy czas trwania jest wielokrotnością cycle —
+  // dwa punkty o tym samym czasie odrzuca kompilator MKS („Nieciągły czas trajektorii”, regresja 07.11.2026).
+  // Zostaje późniejszy punkt (dokładny cel z prędkością końcową).
+  {
+    std::vector<trajectory_msgs::msg::JointTrajectoryPoint> unique;unique.reserve(output.points.size());
+    for(auto &point:output.points) {
+      if(!unique.empty() && seconds(point.time_from_start)<=seconds(unique.back().time_from_start)+1e-9) unique.back()=std::move(point);
+      else unique.push_back(std::move(point));
+    }
+    output.points=std::move(unique);
+  }
   // Ustalona kolejność kontraktu ROS i kompilatora MKS.
   std::vector<unsigned> order;
   for(unsigned i=0;i<6;++i) { const auto name="joint_"+std::to_string(i+1); auto it=std::find(output.joint_names.begin(),output.joint_names.end(),name); if(it==output.joint_names.end()) throw std::runtime_error("Brak osi w wyniku TOTG"); order.push_back(it-output.joint_names.begin()); }

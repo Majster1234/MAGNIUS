@@ -78,6 +78,8 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         profile.ptp_lin_dispatch_mode = req->configuration.ptp_lin_dispatch_mode;
         profile.disable_enable_on_critical_fault = req->configuration.disable_enable_on_critical_fault;
         profile.position_integral = req->configuration.position_integral;
+        profile.min_dither_rpm = req->configuration.min_dither_rpm;
+        profile.f5_acceleration_code = req->configuration.f5_acceleration_code;
         for (std::size_t i = 0; i < 6; ++i) {
           const auto &a = req->configuration.axes[i];
           if (a.axis != i + 1) { res->message = "Wymagane osie 1–6 w stałej kolejności"; return; }
@@ -93,6 +95,8 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         res->resolved_configuration.ptp_lin_dispatch_mode=resolved.ptp_lin_dispatch_mode;
         res->resolved_configuration.disable_enable_on_critical_fault=resolved.disable_enable_on_critical_fault;
         res->resolved_configuration.position_integral=resolved.position_integral;
+        res->resolved_configuration.min_dither_rpm=resolved.min_dither_rpm;
+        res->resolved_configuration.f5_acceleration_code=resolved.f5_acceleration_code;
         res->resolved_configuration.changed=resolved.changed;
         res->resolved_configuration.calibration_invalid=resolved.calibration_invalid;
         for(std::size_t i=0;i<6;++i) {
@@ -178,6 +182,29 @@ DiagnosticsNode::DiagnosticsNode(std::shared_ptr<mks_servo_can::BusRuntime> runt
         response->message = response->success ? "Zapis mikrokroku wysłany; potwierdzenie w ponownym odczycie 84h" :
             "Zapis odrzucony: wymagane ENABLE=0, brak sterowania, oś 1–6 i mikrokrok 16/32/64/128";
       });
+  // Kopie zapasowe nastaw MKS: pojedynczy odczyt/zapis z katalogu (blokady w CanBusManager). Osobna grupa
+  // wywołań: oczekiwanie na odpowiedź napędu (do 0,5 s) nie blokuje pozostałych usług węzła.
+  using DriveParameter=robot_control_interfaces::srv::DriveParameter;
+  drive_parameter_group_=create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  drive_parameter_ = create_service<DriveParameter>("/robot/can/drive_parameter",
+      [this](std::shared_ptr<DriveParameter::Request> request, std::shared_ptr<DriveParameter::Response> response) {
+        if (resetting_) {response->message="Reset CAN w toku";return;}
+        if (request->operation>DriveParameter::Request::WRITE) {response->message="Nieznana operacja";return;}
+        std::string reason;
+        const auto id=runtime_->submit_parameter_job(request->address,request->code,request->sub,
+            request->operation==DriveParameter::Request::WRITE,request->value,reason);
+        if(!id) {response->message="Odrzucone: "+reason;return;}
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(500);
+        while(std::chrono::steady_clock::now()<deadline) {
+          const auto result=runtime_->parameter_job(id);
+          if(result.done) {
+            response->success=result.success;response->supported=result.supported;
+            response->message=result.message;response->value=result.value;return;
+          }
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        response->message="Przekroczony czas oczekiwania na wynik operacji na nastawie";
+      }, rmw_qos_profile_services_default, drive_parameter_group_);
   reset_ = create_service<std_srvs::srv::Trigger>("/robot/can/reset",
       [this](std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
         if (resetting_ || !runtime_->reset_allowed() || config_.interface != "can0") {

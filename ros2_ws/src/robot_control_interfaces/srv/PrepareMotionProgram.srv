@@ -1,6 +1,8 @@
 CartesianPlan plan
 string settings_revision
 uint64 issued_monotonic_ns
+# Jawna maska osi (bit j = J(j+1)); 0 = wszystkie wykryte. Osie spoza maski nie są komendowane ani sprawdzane.
+uint8 participation_mask 0
 ---
 bool accepted
 string message

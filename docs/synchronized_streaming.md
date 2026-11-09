@@ -110,6 +110,20 @@ przy 1 Mbit/s: dotychczasowe 26,58% + ACK 5,10% + SYNC 0,75% = **32,43%**.
 To rezerwacja modelowa, nie pomiar przewodu. Nadal obowiązuje 40% dla robota,
 20 punktów rezerwy i 60% łącznie; sześć osi przy 500 kbit/s jest odrzucane.
 
+Od 08.11.2026 rezerwa ruchu obowiązkowego w oknie 10 ms (`mandatory_cycle_bits`) w programie SYNC wynosi
+na oś F5 + ACK + zapytanie i odpowiedź pozycji oraz jedną ramkę SYNC (6 osi: 2655 bitów). Wcześniej
+liczono ją jak dla streamingu (2070 bitów), więc zapytania diagnostyczne mogły zająć do ~600 bitów
+przeznaczonych na zestaw. Na sprzęcie (test jakości TCP, PTP 100 mm 5 mm/s, cykl 1856) skończyło się to
+awarią „SYNC: brak budżetu całego zestawu przed wysyłaniem”. Teraz diagnostyka w tle dostaje najwyżej
+4000 − 2655 = 1345 bitów na okno.
+
+To nie wystarczyło: awaria wróciła w cyklu 3 programu (13:28, test jakości TCP). Rzeczywiste obciążenie
+wynosiło ok. 3135 bitów na 10 ms (31%), ale okno budżetu biegło według zegara cyklu, niezależnie od zestawów
+SYNC. Gdy przygotowanie zestawu wypadało pod koniec okna, w jednym oknie liczyły się dwa zestawy. Od
+08.11.2026 w fazie zestawów (`CanBusManager::sync_batch_window`) okno budżetu zaczyna się przy przygotowaniu
+każdego zestawu, a zegar cyklu go nie zeruje. Jedno okno to zestaw, jego odczyty pozycji i diagnostyka
+ograniczona rezerwą powyżej. Dolot końcowy i pozostałe źródła ruchu nadal korzystają z okien zegarowych.
+
 Od 04.11.2026 — **dolot końcowy SYNC**: po ostatnim zestawie, gdy oś jest poza `execution_position_tolerance_rad`,
 po 300 ms i dalej co 200 ms wykonawca wysyła zestaw korekcyjny przez ten sam mechanizm ACK → SYNC (cel osi
 += cel − pomiar, jak `final_approach` trybu streamed; `synchronized_final_approach`, zdarzenia
@@ -215,3 +229,20 @@ sudo systemctl restart robot-web-status.service
 
 Następnie Ctrl+F5. Domyślny tryb starych konfiguracji pozostaje streamed.
 W tym etapie nie wykonywano restartu, resetu CAN, zmiany ENABLE ani ruchu sprzętu.
+
+## Nadzór ucieczki osi (08.11.2026)
+
+Po dwóch zdarzeniach, w których napęd J2 jechał wbrew celowi F5 (`docs/motion_hardware_results.md`), program SYNC
+sprawdza w każdym cyklu, przy każdym nowym pomiarze osi (`CanBusManager::runaway_check`):
+- twardy limit uchybu śledzenia **4°** przegubu (`kRunawayTrackingLimitRad`; normalnie ≤ 1,2° przy acc ≥ 241);
+- **ruch przeciwny do kierunku referencji**: uchyb > 1,5°, oś w 200 ms przesunęła się o > 0,3° przeciwnie do ruchu
+  referencji (przy stojącej referencji: od niej), bez hamowania (druga połowa okna ≥ pierwsza) i przy rosnącym uchybie.
+  Opóźnienie przy zawracaniu hamuje, a wyprzedzanie referencji w kierunku ruchu nie jest ruchem przeciwnym
+  (bez fałszywych alarmów na nagraniach 64 ruchów próby J2 i serii nastaw);
+- w dolocie końcowym: |uchyb| > 1° rosnący o > 0,2° w dwóch kolejnych korektach (zamiast czekać 5 s).
+
+Wykrycie wstrzymuje nowe zestawy F5, wysyła odczyt **39h** (błąd kąta napędu: cel napędu − enkoder) i po odpowiedzi
+lub 40 ms zgłasza awarię krytyczną z jego wartością w komunikacie, np. „J2: ucieczka osi — oś jedzie przeciwnie do
+referencji (…); błąd kąta napędu (39h): X° wału = Y° przegubu”. Zdarzenia trace: `runaway_detected`, `runaway_fault`.
+Duży błąd kąta potwierdzi hipotezę przesunięcia wewnętrznego układu F5 napędu względem enkodera `31`.
+Nadzór dotyczy programów PTP/LIN w trybie `synchronized`; tryb streamed i JOG TCP bez zmian.

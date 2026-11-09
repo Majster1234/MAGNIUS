@@ -17,6 +17,7 @@
 #include "mks_servo_can/motion_timing.hpp"
 #include "mks_servo_can/shaft_trace.hpp"
 #include "mks_servo_can/streaming_motion.hpp"
+#include "mks_servo_can/drive_parameters.hpp"
 
 namespace mks_servo_can {
 class ManualMotorController;
@@ -106,6 +107,9 @@ struct BusConfig {
   // SCHED_FIFO wątków IO i RX CAN (0 = zwykły planista). Wymaga LimitRTPRIO w usłudze systemd.
   int io_realtime_priority{0};
   double utilization_limit{0.5};
+  // Nadzór postoju (awaria krytyczna przy ruchu osi z ENABLE=1 bez komendy). Wyłączany tylko w testach,
+  // które skokowo przestawiają pozycję emulowanego wału.
+  bool hold_supervision{true};
   bool motion_enabled{false};
   bool commissioning_verified{false};
   bool synchronization_verified{false};
@@ -153,6 +157,15 @@ struct ControlState {
 
 // Wszystkie metody silnika wywołuje jeden wątek właściciela. Czas jest wstrzykiwany
 // do testów deterministycznych, bez ROS, USB ani sleep().
+// Regulator wykonania (wspólny dla osi): wyprzedzenie celu F5, feed-forward, Kp, człon całkujący.
+struct ExecutionTuning {
+  double lookahead_time_sec{}, velocity_ff_scale{}, position_kp{}, integral_gain{}, integral_limit{};
+  // Testowe nadpisanie kodu acc ramek F5 (0–255, 0 = bez rampy); -1 = bez nadpisania (konfiguracja / plik).
+  int acceleration_code{-1};
+};
+// Zakresy zgodne z walidacją parametrów startowych (program_api.cpp) i streaming_setpoint.
+std::string validate_execution_tuning(const ExecutionTuning &tuning);
+
 class CanBusManager {
  public:
   using TimeSource = std::function<Time()>;
@@ -185,6 +198,17 @@ class CanBusManager {
   // Zapis mikrokroku (84h) jednej osi: tylko bez sterowania i przy potwierdzonym ENABLE=0; 16/32/64/128
   // (256 = bajt 0 jest niejednoznaczny w odczycie). Po statusie 1 mikrokrok jest odczytywany ponownie.
   bool request_microstep(unsigned axis,std::uint16_t microstep,Time now);
+  // Pojedynczy odczyt/zapis nastawy z katalogu drive_parameters (kopie zapasowe nastaw napędów).
+  // Zapis: tylko bez sterowania, awarii, skanu, operacji ręcznej i zapisu konfiguracji, przy potwierdzonym ENABLE=0 osi.
+  struct ParameterJobResult {
+    std::uint64_t id{};
+    bool done{}, success{}, supported{};
+    std::string message;
+    std::vector<std::uint8_t> value;
+  };
+  std::uint64_t submit_parameter_job(std::uint16_t address,std::uint8_t code,int sub,bool write,
+      const std::vector<std::uint8_t> &value,Time now,std::string &reason);
+  ParameterJobResult parameter_job(std::uint64_t id) const;
   TcpStreamingSnapshot tcp_streaming_snapshot() const;
   bool submit(const CommandBatch &batch);
   void renew_source_lease(Source source, Time now);
@@ -200,6 +224,9 @@ class CanBusManager {
   static std::int32_t joint_to_position(const AxisConfig &axis, double position);
   void configure_program_authorization(const BusConfig &authorization);
   void update_motion_model(const std::string &model);
+  // Nastawy regulatora wykonania PTP/LIN i JOG TCP zmieniane w locie (testy jakości ruchu, parametry ROS).
+  // Tylko bez aktywnego sterowania; przygotowany program jest unieważniany. false + powód przy odmowie.
+  bool set_execution_tuning(const ExecutionTuning &tuning, std::string &reason);
   void update_motion_settings(const std::string &revision, bool allow_missing, Time now);
   MotionProgramStatus prepare_program(PreparedMotionProgram program, Time now);
   bool execute_program(const std::string &id, const std::string &key, Time now);
@@ -231,7 +258,8 @@ class CanBusManager {
   std::array<std::uint32_t,6> shaft_command_flags_{}, shaft_rpm_flags_{};
   std::array<Time,6> shaft_command_stamps_{};
   enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, watchdog,
-    work_current, pid_kp_ki, pid_kd_kv, angle_error, microstep_write, manual, program_setup, recovery };
+    work_current, pid_kp_ki, pid_kd_kv, angle_error, microstep_write, manual, program_setup, recovery,
+    parameter_read, parameter_write };
   struct Pending {
     bool used{false};
     std::uint16_t address{};
@@ -280,6 +308,26 @@ class CanBusManager {
   bool feedback_good(Time now) const;
   std::string feedback_failure_reason(Time now) const;
   void schedule_feedback(Time now);
+  // Nadzór postoju: oś z ENABLE=1 bez aktywnego źródła ruchu nie może odjechać od pozycji zakotwiczonej
+  // po zakończeniu ruchu (np. napęd MKS wykonujący zapamiętaną, starą komendę F5) — inaczej awaria krytyczna.
+  void supervise_hold(Time now);
+  struct ParameterJob {
+    std::uint64_t id{};
+    std::uint16_t address{};
+    const DriveParameterSpec *spec{};
+    bool write{}, in_flight{};
+    unsigned attempts{};
+    std::vector<std::uint8_t> value;
+  };
+  std::optional<ParameterJob> parameter_job_;
+  ParameterJobResult parameter_last_{};
+  std::uint64_t parameter_next_id_{1};
+  std::string parameter_block_reason(std::uint16_t address,bool write,Time now,std::uint8_t code) const;
+  void schedule_parameter_job(Time now);
+  void finish_parameter_job(bool success,bool supported,const std::string &message,std::vector<std::uint8_t> value={});
+  bool decode_parameter(const Pending &p,const Frame &frame);
+  std::array<bool,kAxes> hold_valid_{};
+  std::array<std::int64_t,kAxes> hold_ticks_{};
   void schedule_background(Time now);
   void schedule_motion(Time now);
   void schedule_tcp_trajectory(Time now);
@@ -297,7 +345,11 @@ class CanBusManager {
   bool sync_ack_outstanding(std::uint16_t address) const;
   // Parametry F5 programu i JOG TCP z opcją korekcji całkującej z zatwierdzonego profilu robota.
   StreamingParameters program_streaming(unsigned joint) const {
-    auto s=config_.program_streaming[joint];s.position_integral=profile_.position_integral;return s;
+    auto s=config_.program_streaming[joint];s.position_integral=profile_.position_integral;
+    s.min_holding_rpm=profile_.min_dither_rpm;
+    if(profile_.f5_acceleration_code) s.acceleration=profile_.f5_acceleration_code;
+    if(tuning_acceleration_>=0) s.acceleration=static_cast<std::uint8_t>(tuning_acceleration_);
+    return s;
   }
   // Przesuwa oś czasu SYNC tak, by termin wypadł w `due` (≤ kSyncMaxShift); inaczej awaria.
   bool sync_shift(Time due,Time now,const char *reason);
@@ -306,6 +358,23 @@ class CanBusManager {
   bool synchronized_reply(const Frame &frame,Time stamp);
   void synchronized_confirmation(const Frame &frame,Time now);
   bool synchronized_query_window(Time now) const;
+  // Faza wysyłania zestawów SYNC (okno budżetu wyrównane do przygotowania zestawu).
+  bool sync_batch_window() const;
+  int tuning_acceleration_{-1};
+  // Nadzór ucieczki osi w programie SYNC: twardy limit uchybu śledzenia, ruch przeciwny do referencji bez hamowania,
+  // narastający uchyb w kolejnych korektach dolotu. Wykrycie → odczyt 39h (błąd kąta napędu) → awaria krytyczna.
+  struct RunawayProbe { bool active{}, sent{}; unsigned joint{}; Time started{}, deadline{}; std::string message; };
+  RunawayProbe runaway_{};
+  std::array<std::array<double,21>,kAxes> guard_meas_{}, guard_ref_{};
+  std::array<unsigned,kAxes> guard_count_{};
+  std::array<Time,kAxes> guard_stamp_{};
+  std::array<double,kAxes> final_prev_error_{};
+  std::array<unsigned,kAxes> final_growth_{};
+  void reset_runaway_guard();
+  void runaway_check(unsigned joint,double reference,double measured,Time stamp,Time now);
+  void runaway_detected(unsigned joint,const std::string &why,Time now);
+  // true: trwa odczyt diagnostyczny po wykryciu — bez nowych zestawów F5.
+  bool runaway_pending(Time now);
   bool sync_recovery_required_{};
   bool unverified_sync_buffer_{};
   std::array<StreamingState,kAxes> staged_streaming_states_{};

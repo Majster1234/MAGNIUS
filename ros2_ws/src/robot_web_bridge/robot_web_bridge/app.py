@@ -189,6 +189,21 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
         return await configuration_call('apply', document=data.get('document'), expected_revision=data.get('expected_revision'),
                                         confirm_calibration_axes=data.get('confirm_calibration_axes', []))
 
+    # Kopie zapasowe nastaw sterowników MKS (kontenery base / pre_test / test w robot_configuration).
+    @app.get('/api/v1/drive-backup')
+    async def drive_backup_status():
+        return await configuration_call('drive_backup_status')
+
+    @app.post('/api/v1/drive-backup/operations')
+    async def drive_backup_operation(request: Request):
+        data = await configuration_body(request)
+        return await configuration_call('drive_backup_start', **{key: data[key] for key in ('action', 'source', 'axes', 'kind') if key in data})
+
+    @app.put('/api/v1/drive-backup/test')
+    async def drive_backup_test(request: Request):
+        data = await configuration_body(request)
+        return await configuration_call('drive_backup_test_set', axes=data.get('axes'))
+
     @app.post('/api/v1/configuration/reconcile')
     async def configuration_reconcile():
         return await configuration_call('reconcile')

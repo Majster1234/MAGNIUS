@@ -307,7 +307,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         } finally { setPending(false); setResettingCan(false); }
     }
     async function operation(axis: number, name: "enable" | "zero", enabled?: boolean) {
-        if (planningMode.current || physicalTcp.current?.busy || latestState.current?.tcp_jog?.busy) return;
+        // ENABLE wolno przełączać także w trybie planowania (plan jest lokalny i zostaje); zerowanie wału — tylko poza nim.
+        if ((planningMode.current && name !== "enable") || physicalTcp.current?.busy || latestState.current?.tcp_jog?.busy) return;
         control.current?.stop(); setPending(true);
         try {
             const result = await fetch(`/api/v1/manual/axes/${axis}/${name}`, {
@@ -322,7 +323,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     }
     async function allEnable(enabled: boolean) {
         const blockedByMotion=latestState.current?.busy && !(latestState.current?.fault && !enabled);
-        if(planningMode.current || pending || physicalTcp.current?.busy || blockedByMotion || !fresh || !connected) return;
+        if(pending || physicalTcp.current?.busy || blockedByMotion || !fresh || !connected) return;
         control.current?.stop();setPending(true);
         try {
             const response=await fetch('/api/v1/manual/enable-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
@@ -418,8 +419,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         <header className="manual-header">
             <h1>Sterowanie ręczne</h1>
             <div className="manual-enable-all" role="group" aria-label="ENABLE wszystkich napędów">
-                <button className="secondary-button" disabled={planning || !usable || pending || !!state?.busy || !!state?.fault || recovering || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(true)}>Załącz wszystkie</button>
-                <button className="secondary-button" disabled={planning || !usable || pending || physicalTcpBusy || (!state?.fault && (!!state?.busy || recovering)) || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(false)}>Wyłącz wszystkie</button>
+                <button className="secondary-button" disabled={!usable || pending || !!state?.busy || !!state?.fault || recovering || physicalTcpBusy || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(true)}>Załącz wszystkie</button>
+                <button className="secondary-button" disabled={!usable || pending || physicalTcpBusy || (!state?.fault && (!!state?.busy || recovering)) || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(false)}>Wyłącz wszystkie</button>
             </div>
             <span className="manual-mode"><span aria-hidden="true" />{planning ? "PLANOWANIE · bliźniak" : "LIVE · robot fizyczny"}</span>
             <button className="motion-stop" disabled={!stopRobot && !physicalTcpBusy && !state?.tcp_jog?.busy} onClick={()=>{if(stopRobot){physicalTcp.current?.stop();stopRobot();}else physicalTcp.current?.stop(true);}} title="Żądanie STOP robota; postój wymaga potwierdzenia pomiarami">STOP robota</button>
@@ -444,8 +445,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                     <AxisPosition axis={axis} usable={usable} planning={planning} plannedPosition={plan.positions[axis.axis - 1]} planAvailable={plan.available[axis.axis - 1]}/>{arrow(axis, 1)}</div></td>
                 <td><span className={`motion-indicator ${!planning && usable && axis.motion === "w prędkości" ? "moving" : planning && plan.activeAxis === axis.axis ? "moving" : ""}`} aria-live="polite">{planning ? "bliźniak" : usable ? axis.motion ?? "stan nieznany" : "stan nieznany"}</span></td>
                 <td className="manual-drive"><span className={`badge ${usable && axis.enable_known ? axis.enabled ? "ok" : "warn" : "stale"}`}>{usable && axis.enable_known ? axis.enabled ? "Włączony" : "Wyłączony" : "Nieznany"}</span>
-                    <div className="manual-enable"><button className="secondary-button" disabled={planning || !usable || !axis.available || state?.busy || state?.fault || recovering || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
-                    <button className="secondary-button" disabled={planning || !usable || !axis.available || pending || (!state?.fault && state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
+                    <div className="manual-enable"><button className="secondary-button" disabled={!usable || !axis.available || state?.busy || state?.fault || recovering || pending || (axis.enable_known && axis.enabled && axis.prepared)} onClick={() => operation(axis.axis, "enable", true)}>Załącz</button>
+                    <button className="secondary-button" disabled={!usable || !axis.available || pending || (!state?.fault && state?.busy && !(state.active_axis === axis.axis && (state.operation === "jog" || state.operation === "stopping")))} onClick={() => operation(axis.axis, "enable", false)}>Wyłącz</button></div></td>
                 <td><button className="zero-button" title={calibrationRepair(axis) ?? "Zeruje enkoder wału; wymaga ponownego zatwierdzenia offsetu skonfigurowanego przegubu"} disabled={planning || !usable || !axis.can_zero || state?.fault || recovering || pending} onClick={() => operation(axis.axis, "zero")}>{axis.joint_configured ? "Zeruj wał" : "Ustaw zero"}</button></td>
                 <td>{jogSpeed(axis)}</td>
             </tr>)}
@@ -461,7 +462,9 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                     liveStatus={state?.tcp_jog} busy={!planning && (physicalTcpBusy || !!state?.tcp_jog?.busy)}
                     missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} onNotice={notice} onCondition={condition}/></div>
             <div className="manual-dock-pane motion-workflow" role="tabpanel" id="manual-pane-motion" aria-labelledby="manual-tab-motion" aria-label="Ruch PTP i LIN" hidden={dockTab !== "motion"}>
-                <MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onExecuteRequest={restartMotionPreview} onStatus={setExecution} onNotice={notice} onCondition={condition} onStopReady={registerStop}>
+                <MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onExecuteRequest={restartMotionPreview} onStatus={setExecution} onNotice={notice} onCondition={condition} onStopReady={registerStop}
+                    enableWarning={planning ? {axes: axes.filter(a => a.available && (!a.enable_known || !a.enabled)).map(a => `J${a.axis}`),
+                        canEnable: usable && !pending && !state?.busy && !state?.fault && !recovering && !physicalTcpBusy, onEnableAll: () => void allEnable(true)} : undefined}>
                     <div className="motion-plan-area">{planning ? <CartesianPlanning positions={plan.positions} context={context} editing={plan.activeAxis !== 0 || !!tcpHeld} usable={connected && modelReady && plan.ready && !!context} onMotion={applyMotionPreview} onEditingReady={onEditingReady} beforePlanning={beforePlanning}
                         showMotionFrames={showMotionFrames} onShowMotionFrames={setShowMotionFrames} onPlanReady={receivePhysicalPlan} onPreparedPreview={registerPreparedPreview} onRestartReady={registerPreviewRestart} onNotice={notice} onCondition={condition}/> :
                         <p className="motion-locked">Cel i parametry PTP/LIN ustawia się w trybie Planowanie. Trwający program można obserwować i zatrzymać.</p>}</div>

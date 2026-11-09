@@ -1,5 +1,6 @@
 #include "mks_servo_can/bus_manager.hpp"
 #include "mks_servo_can/manual_motor_controller.hpp"
+#include "mks_servo_can/diagnostic_message.hpp"
 #include <cmath>
 #include <algorithm>
 #include <stdexcept>
@@ -35,6 +36,8 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
     auto candidate = profile;
     if(candidate.ptp_lin_dispatch_mode!="streamed" && candidate.ptp_lin_dispatch_mode!="synchronized")
       return result(false,"Nieprawidłowy tryb wysyłania PTP/LIN");
+    if(!std::isfinite(candidate.min_dither_rpm) || candidate.min_dither_rpm<=0 || candidate.min_dither_rpm>kMaxMinDitherRpm)
+      return result(false,"Minimalny dithering poza zakresem (0; "+diagnostic_number(kMaxMinDitherRpm)+"] RPM wału");
     if(!bootstrap && candidate.ptp_lin_dispatch_mode!=profile_.ptp_lin_dispatch_mode) {
       for(unsigned j=0;j<kAxes;++j) if(devices_[j+1].detected &&
           !manual_->dispatch_stopped(j+1,now))
@@ -91,6 +94,7 @@ ConfigurationResult CanBusManager::configure(ConfigurationPhase phase, const std
           joint_to_position(axis,axis.lower);joint_to_position(axis,axis.upper);
           const auto rpm=axis.max_velocity*axis.gear_ratio*60/(2*std::acos(-1.));
           if(rpm<1 || rpm>3000) throw std::invalid_argument("Prędkość osi poza zakresem MKS 1–3000 RPM");
+          if(candidate.min_dither_rpm>rpm) throw std::invalid_argument("Minimalny dithering przekracza limit prędkości osi");
           if(!bootstrap && live && !candidate.calibration_invalid[i]) {
             const auto q=position_to_joint(axis,device.position.value);
             if(q<a.lower || q>a.upper) throw std::invalid_argument("Bieżący kąt poza nowymi limitami");

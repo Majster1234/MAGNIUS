@@ -311,3 +311,20 @@ TEST(PhysicalMotion, RequiresLinFeedAndRejectsInvalidContextBranchAndCancellatio
   EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},feed),std::runtime_error);
   target[0]=21;EXPECT_THROW(compute_physical_motion(c,target,1,codes,{}, {},feed),std::invalid_argument);
 }
+// Regresja 07.11.2026: krótki PTP jednej osi (J4 +2°, 10°/s, 50°/s²) — program fizyczny odrzucony
+// przez kompilator MKS: „Nieciągły czas trajektorii”. Czas punktów musi rosnąć ściśle.
+TEST(PhysicalPtp, ShortSingleAxisMoveHasStrictlyIncreasingTime) {
+  auto c=context();std::array<int64_t,6> codes;codes.fill(-1);
+  for(unsigned j=0;j<6;++j) c.profiles[j].configured=true;
+  c.seed={59.223*rad,8.453*rad,-21.175*rad,-40.669*rad,86.946*rad,128.241*rad};
+  c.lower={-171*rad,-200*rad,-196*rad,-180*rad,-100*rad,-180*rad};c.upper={171*rad,30*rad,57*rad,180*rad,100*rad,180*rad};
+  c.max_velocity.fill(10*rad);c.max_acceleration.fill(50*rad);
+  for(double step:{2.,-2.,8.,-8.,.5}) {
+    auto target=c.seed;target[3]+=step*rad;
+    const auto p=compute_physical_ptp(c,target,codes);
+    const auto &pts=p.trajectory.points;ASSERT_GE(pts.size(),2u);
+    for(std::size_t i=1;i<pts.size();++i)
+      ASSERT_GT(time_of(pts[i]),time_of(pts[i-1])) << "krok " << step << "°: punkt " << i << " t=" << time_of(pts[i]) << " poprzedni " << time_of(pts[i-1]);
+    EXPECT_NEAR(pts.back().positions[3],target[3],1e-9);
+  }
+}

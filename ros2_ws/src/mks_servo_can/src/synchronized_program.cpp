@@ -132,7 +132,7 @@ void CanBusManager::synchronized_confirmation(const Frame &frame,Time now) {
 void CanBusManager::synchronized_final_approach(Time now) {
   auto &e=executor_;auto &s=e.status;const auto &p=*e.program;
   if(e.staged || e.sync_waiting_confirmation) {schedule_synchronized_program(now);return;}
-  if(e.final_started==Time{}) {e.final_started=now;e.final_next=now+kFinalApproachDelay;e.final_command=p.target;}
+  if(e.final_started==Time{}) {e.final_started=now;e.final_next=now+kFinalApproachDelay;e.final_command=p.target;final_prev_error_.fill(-1);final_growth_.fill(0);}
   bool outside=false;std::string axes;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
     const auto &d=devices_[config_.axes[j].address];
@@ -141,12 +141,22 @@ void CanBusManager::synchronized_final_approach(Time now) {
     if(std::abs(error)>config_.program_position_tolerance[j]) {outside=true;axes+=" J"+std::to_string(j+1)+"="+diagnostic_number(error*180/std::acos(-1.))+"°";}
   }
   if(!outside) return;
+  e.settling_since={};  // korekcja dolotu: limit potwierdzenia postoju liczony od nowa
   if(now-e.final_started>=kFinalApproachTimeout) {
     fault("SYNC: dolot końcowy nieudany po "+std::to_string(kFinalApproachTimeout.count())+" ms; uchyb (cel − pomiar):"+axes+
         ", tolerancja ±"+diagnostic_number(config_.program_position_tolerance[0]*180/std::acos(-1.))+"°");return;
   }
   // Odpowiedź osi na zapytanie zderzyłaby się z F5 o tym samym ID: korekta po jej odebraniu.
   if(now<e.final_next || std::any_of(pending_.begin(),pending_.end(),[this](const Pending &q){return q.used && axis_index(q.address)<kAxes;})) return;
+  // Uchyb rosnący w kolejnych korektach (oś oddala się mimo korekty celu) — nie czekamy na limit 5 s.
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    const double error=std::abs(p.target[j]-position_to_joint(config_.axes[j],devices_[config_.axes[j].address].position.value));
+    final_growth_[j]=final_prev_error_[j]>=0 && error>final_prev_error_[j]+kRunawayFinalGrowthRad ? final_growth_[j]+1 : 0;
+    final_prev_error_[j]=error;
+    if(final_growth_[j]>=2 && error>kRunawayFinalMinRad) {
+      runaway_detected(j,"uchyb dolotu rośnie mimo korekt ("+diagnostic_number(error*180/std::acos(-1.))+"°)",now);return;
+    }
+  }
   unsigned count=0;for(bool yes:s.participating) count+=yes;
   const double cost=count*(can_frame_bits(8)+can_frame_bits(3))+can_frame_bits(2);
   const double budget=config_.bitrate*.01*std::min(kPlannedUtilization,config_.utilization_limit);
@@ -206,6 +216,8 @@ void CanBusManager::schedule_synchronized_program(Time now) {
   unsigned count=0;for(bool yes:s.participating) count+=yes;
   const double cost=count*(can_frame_bits(8)+can_frame_bits(3))+can_frame_bits(2);
   const double budget=config_.bitrate*.01*std::min(kPlannedUtilization,config_.utilization_limit);
+  // Nowe okno budżetu = jeden cykl SYNC: zestaw, jego odczyty pozycji i ograniczona diagnostyka (mandatory_cycle_bits).
+  if(sync_batch_window()) {spent_bits_=background_bits_=0;diagnostic_transactions_=0;}
   if(spent_bits_+cost>budget) {fault("SYNC: brak budżetu całego zestawu przed wysyłaniem");return;}
   const double phase=std::min(p.duration,e.frame*kStreamingCycleSeconds);
   e.staged_reference=program_reference(p,phase);
@@ -228,6 +240,8 @@ void CanBusManager::schedule_synchronized_program(Time now) {
       // Podstawienie do istniejącego regulatora zachowuje podpisany uchyb
       // q_ref(t_RX)-q_meas, bez ekstrapolowania pomiaru do przyszłego SYNC.
       equivalent=e.staged_reference.positions[j]-(at_measurement-feedback.value);
+      runaway_check(j,at_measurement,feedback.value,feedback.stamp,now);
+      if(runaway_.active) return;
       TraceEvent record;record.event="sync_feedback";record.axis=axis.address;
       record.request_ns=trace_ns(feedback.stamp);record.deadline_ns=trace_ns(e.due);
       record.position_age_ns=trace_ns(now)-trace_ns(feedback.stamp);
@@ -261,5 +275,56 @@ void CanBusManager::schedule_synchronized_program(Time now) {
   // Fazowanie diagnostyki odnosi się do najwcześniejszej wysyłki F5.
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) next_position_[config_.axes[j].address]={};
   motion_this_cycle_=true;
+}
+void CanBusManager::reset_runaway_guard() {
+  runaway_={};guard_count_.fill(0);guard_stamp_.fill(Time{});final_prev_error_.fill(-1);final_growth_.fill(0);
+}
+void CanBusManager::runaway_check(unsigned j,double reference,double measured,Time stamp,Time now) {
+  if(runaway_.active || stamp==guard_stamp_[j]) return;
+  guard_stamp_[j]=stamp;
+  auto &h=guard_meas_[j];auto &r=guard_ref_[j];const auto n=guard_count_[j]++;
+  h[n%h.size()]=measured;r[n%r.size()]=reference;
+  const double error=reference-measured;
+  if(std::abs(error)>kRunawayTrackingLimitRad) {
+    runaway_detected(j,"uchyb śledzenia "+diagnostic_number(error*180/std::acos(-1.))+"° > "+
+        diagnostic_number(kRunawayTrackingLimitRad*180/std::acos(-1.))+"°",now);return;
+  }
+  if(n<20 || std::abs(error)<=kRunawayReverseErrorRad) return;
+  // Próbki co cykl SYNC: 200 ms i 100 ms wstecz. Ruch przeciwny do kierunku referencji (przy postoju referencji:
+  // od referencji), bez hamowania i przy rosnącym uchybie = napęd jedzie wbrew komendzie. Opóźnienie przy zawracaniu
+  // hamuje (away2 < away1), a wyprzedzanie referencji w kierunku ruchu nie jest ruchem przeciwnym.
+  const double m0=h[(n-20)%h.size()],m10=h[(n-10)%h.size()],r0=r[(n-20)%r.size()];
+  const double reference_move=reference-r0;
+  const double sign=std::abs(reference_move)>kRunawayReferenceMoveRad ? (reference_move>0 ? 1. : -1.) : (error>0 ? 1. : -1.);
+  const double away1=-sign*(m10-m0),away2=-sign*(measured-m10);
+  if(away1>0 && away2>=away1 && away1+away2>kRunawayReverseMoveRad && std::abs(error)>std::abs(r0-m0))
+    runaway_detected(j,"oś jedzie przeciwnie do referencji (uchyb "+diagnostic_number(error*180/std::acos(-1.))+"°, oddalenie "+
+        diagnostic_number((away1+away2)*180/std::acos(-1.))+"° w 200 ms)",now);
+}
+void CanBusManager::runaway_detected(unsigned j,const std::string &why,Time now) {
+  if(runaway_.active) return;
+  const auto address=config_.axes[j].address;
+  runaway_.active=true;runaway_.sent=false;runaway_.joint=j;runaway_.started=now;runaway_.deadline=now+kRunawayProbeTimeout;
+  runaway_.message=axis_diagnostic_label(j+1,address)+": ucieczka osi — "+why;
+  devices_[address].angle_error.valid=false;
+  trace_note("runaway_detected",runaway_.message,address);
+  runaway_pending(now);
+}
+bool CanBusManager::runaway_pending(Time now) {
+  if(!runaway_.active) return false;
+  const auto j=runaway_.joint;const auto address=config_.axes[j].address;const auto &d=devices_[address];
+  if(!runaway_.sent && send_query(address,Kind::angle_error,now,true)) runaway_.sent=true;
+  const bool answered=d.angle_error.valid && d.angle_error.stamp>=runaway_.started;
+  if(!answered && now<runaway_.deadline) return true;
+  std::string detail;
+  if(answered) {
+    const double shaft=d.angle_error.value*360./51200.;
+    detail="; błąd kąta napędu (39h, cel napędu − enkoder): "+diagnostic_number(shaft)+"° wału = "+
+        diagnostic_number(shaft/std::abs(config_.axes[j].gear_ratio))+"° przegubu";
+  } else detail="; brak odczytu 39h w "+std::to_string(kRunawayProbeTimeout.count())+" ms";
+  const auto message=runaway_.message+detail;runaway_.active=false;
+  trace_note("runaway_fault",message,address);
+  fault(message,true);
+  return true;
 }
 }

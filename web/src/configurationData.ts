@@ -7,11 +7,18 @@ export const dispatchModeKey = "motion.ptp_lin_dispatch_mode";
 export const criticalFaultPolicyKey = "safety.disable_enable_on_critical_fault";
 // Człon całkujący celu F5 (korekcja stałego uchybu napędów w PTP/LIN i JOG TCP); domyślnie wyłączony.
 export const positionIntegralKey = "motion.position_integral";
+// Minimalna prędkość F5 / dolna granica ditheringu [RPM wału]; napęd zaokrągla w górę do jednostki MKS (0,125 RPM przy mikrokroku 128).
+export const minDitherKey = "motion.min_dither_rpm";
+export const minDitherDefault = 0.125, minDitherMax = 10;
+// Kod przyspieszenia MKS (acc 1–255) ramek F5 w PTP/LIN i JOG TCP, wspólny dla osi; puste = execution_acceleration_codes.
+export const f5AccelerationKey = "motion.f5_acceleration_code";
+// Ustawienia liczbowe dokumentu konfiguracji z wartością domyślną (puste pole = domyślna).
+const numberDefaults: Record<string, number> = {[minDitherKey]: minDitherDefault};
 // Ustawienia logiczne dokumentu konfiguracji i ich wartości domyślne.
 const booleanDefaults: Record<string, boolean> = {[criticalFaultPolicyKey]: true, [positionIntegralKey]: false};
-export const systemConfigurationKeys = [criticalFaultPolicyKey, dispatchModeKey, positionIntegralKey];
+export const systemConfigurationKeys = [criticalFaultPolicyKey, dispatchModeKey, positionIntegralKey, minDitherKey, f5AccelerationKey];
 export const configurationKeys = [...textKeys, "tool.mass", "tool.com_x", "tool.com_y", "tool.com_z", ...tcpKeys.map(key => `tool.${key}`),
-    ...Array.from({length: 6}, (_, i) => [...originKeys, ...controlKeys].map(key => `joint.${i + 1}.${key}`)).flat(), ...tcpMotionKeys.map(key => `tcp.${key}`), criticalFaultPolicyKey, dispatchModeKey, positionIntegralKey];
+    ...Array.from({length: 6}, (_, i) => [...originKeys, ...controlKeys].map(key => `joint.${i + 1}.${key}`)).flat(), ...tcpMotionKeys.map(key => `tcp.${key}`), criticalFaultPolicyKey, dispatchModeKey, positionIntegralKey, minDitherKey, f5AccelerationKey];
 export type Values = Record<string, number | string | boolean | null>;
 export type Draft = Record<string, string>;
 export type ConfigurationDocument = { schema_version: 1; units: "mm-deg-kg"; name: string; created_at: string; values: Values };
@@ -19,14 +26,15 @@ export type ConfigurationStatus = { active: { revision: string; document: Config
 export const demoTranslations = [[0, 0, 100], [0, 0, 100], [0, 0, 250], [220, 0, 0], [80, 0, 0], [60, 0, 0]];
 export const jointAxes = [[0, 0, 1], [0, 1, 0], [0, 1, 0], [1, 0, 0], [0, 1, 0], [1, 0, 0]];
 export function emptyDocument(): ConfigurationDocument {
-    return {schema_version: 1, units: "mm-deg-kg", name: "", created_at: new Date().toISOString(), values: {...Object.fromEntries(configurationKeys.map(key => [key, null])), [criticalFaultPolicyKey]:true, [dispatchModeKey]:"streamed", [positionIntegralKey]:false}};
+    return {schema_version: 1, units: "mm-deg-kg", name: "", created_at: new Date().toISOString(), values: {...Object.fromEntries(configurationKeys.map(key => [key, null])), [criticalFaultPolicyKey]:true, [dispatchModeKey]:"streamed", [positionIntegralKey]:false, [minDitherKey]:minDitherDefault}};
 }
 export function toDraft(document: ConfigurationDocument): Draft {
-    return Object.fromEntries(configurationKeys.map(key => [key, key===dispatchModeKey ? String(document.values[key] ?? "streamed") : key in booleanDefaults ? String(document.values[key] ?? booleanDefaults[key]) : document.values[key] == null ? "" : String(document.values[key])]));
+    return Object.fromEntries(configurationKeys.map(key => [key, key===dispatchModeKey ? String(document.values[key] ?? "streamed") : key in booleanDefaults ? String(document.values[key] ?? booleanDefaults[key]) : key in numberDefaults ? String(document.values[key] ?? numberDefaults[key]) : document.values[key] == null ? "" : String(document.values[key])]));
 }
 export function valueOf(key: string, value: string): number | string | boolean | null {
     if (key===dispatchModeKey) return value || "streamed";
     if (key in booleanDefaults) return value==="false" ? false : value==="true" ? true : !value.trim() ? booleanDefaults[key] : value;
+    if (key in numberDefaults) return value.trim() ? Number(value) : numberDefaults[key];
     if (!value.trim()) return null;
     return textKeys.includes(key) ? value.trim() : Number(value);
 }
@@ -50,6 +58,8 @@ export function fieldErrors(draft: Draft): Record<string, string> {
             if (key.startsWith("tcp.") && Number(value) <= 0) errors[key] = "Wartość musi być dodatnia";
             if (field === "direction" && value !== -1 && value !== 1) errors[key] = "Wybierz kierunek +1 albo −1";
             if (key === "tool.mass" && Number(value) < 0) errors[key] = "Masa nie może być ujemna";
+            if (key === minDitherKey && !(Number(value) > 0 && Number(value) <= minDitherMax)) errors[key] = `Wymagane RPM wału większe od 0 i nie większe niż ${minDitherMax}`;
+            if (key === f5AccelerationKey && !(Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 255)) errors[key] = "Wymagana liczba całkowita 1–255 albo puste pole (parametry wykonania)";
         }
     }
     for (const [v, a] of [["max_linear_velocity", "linear_acceleration"], ["max_angular_velocity", "angular_acceleration"]]) {
@@ -81,8 +91,8 @@ export function validateDocument(value: unknown): ConfigurationDocument {
     if (Object.keys(doc).some(key => !["schema_version", "units", "name", "created_at", "values"].includes(key)) || doc.schema_version !== 1 || doc.units !== "mm-deg-kg") throw Error("Nieobsługiwana wersja lub jednostki snapshotu");
     if (typeof doc.name !== "string" || doc.name.length > 80 || typeof doc.created_at !== "string" || !/([zZ]|[+-]\d\d:\d\d)$/.test(doc.created_at) || !Number.isFinite(Date.parse(doc.created_at))) throw Error("Nieprawidłowa nazwa lub data snapshotu");
     if (!doc.values || Array.isArray(doc.values) || Object.keys(doc.values).some(key => !configurationKeys.includes(key)) ||
-        configurationKeys.some(key => !(key in booleanDefaults) && key!==dispatchModeKey && !key.startsWith("tcp.") && !(key in doc.values))) throw Error("Nieprawidłowy zestaw pól snapshotu");
-    const values:Values = { ...Object.fromEntries(tcpMotionKeys.map(key => [`tcp.${key}`, null])), ...booleanDefaults, [dispatchModeKey]:"streamed", ...doc.values };
+        configurationKeys.some(key => !(key in booleanDefaults) && !(key in numberDefaults) && key!==dispatchModeKey && key!==f5AccelerationKey && !key.startsWith("tcp.") && !(key in doc.values))) throw Error("Nieprawidłowy zestaw pól snapshotu");
+    const values:Values = { ...Object.fromEntries(tcpMotionKeys.map(key => [`tcp.${key}`, null])), ...booleanDefaults, ...numberDefaults, [dispatchModeKey]:"streamed", [f5AccelerationKey]:null, ...doc.values };
     for (const key of configurationKeys) {
         const field = values[key];
         if (key===dispatchModeKey) {
@@ -99,7 +109,7 @@ export function validateDocument(value: unknown): ConfigurationDocument {
     return {...normalized, created_at: doc.created_at};
 }
 export function dirtyKeys(draft: Draft, baseline: ConfigurationDocument): Set<string> {
-    return new Set(configurationKeys.filter(key => valueOf(key, draft[key] ?? "") !== (baseline.values[key] ?? (key===dispatchModeKey ? "streamed" : key in booleanDefaults ? booleanDefaults[key] : null))));
+    return new Set(configurationKeys.filter(key => valueOf(key, draft[key] ?? "") !== (baseline.values[key] ?? (key===dispatchModeKey ? "streamed" : key in booleanDefaults ? booleanDefaults[key] : key in numberDefaults ? numberDefaults[key] : null))));
 }
 export function mergeAppliedDraft(current: Draft, submitted: Draft, applied: ConfigurationDocument): Draft {
     const resolved = toDraft(applied);

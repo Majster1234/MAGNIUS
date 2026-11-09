@@ -90,3 +90,33 @@ it("korekcja całkująca: domyślnie wyłączona, stary snapshot bez pola, zapis
     expect(dirtyKeys(draft,active)).toEqual(new Set([positionIntegralKey]));
     expect(systemConfigurationDocument(draft,active).values[positionIntegralKey]).toBe(true);
 });
+it("minimalny dithering: domyślnie 0,125 RPM, stary snapshot bez pola, walidacja zakresu, zapis w ustawieniach systemowych",async()=>{
+    const {systemConfigurationDocument,minDitherKey,systemConfigurationKeys,fieldErrors,validateDocument}=await import('./configurationData');
+    expect(systemConfigurationKeys).toContain(minDitherKey);
+    const active=emptyDocument();expect(active.values[minDitherKey]).toBe(0.125);
+    const legacy=emptyDocument();delete legacy.values[minDitherKey];
+    expect(validateDocument(legacy).values[minDitherKey]).toBe(0.125);
+    const draft=toDraft(active);expect(draft[minDitherKey]).toBe('0.125');
+    expect(dirtyKeys(draft,active)).toEqual(new Set());
+    draft[minDitherKey]='0.5';
+    expect(dirtyKeys(draft,active)).toEqual(new Set([minDitherKey]));
+    expect(systemConfigurationDocument(draft,active).values[minDitherKey]).toBe(0.5);
+    for(const bad of ['0','-1','10.5','abc']) {draft[minDitherKey]=bad;expect(fieldErrors(draft)[minDitherKey]).toBeTruthy();}
+    draft[minDitherKey]='';expect(fieldErrors(draft)[minDitherKey]).toBeUndefined();
+    expect(systemConfigurationDocument(draft,active).values[minDitherKey]).toBe(0.125);
+});
+it("przyspieszenie F5: puste = parametry wykonania, stary snapshot bez pola, liczba całkowita 1–255",async()=>{
+    const {systemConfigurationDocument,f5AccelerationKey,systemConfigurationKeys,fieldErrors,validateDocument}=await import('./configurationData');
+    expect(systemConfigurationKeys).toContain(f5AccelerationKey);
+    const active=emptyDocument();expect(active.values[f5AccelerationKey]).toBeNull();
+    const legacy=emptyDocument();delete legacy.values[f5AccelerationKey];
+    expect(validateDocument(legacy).values[f5AccelerationKey]).toBeNull();
+    const draft=toDraft(active);expect(draft[f5AccelerationKey]).toBe('');
+    expect(dirtyKeys(draft,active)).toEqual(new Set());
+    draft[f5AccelerationKey]='135';
+    expect(dirtyKeys(draft,active)).toEqual(new Set([f5AccelerationKey]));
+    expect(systemConfigurationDocument(draft,active).values[f5AccelerationKey]).toBe(135);
+    for(const bad of ['0','256','-1','12.5','abc']) {draft[f5AccelerationKey]=bad;expect(fieldErrors(draft)[f5AccelerationKey]).toBeTruthy();}
+    draft[f5AccelerationKey]='';expect(fieldErrors(draft)[f5AccelerationKey]).toBeUndefined();
+    expect(systemConfigurationDocument(draft,active).values[f5AccelerationKey]).toBeNull();
+});

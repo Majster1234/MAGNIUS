@@ -1195,6 +1195,9 @@ footer {
 .motion-workflow details > summary {cursor:pointer;color:#c4d5e5;font-size:11px;}
 .motion-workflow .physical-motion {margin:0;padding:12px;border-top:1px solid var(--border);gap:10px;font-size:11px;}
 .motion-prepare-actions {display:flex;flex-wrap:wrap;gap:6px;}.motion-prepare-actions button {flex:1 1 150px;min-height:32px;padding:6px 8px;font-size:11px;}
+.motion-enable-warning {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0;padding:6px 8px;border:1px solid var(--color-warn);border-radius:4px;font-size:11px;}
+.motion-enable-warning span {flex:1 1 200px;}
+.motion-enable-warning button {min-height:28px;padding:4px 10px;font-size:11px;}
 .motion-summary {min-width:0;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--background);font-size:11px;}
 .motion-summary > .badge {font-size:10px;}.motion-summary dl {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:8px 0;}
 .motion-summary dl div {min-width:0;}.motion-summary dt {color:var(--muted);font-size:10px;}.motion-summary dd {margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
@@ -1249,7 +1252,10 @@ footer {
 .system-setting-title > :first-child { font-size:12px; font-weight:500; line-height:1.6; cursor:pointer; }
 .system-setting-status { display:block; margin-top:5px; font-size:10px; color:var(--muted); }
 .system-setting-status.pending { color:var(--color-warn); }
-.system-setting-control { flex-shrink:0; }
+.system-setting-control { flex-shrink:0; display:flex; align-items:center; gap:6px; }
+.system-setting-number { width:84px; height:28px; padding:3px 6px; border:1px solid var(--border); border-radius:4px; background:var(--background); color:inherit; text-align:right; font:12px Consolas,monospace; }
+.system-setting-number[aria-invalid="true"] { border-color:var(--color-danger); }
+.system-setting-unit { font-size:11px; color:var(--muted); }
 .system-setting-switch { appearance:none; display:block; position:relative; width:40px; height:23px; margin:0; border:1px solid #536174; border-radius:20px; background:#283648; cursor:pointer; transition:background .15s,border-color .15s; }
 .system-setting-switch::before { content:""; position:absolute; left:3px; top:3px; width:15px; height:15px; border-radius:50%; background:#dbe5ef; transition:transform .15s; }
 .system-setting-switch:checked { background:var(--color-live); border-color:var(--color-live); }

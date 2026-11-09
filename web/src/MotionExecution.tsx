@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { validateCartesianPlan, type CartesianPlan } from "./cartesianTrajectory";
 import { planningRequest, PlanningRequestError } from "./planningContext";
-import { MOTION_STATUS_MAX_AGE_MS, motionReady, motionStateLabels, motionStatusFresh, type MotionObservation, type MotionStatus } from "./motionStatus";
+import { MOTION_STATUS_MAX_AGE_MS, describeExecutionTuning, motionReady, motionStateLabels, motionStatusFresh, type MotionObservation, type MotionStatus } from "./motionStatus";
 import type { Notice } from "./eventLog";
 
 type Props={planId:string|null;motionType:"PTP"|"LIN"|null;disabled:boolean;onPreview:(plan:CartesianPlan)=>void;onExecuteRequest?:()=>void;
     onStatus?:(value:MotionObservation|null)=>void;onNotice?:(value:Notice)=>void;
-    onCondition?:(key:string,value:Notice|null)=>void;onStopReady?:(action:(()=>void)|null)=>void;children?:ReactNode};
+    onCondition?:(key:string,value:Notice|null)=>void;onStopReady?:(action:(()=>void)|null)=>void;children?:ReactNode;
+    // Tryb planowania: osie z wyłączonym/nieznanym ENABLE i załączenie bez wychodzenia z planu.
+    enableWarning?:{axes:string[];canEnable:boolean;onEnableAll:()=>void}};
 // „Odtwarzacz” zakładki PTP/LIN: ▶ wykonuje zatwierdzony program, pasek pokazuje postęp i czas do końca, ■ wysyła STOP programu.
-export function MotionExecution({planId,motionType,disabled,onPreview,onExecuteRequest,onStatus,onNotice,onCondition,onStopReady,children}:Props) {
+export function MotionExecution({planId,motionType,disabled,onPreview,onExecuteRequest,onStatus,onNotice,onCondition,onStopReady,children,enableWarning}:Props) {
     const [status,setStatus]=useState<MotionStatus|null>(null),[preparing,setPreparing]=useState(false),[sending,setSending]=useState(false);
     const [confirmed,setConfirmed]=useState(false),[receivedAt,setReceivedAt]=useState(-Infinity),[clock,setClock]=useState(performance.now()),[connectionError,setConnectionError]=useState("");
     const [uncertain,setUncertain]=useState<{program:string;key:string}|null>(null);
@@ -58,6 +60,8 @@ export function MotionExecution({planId,motionType,disabled,onPreview,onExecuteR
             onCondition?.(`motion-${code}`,fresh && status?.state===code?{source:`motion-${code}`,severity:"warning",message:status.message,code,context:"Robot fizyczny"}:null);
         onCondition?.("motion-partial",status?.program_id && !status.tcp_verified?{source:"motion-partial",severity:"warning",code:"partial",title:status.motion_type==="LIN"?"Próba LIN — tor TCP nie jest potwierdzony":"Niepełny zestaw napędów programu",message:"Niepełny zestaw napędów programu.",description:`Ruch obejmuje wyłącznie osie: ${status.participating.map((yes,i)=>yes?`J${i+1}`:"").filter(Boolean).join(", ")}. Pozycja i osiągnięcie celu TCP nie są potwierdzone.`,context:"Robot fizyczny"}:null);
         if(fresh){onCondition?.("motion-failed",status?.state==="failed" && !stopAck.current && operatorStopped.current!==status.program_id?{source:"motion-failed",severity:"error",message:status.message,context:"Robot fizyczny",title:"Program został przerwany"}:null);
+        const tuning=describeExecutionTuning(status?.execution_tuning);
+        onCondition?.("motion-execution-tuning",tuning?{source:"motion-execution-tuning",severity:"warning",code:"tuning",title:"Testowe nastawy regulatora",message:tuning,context:"Robot fizyczny"}:null);
         onCondition?.("motion-invalidated",status?.state==="invalidated"?{source:"motion-invalidated",severity:"warning",message:status.message,code:"program",context:"Robot fizyczny"}:null);}
     },[fresh,status,onCondition]);
     async function prepare() {
@@ -123,6 +127,10 @@ export function MotionExecution({planId,motionType,disabled,onPreview,onExecuteR
             <button className="secondary-button motion-player-stop" aria-label="STOP programu" title="Żądanie STOP programu; postój wymaga potwierdzenia pomiarami" disabled={!status?.busy && !sending} onClick={()=>void stop()}>■</button>
         </div>
         {children}
+        {enableWarning && enableWarning.axes.length>0 && <div className="motion-enable-warning" role="status">
+            <span>ENABLE wyłączony: <b>{enableWarning.axes.join(", ")}</b>. Przygotowanie fizycznego ruchu wymaga ENABLE uczestniczących osi; plan pozostaje zachowany.</span>
+            <button className="secondary-button" disabled={!enableWarning.canEnable} onClick={enableWarning.onEnableAll}>Załącz wszystkie</button>
+        </div>}
         <div className="motion-prepare-actions">
             <button className="secondary-button" aria-label={`Podgląd przygotowanego ${selectedType}`} disabled={!ready} onClick={()=>void preview()}>Podgląd</button>
             <button className="secondary-button" aria-label={`Przygotuj ${selectedType} robota`} disabled={disabled || !fresh || !planId || !motionType || preparing || sending || !!uncertain || status?.busy} onClick={()=>void prepare()}>Przygotuj</button>

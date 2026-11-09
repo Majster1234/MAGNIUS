@@ -30,6 +30,7 @@ it("zatrzymuje się na limicie, blokuje zanik osi i synchronizuje później dost
     input.axes[1] = axis({axis: 2, position_degrees: 20}); plan.receive(input, 100); expect(plan.snapshot(100).positions[1]).toBe(20);
     plan.start(2, -1, 30, 100); input.axes[1].available = false; plan.receive(input, 120); expect(plan.activeAxis).toBe(0);
     input.axes[1].available = true; plan.receive(input, 140); expect(plan.activeAxis).toBe(0);
+    expect(plan.start(2, -1, 30, 140)).toBe(true) /* po powrocie napędu ruch planu wymaga nowego wciśnięcia */;
 });
 
 it("używa limitu przegubu i unieważnia plan", () => {
@@ -38,13 +39,15 @@ it("używa limitu przegubu i unieważnia plan", () => {
     expect(plan.snapshot(200).positions[0]).toBe(90); plan.invalidate(); expect(plan.ready).toBe(false); expect(plan.snapshot(200).positions[0]).toBeNull();
 });
 
-it("uwzględnia wiek enkodera i upływ czasu od odbioru, a świeża publikacja nie odmładza odczytu", () => {
+it("kopiowanie wymaga świeżego enkodera, ale ruch planu nie zależy od wieku późniejszych próbek", () => {
+    // Regresja 07.11.2026: przerwa w stanie (~150 ms) + wiek próbki (~70 ms) > 250 ms urywała ruch bliźniaka.
     const input = state({ position_age_seconds: .2 }), plan = begin(input);
-    expect(plan.start(1, 1, 10, 0)).toBe(true); plan.tick(49); expect(plan.activeAxis).toBe(1);
-    plan.tick(50); expect(plan.activeAxis).toBe(0); expect(plan.snapshot(50).available[0]).toBe(false);
-    input.axes[0].position_age_seconds = .25; plan.receive(input, 51); expect(plan.start(1, 1, 10, 51)).toBe(false);
-    input.axes[0].position_age_seconds = null; plan.receive(input, 52); expect(plan.start(1, 1, 10, 52)).toBe(false);
-    expect(plan.snapshot(600).available).toEqual(Array(6).fill(false));
+    expect(plan.start(1, 1, 10, 0)).toBe(true); plan.tick(49); plan.tick(50); plan.tick(99);
+    expect(plan.activeAxis).toBe(1); expect(plan.snapshot(99).available[0]).toBe(true);
+    input.axes[0].position_age_seconds = null; plan.receive(input, 120); plan.tick(140);
+    expect(plan.activeAxis).toBe(1); expect(plan.snapshot(600).available[0]).toBe(true);
+    const stale = state(); stale.axes.forEach(a => { a.position_age_seconds = .26; }); const late = new PlanningJog(); late.receive(stale, 0);
+    expect(late.begin(0)).toBe(false) /* nieświeży enkoder: brak kopii pozycji */;
 });
 
 it("powrót spoza limitu jest stopniowy i dostępny tylko do wewnątrz", () => {
@@ -53,11 +56,12 @@ it("powrót spoza limitu jest stopniowy i dostępny tylko do wewnątrz", () => {
     plan.tick(100); expect(plan.snapshot(100).positions[0]).toBe(3694);
 });
 
-it("odłączenie i luka animacji zatrzymują bez nadrabiania i bez samoczynnego wznowienia", () => {
+it("luka animacji jest pomijana bez nadrabiania, odłączenie zatrzymuje bez wznowienia", () => {
     const input = state(), plan = begin(input); plan.start(1, 1, 10, 0); plan.tick(101);
-    expect(plan.snapshot(101).positions[0]).toBe(10); expect(plan.activeAxis).toBe(0);
+    expect(plan.snapshot(101).positions[0]).toBe(10); expect(plan.activeAxis).toBe(1);
+    plan.tick(151); expect(plan.snapshot(151).positions[0]).toBeCloseTo(13) /* 50 ms × 10 obr./min wału = 3° */; plan.stop();
     plan.receive(input, 110); plan.start(1, 1, 10, 110); plan.disconnect(); plan.receive(input, 120);
-    expect(plan.activeAxis).toBe(0); expect(plan.snapshot(120).positions[0]).toBe(10);
+    expect(plan.activeAxis).toBe(0); expect(plan.snapshot(120).positions[0]).toBeCloseTo(13);
 });
 
 it("rewizja wymaga jawnego nowego początku, a zakończenie usuwa pozycje", () => {
@@ -86,4 +90,15 @@ it("ignorowanie napędów odblokowuje sześć osi z profilem, bez zmiany stanu s
     plan.configure({ ...context, ignore_missing_drivers: false, settings_revision: "next" }, 100);
     expect(plan.activeAxis).toBe(0); expect(plan.snapshot(100).positions[5]).toBeCloseTo(.2);
     expect(plan.start(6, 1, 1, 100)).toBe(false);
+});
+
+it("przejściowy brak kontekstu planowania nie przerywa ruchu bliźniaka", () => {
+    const input = state(), plan = begin(input);
+    const context: PreviewContext = { model_id: "m", configuration_revision: "a", settings_revision: "s", planner_available: true,
+        ignore_missing_drivers: false, available: Array(6).fill(true), preview_seed_degrees: Array(6).fill(0), seed_sources: Array(6).fill("measured"),
+        profiles: Array.from({ length: 6 }, () => ({ configured: false, lower: -10, upper: 10, velocity: 2 })) };
+    plan.configure(context, 0); expect(plan.start(1, 1, 10, 0)).toBe(true);
+    plan.configure(null, 50); plan.tick(50); expect(plan.activeAxis).toBe(1);
+    plan.configure(context, 100); plan.tick(100); expect(plan.activeAxis).toBe(1);
+    plan.configure({ ...context, settings_revision: "inna" }, 120); expect(plan.activeAxis).toBe(0);
 });

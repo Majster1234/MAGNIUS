@@ -24,7 +24,7 @@
     - 241
     - 241
     execution_use_ack: false
-    execution_lookahead_time_sec: 0.085
+    execution_lookahead_time_sec: 0.025
     execution_velocity_ff_scale: 1.0
     execution_min_holding_rpm: 1
     execution_max_rpm: 500
@@ -36,4 +36,4 @@
     - 0.008726646259971648
     - 0.008726646259971648
     - 0.008726646259971648
-    execution_position_kp: 2.5
+    execution_position_kp: 4.0

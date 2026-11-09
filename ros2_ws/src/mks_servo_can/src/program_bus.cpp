@@ -28,6 +28,29 @@ void CanBusManager::configure_program_authorization(const BusConfig &a) {
   }
   rebuild_axis_lookup();
 }
+std::string validate_execution_tuning(const ExecutionTuning &t) {
+  if(!std::isfinite(t.lookahead_time_sec) || t.lookahead_time_sec<0 || t.lookahead_time_sec>.2) return "Wyprzedzenie celu: 0–0,2 s";
+  if(!std::isfinite(t.velocity_ff_scale) || t.velocity_ff_scale<1 || t.velocity_ff_scale>3) return "Feed-forward: 1–3";
+  if(!std::isfinite(t.position_kp) || t.position_kp<0 || t.position_kp>20) return "Kp: 0–20 1/s";
+  if(!std::isfinite(t.integral_gain) || t.integral_gain<0 || t.integral_gain>20) return "Wzmocnienie całkujące: 0–20 1/s";
+  if(!std::isfinite(t.integral_limit) || t.integral_limit<0 || t.integral_limit>.0873) return "Limit całkujący: 0–0,0873 rad";
+  if(t.acceleration_code<-1 || t.acceleration_code>255) return "Kod acc: 0–255 albo -1 (bez nadpisania)";
+  return {};
+}
+bool CanBusManager::set_execution_tuning(const ExecutionTuning &t,std::string &reason) {
+  reason=validate_execution_tuning(t);
+  if(!reason.empty()) return false;
+  if(active_ || executor_.status.busy || manual_->busy() || fault_) {reason="Zmiana nastaw regulatora wymaga postoju bez aktywnego ruchu i awarii";return false;}
+  for(auto &s:config_.program_streaming) {
+    s.lookahead_time_sec=t.lookahead_time_sec;s.velocity_ff_scale=t.velocity_ff_scale;s.position_kp=t.position_kp;
+    s.integral_gain=t.integral_gain;s.integral_limit=t.integral_limit;
+  }
+  tuning_acceleration_=t.acceleration_code;
+  if(executor_.status.state=="ready") {executor_.status.state="invalidated";executor_.status.message="Nastawy regulatora zmieniły się; przelicz program";}
+  trace_note("execution_tuning","lookahead="+diagnostic_number(t.lookahead_time_sec*1000)+"ms ff="+diagnostic_number(t.velocity_ff_scale)+
+      " kp="+diagnostic_number(t.position_kp)+" ki="+diagnostic_number(t.integral_gain)+" acc="+std::to_string(t.acceleration_code));
+  return true;
+}
 void CanBusManager::update_motion_model(const std::string &model) {
   if(model==motion_model_) return;
   if(executor_.status.busy || source_==Source::tcp_jog) fault("Model robota zmienił się podczas wykonania");
@@ -70,8 +93,11 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
   for(unsigned j=0;j<kAxes;++j) {
     const auto &a=config_.axes[j];
     if(a.address!=j+1) throw std::runtime_error("Program wymaga mapowania CAN 1–6 na J1–J6");
-    const auto &d=devices_[a.address];p.participating[j]=d.detected && d.consecutive_timeouts<3;
+    const auto &d=devices_[a.address];
+    if(p.participation_mask && !(p.participation_mask&(1u<<j))) {p.participating[j]=false;continue;}  // poza jawną maską
+    p.participating[j]=d.detected && d.consecutive_timeouts<3;
     if(!p.participating[j]) {
+      if(p.participation_mask) throw std::runtime_error("Brak J"+std::to_string(j+1)+" z maski osi programu");
       if(!allow_missing_motion_) throw std::runtime_error("Brak J"+std::to_string(j+1));
       continue;
     }
@@ -118,7 +144,7 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
     const auto &d=devices_[config_.axes[j].address];
     if(s.participating[j]) {
       if(!manual_->calibration_valid(j+1) || std::abs(position_to_joint(config_.axes[j],d.position.value)-e.program->start[j])>config_.program_position_tolerance[j]) return false;
-    } else if(d.detected && d.consecutive_timeouts<3) return false;
+    } else if(d.detected && d.consecutive_timeouts<3 && !e.program->participation_mask) return false;  // jawna maska: wykluczenie celowe
   }
   execution_keys_[execution_key_cursor_++%execution_keys_.size()]=key;
   s.execution_key=key;s.busy=true;s.state="arming";s.message=s.dispatch_mode=="synchronized" ? "Weryfikacja postoju, ACK i SYNC" : "Weryfikacja postoju i CanRSP=Disable";
@@ -126,6 +152,7 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
   active_=true;source_=Source::program;stop_sent_=false;latest_.reset();drive_parameters_requested_=false;
   streaming_states_={};
   for(auto &pending:pending_) pending.used=false;
+  reset_runaway_guard();
   manual_->invalidate_program_handover();return true;
 }
 namespace {
@@ -235,6 +262,7 @@ void CanBusManager::final_approach(Time now) {
 }
 void CanBusManager::schedule_program(Time now) {
   auto &e=executor_;auto &s=e.status;if(!s.busy || !e.program) return;
+  if(runaway_pending(now)) return;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
     const auto &d=devices_[config_.axes[j].address];
     if(d.enable.fresh(now,300ms) && !d.enable.value) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": ENABLE=0 — napęd wyłączony podczas programu");return;}
@@ -308,7 +336,19 @@ void CanBusManager::schedule_program(Time now) {
         const auto &d=devices_[config_.axes[j].address];
         if(!d.speed.fresh(now,150ms) || std::abs(d.speed.value)>kHoldingSpeedNoiseRpm || d.speed.stamp<e.last_sync ||
             !d.motor_state.fresh(now,150ms) || d.motor_state.value!=1 || d.motor_state.stamp<e.last_sync) {
-          e.settled={};s.state="settling";s.message="Oczekiwanie na świeży postój (|RPM| ≤ 1, F1=1) wszystkich uczestników";return;
+          e.settled={};s.state="settling";s.message="Oczekiwanie na świeży postój (|RPM| ≤ 1, F1=1) wszystkich uczestników";
+          if(e.settling_since==Time{}) e.settling_since=now;
+          if(now-e.settling_since>=kSettleTimeout) {
+            std::string axes;
+            for(unsigned k=0;k<kAxes;++k) if(s.participating[k]) {
+              const auto &q=devices_[config_.axes[k].address];
+              axes+=" J"+std::to_string(k+1)+": RPM="+(q.speed.valid ? std::to_string(q.speed.value) : std::string("?"))+
+                  ", F1="+(q.motor_state.valid ? std::to_string(q.motor_state.value) : std::string("?"))+";";
+            }
+            fault("Brak potwierdzenia postoju po dolocie w "+std::to_string(kSettleTimeout.count())+" ms (wymagane |RPM| ≤ "+
+                std::to_string(kHoldingSpeedNoiseRpm)+" i F1=1):"+axes);
+          }
+          return;
         }
       }
     }

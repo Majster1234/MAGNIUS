@@ -27,7 +27,7 @@ Rzeczywisty model nadal śledzi enkodery; nowe pomiary nie zmieniają zapisanego
 ani celu. Zmiana modelu, rewizji lub wspólnego ustawienia symulacji unieważnia podgląd.
 Osie TCP i sygnalizację osobliwości modeli opisuje [podgląd 3D](robot_preview.md#osie-tcp-ślad-ruchu-i-osobliwości).
 Zmiana dostępności napędów nie blokuje animacji sześciu osi. Wyjście z ekranu usuwa
-bliźniaki. Backend trzyma w pamięci 4 plany do 8 MiB każdy oraz 8 zadań, bez zapisu
+bliźniaki. Backend trzyma w pamięci 4 plany do 16 MiB każdy (~1 KiB na 10 ms ruchu; 16 MiB obejmuje limit wykonawcy 10 000 punktów) oraz 8 zadań, bez zapisu
 programów na dysk. Nie ma omijania przeszkód, symulacji dynamiki ani odbioru fizycznego.
 
 ## Brak sterowników i pozycja bazowa

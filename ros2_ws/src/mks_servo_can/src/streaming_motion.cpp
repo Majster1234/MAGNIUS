@@ -29,14 +29,15 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
       !std::isfinite(state.integral) || std::abs(state.integral)>s.integral_limit+1e-12 ||
       (actual && !std::isfinite(*actual)) || !std::isfinite(state.rpm_dither_accum) ||
       state.rpm_dither_accum<0 || state.rpm_dither_accum>=1 ||
-      s.encoder_cpr!=16384 || !s.min_holding_rpm || s.max_rpm>3000 || s.max_rpm<s.min_holding_rpm ||
+      s.encoder_cpr!=16384 || !std::isfinite(s.min_holding_rpm) || s.min_holding_rpm<=0 || s.max_rpm>3000 || s.max_rpm<s.min_holding_rpm ||
       a.address<1 || a.address>2047 || !std::isfinite(a_ref) || !std::isfinite(remaining_time_sec) || remaining_time_sec<0 ||
       !std::isfinite(actual_age_sec) || actual_age_sec<0 ||
       (lookahead_position && (!std::isfinite(*lookahead_position) || *lookahead_position<a.lower || *lookahead_position>a.upper)))
     throw std::invalid_argument("Nieprawidłowy profil/próbka streaming F5");
   const double scale=speed_scale(microstep),joint_to_rpm=a.gear_ratio*60/(2*pi);
   const auto maximum=std::min(3000L,static_cast<long>(std::floor(std::min<double>(s.max_rpm,a.max_velocity*joint_to_rpm)/scale+1e-9)));
-  const auto minimum=static_cast<long>(std::ceil(s.min_holding_rpm/scale-1e-9));
+  // Nigdy poniżej jednej jednostki MKS: 0 w polu prędkości F5 to STOP.
+  const auto minimum=std::max(1L,static_cast<long>(std::ceil(s.min_holding_rpm/scale-1e-9)));
   if(maximum<minimum || maximum>3000) throw std::invalid_argument("min_holding_rpm przekracza limit osi lub kwantyzację MKS");
   StreamingSetpoint out;
   const double effective_la_time=std::clamp(std::min(s.lookahead_time_sec,remaining_time_sec),0.,s.lookahead_time_sec);

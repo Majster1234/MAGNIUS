@@ -10,7 +10,11 @@ namespace mks_servo_can {
 struct AxisConfig;
 struct StreamingParameters {
   double lookahead_time_sec{.085}, velocity_ff_scale{1.0}, position_kp{2.5};
-  unsigned min_holding_rpm{1}, max_rpm{2500}, encoder_cpr{16384};
+  // Minimalna niezerowa prędkość F5 [RPM wału] = dolna granica ditheringu (F5 speed=0 oznacza STOP).
+  // Efektywnie zaokrąglana w górę do jednostki MKS: 1 RPM przy mikrokroku 16, 0,125 RPM przy 128.
+  // PTP/LIN i JOG TCP biorą ją z konfiguracji robota (`motion.min_dither_rpm`).
+  double min_holding_rpm{1.};
+  unsigned max_rpm{2500}, encoder_cpr{16384};
   std::uint8_t acceleration{135};
   // Człon całkujący celu F5 (opcja konfiguracji robota `motion.position_integral`): w trakcie ruchu
   // integral += gain·uchyb·10 ms, ograniczony do ±limit [rad przegubu], doliczany do celu F5.

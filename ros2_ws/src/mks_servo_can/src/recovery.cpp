@@ -39,6 +39,8 @@ void CanBusManager::begin_recovery(const std::string &reason,bool force_disable,
   }
   for(auto &p:pending_) p.used=false;
   sync_recovery_required_=true;fault_=true;stop_sent_=true;
+  hold_valid_.fill(false);  // po odzyskaniu nadzór postoju kotwiczy od nowa
+  if(parameter_job_) finish_parameter_job(false,parameter_job_->write,"Przerwane: STOP lub awaria"+std::string(parameter_job_->write ? " — stan nastawy niepewny" : ""));
   recovery_={};recovery_.phase=RecoveryPhase::stopping;recovery_.message="STOP wysłany";
   recovery_.staged_buffer_seen=unverified_sync_buffer_;recovery_.verify_after=now;
   last_fault_diagnostic_cycle_=std::numeric_limits<std::uint64_t>::max();

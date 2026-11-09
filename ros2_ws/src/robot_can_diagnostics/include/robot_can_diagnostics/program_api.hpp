@@ -23,5 +23,10 @@ class ProgramApi {
   std::shared_ptr<Handle> handle_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr model_;
+  // Nastawy regulatora wykonania: bazowe z pliku parametrów i bieżące (zmiana w locie parametrami ROS).
+  mks_servo_can::ExecutionTuning baseline_tuning_{}, tuning_{};
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr tuning_callback_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr tuning_publisher_;
+  void publish_tuning();
 };
 }

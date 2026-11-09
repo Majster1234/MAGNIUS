@@ -10,3 +10,8 @@ bool disable_enable_on_critical_fault true
 string ptp_lin_dispatch_mode "streamed"
 # Człon całkujący celu F5 w PTP/LIN i JOG TCP (korekcja stałego uchybu napędów).
 bool position_integral false
+# Minimalna prędkość F5 / dolna granica ditheringu [RPM wału] w PTP/LIN i JOG TCP; efektywnie >= 1 jednostka MKS.
+float64 min_dither_rpm 0.125
+# Kod przyspieszenia MKS (acc) w ramkach F5 PTP/LIN i JOG TCP, 1–255 dla wszystkich osi;
+# 0 = bez nadpisania (execution_acceleration_codes z parametrów wykonania).
+uint8 f5_acceleration_code 0

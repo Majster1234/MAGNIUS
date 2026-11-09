@@ -185,3 +185,33 @@ def test_active_revision_must_match_preview_and_prepared_program(revision):
         with pytest.raises(ValueError, match='aktualna lub uzgodniona'):
             await c.execute({'program_id': 'program', 'execution_key': 'new'})
     asyncio.run(scenario())
+
+
+def test_execution_tuning_sets_ros_parameters_validates_and_resets():
+    from rcl_interfaces.srv import SetParameters
+    c = motion_client()
+    base = dict(lookahead_time_sec=.085, velocity_ff_scale=1.0, position_kp=2.5, integral_gain=2.0, integral_limit_rad=.0174)
+    c.execution_tuning = dict(test=False, active=dict(base), baseline=dict(base))
+    c.parameter_type = SetParameters; c.parameter_client = object(); sent = []
+    async def call(client, request, timeout=3):
+        sent.append({p.name: p.value.double_value for p in request.parameters})
+        c.execution_tuning = dict(test=True, active={**base, **{k: v for k, v in zip(MotionClient.TUNING_PARAMETERS, [None]*0)}}, baseline=dict(base))
+        for key, name in MotionClient.TUNING_PARAMETERS.items():
+            if name in sent[-1]:
+                c.execution_tuning['active'][key] = sent[-1][name]
+        return NS(results=[NS(successful=True, reason='')] * len(request.parameters))
+    c.call = call
+    result = asyncio.run(c.set_tuning({'position_kp': 4, 'lookahead_time_sec': .12}))
+    assert sent[-1] == {'execution_position_kp': 4.0, 'execution_lookahead_time_sec': .12}
+    assert result['active']['position_kp'] == 4 and result['test']
+    with pytest.raises(ValueError):
+        asyncio.run(c.set_tuning({'kp': 4}))
+    with pytest.raises(ValueError):
+        asyncio.run(c.set_tuning({'position_kp': 'x'}))
+    asyncio.run(c.set_tuning({'reset': True}))
+    assert sent[-1]['execution_position_kp'] == 2.5 and sent[-1]['execution_lookahead_time_sec'] == .085
+    async def rejected(client, request, timeout=3):
+        return NS(results=[NS(successful=False, reason='Zmiana nastaw regulatora wymaga postoju')])
+    c.call = rejected
+    with pytest.raises(MotionConflict, match='postoju'):
+        asyncio.run(c.set_tuning({'position_kp': 3}))

@@ -94,6 +94,14 @@ bool BusRuntime::finish_tcp_jog(const std::string &session,std::uint64_t generat
 bool BusRuntime::request_drive_parameters() {
   std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.request_drive_parameters();
 }
+std::uint64_t BusRuntime::submit_parameter_job(std::uint16_t address,std::uint8_t code,int sub,bool write,
+    const std::vector<std::uint8_t> &value,std::string &reason) {
+  std::lock_guard<PriorityInheritanceMutex> guard(mutex_);
+  return manager_.submit_parameter_job(address,code,sub,write,value,Clock::now(),reason);
+}
+CanBusManager::ParameterJobResult BusRuntime::parameter_job(std::uint64_t id) {
+  std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.parameter_job(id);
+}
 bool BusRuntime::request_microstep(unsigned axis,std::uint16_t microstep) {
   std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.request_microstep(axis,microstep,Clock::now());
 }
@@ -147,6 +155,7 @@ bool BusRuntime::joint_jog(JogAction action, unsigned axis, int direction, doubl
   return manager_.manual().jog_joint(action, axis, direction, velocity, revision, session, sequence, issued, Clock::now());
 }
 void BusRuntime::configure_program_authorization(const BusConfig &a) { std::lock_guard<PriorityInheritanceMutex> guard(mutex_);manager_.configure_program_authorization(a); }
+bool BusRuntime::set_execution_tuning(const ExecutionTuning &tuning, std::string &reason) { std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.set_execution_tuning(tuning,reason); }
 void BusRuntime::update_motion_model(const std::string &model) { std::lock_guard<PriorityInheritanceMutex> guard(mutex_);manager_.update_motion_model(model); }
 void BusRuntime::update_motion_settings(const std::string &revision,bool allow_missing) { std::lock_guard<PriorityInheritanceMutex> guard(mutex_);manager_.update_motion_settings(revision,allow_missing,Clock::now()); }
 MotionProgramStatus BusRuntime::prepare_program(PreparedMotionProgram program) { std::lock_guard<PriorityInheritanceMutex> guard(mutex_);return manager_.prepare_program(std::move(program),Clock::now()); }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EventConsole, useEventConsole } from "./EventConsole";
 import { ConfigurationPreview } from "./ConfigurationPreview";
-import { dispatchModeKey, criticalFaultPolicyKey, positionIntegralKey, systemConfigurationKeys, dirtyKeys, fieldErrors } from "./configurationData";
+import { dispatchModeKey, criticalFaultPolicyKey, positionIntegralKey, minDitherKey, minDitherDefault, minDitherMax, f5AccelerationKey, systemConfigurationKeys, dirtyKeys, fieldErrors } from "./configurationData";
 import { useConfiguration } from "./useConfiguration";
 import { useSystemSettings } from "./planningContext";
 
@@ -54,8 +54,11 @@ const draftFields: Record<string, Field> = Object.fromEntries([
     [dispatchModeKey, {key:"ptp_lin_dispatch_mode",label:"Wysyłanie PTP/LIN"}],
     [criticalFaultPolicyKey, {key:"disable_enable_on_critical_fault",label:"Wyłącz ENABLE przy awarii krytycznej"}],
     [positionIntegralKey, {key:"position_integral",label:"Korekcja całkująca uchybu (PI)"}],
+    [minDitherKey, {key:"min_dither_rpm",label:"Minimalny dithering prędkości F5",numeric:true,min:0,unit:"RPM"}],
+    [f5AccelerationKey, {key:"f5_acceleration_code",label:"Przyspieszenie F5 (acc)",numeric:true,min:1}],
 ]);
-const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : key===positionIntegralKey ? "false" : ""]));
+const draftDefaults: Record<string, string> = {[dispatchModeKey]: "streamed", [criticalFaultPolicyKey]: "true", [positionIntegralKey]: "false", [minDitherKey]: String(minDitherDefault)};
+const emptyDraft: Record<string, string> = Object.fromEntries(Object.keys(draftFields).map(key => [key, draftDefaults[key] ?? ""]));
 function legacyValue(value: string, field: Field) {
     const scale = field.unit === "mm" ? 1000 : field.unit?.startsWith("°") ? 180 / Math.PI : 1;
     if (!value.trim() || scale === 1) return value;
@@ -68,7 +71,7 @@ function readDraft() {
         const text = legacy ? sessionStorage.getItem(legacyStorageKey) : current;
         const stored = text && text.length <= 65536 ? JSON.parse(text) : null;
         return Object.fromEntries(Object.entries(draftFields).map(([key, field]) => {
-            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : key===dispatchModeKey ? "streamed" : key===criticalFaultPolicyKey ? "true" : key===positionIntegralKey ? "false" : "";
+            const value = stored && typeof stored[key] === "string" ? stored[key].slice(0, 256) : draftDefaults[key] ?? "";
             return [key, legacy ? legacyValue(value, field) : value];
         }));
     } catch { return { ...emptyDraft }; }
@@ -231,7 +234,23 @@ export function ConfigurationPage() {
                         checked={draft[positionIntegralKey] === "true"} disabled={Boolean(applying) || configuration.busy}
                         onChange={event => setDraft(previous => ({...previous, [positionIntegralKey]: String(event.target.checked)}))}/>
                 </SystemSetting>
-                <footer className="system-settings-actions"><span>Zabezpieczenie i sposób wysyłania wymagają zapisu do ROS.</span>
+                <SystemSetting id="system-min-dither" label="Minimalny dithering prędkości F5"
+                    description={`Najmniejsza niezerowa prędkość komendy F5 i dolna granica ditheringu w PTP/LIN (Streaming i Synchroniczny) oraz JOG TCP, w RPM wału. Napęd zaokrągla ją w górę do jednostki MKS: 0,125 RPM przy mikrokroku 128, 1 RPM przy 16. Zera nie można ustawić, bo F5 z prędkością 0 oznacza STOP. Domyślnie ${minDitherDefault} RPM (wcześniej stałe 1 RPM), zakres do ${minDitherMax} RPM. Mniejsza wartość pozwala odwzorować prędkości poniżej 1 RPM, ale spowalnia drobne korekty pozycji na postoju. Wymaga zapisu do ROS; działa od następnego ruchu.`}
+                    pending={dirty.has(minDitherKey)} status={dirty.has(minDitherKey) ? "Niezapisana zmiana" : !configuration.online ? "Szkic lokalny" : `${draft[minDitherKey] || minDitherDefault} RPM`}>
+                    <input id="system-min-dither" className="system-setting-number" type="number" inputMode="decimal" min={0.125} max={minDitherMax} step={0.125}
+                        aria-invalid={!!errors[minDitherKey]} value={draft[minDitherKey] ?? ""} disabled={Boolean(applying) || configuration.busy}
+                        onChange={event => setDraft(previous => ({...previous, [minDitherKey]: event.target.value}))}/>
+                    <span className="system-setting-unit">RPM</span>
+                </SystemSetting>
+                <SystemSetting id="system-f5-acceleration" label="Przyspieszenie F5 (acc)"
+                    description="Kod przyspieszenia MKS wysyłany w każdej ramce F5 w PTP/LIN (Streaming i Synchroniczny) oraz JOG TCP, wspólny dla wszystkich osi. Napęd zmienia prędkość o jedną jednostkę MKS co (256 − acc) × 50 µs; przy mikrokroku 128 (jednostka 0,125 RPM): 255 ≈ 2500 RPM/s, 250 ≈ 420 RPM/s, 241 ≈ 170 RPM/s, 200 ≈ 45 RPM/s, 135 ≈ 21 RPM/s; przy mikrokroku 16 ośmiokrotnie więcej. Większa wartość to ostrzejsza rampa; zbyt łagodna nie nadąży za trajektorią. Zakres 1–255 (0, czyli skok prędkości bez rampy, jest zablokowany). Puste pole = kody z parametrów wykonania (execution_acceleration_codes). Nie zmienia JOG osi ani limitów trajektorii. Wymaga zapisu do ROS; działa od następnego ruchu."
+                    pending={dirty.has(f5AccelerationKey)} status={dirty.has(f5AccelerationKey) ? "Niezapisana zmiana" : !configuration.online ? "Szkic lokalny" : draft[f5AccelerationKey] ? `acc ${draft[f5AccelerationKey]}` : "Z parametrów wykonania"}>
+                    <input id="system-f5-acceleration" className="system-setting-number" type="number" inputMode="numeric" min={1} max={255} step={1}
+                        placeholder="wykonanie" aria-invalid={!!errors[f5AccelerationKey]} value={draft[f5AccelerationKey] ?? ""} disabled={Boolean(applying) || configuration.busy}
+                        onChange={event => setDraft(previous => ({...previous, [f5AccelerationKey]: event.target.value}))}/>
+                    <span className="system-setting-unit">kod</span>
+                </SystemSetting>
+                <footer className="system-settings-actions"><span>Zabezpieczenie, sposób wysyłania i parametry F5 wymagają zapisu do ROS.</span>
                     <button className="configuration-apply" onClick={configuration.applySystemSettings}
                         disabled={!configuration.online || configuration.busy || !!applying || !!conflict || !systemDirty.length || !!systemError || configuration.status?.operation.phase === "uncertain"}>
                         {applying ? "Stosowanie…" : "Zapisz ustawienia do ROS"}

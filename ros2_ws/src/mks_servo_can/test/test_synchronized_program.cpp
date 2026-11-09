@@ -343,6 +343,49 @@ void set_position_integral(Rig &h,bool enabled) {
   h.enabled_for_settings(true);
 }
 }
+TEST(MinDither, ConfigurationValueReachesF5SpeedAndRejectsInvalidValues) {
+  Rig h;h.ready();h.enabled_for_settings(false);
+  auto p=h.bus->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration;
+  EXPECT_DOUBLE_EQ(p.min_dither_rpm,kDefaultMinDitherRpm);
+  const auto previous=p.revision;p.changed.fill(false);
+  for(double bad:{0.,-1.,10.5,static_cast<double>(NAN)}) {
+    auto q=p;q.revision="dither-bad";q.min_dither_rpm=bad;
+    EXPECT_FALSE(h.bus->configure(ConfigurationPhase::prepare,"dither-bad",previous,q,h.now).accepted) << bad;
+  }
+  p.revision="dither-2";p.min_dither_rpm=2;
+  ASSERT_TRUE(h.bus->configure(ConfigurationPhase::prepare,"dither",previous,p,h.now).accepted);
+  ASSERT_TRUE(h.bus->configure(ConfigurationPhase::commit,"dither",previous,p,h.now).accepted);
+  ASSERT_TRUE(h.bus->configure(ConfigurationPhase::finish,"dither",previous,p,h.now).accepted);
+  EXPECT_DOUBLE_EQ(h.bus->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration.min_dither_rpm,2);
+  h.enabled_for_settings(true);
+  h.execute(h.program(.2,2.));h.run(300);
+  unsigned frames=0;
+  for(const auto &e:h.port->events) if(e.data.size()==8 && e.data[0]==0xf5) {
+    ++frames;EXPECT_GE(((e.data[1]&0x0f)<<8)|e.data[2],2/speed_scale(h.port->microsteps[e.axis])-1e-9) << "minimum 2 RPM wału";
+  }
+  EXPECT_GT(frames,0u);
+}
+TEST(F5Acceleration, ConfigurationCodeOverridesExecutionCodeInF5Frames) {
+  for(std::uint8_t code:{0,200}) {
+    Rig h;h.ready();h.enabled_for_settings(false);
+    auto p=h.bus->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration;
+    EXPECT_EQ(p.f5_acceleration_code,0);
+    const auto previous=p.revision;p.changed.fill(false);p.revision="acc";p.f5_acceleration_code=code;
+    ASSERT_TRUE(h.bus->configure(ConfigurationPhase::prepare,"acc",previous,p,h.now).accepted);
+    ASSERT_TRUE(h.bus->configure(ConfigurationPhase::commit,"acc",previous,p,h.now).accepted);
+    ASSERT_TRUE(h.bus->configure(ConfigurationPhase::finish,"acc",previous,p,h.now).accepted);
+    EXPECT_EQ(h.bus->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration.f5_acceleration_code,code);
+    h.enabled_for_settings(true);
+    h.execute(h.program(.2,2.));h.run(300);
+    unsigned frames=0;
+    for(const auto &e:h.port->events) if(e.data.size()==8 && e.data[0]==0xf5) {
+      ++frames;
+      if(code) EXPECT_EQ(e.data[3],code) << "acc z konfiguracji robota";
+      else EXPECT_NE(e.data[3],0) << "acc z parametrów wykonania";
+    }
+    EXPECT_GT(frames,0u);
+  }
+}
 TEST(PositionIntegral, ConfigurationOptionReachesF5TargetsAndCompensatesDriveOffset) {
   std::array<std::int64_t,2> late{};
   for(bool enabled:{false,true}) {
@@ -358,4 +401,130 @@ TEST(PositionIntegral, ConfigurationOptionReachesF5TargetsAndCompensatesDriveOff
     h.run(3000);EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
   }
   EXPECT_LT(late[1],late[0]-100) << "korekta ~200 impulsów w stronę zmniejszenia celu";
+}
+TEST(HoldGuard, DriftWithoutCommandAfterIdleTriggersCriticalStop) {
+  Rig h;h.ready();h.run(300);ASSERT_FALSE(h.bus->snapshot().fault);
+  h.port->positions[4]+=30;h.run(200);
+  EXPECT_FALSE(h.bus->snapshot().fault) << "szum/dobieg poniżej progu nie jest awarią: " << h.bus->snapshot().message;
+  h.port->positions[4]+=200;h.run(200);
+  ASSERT_TRUE(h.bus->snapshot().fault);
+  EXPECT_NE(h.bus->snapshot().message.find("ruch bez komendy w postoju"),std::string::npos) << h.bus->snapshot().message;
+  EXPECT_NE(h.bus->snapshot().message.find("J4"),std::string::npos) << h.bus->snapshot().message;
+  bool f7=false;for(const auto &e:h.port->events) f7=f7 || (e.axis==4 && e.data[0]==0xf7);
+  EXPECT_TRUE(f7) << "awaria krytyczna wysyła F7";
+}
+TEST(HoldGuard, ProgramMotionIsNotSupervisedAndAnchorFollowsFinalPosition) {
+  Rig h;h.ready();h.execute(h.program(.2,2.));h.run(4000);
+  ASSERT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  h.run(500);EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+  h.port->positions[2]-=300;h.run(200);
+  EXPECT_TRUE(h.bus->snapshot().fault) << "odjazd po zakończonym programie (stara komenda F5 napędu)";
+}
+TEST(HoldGuard, DisabledAxisMayMoveAndIsReanchoredAfterEnable) {
+  Rig h;h.ready();h.run(300);
+  h.port->enabled[3]=false;h.run(400);
+  h.port->positions[3]+=5000;h.run(200);
+  EXPECT_FALSE(h.bus->snapshot().fault) << "ENABLE=0: wał wolny, bez nadzoru; " << h.bus->snapshot().message;
+  h.port->enabled[3]=true;h.run(400);
+  EXPECT_FALSE(h.bus->snapshot().fault) << "po ENABLE=1 nowa kotwica z bieżącej pozycji; " << h.bus->snapshot().message;
+  h.port->positions[3]+=500;h.run(200);
+  EXPECT_TRUE(h.bus->snapshot().fault);
+}
+
+TEST(IsolatedProgram, SingleAxisMaskCommandsOnlyThatAxisWithOthersDisabled) {
+  for(bool synchronized:{false,true}) {
+    Rig h;h.ready();if(synchronized) h.synchronized();
+    for(unsigned j=1;j<=6;++j) if(j!=4) h.port->enabled[j]=false;
+    h.run(400);
+    auto p=h.program();const auto state=h.bus->control_state();
+    for(unsigned j=0;j<6;++j) p.points.back().positions[j]=j==3 ? state.positions[3].value+.05 : state.positions[j].value;
+    p.participation_mask=1u<<3;
+    const auto events=h.port->events.size();
+    const auto status=h.bus->prepare_program(p,h.now);
+    ASSERT_EQ(status.state,"ready") << status.message;
+    EXPECT_FALSE(status.tcp_verified);
+    for(unsigned j=0;j<6;++j) EXPECT_EQ(status.participating[j],j==3);
+    ASSERT_TRUE(h.bus->execute_program(status.program_id,"iso",h.now));h.run(3000);
+    EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+    EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+    for(auto i=events;i<h.port->events.size();++i) {
+      const auto &e=h.port->events[i];
+      if(e.data[0]==0xf5) EXPECT_EQ(e.axis,4u) << "F5 tylko do osi z maski";
+    }
+  }
+  Rig g;g.port->absent=4;g.ready();auto q=g.program();q.participation_mask=1u<<3;
+  EXPECT_THROW(g.bus->prepare_program(q,g.now),std::runtime_error) << "oś z maski niewykryta";
+}
+TEST(SettleTimeout, StuckMotorStateFailsProgramWithAxisDetail) {
+  Rig h;h.ready();h.synchronized();
+  h.execute(h.program(.2,1.));
+  for(unsigned i=0;i<4000 && h.bus->program_status().state!="settling";++i) h.run(1);
+  ASSERT_EQ(h.bus->program_status().state,"settling");
+  h.port->motor_state_override[2]=3;  // J2: F1=3 (hamowanie) bez końca, mimo postoju
+  h.run(5000);
+  ASSERT_TRUE(h.bus->snapshot().fault) << h.bus->program_status().state << " " << h.bus->program_status().message;
+  EXPECT_NE(h.bus->snapshot().message.find("Brak potwierdzenia postoju"),std::string::npos) << h.bus->snapshot().message;
+  EXPECT_NE(h.bus->snapshot().message.find("J2: RPM=0, F1=3"),std::string::npos) << h.bus->snapshot().message;
+}
+TEST(SynchronizedProgram, LongProgramKeepsBudgetForEverySyncBatch) {
+  // Diagnostyka w tle nie może zająć miejsca zestawu SYNC (F5+ACK+zapytanie pozycji na oś + ramka SYNC).
+  Rig h;h.ready();h.synchronized();h.execute(h.program(.2,25.));
+  h.run(28000);
+  EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+  EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  EXPECT_LE(h.bus->snapshot().statistics.peak_scheduled_utilization,kPlannedUtilization+1e-9);
+}
+TEST(ExecutionTuning, RuntimeChangeAppliesToF5RejectsDuringMotionAndInvalidatesProgram) {
+  ExecutionTuning bad{.3,1,2.5,2,.01};std::string reason;
+  {Rig h;h.ready();EXPECT_FALSE(h.bus->set_execution_tuning(bad,reason));EXPECT_FALSE(reason.empty());}
+  std::array<double,2> speed{};
+  for(int variant=0;variant<2;++variant) {
+    Rig h;h.ready();
+    if(variant) ASSERT_TRUE(h.bus->set_execution_tuning({.085,2.,2.5,2.,.0174},reason)) << reason;
+    h.execute(h.program(.2,2.));h.run(600);
+    EXPECT_FALSE(h.bus->set_execution_tuning({.085,1.,2.5,2.,.0174},reason)) << "zmiana w trakcie ruchu";
+    unsigned n=0;double sum=0;
+    for(const auto &e:h.port->events) if(e.axis==2 && e.data.size()==8 && e.data[0]==0xf5) {sum+=((e.data[1]&0x0f)<<8)|e.data[2];++n;}
+    ASSERT_GT(n,0u);speed[variant]=sum/n;
+  }
+  EXPECT_GT(speed[1],speed[0]*1.5) << "FF=2 podnosi prędkość F5";
+  Rig h;h.ready();
+  const auto status=h.bus->prepare_program(h.program(.2,2.),h.now);
+  ASSERT_EQ(h.bus->program_status().state,"ready") << h.bus->program_status().message;
+  ASSERT_TRUE(h.bus->set_execution_tuning({.12,1.,2.5,2.,.0174},reason)) << reason;
+  EXPECT_EQ(h.bus->program_status().state,"invalidated");
+  EXPECT_FALSE(h.bus->execute_program(status.program_id,"run",h.now));
+}
+TEST(ExecutionTuning, TestAccelerationOverrideIncludingZeroReachesF5) {
+  for(int code:{0,-1}) {
+    Rig h;h.ready();std::string reason;
+    ExecutionTuning t{.085,1.,2.5,2.,.0174};t.acceleration_code=code;
+    ASSERT_TRUE(h.bus->set_execution_tuning(t,reason)) << reason;
+    h.execute(h.program(.2,2.));h.run(300);
+    unsigned n=0;
+    for(const auto &e:h.port->events) if(e.data.size()==8 && e.data[0]==0xf5) {++n;if(code==0) EXPECT_EQ(e.data[3],0); else EXPECT_NE(e.data[3],0);}
+    EXPECT_GT(n,0u);
+  }
+  Rig h;h.ready();std::string reason;ExecutionTuning bad{.085,1.,2.5,2.,.0174};bad.acceleration_code=256;
+  EXPECT_FALSE(h.bus->set_execution_tuning(bad,reason));
+}
+TEST(RunawayGuard, ShiftedDriveFrameTriggersFaultWithAngleErrorReading) {
+  Rig h;h.ready();h.synchronized();h.execute(h.program(.2,4.));h.run(1500);
+  ASSERT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+  // Układ celu F5 napędu J2 przesunięty o −20000 imp. (≈ −44° przegubu): napęd „ucieka” od referencji.
+  h.port->drive_offset[2]=-20000;h.port->angle_error[2]=62500;  // 39h: 439,45° wału
+  h.run(300);
+  ASSERT_TRUE(h.bus->snapshot().fault);
+  const auto message=h.bus->program_status().message;
+  EXPECT_NE(message.find("ucieczka osi"),std::string::npos) << message;
+  EXPECT_NE(message.find("J2"),std::string::npos) << message;
+  EXPECT_NE(message.find("39h"),std::string::npos) << message;
+  EXPECT_NE(message.find("439"),std::string::npos) << message;
+}
+TEST(RunawayGuard, NormalSynchronizedProgramsDoNotTrigger) {
+  for(double target:{.2,-.3,.6}) {
+    Rig h;h.ready();h.synchronized();h.execute(h.program(target,2.));h.run(4000);
+    EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+    EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  }
 }

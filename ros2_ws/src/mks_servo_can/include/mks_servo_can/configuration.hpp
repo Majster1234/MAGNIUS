@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 namespace mks_servo_can {
+// Jednostka prędkości MKS przy mikrokroku 128; mniejsze wartości są i tak zaokrąglane w górę do jednostki.
+constexpr double kDefaultMinDitherRpm=.125, kMaxMinDitherRpm=10.;
 struct JointProfile {
   bool configured{};
   double gear_ratio{}, direction{}, offset{}, lower{}, upper{}, velocity{}, acceleration{};
@@ -20,6 +22,10 @@ struct RobotProfile {
   bool disable_enable_on_critical_fault{true};
   std::string ptp_lin_dispatch_mode{"streamed"};
   bool position_integral{false};
+  // Minimalna prędkość F5 / dolna granica ditheringu [RPM wału] w PTP/LIN i JOG TCP.
+  double min_dither_rpm{kDefaultMinDitherRpm};
+  // Kod acc ramek F5 w PTP/LIN i JOG TCP (1–255); 0 = execution_acceleration_codes z parametrów wykonania.
+  std::uint8_t f5_acceleration_code{0};
 };
 struct JointConversion {
   double gear_ratio{1}, direction{1}, offset{};

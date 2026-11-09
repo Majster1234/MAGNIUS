@@ -25,6 +25,9 @@ export class PlanningJog {
     private contextAt = -Infinity;
 
     configure(context: PreviewContext | null, now: number) {
+        // Przejściowy brak kontekstu (np. timeout zapytania co 1 s) nie przerywa planowania; stary kontekst
+        // wygasa sam po 3 s dla trybu ignorowania napędów. Zatrzymuje dopiero inny, nowy kontekst.
+        if (!context) return;
         const old = this.simulation;
         if (contextKey(old) !== contextKey(context)) {
             this.stop();
@@ -37,8 +40,10 @@ export class PlanningJog {
     get ready() { return this.valid; }
     get activeAxis() { return this.active?.axis ?? 0; }
     snapshot(now: number): PlanningSnapshot {
+        // W sesji dostępność wynika z lokalnej pozycji planu i obecności osi — nie ze świeżości próbki enkodera.
         return { positions: [...this.positions], activeAxis: this.activeAxis, ready: this.valid,
-            available: Array.from({ length: 6 }, (_, i) => this.position(i + 1, now) !== null) };
+            available: Array.from({ length: 6 }, (_, i) => this.session && this.valid ?
+                this.positions[i] !== null && this.plannable(i + 1, now) : this.position(i + 1, now) !== null) };
     }
     receive(state: ManualState, now: number) {
         this.state = state; this.receivedAt = now; this.connected = true;
@@ -48,7 +53,7 @@ export class PlanningJog {
         if (this.session && this.valid) {
             for (let i = 0; i < 6; i++) if (this.positions[i] === null) this.positions[i] = this.position(i + 1, now);
         }
-        if (this.active && this.position(this.active.axis, now) === null) this.stop();
+        if (this.active && !this.plannable(this.active.axis, now)) this.stop();
         return invalidated;
     }
     disconnect() { this.connected = false; this.stop(); }
@@ -67,7 +72,7 @@ export class PlanningJog {
         this.stop(); this.positions = [...positions]; return true;
     }
     canStart(axis: number, direction: number, speed: number, now: number) {
-        if (!this.valid || this.active || ![1, -1].includes(direction) || !Number.isFinite(speed) || speed <= 0 || this.position(axis, now) === null) return false;
+        if (!this.valid || this.active || ![1, -1].includes(direction) || !Number.isFinite(speed) || speed <= 0 || !this.plannable(axis, now)) return false;
         const profile = this.axis(axis), position = this.positions[axis - 1];
         if (!profile || position === null || position === undefined || this.maximumSpeed(profile) <= 0) return false;
         const range = limits(profile);
@@ -82,8 +87,9 @@ export class PlanningJog {
         const active = this.active;
         if (!active) return false;
         const elapsed = now - active.at, profile = this.axis(active.axis);
-        // Przerwa animacji nigdy nie powoduje nadrabiania ruchu.
-        if (this.position(active.axis, now) === null || !profile || elapsed < 0 || elapsed > 100) { this.stop(); return true; }
+        if (!this.plannable(active.axis, now) || !profile) { this.stop(); return true; }
+        // Przerwa animacji (> 100 ms) nie jest nadrabiana ani nie przerywa ruchu trzymanego przycisku: pomijamy ją.
+        if (elapsed < 0 || elapsed > 100) { active.at = now; return true; }
         const range = limits(profile), maximum = this.maximumSpeed(profile);
         if (!range || maximum <= 0) { this.stop(); return true; }
         const speed = Math.min(active.speed, maximum) * (profile.joint_configured ? 1 : 6);
@@ -106,6 +112,14 @@ export class PlanningJog {
     private maximumSpeed(axis: Axis) {
         const value = axis.joint_configured ? axis.jog_max_velocity_degrees_s : this.state?.max_rpm ?? 30;
         return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+    }
+    // Oś może być planowana lokalnie: profil symulacji albo obecny napęd z prawidłowym profilem przegubu.
+    // Świeżość próbki enkodera jest potrzebna tylko do skopiowania pozycji (begin/receive), nie do ruchu bliźniaka.
+    private plannable(id: number, now: number) {
+        if (this.simulationEnabled(now)) return true;
+        const axis = this.axis(id);
+        if (!this.connected || !axis?.available) return false;
+        return !axis.joint_configured || (!!axis.calibration_valid && !!limits(axis));
     }
     private position(id: number, now: number): number | null {
         if (this.simulationEnabled(now)) return this.simulation!.preview_seed_degrees[id - 1];

@@ -19,9 +19,15 @@ Zakres: całe repozytorium. Źródłem prawdy jest kod. Komunikacja i dokumentac
 - **Kalibracja i przełożenia:** Zmianę przełożenia i offsetu/kierunku wykonuj osobno. Kąt zachowuje automatyczny offset z pomiaru CAN (bez pomiaru blokuj kalibrację).
 - **Parametry PTP/LIN (build z 25.10):**
   - Streaming: 100 Hz, komendy F5/F6/F7/FE bez ACK, bez SYNC (`4A=0`), raporty CanRSP wyłączone (`8C00/00`), `SR_vFOC=05`.
-  - Regulator i limity: Lookahead 85 ms, FF 1, Kp 2.5, dithering per oś, prąd holding 1, max 2500 RPM, acc 135. Limity mechaniczne obowiązują zawsze.
+  - Regulator i limity: Lookahead 25 ms, FF 1, Kp 4 (od 08.11.2026), dithering per oś, min. prędkość F5/dithering `motion.min_dither_rpm` (domyślnie 0,125 RPM, ≥ 1 jednostka MKS; F5 speed=0 to STOP), max 2500 RPM, acc 135. Limity mechaniczne obowiązują zawsze.
   - Odczyty PTP: wstrzymaj nowe zapytania 4 ms przed F5 (ruch nie czeka na odczyt). Tolerancja końcowa ±0.5° (dwa pomiary >= 100 ms), bez pauz pośrednich.
   - Pasmo CAN (1 Mbit/s, TX 1000): łącznie max 60% (robot 40%, rezerwa 20%).
+- **Nastawy sterowników MKS (warunki testów parametrów silnika):**
+  - Zmiana wyłącznie przez mechanizm kopii (`docs/drive_parameter_backup.md`). Kontener `base` (nietykalny) musi istnieć; **każda** ingerencja jest poprzedzona automatyczną, świeżą kopią `pre_test` (bez niej zapis blokowany).
+  - Jedna oś na raz, adres CAN = numer osi. Zakres nastaw testowych ograniczony do walidowanych granic kontenera `test`; PID w przedziale ustalonym w karcie (domyślnie 0,5–2× wartości `base`). Bez zmiany kierunku, adresu, bitrate, kalibracji i resetu fabrycznego.
+  - Weryfikacja obowiązkowa: ten sam zestaw ruchów testowych przed zmianą (linia bazowa) i po zmianie; nastawa zostaje tylko przy lepszym wskaźniku jakości i braku naruszeń twardych kryteriów (oscylacje w postoju, przeregulowanie, nadzór postoju, awaria). W przeciwnym razie — oraz przy każdym przerwaniu — automatyczny powrót do `pre_test` i odczyt kontrolny.
+  - Ruch testowy wymaga karty i zgody operatora jak każdy ruch fizyczny (oś, amplitudy, prędkości, czas, zakres nastaw, warunki zatrzymania).
+  - Wyniki (linia bazowa, kandydaci, decyzja, sumy SHA kontenerów) zapisywać w `docs/benchmark_results.md`.
 - **Higiena repozytorium:** Zachowuj lokalne zmiany użytkownika w Git. Ignoruj `build/`, `install/`, `log/` i nagrania ROS. Nie ruszaj kwestii licencji (`LICENSE`) ani zakładki GUI „Ustawienia systemowe” bez polecenia.
 - **Benchmarki:** Tylko przy zadaniach optymalizacyjnych zmierz stan przed/po na tych samych danych i dopisz wynik do `docs/benchmark_results.md`.
 
@@ -59,6 +65,15 @@ colcon build --symlink-install --packages-select <nazwa_pakietu>
 colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 ```
 
+## 5. Test jakości ruchu TCP (stała procedura)
+
+- Standardowy test płynności i dokładności planowanego ruchu PTP/LIN: `docs/tcp_motion_quality_procedure.md`,
+  skrypt `scripts/tcp_motion_quality.py`, skill `.claude/skills/tcp-motion-quality/SKILL.md`.
+- Suchy przebieg (bez ruchu): `python3 scripts/tcp_motion_quality.py`; test: `--execute [--acc <kody>]`.
+  12 ruchów (20/400 mm × 5/15/40 mm/s, PTP tam, LIN z powrotem), każdy przebieg od zerowania MKS, ok. 5 min.
+- **Stała zgoda operatora (08.11.2026):** dopóki operator nie zgłosi sprzęgnięcia mechanicznego, ten test
+  można wykonywać bez osobnej karty (zawsze od zerowania MKS). Po sprzęgnięciu obowiązuje §2 (karta i zgoda).
+
 ## Bieżący kontekst
 
-- 05.11.2026 — Analiza 5 migawek awarii (`faults.rfs`, 22:37–22:57): ramki CAN bez nieprawidłowości (CRC 0 błędów, brak timeoutów/ramek błędu/przepełnień/dropów, strumień F5 ciągły). J5 (3 awarie uchybu JOG TCP) na F5 jedzie przeciwnie do celu od 21:19:35 — hipoteza: przesunięty układ celu F5 napędu J5; F6 działa; **niezweryfikowane — czeka na reset zasilania J5 i zgodę na próbę ruchu**. `io_loop_gap` (8×8 ms co ~22,5 s) to spóźnione wybudzenie wątku IO mimo SCHED_FIFO 50 (nie mutex) — przyczyna systemowa nieznana. Poprawki `mks_servo_can` (`manual_motor_controller.cpp/.hpp`): zbiorcze ENABLE czeka do 1 s na stabilną pozycję (`group_settle_deadline_`) zamiast od razu zgłaszać „Zmiana lub utrata pozycji przed ENABLE” (22:37 J1 osiadł 6 impulsów po F3 00/F7) i wymaga odczytu pozycji po zakończeniu przygotowania (`group_commit_started_`; wcześniej mógł przejść odczyt sprzed F7); termin `operation_deadline_` nie jest sprawdzany w fazie idle (fałszywe „Przekroczony czas operacji ręcznej” 22:56:31 przy „Załącz wszystkie” z przygotowanymi osiami); `bus_runtime.cpp`: `io_loop_gap.detail` = spóźnienie przebudzenia względem planu i czas mutexu. Testy: mks_servo_can 236/236 (3 nowe w `test_enable_all.cpp`, symulacja `Port::disable_settle`; test osiadania sprawdzony negatywnie bez poprawki). Opis `docs/manual_control.md`, `docs/can_recording.md`. Wdrożona Release `libmks_servo_can.so` w `install/stop-recovery-ros` (kopia: `install/deployment-backups/enable-all-fixes-1793916826`) — **wymaga restartu usługi**.
+- 09.11.2026 — Szkice trybu „Programowanie trajektorii” (`temp/programowanie_trajektorii/`): operator wybrał v2 (bloki); dodane rozwinięcia `v2a_bloki_grafit`, `v2b_bloki_stal`, `v2c_bloki_monochrom` (przełącznik Bloki/Tekst, podgląd zmiennych podczas symulacji zamiast okna kodu, deklaracje zmiennych przed kodem, stonowane kolory); v1/v3/v4/v5 usunięte jako zastąpione. Bez zmian w kodzie i konfiguracji robota. Stan z 08.11: nastawy regulatora 25 ms / Kp 4 w `config/local/execution.production.yaml` (aktywne po restarcie usługi), acc 254, nadzór ucieczki osi SYNC, stała zgoda na testy do sprzęgnięcia mechanicznego.

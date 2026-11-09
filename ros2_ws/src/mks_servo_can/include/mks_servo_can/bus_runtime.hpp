@@ -34,6 +34,9 @@ class BusRuntime {
   bool tcp_jog_available();
   bool request_drive_parameters();
   bool request_microstep(unsigned axis,std::uint16_t microstep);
+  std::uint64_t submit_parameter_job(std::uint16_t address,std::uint8_t code,int sub,bool write,
+      const std::vector<std::uint8_t> &value,std::string &reason);
+  CanBusManager::ParameterJobResult parameter_job(std::uint64_t id);
   TcpStreamingSnapshot tcp_streaming_snapshot();
   void stop(const std::string &reason, bool critical = true);
   void renew_source_lease(Source source, Time created);
@@ -54,6 +57,7 @@ class BusRuntime {
       const std::string &revision, const std::string &session, std::uint64_t sequence, Time issued);
   void configure_program_authorization(const BusConfig &authorization);
   void update_motion_model(const std::string &model);
+  bool set_execution_tuning(const ExecutionTuning &tuning, std::string &reason);
   void update_motion_settings(const std::string &revision, bool allow_missing);
   MotionProgramStatus prepare_program(PreparedMotionProgram program);
   bool execute_program(const std::string &id, const std::string &key);

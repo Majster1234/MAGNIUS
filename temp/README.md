@@ -36,4 +36,4 @@ Animacja ma być dowodem pracy: w implementacji takt wyzwala odebrany snapshot, 
 - `status_ramy_b_lancuch.html` — B: pionowy łańcuch systemów w dole paska bocznego z pakietami spływającymi po łączach; wersja zwinięta 68 px.
 - `status_ramy_c_monitor.html` — C: „monitor” na środku paska górnego: linia EKG, diody systemów i 6 kwadratów napędów J1–J6.
 
-Kolejne propozycje trafiają do podfolderów (np. `sterowanie_reczne/`), każdy z własnym `README.md`.
+Kolejne propozycje trafiają do podfolderów (np. `sterowanie_reczne/`, `programowanie_trajektorii/`), każdy z własnym `README.md`. Wyjątek od „bez skryptów”: `programowanie_trajektorii/` ładuje three.js z CDN dla widoku 3D i symulacji (opis w jego README).

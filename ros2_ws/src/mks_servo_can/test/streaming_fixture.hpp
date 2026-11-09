@@ -3,6 +3,7 @@
 #include "mks_servo_can/manual_motor_controller.hpp"
 #include <algorithm>
 #include <deque>
+#include <map>
 #include <stdexcept>
 using namespace mks_servo_can;
 using namespace std::chrono_literals;
@@ -23,6 +24,10 @@ class Port final : public Transport {
   std::array<std::int64_t,7> drive_offset{};  // układ celu F5 napędu przesunięty względem enkodera 0x31
   std::array<std::int64_t,7> disable_settle{};  // osiadanie wału po ENABLE=0 [impulsy 0x31]
   std::array<std::int64_t,7> positions{},targets{};
+  // Nastawy z katalogu kopii (klucz: oś<<16 | kod<<8 | sub+1); wartość w formacie zapisu (z podkomendą).
+  std::map<std::uint32_t,std::vector<std::uint8_t>> params;unsigned reject_param_write{},unsupported_param{};
+  std::array<std::uint8_t,7> motor_state_override{};  // 0 = F1 zgłasza 1 (postój); np. 3 = hamowanie bez końca
+  static std::uint32_t param_key(unsigned axis,std::uint8_t code,int sub) {return (axis<<16)|(unsigned(code)<<8)|unsigned(sub+1);}
   std::array<unsigned,256> counts{};
   struct Event {Time stamp;unsigned axis;std::vector<std::uint8_t> data;};
   std::vector<Event> events;
@@ -76,6 +81,12 @@ class Port final : public Transport {
     switch(data[0]) {
       case 0x40:reply={0x40,0x12,1,0,static_cast<uint8_t>(bad_firmware ? 7 : 9),0x20};break;
       case 0:
+        if(data.size()>=3) {
+          const int s=(data[1]==0x96 || data[1]==0x97) && data.size()==4 ? data[2] : -1;
+          const auto it=params.find(param_key(axis,data[1],s));
+          if(it!=params.end()) {reply={data[1]};reply.insert(reply.end(),it->second.begin(),it->second.end());break;}
+          if(unsupported_param==data[1]) {reply={data[1],0xff,0xff};break;}  // firmware bez odczytu tej nastawy
+        }
         if(data[1]==0x8c) reply={0x8c,static_cast<uint8_t>(bad_response_mode || respond[axis]),static_cast<uint8_t>(complete[axis])};
         else if(data[1]==0x83) reply={0x83,static_cast<uint8_t>(work_current_ma>>8),static_cast<uint8_t>(work_current_ma)};
         else if(data[1]==0x96) {
@@ -98,10 +109,16 @@ class Port final : public Transport {
       case 0xf3:if(!data[1] && enabled[axis]) positions[axis]+=disable_settle[axis];
                 if(data[1] || axis!=refuse_disable) enabled[axis]=data[1];reply={0xf3,static_cast<uint8_t>(axis==refuse_disable ? 0 : 1)};break;
       case 0x92:positions[axis]=0;reply={0x92,1};break;
+      case 0x83:case 0x9b:case 0x85:case 0x86:case 0x87:case 0x88:case 0x89:case 0x8d:case 0x8f:case 0x95:case 0x96:case 0x97:case 0x9d:case 0x9f:case 0x42: {
+        const int s=(data[0]==0x96 || data[0]==0x97) ? data[1] : -1;
+        const auto key=param_key(axis,data[0],s);
+        if(reject_param_write==data[0]) {reply={data[0],0};break;}
+        params[key]=std::vector<std::uint8_t>(data.begin()+1,data.end()-1);reply={data[0],1};break;
+      }
       case 0x3a:reply={0x3a,static_cast<uint8_t>(enabled[axis])};break;
       case 0x3e:reply={0x3e,static_cast<uint8_t>(stalled==axis)};break;
       case 0x32:if(missing_speed) return;reply={0x32,0,static_cast<std::uint8_t>(speed_blips[axis] && speed_blips[axis]-- ? speed_blip_rpm : 0)};break;
-      case 0xf1:reply={0xf1,1};break;
+      case 0xf1:reply={0xf1,static_cast<std::uint8_t>(motor_state_override[axis] ? motor_state_override[axis] : 1)};break;
       case 0x39:{const auto v=static_cast<std::uint32_t>(angle_error[axis]);reply={0x39,static_cast<uint8_t>(v>>24),static_cast<uint8_t>(v>>16),static_cast<uint8_t>(v>>8),static_cast<uint8_t>(v)};break;}
       case 0x31: {
         if(axis==missing_position) return;

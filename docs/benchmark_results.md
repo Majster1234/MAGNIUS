@@ -1411,3 +1411,240 @@ Zapis CAN: 1271 SYNC wysłanych = potwierdzonych, 0 braków ACK, przesunięć, k
 (8 × `io_loop_gap` > 5 ms bez wpływu na terminy). Uchyby J4 i J6 spadły ~2–3×, maksima osi i odchyłka od prostej
 zmalały; średni błąd TCP zostaje na poziomie ~0,6–0,7 mm (dominuje J1). Chwilowe zatrzymania przy ~2–3 RPM wału
 pozostają (J4 — silnik pancake — 40–46% okien).
+
+## Płynność JOG TCP i PTP/LIN — diagnostyka offline, 06.11.2026
+
+Analiza i porównanie sposobów generowania komend na tych samych danych;
+bez zmiany kodu produkcyjnego, konfiguracji, usług i bez ruchu robota.
+Metoda, warunki, źródła i artefakty: [pełny raport](motion_smoothness_analysis_2026-11-06.md).
+
+- Emulator bieżącego `mks_servo_can`, 6 osi, tick 1 ms, obserwacja 400 ms:
+  spóźnienie pojedynczego terminu JOG TCP o 2/3/8 ms zmienia maksymalny odstęp
+  F5 z 10 na 20 ms (39 zamiast 40 zestawów), bez awarii. SYNC dla tych samych
+  spóźnień: odpowiednio 12/13/18 ms, bez braków ACK; dla 3/8 ms przesuwa oś czasu.
+  Brak odpowiedzi na odczyt prędkości nie zakłócił 10 ms JOG TCP.
+- Przyszły cel, syntetyczna S-curve 0,1 rad / 0,05 rad/s / 0,5 rad/s² /
+  2 rad/s³, 233 próbki, lookahead 85 ms: bieżąca ekstrapolacja z przyspieszeniem
+  różnicowym generuje 3 cofnięcia celu (2 po kodowaniu F5), dokładny punkt
+  przyszłej trajektorii — 0. Maks. różnica 0,013475°, RMS 0,005714°.
+  Wariant dokładny podano przez istniejący opcjonalny argument API; nie wdrożono
+  go w wykonawcy JOG. Mała skala efektu nie wyjaśnia sama dużego szarpania.
+- Po 100 komend dla 0,2/0,5/0,9 RPM: średnia komenda zawsze 1 RPM wału,
+  zarówno dla mikrokroku 16, jak i 128, przy `min_holding_rpm=1`.
+  Dla 1,2/1,5/1,9 RPM średnia zachowuje żądanie. Test komend nie mierzy prędkości
+  fizycznej ani nie potwierdza przyczyny wcześniejszych przestojów przy 2–3 RPM.
+- Dodatkowy test stałego opóźnienia odpowiedzi 2–8 ms zachował SYNC 10 ms
+  bez braków ACK; przy 10 ms emulator zakończył ruch oczekiwaną awarią po
+  trzecim kolejnym braku ACK osi. Nie jest to podstawa do zmiany timeoutów.
+
+Wyniki są deterministyczną diagnostyką harmonogramu i celu, bez modelu dynamiki
+firmware, arbitrażu CAN i obciążenia systemu. Nie zmierzono poprawy płynności
+fizycznej ani wydajności CPU. `AGENTS.md` pozostawiono bez zmian: wykonano analizę,
+testy programowe i dokumentację, bez zmiany kodu/konfiguracji/testów sprzętowych.
+
+## Skoordynowany LIN TCP — przerwana próba sprzętowa, 06.11.2026
+
+Operator zatwierdził jedną próbę −10 mm X / +10 mm Z, limit 5 mm/s,
+załączenie sześciu osi i dodatkowy próg świeżości pozycji 150 ms.
+Po trzech odrzuconych porównaniach przygotowania wysłano jedno żądanie
+wykonania; żaden wcześniejszy program LIN nie został uruchomiony.
+
+Próba przerwana przez dodatkowy monitor na starcie SYNC. Surowy CAN:
+przerwy pozycji J1–J6 odpowiednio 141,350 / 171,552 / 139,341 / 169,571 /
+140,211 / 171,483 ms podczas uzbrajania. Zarejestrowano jeden SYNC,
+4015 ramek, 0 błędnych sum kontrolnych i 0 ramek błędu CAN. Wspólny przedział
+pomiarów po pierwszym SYNC ma tylko 3,419 ms: **brak podstaw do oceny płynności,
+błędu śledzenia TCP i efektu optymalizacji**. Wszystkie osie wyłączone,
+postój potwierdzony; nie wykonywano następnej próby ani powrotu.
+
+Nadzór korzystał ze snapshotów ROS/HTTP i zastosował 150 ms również przy
+uzbrajaniu, podczas gdy istniejący wykonawca dopuszcza 250 ms i wstrzymuje
+31 w `arming`. Kandydat obliczeń oparty na surowych pozycjach i limitach
+250 ms przed / 150 ms po SYNC przeszedł odtworzenie od żądania wykonania
+(18 ocen), z zachowanym wykrywaniem utraty świeżości. Nie jest zintegrowany
+ani odebrany sprzętowo; osobno pozostaje nadzór skoków podczas ENABLE.
+
+[Wynik, odrzucone przygotowania i ograniczenia](tcp_lin_physical_trial_2026-11-06.md).
+Artefakty: `log/tcp-lin-20261106-191420/`. Bez zmiany kodu produkcyjnego,
+PID, konfiguracji i restartu usług; nie jest to porównanie poprawy przed/po.
+
+## LIN/SYNC — pełna próba 2 i baza płynności, 06.11.2026
+
+Operator zatwierdził jedną próbę 2; start 20:02:15 CET. Jedno załączenie,
+jeden LIN −10 mm X / +10 mm Z od pomiarów ustalonych po ENABLE. Limit
+5 mm/s i 10 mm/s², referencja 3,99 s / 14,14214 mm. Nadzór używał surowych
+pozycji CAN, wspólnego czasu oraz 250 ms przed / 150 ms po pierwszym SYNC.
+Pełny replay z ENABLE (372 oceny) i wstrzyknięcia błędów wykonano przed ruchem.
+
+| Metryka próby | Wynik |
+| --- | --- |
+| SYNC / F5 / ACK | 400 / 2400 / 2400; 0 brakujących ACK |
+| Okres SYNC, średnia ±std | 9,999883 ±0,042949 ms |
+| Okres SYNC, min…max | 9,835540…10,168476 ms |
+| Timeouty / błędne sumy / ramki błędu CAN | 0 / 0 / 0 |
+| Odchylenie poprzeczne TCP: RMS / max | 0,159 / 0,472 mm |
+| Błąd TCP względem czasowej referencji: RMS / max | 0,385 / 0,941 mm |
+| Końcowy błąd TCP po postoju | 0,455 mm |
+| Prędkość referencyjna w obszarze stałego posuwu, średnia ±std | 4,399 ±0,070 mm/s |
+| Prędkość z enkoderów/FK w tym obszarze, średnia ±std | 4,469 ±6,258 mm/s |
+| Aktywne okna TCP 100 ms z postępem <50% referencji | 20/37 (54,1%) |
+
+Prędkości: ta sama regresja 100 ms dla referencji i pomiaru; obszar referencji
+≥90% maksimum. Aktywne okna wymagają referencyjnego postępu ≥0,1 mm.
+Wyniki TCP wynikają z enkoderów i modelu, bez pomiaru ugięć/luzów za enkoderami.
+To pojedyncza baza pomiarowa, bez wdrożonej optymalizacji i bez porównania
+przed/po na zmienionym algorytmie. Transmisja kompletna, ale płynność wyraźnie
+nierówna według enkoderów. J5 wykonał zadany dodatni ruch.
+
+Przy końcu potwierdzono skok celu F5: J3 +0,065918°, J4 −0,059326°.
+Źródło `streaming_motion.cpp:53–55` pomija wypracowaną całkę dla `remaining=0`.
+Proponowana ciągłość korekcji w dolocie nie została jeszcze wdrożona.
+Przyrost `missed_cycles=465` nie jest liczbą zgubionych SYNC: licznik obejmuje
+także `!feedback_recorded_`, którego tor programu nie ustawia.
+
+Pełny wynik i wykresy: [próba 2](tcp_lin_trial_2_2026-11-06.md).
+Artefakty: `log/tcp-lin-trial2-20261106/`. Końcowy postój potwierdzony,
+ENABLE=1 sześciu osi zgodnie z kartą; bez powrotu, kolejnego ruchu,
+zmiany produkcyjnego kodu/PID/kalibracji i restartu usług.
+
+## RMS odchyłki TCP JOG — dithering i korekcja PI — 07.11.2026
+
+Próba sprzętowa za zgodą operatora (`log/tcp-rms-20261107/`: `run_rms.py`, `analyze_rms.py`,
+`result_attempt*.json`, `result.json`, `rms_rows.json`). Impulsy JOG TCP w układzie bazy ±30 mm X/Y/Z,
+12,5 mm/s, start J=[54,84; 3,11; −15,29; −40,64; 84,80; 123,57]°, TCP (270,9; 226,9; 412,2) mm.
+Metryka: RMS 3D = √mean(dx²+dy²+dz²) między FK(referencji) a FK(pomiaru enkoderów, ślad wału),
+siatka 10 ms w oknie impulsu. Pomiar z enkoderów silników — bez luzu/sprężystości przekładni.
+
+| Wariant | Impulsy | RMS 3D | X / Y / Z | Rozrzut impulsów |
+| --- | --- | --- | --- | --- |
+| B: min. dithering 0,125 RPM, PI wł. | 12 | 0,473 mm | 0,213 / 0,250 / 0,341 | 0,368–0,523 |
+| D1: min. dithering 1,0 RPM, PI wł. | 9 | 0,484 mm | 0,234 / 0,240 / 0,349 | 0,394–0,524 |
+| P0: min. dithering 0,125 RPM, PI wył. | 7 | 0,611 mm | 0,362 / 0,354 / 0,343 | 0,492–0,779 |
+
+Różnice względem B dla tych samych kierunków: D1 +0,003 ± 0,020 mm (+0,7 %, brak efektu),
+P0 +0,150 ± 0,131 mm (+32 %; Z+/Z− 0,68/0,78 wobec 0,41 mm). Wniosek: korekcja całkująca
+zostaje włączona; minimum ditheringu 0,125 vs 1 RPM nie wpływa na RMS. Ruchy w Z mają najmniejszy RMS.
+Test przerwany przed końcem (D1 brak 3, P0 brak 5 impulsów) przez oscylacje J4 w postoju
+(cykl graniczny napędu ±35–45 imp. wału wokół ostatniego celu F5, wystąpiły po P0 i po D1;
+blokują start kolejnego impulsu). Wyłączenie ENABLE oscylującej osi kończy się przekroczeniem
+czasu operacji ręcznej → awaria krytyczna → ENABLE=0 wszystkich osi (12:04:31).
+
+## J4 — ocena bazowa nastaw (PID fabryczny) i próba strojenia — 07.11.2026
+
+Tryb izolowany (`scripts/mks_pid_tuning.py tune --axis 4`, `log/pid-tune-20261107-151150-J4/`): tylko J4 ENABLE=1, PTP
+±2°/±8° z powrotem, 10°/s, 50°/s², obserwacja 1,5 s, pomiar ze śladu wału. PID vFOC 220/100/270/320 (base).
+
+| Ocena | Koszt | Uchyb ustalony śr. | Przeregulowanie śr. | Ustalenie (pasmo 0,05°) | RMS śledzenia | Oscylacja p-p maks. |
+| --- | --- | --- | --- | --- | --- | --- |
+| bazowa 1 | 22,6 | 0,174° | 0,105° | 3,4 s (brak w oknie) | 0,104° | 0,002° |
+| bazowa 2 | 23,5 | 0,165° | 0,104° | 3,4 s (brak w oknie) | 0,106° | 0,207° (1 ruch) |
+
+Uchyb ustalony jest powtarzalny: ruchy do startu ≈ 0,186°, ruchy +2°/−2° ≈ 0,19–0,20°, ±8° ≈ 0,13° — rząd jednego pełnego
+kroku silnika (1,8° wału = 0,18° przegubu); mieści się w tolerancji dolotu 0,5°, więc nie jest korygowany.
+Przeregulowanie ≈ 0,2° w co drugim ruchu (zależnie od kierunku).
+
+**Strojenie PID niewykonalne przez CAN w firmware 1.0.9:** zapis 96h (Kp 308) potwierdzony statusem 1, ale odczyt
+kontrolny bez zmiany (220/100) — przy ENABLE=1 i przy ENABLE=0. Mechanizm kopii wykrył brak zmiany i przywrócił `pre_test`.
+Ten sam objaw zgłoszony u producenta: github.com/makerbase-motor/MKS-SERVO42D-57D/issues/41 (bez odpowiedzi).
+
+## 2026-11-08 — test jakości ruchu TCP: kod przyspieszenia F5 (acc)
+
+Procedura `docs/tcp_motion_quality_procedure.md` (12 ruchów: 20/400 mm × 5/15/40 mm/s, PTP tam, LIN z powrotem,
+start od zerowania MKS, tryb `synchronized`, wały rozsprzęglone). Wyniki: `log/tcp_quality/20261108-133403` (241),
+`-134510` (100), `-135206` (50), `-135842` (20). Średnie z zaliczonych ruchów przy danej prędkości TCP:
+
+| acc (rampa przy µkroku 128) | v [mm/s] | Tętnienie v [%] | Zatrzymania [%] | Odchyłka drogi max [mm] (najgorszy) | Uchyb na końcu trajektorii [mm] | Niezaliczone |
+| --- | --- | --- | --- | --- | --- | --- |
+| 241 (≈170 RPM/s) | 5 / 15 / 40 | 219 / 115 / 54 | 12,5 / 10,5 / 5,7 | 1,06 / 1,33 / 1,42 (1,6) | 0,37 / 0,62 / 0,53 | LIN 400 mm 40 mm/s: J2 jechał przeciwnie do komendy F5 (−50°) |
+| 254 (≈1250 RPM/s) | 5 / 15 / 40 | 217 / 113 / 52 | 14,6 / 12,9 / 7,5 | 0,99 / 1,37 / 1,64 (2,6) | 0,40 / 0,66 / 0,92 | 0 (komplet 12; błąd po dolocie 0,08–0,68 mm; `-140805`) |
+| 100 (≈16 RPM/s) | 5 / 15 / 40 | 211 / 110 / 52 | 13,3 / 11,3 / 6,7 | 1,06 / 1,25 / 8,89 (27,4) | 0,32 / 0,55 / 4,02 | 0 |
+| 50 (≈12 RPM/s) | 5 / 15 / 40 | 217 / 106 / 55 | 12,9 / 10,2 / 7,3 | 1,09 / 1,77 / 12,7 (35,2) | 0,33 / 0,83 / 3,78 | PTP 400 mm 40 mm/s (dolot J6) |
+| 20 (≈11 RPM/s) | 5 / 15 / 40 | 208 / 111 / 53 | 14,5 / 11,6 / 7,4 | 0,96 / 1,49 / 4,35 (10,6) | 0,24 / 0,46 / 1,77 | LIN 400 mm 40 mm/s (dolot: J6 38°, przestrzał korekty) |
+
+Wnioski: tętnienie prędkości TCP i udział zatrzymań praktycznie nie zależą od acc (różnice w granicach rozrzutu);
+zależą od prędkości. Niższe acc pogarsza nadążanie przy 40 mm/s (odchyłka drogi do 27–35 mm, uchyby osi do 9°)
+i prowadzi do nieudanych dolotów: korekta dolotu SYNC (cel += uchyb co 200 ms) przy wolnej osi narasta i powoduje
+przestrzał (J6 −22° → +37°). Wskaźnik tętnienia zawiera szum różniczkowania enkodera — porównanie względne.
+Wartości 160 (pierwsza wersja testu, 100 mm) nie różniły się od 241.
+
+## 2026-11-08 — test jakości ruchu TCP: nastawy regulatora wykonania (acc 254)
+
+Seria `--baseline --tune lookahead_ms=120,160 --tune ff=1.1,1.2 --tune kp=1.5,4` (`log/tcp_quality/20261108-143749`).
+
+| Przebieg | Tętnienie v [%] 5/15/40 mm/s | Zatrzymania [%] | Odchyłka drogi max [mm] 5/15/40 (najgorszy) | Uchyb na końcu traj. [mm] | Błąd po dolocie [mm] |
+| --- | --- | --- | --- | --- | --- |
+| plik (85 ms, FF 1, Kp 2,5) | 210 / 115 / 56 | 11,2 | 1,03 / 1,33 / 1,58 (2,4) | 0,58 | 0,23 |
+| wyprzedzenie 120 ms | 216 / 105 / 52 | 12,0 | 1,03 / 1,38 / 1,75 (2,7) | 0,78 | 0,49 |
+| wyprzedzenie 160 ms | 215 / 118 / 54 | 12,0 | 1,08 / 1,60 / 2,05 (3,2) | 0,90 | 0,27 |
+| FF 1,1 | 217 / 111 / 56 | 11,6 | 1,05 / 1,42 / 2,23 (2,7) | 0,65 | 0,28 |
+| FF 1,2 | 217 / 111 / 51 | 10,6 | 1,03 / 1,37 / 2,37 (2,8) | 0,58 | 0,29 |
+| Kp 1,5 | 212 / 108 / 55 | 10,6 | 1,00 / 1,52 / 1,89 (2,5) | 0,59 | 0,30 |
+| Kp 4 (11 ruchów) | 208 / 109 / 53 | 10,9 | 1,03 / 1,36 / 1,32 (1,6) | 0,54 | 0,29 |
+
+Wnioski: żadna nastawa regulatora nie zmienia tętnienia ani zatrzymań (różnice w granicach rozrzutu) —
+potwierdza, że źródło jest w napędach. Dłuższe wyprzedzenie i FF > 1 pogarszają odchyłkę drogi przy 40 mm/s;
+Kp 4 ją zmniejsza (1,32 vs 1,58 mm). Czas F5/SYNC we wszystkich przebiegach: odstęp 10,000 ms (p99 ≈ 10,07 ms),
+F5→ACK mediana 1,29 ms. Przebieg Kp 4 przerwała druga ucieczka J2 (LIN 400 mm 40 mm/s, opis w AGENTS.md).
+
+## 2026-11-08 — test jakości ruchu TCP: acc 0 (bez rampy) × wyprzedzenie celu
+
+Seria `--fixed acc=0 --tune lookahead_ms=50,85,100` (testowe nadpisanie acc F5, `log/tcp_quality/20261108-160357`),
+36/36 ruchów zaliczonych.
+
+| Wyprzedzenie (acc 0) | Tętnienie v [%] 5/15/40 | Zatrzymania [%] | Odchyłka drogi max [mm] 5/15/40 (najgorszy) | Uchyb na końcu traj. [mm] | Błąd po dolocie [mm] |
+| --- | --- | --- | --- | --- | --- |
+| 50 ms | 214 / 114 / 53 | 10,8 | 1,06 / 1,24 / 1,55 (2,0) | 0,40 | 0,39 |
+| 85 ms | 204 / 120 / 53 | 11,4 | 1,07 / 1,41 / 1,76 (2,7) | 0,49 | 0,24 |
+| 100 ms | 219 / 112 / 54 | 11,7 | 1,03 / 1,41 / 2,05 (3,4) | 0,64 | 0,44 |
+
+Wnioski: także acc 0 nie zmienia tętnienia ani zatrzymań (jak acc 20–254). Krótsze wyprzedzenie poprawia
+nadążanie (40 mm/s: 1,55 mm przy 50 ms wobec 2,05 mm przy 100 ms; trend zgodny z serią 85/120/160 ms przy acc 254).
+Czas F5/SYNC bez zmian (p99 ≈ 10,06 ms).
+
+## 2026-11-08 — kandydat nastaw: wyprzedzenie 50 ms + Kp 4 wobec obecnych (85 ms, Kp 2,5)
+
+Test jakości TCP, acc 254, kolejność A/B/A/B (`log/tcp_quality/ab-163229-A1`, `ab-163840-B1`, `ab-164443-A2`,
+`ab-165044-B2`), po 24 ruchy na wariant, 0 niezaliczonych, nadzór ucieczki SYNC aktywny (0 zadziałań).
+
+| v [mm/s] | Tętnienie [%] A / B | Zatrzymania [%] A / B | Odchyłka drogi max [mm] A / B (najgorszy) | Odchyłka RMS [mm] A / B | Uchyb na końcu traj. [mm] A / B | Błąd po dolocie [mm] A / B |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5 | 203 / 218 | 15,2 / 16,3 | 1,08 / 1,08 (1,28 / 1,23) | 0,394 / 0,404 | 0,26 / 0,23 | 0,21 / 0,19 |
+| 15 | 117 / 117 | 12,6 / 12,8 | 1,43 / 1,33 (1,75 / 1,48) | 0,504 / 0,496 | 0,60 / 0,38 | 0,23 / 0,23 |
+| 40 | 55 / 54 | 7,9 / 7,5 | 1,73 / 1,53 (2,56 / 1,73) | 0,565 / 0,521 | 0,77 / 0,36 | 0,21 / 0,23 |
+
+Wniosek: B poprawia nadążanie przy 15–40 mm/s (odchyłka drogi −7…−12%, najgorszy przypadek przy 40 mm/s
+2,56 → 1,73 mm, uchyb na końcu trajektorii o połowę), bez zmian tętnienia, błędu po dolocie i czasu wykonania.
+Przy 5 mm/s bez różnicy.
+
+## 2026-11-08 — krótkie wyprzedzenie celu (15/25/40 ms) przy Kp 4, acc 254
+
+`--fixed kp=4 --tune lookahead_ms=15,25,40` (`log/tcp_quality/20261108-172127`), 36/36 ruchów; porównanie z A/B powyżej.
+
+| Nastawy | Odchyłka drogi max [mm] 5/15/40 (najgorszy przy 40) | RMS [mm] 5/15/40 | Uchyb na końcu traj. [mm] 5/15/40 | Tętnienie [%] 5/15/40 |
+| --- | --- | --- | --- | --- |
+| 15 ms, Kp 4 | 1,13 / 1,26 / 1,33 (1,46) | 0,405 / 0,471 / 0,479 | 0,27 / 0,26 / 0,43 | 220 / 116 / 56 |
+| 25 ms, Kp 4 | 1,08 / 1,24 / 1,33 (1,38) | 0,404 / 0,464 / 0,488 | 0,23 / 0,28 / 0,31 | 219 / 114 / 56 |
+| 40 ms, Kp 4 | 1,15 / 1,26 / 1,46 (1,68) | 0,397 / 0,489 / 0,503 | 0,24 / 0,36 / 0,32 | 221 / 117 / 54 |
+| 50 ms, Kp 4 (2 przebiegi) | 1,08 / 1,33 / 1,53 (1,73) | 0,404 / 0,496 / 0,521 | 0,23 / 0,38 / 0,36 | 218 / 117 / 54 |
+| 85 ms, Kp 2,5 — plik (2 przebiegi) | 1,08 / 1,43 / 1,73 (2,56) | 0,394 / 0,504 / 0,565 | 0,26 / 0,60 / 0,77 | 203 / 117 / 55 |
+
+Wniosek: odchyłka toru przy 15–40 mm/s maleje wraz ze skróceniem wyprzedzenia do ~25 ms; 15 i 25 ms praktycznie
+równe (pojedyncze przebiegi, rozrzut ~±0,1 mm). Tętnienie, zatrzymania i błąd po dolocie bez zmian.
+
+## 2026-11-08 — potwierdzenie A/B na trzech trajektoriach: 25 ms + Kp 4 (B) wobec 85 ms + Kp 2,5 (A)
+
+Test jakości TCP, acc 254, pary A/B na kierunkach T1 (−1,−1,−1), T2 (−1,2,−1), T3 (−1,−2,−1), kolejność AB/BA/AB
+(`log/tcp_quality/ab2-*`), 72/72 ruchy zaliczone (pierwsza próba T1B przerwana przez nadzór na ruchu
+przygotowawczym — przestrzał dolotu J5, 39h = 0,04°, powtórzona).
+
+| Trajektoria | Odchyłka drogi max 40 mm/s A → B [mm] (najgorszy) | Uchyb końca traj. 40 mm/s A → B [mm] | Tętnienie 40 mm/s A → B [%] |
+| --- | --- | --- | --- |
+| T1 | 1,80 → 1,29 (2,64 → 1,67) | 0,84 → 0,40 | 53 → 54 |
+| T2 | 1,84 → 1,30 (3,16 → 1,83) | 0,66 → 0,27 | 56 → 59 |
+| T3 | 1,84 → 1,22 (2,66 → 1,44) | 0,91 → 0,37 | 54 → 57 |
+
+Razem (12 ruchów na prędkość): odchyłka drogi max 5/15/40 mm/s A 1,01/1,34/1,83 → B 1,04/1,18/1,27 mm
+(najgorszy 3,16 → 1,83 mm), RMS przy 40 mm/s 0,577 → 0,493 mm, uchyb końca trajektorii 0,32/0,72/0,80 →
+0,30/0,33/0,35 mm; tętnienie 226/117/54 → 229/120/57 %, zatrzymania bez zmian, błąd po dolocie 0,18–0,22 →
+0,23–0,28 mm. Wniosek: B potwierdzone na wszystkich trajektoriach — odchyłka toru przy 40 mm/s −30%,
+najgorszy przypadek −42%; nieznacznie wyższe tętnienie (+3 pkt %) i błąd po dolocie (+0,05 mm) w granicach rozrzutu.

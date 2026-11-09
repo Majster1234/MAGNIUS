@@ -19,7 +19,8 @@ add_library(${PROJECT_NAME} SHARED
   src/tcp_jog.cpp
   src/manual_motor_controller.cpp
   src/bus_runtime.cpp
-  src/realtime.cpp)
+  src/realtime.cpp
+  src/drive_parameters.cpp)
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -71,6 +72,8 @@ if(BUILD_TESTING)
   target_link_libraries(test_enable_all ${PROJECT_NAME})
   ament_add_gtest(test_idle_enable test/test_idle_enable.cpp)
   target_link_libraries(test_idle_enable ${PROJECT_NAME})
+  ament_add_gtest(test_drive_parameters test/test_drive_parameters.cpp)
+  target_link_libraries(test_drive_parameters ${PROJECT_NAME})
 endif()
 
 install(FILES README.md DESTINATION share/${PROJECT_NAME})

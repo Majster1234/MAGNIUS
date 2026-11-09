@@ -29,7 +29,8 @@ TEST(ConfigurationRevision, LegacyYamlRevisionDoesNotPinCommittedProfile) {
   }
 }
 TEST(ConfigurationRevision, EverySavedRatioUsesNewProfileWithoutRestartOrYamlEdit) {
-  Rig h;h.ready();std::string previous="bench";
+  // Test skokowo przestawia emulowany wał przy ENABLE=1 — bez nadzoru postoju.
+  auto c=config();c.hold_supervision=false;Rig h(c);h.ready();std::string previous="bench";
   for(double ratio:{1.,3.,5.,12.5,50.,.5}) {
     // Każda próba zaczyna się od tego samego położenia wałów emulatora.
     h.port->positions.fill(0);h.port->targets.fill(0);

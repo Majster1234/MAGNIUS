@@ -16,10 +16,38 @@ from rcl_interfaces.srv import SetParametersAtomically
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 from std_msgs.msg import String
 from robot_control_interfaces.msg import JointConfiguration, RobotConfiguration, ManualState, MotionSettings
-from robot_control_interfaces.srv import ConfigurationCommand, ConfigureRobot
-from .schema import profiles, validate, CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL
+from robot_control_interfaces.srv import ConfigurationCommand, ConfigureRobot, DriveParameter
+from .schema import profiles, validate, CRITICAL_FAULT_POLICY, DISPATCH_MODE, F5_ACCELERATION, MIN_DITHER_DEFAULT, MIN_DITHER_RPM, POSITION_INTEGRAL
 from .storage import Storage, decode
 from .coordinator import Coordinator, Conflict
+from .drive_backup import DriveBackups, Conflict as DriveConflict
+
+
+class RosDriveDevice:
+    """Odczyt/zapis jednej nastawy przez właściciela CAN (/robot/can/drive_parameter)."""
+    def __init__(self, node, group):
+        self.client = node.create_client(DriveParameter, '/robot/can/drive_parameter', callback_group=group)
+
+    def _call(self, request):
+        if not self.client.wait_for_service(timeout_sec=2):
+            raise RuntimeError('Usługa /robot/can/drive_parameter niedostępna')
+        future = self.client.call_async(request)
+        done = threading.Event(); future.add_done_callback(lambda _: done.set())
+        if not done.wait(2):
+            self.client.remove_pending_request(future)
+            raise TimeoutError('Brak odpowiedzi usługi nastaw napędu')
+        return future.result()
+
+    def read(self, address, code, sub):
+        result = self._call(DriveParameter.Request(operation=DriveParameter.Request.READ, address=address, code=code, sub=sub))
+        if not result.success:
+            raise RuntimeError(f'J{address} odczyt {code:02X}h: {result.message}')
+        return result.supported, list(result.value)
+
+    def write(self, address, code, sub, value):
+        result = self._call(DriveParameter.Request(operation=DriveParameter.Request.WRITE, address=address, code=code, sub=sub, value=value))
+        if not result.success:
+            raise RuntimeError(f'J{address} zapis {code:02X}h: {result.message}')
 
 
 class RosTransport:
@@ -57,6 +85,8 @@ class RosTransport:
         configuration.ptp_lin_dispatch_mode = state['document']['values'].get(DISPATCH_MODE, 'streamed')
         configuration.disable_enable_on_critical_fault = state['document']['values'].get(CRITICAL_FAULT_POLICY, True)
         configuration.position_integral = state['document']['values'].get(POSITION_INTEGRAL, False)
+        configuration.min_dither_rpm = float(state['document']['values'].get(MIN_DITHER_RPM) or MIN_DITHER_DEFAULT)
+        configuration.f5_acceleration_code = int(state['document']['values'].get(F5_ACCELERATION) or 0)
         configuration.axes = [JointConfiguration(**profile) for profile in profiles(state['document'])]
         configuration.changed = changed or [False] * 6
         if phase == 'bootstrap':
@@ -71,6 +101,7 @@ class RosTransport:
         response['resolved_configuration'] = dict(revision=resolved.revision, calibration_invalid=list(resolved.calibration_invalid),
             disable_enable_on_critical_fault=resolved.disable_enable_on_critical_fault,
             ptp_lin_dispatch_mode=resolved.ptp_lin_dispatch_mode, position_integral=resolved.position_integral,
+            min_dither_rpm=resolved.min_dither_rpm, f5_acceleration_code=int(resolved.f5_acceleration_code),
             axes=[{key: getattr(axis, key) for key in ('axis', 'configured', 'gear_ratio', 'direction', 'zero_offset_rad',
                   'lower_rad', 'upper_rad', 'velocity_rad_s', 'acceleration_rad_s2')} for axis in resolved.axes])
         return response
@@ -98,6 +129,8 @@ class ConfigurationNode(Node):
         except BlockingIOError:
             raise RuntimeError('Inny węzeł jest już właścicielem tego katalogu konfiguracji') from None
         self.coordinator = Coordinator(self.storage, RosTransport(self, self.group, self.storage))
+        # Kopie nastaw sterowników MKS: katalog drive-backups obok katalogu konfiguracji.
+        self.drive_backups = DriveBackups(self.storage.root.parent / 'drive-backups', RosDriveDevice(self, self.group))
         self.calibration_state = None
         self.create_subscription(ManualState, '/robot/manual/state', self.calibration_update, 1, callback_group=self.group)
         self.service = self.create_service(ConfigurationCommand, '/robot/configuration/command', self.command, callback_group=self.group)
@@ -145,6 +178,8 @@ class ConfigurationNode(Node):
                 ptp_lin_dispatch_mode=active['document']['values'].get(DISPATCH_MODE, 'streamed'),
                 disable_enable_on_critical_fault=active['document']['values'].get(CRITICAL_FAULT_POLICY, True),
                 position_integral=active['document']['values'].get(POSITION_INTEGRAL, False),
+                min_dither_rpm=float(active['document']['values'].get(MIN_DITHER_RPM) or MIN_DITHER_DEFAULT),
+                f5_acceleration_code=int(active['document']['values'].get(F5_ACCELERATION) or 0),
                 calibration_invalid=snapshot['calibration_invalid'],
                 tcp_jog_max_linear_velocity=(active['document']['values'].get('tcp.max_linear_velocity') or 0) / 1000,
                 tcp_jog_max_angular_velocity=math.radians(active['document']['values'].get('tcp.max_angular_velocity') or 0),
@@ -191,9 +226,17 @@ class ConfigurationNode(Node):
                 self.worker = threading.Thread(target=self.coordinator.bootstrap, name='configuration-reconcile', daemon=True)
                 self.worker.start()
                 result = self.coordinator.snapshot(); code = 202
+            elif operation == 'drive_backup_status':
+                result = self.drive_backups.status(); code = 200
+            elif operation == 'drive_backup_test_set':
+                result = self.drive_backups.set_test(data); code = 200
+            elif operation == 'drive_backup_start':
+                if self.coordinator.running:
+                    raise Conflict('Trwa zapis konfiguracji robota')
+                result = self.drive_backups.start(data.get('action'), data); code = 202
             else:
                 raise ValueError('Nieznana operacja konfiguracji')
-        except Conflict as error:
+        except (Conflict, DriveConflict, FileExistsError) as error:
             code, result = 409, {'detail': str(error)}
         except FileNotFoundError:
             code, result = 404, {'detail': 'Snapshot nie istnieje'}

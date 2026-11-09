@@ -1,7 +1,7 @@
 """Profil rozstrzygnięty przez właściciela CAN, bez przeliczania z opóźnionego ROS."""
 from copy import deepcopy
 import math
-from .schema import CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL, profiles, validate
+from .schema import CRITICAL_FAULT_POLICY, DISPATCH_MODE, F5_ACCELERATION, MIN_DITHER_DEFAULT, MIN_DITHER_RPM, POSITION_INTEGRAL, profiles, validate
 
 
 def confirmation_axes(value):
@@ -22,6 +22,12 @@ def resolve(previous, candidate, response):
     integral = resolved.get('position_integral', False)
     if type(integral) is not bool or integral != candidate['document']['values'].get(POSITION_INTEGRAL, False):
         raise RuntimeError('CAN nie potwierdził opcji korekcji całkującej')
+    dither = resolved.get('min_dither_rpm', MIN_DITHER_DEFAULT)
+    if type(dither) not in (int, float) or dither != candidate['document']['values'].get(MIN_DITHER_RPM, MIN_DITHER_DEFAULT):
+        raise RuntimeError('CAN nie potwierdził minimalnego ditheringu')
+    acceleration = resolved.get('f5_acceleration_code', 0)
+    if type(acceleration) is not int or acceleration != (candidate['document']['values'].get(F5_ACCELERATION) or 0):
+        raise RuntimeError('CAN nie potwierdził kodu przyspieszenia F5')
     axes, invalid = resolved.get('axes'), resolved.get('calibration_invalid')
     if not isinstance(axes, list) or len(axes) != 6 or not isinstance(invalid, list) or len(invalid) != 6 or any(type(v) is not bool for v in invalid):
         raise RuntimeError('Niekompletny profil lub stan kalibracji CAN')

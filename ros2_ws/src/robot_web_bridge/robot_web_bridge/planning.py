@@ -419,8 +419,9 @@ class PlanningClient:
             if plan.get('simulation_only'):
                 plan['settings_revision'] = job['settings_revision']
                 plan['execution_limits'] = job.get('execution_limits', {})
-            if len(json.dumps(plan)) > 8 * 1024 * 1024:
-                raise ValueError('Plan przekracza limit podglądu 8 MiB')
+            # ~1 KiB na próbkę 10 ms (trajektoria + próbki MKS); 16 MiB obejmuje limit wykonawcy 10 000 punktów (100 s).
+            if len(json.dumps(plan)) > 16 * 1024 * 1024:
+                raise ValueError('Plan przekracza limit podglądu 16 MiB')
             while len(self.plans) >= 4:
                 self.plans.popitem(last=False)
             self.plans[plan['id']] = plan

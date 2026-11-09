@@ -72,6 +72,7 @@ void CanBusManager::shaft_reference_changed(unsigned axis) {
   const auto next=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   shaft_segments_[axis-1]=std::max(shaft_segments_[axis-1]+1,static_cast<std::uint64_t>(next));
   shaft_flags_[axis-1]|=1;shaft_reference_flags_[axis-1]|=1;shaft_command_flags_[axis-1]|=1;shaft_rpm_flags_[axis-1]|=1;
+  hold_valid_[axis-1]=false;  // nowe zero wału: pozycja trzymania z poprzedniego układu jest nieważna
 }
 void CanBusManager::record_shaft_reference(unsigned joint,double position,Time stamp) {
   if(joint>=kAxes) return;
@@ -135,6 +136,10 @@ double CanBusManager::mandatory_cycle_bits() const {
   unsigned participants=0;
   if(active_) for(unsigned j=0;j<kAxes;++j) participants+=source_!=Source::program || executor_.status.participating[j];
   else participants=known_count_;
+  // SYNC: na oś F5 (8) + ACK F5=05 (3) + zapytanie i odpowiedź pozycji (2+8), plus ramka SYNC (2).
+  // Rezerwa jak dla streamingu (bez ACK i SYNC) pozwalała diagnostyce zająć miejsce zestawu → awaria budżetu.
+  if(active_ && source_==Source::program && executor_.status.dispatch_mode=="synchronized")
+    return participants*(bits(8)+bits(3)+bits(2)+bits(8))+bits(2);
   if(active_) return stream_cycle_bits(participants);
   return ((participants+1)/2)*(bits(2)+bits(8));
 }
@@ -417,7 +422,8 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
     case Kind::work_current:command=0x83;length=0;break;
     case Kind::pid_kp_ki: case Kind::pid_kd_kv:command=0x96;length=0;break;
     case Kind::angle_error:command=0x39;length=6;break;
-    case Kind::microstep_write: case Kind::manual: case Kind::program_setup: case Kind::recovery:return false;
+    case Kind::microstep_write: case Kind::manual: case Kind::program_setup: case Kind::recovery:
+    case Kind::parameter_read: case Kind::parameter_write:return false;
   }
   const bool parameter=kind==Kind::mode || kind==Kind::response_mode || kind==Kind::sync_mode || kind==Kind::microstep || kind==Kind::watchdog ||
       kind==Kind::work_current || kind==Kind::pid_kp_ki || kind==Kind::pid_kd_kv;
@@ -556,6 +562,7 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
       if(frame.data.size()!=6 || frame.data[0]!=0x98) return false;
       d.watchdog_ms.set((std::uint32_t(frame.data[1])<<24)|(std::uint32_t(frame.data[2])<<16)|
           (std::uint32_t(frame.data[3])<<8)|frame.data[4],stamp);break;
+    case Kind::parameter_read: case Kind::parameter_write: return decode_parameter(p,frame);
     case Kind::manual:
       manual_->reply(frame.data, stamp);
       if(p.command==0x31 && d.position.valid && d.position.stamp==stamp)
@@ -642,7 +649,14 @@ void CanBusManager::expire(Time now) {
     else {
       auto &d = devices_[p.address]; ++d.timeouts;
       // Brak odpowiedzi na odczyt diagnostyczny (parametr bez obsługi w firmware) nie oznacza utraty osi.
-      const bool diagnostic=p.kind==Kind::work_current || p.kind==Kind::pid_kp_ki || p.kind==Kind::pid_kd_kv || p.kind==Kind::angle_error;
+      const bool diagnostic=p.kind==Kind::work_current || p.kind==Kind::pid_kp_ki || p.kind==Kind::pid_kd_kv || p.kind==Kind::angle_error ||
+          p.kind==Kind::parameter_read || p.kind==Kind::parameter_write;
+      if(parameter_job_ && parameter_job_->in_flight && parameter_job_->address==p.address &&
+          (p.kind==Kind::parameter_read || p.kind==Kind::parameter_write)) {
+        parameter_job_->in_flight=false;
+        if(p.kind==Kind::parameter_write) finish_parameter_job(false,true,"Brak potwierdzenia zapisu — stan nastawy niepewny, wymagany odczyt kontrolny");
+        else if(parameter_job_->attempts>=3) finish_parameter_job(false,false,"Brak odpowiedzi na odczyt nastawy (3 próby)");
+      }
       // Brak odpowiedzi na zapis mikrokroku: stan napędu niepewny — ponowny odczyt 84h.
       if(p.kind==Kind::microstep_write) {d.microstep.valid=false;manual_->forget_microstep(axis_index(p.address)+1);}
       if(!diagnostic) ++d.consecutive_timeouts;
@@ -680,8 +694,15 @@ void CanBusManager::start_cycle(Time now) {
     stats_.peak_scheduled_utilization=std::max(stats_.peak_scheduled_utilization,stats_.scheduled_utilization);
   } else { next_cycle_=now+config_.cycle;cycle_number_=0; }
   cycle_initialized_=true;last_cycle_wake_=now;cycle_start_=next_cycle_-config_.cycle;
-  spent_bits_=background_bits_=0;diagnostic_transactions_=0;
+  // Faza zestawów SYNC: okno budżetu zaczyna przygotowanie zestawu (schedule_synchronized_program), nie zegar
+  // cyklu. Niewyrównane okna liczyły dwa zestawy w jednym oknie i kończyły ruch fałszywą awarią budżetu.
+  if(!sync_batch_window()) {spent_bits_=background_bits_=0;diagnostic_transactions_=0;}
   motion_this_cycle_=false;feedback_recorded_=false;
+}
+bool CanBusManager::sync_batch_window() const {
+  const auto &e=executor_;
+  return active_ && source_==Source::program && e.status.dispatch_mode=="synchronized" && e.program &&
+      e.frame<e.program->frames.size() && e.status.state!="arming" && e.status.state!="restoring";
 }
 void CanBusManager::schedule_feedback(Time now) {
   if(active_) {
@@ -843,6 +864,9 @@ void CanBusManager::tick(Time now) {
     if (fault_) return;
     manual_->tick(now);
     if (fault_) return;
+    supervise_hold(now);
+    if (fault_) return;
+    schedule_parameter_job(now);
     if (active_) {
       const bool program_iteration=source_==Source::program;
       if(program_iteration) schedule_program(now); else schedule_motion(now);
@@ -874,6 +898,126 @@ void CanBusManager::tick(Time now) {
   } catch (const std::exception &e) {
     const auto reason=std::string("Błąd transportu CAN: ")+e.what();transport_lost(now,e.what());fault(reason);
   }
+}
+void CanBusManager::supervise_hold(Time now) {
+  // Ruch jest dozwolony tylko przy aktywnym źródle lub operacji ręcznej; wtedy kotwica traci ważność
+  // i zostaje ustawiona ponownie z pierwszego świeżego pomiaru po ich zakończeniu.
+  if(!config_.hold_supervision) return;
+  const bool motion_allowed=active_ || manual_->busy() || executor_.status.busy || scanning_ ||
+      !configuration_ready_ || configuration_locked_;
+  for(unsigned j=0;j<kAxes;++j) {
+    const auto &device=devices_[j+1];
+    if(motion_allowed || !device.detected || device.identity.model!=Model::kServo42D ||
+        (device.enable.valid && !device.enable.value)) {hold_valid_[j]=false;continue;}
+    // Nieświeży pomiar lub ENABLE: kotwica zostaje, porównanie przy następnym świeżym odczycie.
+    if(!device.position.fresh(now,kHoldFeedbackAge) || !device.enable.fresh(now,kHoldFeedbackAge*3) || !device.enable.value) continue;
+    if(!hold_valid_[j]) {hold_valid_[j]=true;hold_ticks_[j]=device.position.value;continue;}
+    const auto &axis=config_.axes[j];
+    const double gear=std::isfinite(axis.gear_ratio) && axis.gear_ratio>0 ? axis.gear_ratio : 1.;
+    const double tolerance=std::isfinite(config_.program_position_tolerance[j]) && config_.program_position_tolerance[j]>0 ?
+        config_.program_position_tolerance[j] : kProgramPositionTolerance;
+    const double limit_ticks=std::max(kHoldMinimumTicks,tolerance*gear*16384/(2*std::acos(-1.)));
+    const auto deviation=device.position.value-hold_ticks_[j];
+    if(std::abs(static_cast<double>(deviation))<=limit_ticks) continue;
+    const double joint_deg=static_cast<double>(deviation)*360./16384./gear;
+    const auto label=axis_diagnostic_label(j+1,axis.address ? axis.address : j+1);
+    trace_note("hold_violation",label+": odchyłka "+std::to_string(deviation)+" imp. wału",j+1);
+    fault(label+": ruch bez komendy w postoju — odchyłka "+diagnostic_number(joint_deg)+"° przegubu ("+std::to_string(deviation)+
+        " imp. wału) od pozycji trzymania, limit ±"+diagnostic_number(limit_ticks*360./16384./gear)+"°; zatrzymanie awaryjne",true);
+    return;
+  }
+}
+std::string CanBusManager::parameter_block_reason(std::uint16_t address,bool write,Time now,std::uint8_t code) const {
+  if(!transport_->is_open()) return "SocketCAN zamknięty";
+  if(active_ || executor_.status.busy) return "aktywne sterowanie ruchem";
+  if(fault_) return "awaria lub odzyskiwanie po STOP";
+  if(scanning_) return "trwa skanowanie magistrali";
+  if(configuration_locked_ || !configuration_ready_) return "zapis lub uzgadnianie konfiguracji";
+  if(manual_->busy()) return "operacja ręczna w toku";
+  if(address<1 || address>kMaximumAddress) return "nieprawidłowy adres CAN";
+  const auto &d=devices_[address];
+  if(!d.detected || d.consecutive_timeouts>=3) return "napęd niewykryty lub nie odpowiada";
+  if(write && !d.enable.fresh(now,std::chrono::milliseconds(300))) return "nieznany stan ENABLE osi";
+  // PID (96h/97h) wolno zmieniać przy ENABLE=1 (decyzja operatora 07.11.2026: strojenie bez cykli wyłączania osi
+  // obciążonych grawitacją); bez aktywnego sterowania i operacji ręcznej — sprawdzone wyżej. Pozostałe nastawy: ENABLE=0.
+  if(write && d.enable.value && code!=0x96 && code!=0x97) return "zapis tej nastawy wymaga potwierdzonego ENABLE=0 osi";
+  return {};
+}
+std::uint64_t CanBusManager::submit_parameter_job(std::uint16_t address,std::uint8_t code,int sub,bool write,
+    const std::vector<std::uint8_t> &value,Time now,std::string &reason) {
+  now=current_time(now);
+  const auto *spec=find_drive_parameter(code,sub);
+  if(!spec) {reason="Nastawa spoza katalogu kopii zapasowych";return 0;}
+  if(parameter_job_) {reason="Poprzednia operacja na nastawach w toku";return 0;}
+  if(write) {
+    try {drive_parameter_write_request(address,*spec,value);}
+    catch(const std::exception &e) {reason=e.what();return 0;}
+  }
+  reason=parameter_block_reason(address,write,now,code);
+  if(!reason.empty()) return 0;
+  parameter_job_=ParameterJob{parameter_next_id_++,address,spec,write,false,0,write ? value : std::vector<std::uint8_t>{}};
+  parameter_last_={};parameter_last_.id=parameter_job_->id;
+  return parameter_job_->id;
+}
+CanBusManager::ParameterJobResult CanBusManager::parameter_job(std::uint64_t id) const {
+  if(parameter_last_.id==id) return parameter_last_;
+  ParameterJobResult out;out.id=id;out.done=true;out.message="Nieznana lub zastąpiona operacja";return out;
+}
+void CanBusManager::finish_parameter_job(bool success,bool supported,const std::string &message,std::vector<std::uint8_t> value) {
+  if(!parameter_job_) return;
+  parameter_last_.id=parameter_job_->id;parameter_last_.done=true;parameter_last_.success=success;
+  parameter_last_.supported=supported;parameter_last_.message=message;parameter_last_.value=std::move(value);
+  parameter_job_.reset();
+}
+void CanBusManager::schedule_parameter_job(Time now) {
+  if(!parameter_job_ || parameter_job_->in_flight) return;
+  auto &job=*parameter_job_;
+  const auto reason=parameter_block_reason(job.address,job.write,now,job.spec->code);
+  if(!reason.empty()) {finish_parameter_job(false,false,"Przerwane: "+reason);return;}
+  const auto data=job.write ? drive_parameter_write_request(job.address,*job.spec,job.value) : drive_parameter_read_request(job.address,*job.spec);
+  if(!can_send(job.address,now) || !reserve(data.size(),job.write ? 3 : job.spec->length+2,true)) return;
+  for(auto &p:pending_) if(!p.used) {
+    transport_->send(job.address,data);++stats_.tx;++job.attempts;job.in_flight=true;
+    // Zapis do pamięci napędu potwierdzany wolniej niż odczyt (ACK konfiguracji > limitu odczytu).
+    const auto timeout=job.write ? std::chrono::milliseconds(150) : config_.response_timeout;
+    p={true,job.address,job.write ? Kind::parameter_write : Kind::parameter_read,job.spec->code,0,now,now+timeout};
+    TraceEvent e;e.event="request";e.axis=job.address;e.command=job.spec->code;e.flags=job.write ? 2 : 0;
+    e.request_ns=trace_ns(now);e.deadline_ns=trace_ns(p.deadline);trace(e);
+    if(job.write) {
+      std::string hex;static const char *digits="0123456789abcdef";
+      for(auto b:data) {hex+=digits[b>>4];hex+=digits[b&15];}
+      trace_note("drive_parameter_write",std::string(job.spec->name)+" "+hex,job.address,job.spec->code);
+    }
+    return;
+  }
+}
+bool CanBusManager::decode_parameter(const Pending &p,const Frame &frame) {
+  if(!parameter_job_ || !parameter_job_->in_flight || parameter_job_->address!=p.address) return true;
+  auto &job=*parameter_job_;job.in_flight=false;
+  if(!job.write) {
+    const auto parsed=parse_drive_parameter(p.address,*job.spec,frame.data);
+    if(!parsed) {finish_parameter_job(false,false,"Niezgodna odpowiedź na odczyt nastawy");return true;}
+    finish_parameter_job(true,parsed->supported,parsed->supported ? "Odczytano" : "Nastawa bez obsługi odczytu (FFh FFh)",parsed->value);
+    return true;
+  }
+  const auto status=parse_drive_parameter_write(p.address,*job.spec,frame.data);
+  if(!status) {finish_parameter_job(false,true,"Niezgodne potwierdzenie zapisu — wymagany odczyt kontrolny");return true;}
+  auto &d=devices_[p.address];const auto axis=axis_index(p.address);
+  // Zmienione nastawy: odczyty zapamiętane w sterowniku są nieaktualne; tło odczyta je ponownie.
+  switch(job.spec->code) {
+    case 0x82: d.mode.valid=false;next_mode_[p.address]={};break;
+    case 0x84: d.microstep.valid=false;if(axis<kAxes) manual_->forget_microstep(axis+1);break;
+    case 0x83: d.work_current_ma.valid=false;break;
+    case 0x96: d.pid_kp_ki.valid=d.pid_kd_kv.valid=false;break;
+    case 0x98: d.watchdog_ms.valid=false;break;
+    default: break;
+  }
+  if(executor_.status.state=="ready") {
+    executor_.status.state="invalidated";executor_.status.message="Zmiana nastaw napędu unieważniła przygotowany program";
+  }
+  trace_note(*status ? "drive_parameter_written" : "drive_parameter_rejected",job.spec->name,p.address,job.spec->code);
+  finish_parameter_job(*status,true,*status ? "Zapis przyjęty przez napęd" : "Napęd odrzucił zapis (status 0)");
+  return true;
 }
 BusSnapshot CanBusManager::snapshot() const {
   return {devices_, stats_, transport_->is_open(), scanning_, active_ || (!fault_ && manual_->busy()), fault_, checked_, source_, message_};

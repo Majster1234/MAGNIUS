@@ -1,5 +1,6 @@
 #include "robot_can_diagnostics/program_api.hpp"
 #include "mks_servo_can/trace.hpp"
+#include <rcl_interfaces/msg/set_parameters_result.hpp>
 #include <stdexcept>
 #include <openssl/sha.h>
 #include <sstream>
@@ -18,6 +19,23 @@ robot_control_interfaces::msg::MotionProgramStatus message(const mks_servo_can::
   out.start_positions=s.start;out.target_positions=s.target;
   return out;
 }
+}
+void ProgramApi::publish_tuning() {
+  const auto json=[](const mks_servo_can::ExecutionTuning &t) {
+    std::ostringstream out;out.precision(17);
+    out<<"{\"lookahead_time_sec\":"<<t.lookahead_time_sec<<",\"velocity_ff_scale\":"<<t.velocity_ff_scale<<",\"position_kp\":"<<t.position_kp
+       <<",\"integral_gain\":"<<t.integral_gain<<",\"integral_limit_rad\":"<<t.integral_limit<<",\"acceleration_code\":"<<t.acceleration_code<<"}";
+    return out.str();
+  };
+  const auto same=[](const mks_servo_can::ExecutionTuning &a,const mks_servo_can::ExecutionTuning &b) {
+    // Tolerancja: wartości bazowe wracają z JSON (reset z mostu) z zaokrągleniem.
+    const auto near=[](double x,double y){return std::abs(x-y)<=1e-9*std::max(1.,std::abs(y));};
+    return near(a.lookahead_time_sec,b.lookahead_time_sec) && near(a.velocity_ff_scale,b.velocity_ff_scale) && near(a.position_kp,b.position_kp) &&
+        near(a.integral_gain,b.integral_gain) && near(a.integral_limit,b.integral_limit) && a.acceleration_code==b.acceleration_code;
+  };
+  std_msgs::msg::String message;
+  message.data="{\"test\":"+std::string(same(tuning_,baseline_tuning_) ? "false" : "true")+",\"active\":"+json(tuning_)+",\"baseline\":"+json(baseline_tuning_)+"}";
+  tuning_publisher_->publish(message);
 }
 ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRuntime> runtime):runtime_(std::move(runtime)) {
   mks_servo_can::BusConfig authorization;
@@ -44,6 +62,7 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
   const auto integral_limit=node->declare_parameter("execution_position_integral_limit_rad",0.017453292519943295);
   if(!std::isfinite(integral_gain) || integral_gain<0 || integral_gain>20 || !std::isfinite(integral_limit) || integral_limit<0 || integral_limit>.0873)
     throw std::invalid_argument("Człon całkujący: wzmocnienie 0–20 1/s, limit 0–0,0873 rad (5°)");
+  // Wartość bazowa; PTP/LIN i JOG TCP nadpisuje `motion.min_dither_rpm` z konfiguracji robota (program_streaming).
   const auto minimum=node->declare_parameter("execution_min_holding_rpm",1);
   const auto maximum=node->declare_parameter("execution_max_rpm",2500);
   if(minimum<1 || maximum<minimum || maximum>3000) throw std::invalid_argument("Nieprawidłowe RPM streaming");
@@ -61,6 +80,38 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
     stream.min_holding_rpm=minimum;stream.max_rpm=maximum;stream.acceleration=static_cast<std::uint8_t>(codes[j]);
   }
   runtime_->configure_program_authorization(authorization);
+  baseline_tuning_=tuning_={lookahead,ff,kp,integral_gain,integral_limit,-1};
+  // Testowe nadpisanie kodu acc F5 (0–255, 0 = bez rampy); -1 = konfiguracja robota / plik. Tylko w locie, nie w pliku.
+  (void)node->declare_parameter("execution_acceleration_override",-1);
+  // /robot/motion/execution_tuning (JSON, transient local): aktywne nastawy, bazowe z pliku i flaga testu.
+  tuning_publisher_=node->create_publisher<std_msgs::msg::String>("/robot/motion/execution_tuning",rclcpp::QoS(1).transient_local());
+  publish_tuning();
+  tuning_callback_=node->add_on_set_parameters_callback([this,node](const std::vector<rclcpp::Parameter> &parameters) {
+    rcl_interfaces::msg::SetParametersResult result;result.successful=true;
+    auto candidate=tuning_;bool touched=false;
+    try {
+      for(const auto &p:parameters) {
+        const auto &name=p.get_name();
+        if(name=="execution_lookahead_time_sec") candidate.lookahead_time_sec=p.as_double();
+        else if(name=="execution_velocity_ff_scale") candidate.velocity_ff_scale=p.as_double();
+        else if(name=="execution_position_kp") candidate.position_kp=p.as_double();
+        else if(name=="execution_position_integral_gain") candidate.integral_gain=p.as_double();
+        else if(name=="execution_position_integral_limit_rad") candidate.integral_limit=p.as_double();
+        else if(name=="execution_acceleration_override") candidate.acceleration_code=static_cast<int>(p.as_int());
+        else continue;
+        touched=true;
+      }
+    } catch(const std::exception &error) {result.successful=false;result.reason=std::string("Nieprawidłowy typ parametru: ")+error.what();return result;}
+    if(!touched) return result;
+    std::string reason;
+    if(!runtime_->set_execution_tuning(candidate,reason)) {result.successful=false;result.reason=reason;return result;}
+    tuning_=candidate;
+    RCLCPP_WARN(node->get_logger(),"Nastawy regulatora wykonania zmienione w locie: lookahead %.0f ms, FF %.3g, Kp %.3g, Ki %.3g, acc %d (plik: %.0f ms, %.3g, %.3g, %.3g)",
+        tuning_.lookahead_time_sec*1000,tuning_.velocity_ff_scale,tuning_.position_kp,tuning_.integral_gain,tuning_.acceleration_code,
+        baseline_tuning_.lookahead_time_sec*1000,baseline_tuning_.velocity_ff_scale,baseline_tuning_.position_kp,baseline_tuning_.integral_gain);
+    publish_tuning();
+    return result;
+  });
   settings_=node->create_subscription<robot_control_interfaces::msg::MotionSettings>("/robot/motion/settings",rclcpp::QoS(1).transient_local(),
       [this](robot_control_interfaces::msg::MotionSettings::ConstSharedPtr value) { runtime_->update_motion_settings(value->revision,value->allow_missing_motion); });
   model_=node->create_subscription<std_msgs::msg::String>("/robot/preview/robot_description",rclcpp::QoS(1).transient_local(),
@@ -80,6 +131,8 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
       if(plan.simulation_only || (plan.motion_type!="PTP" && plan.motion_type!="LIN") || plan.trajectory.points.size()>10000 || plan.trajectory.joint_names.size()!=6)
         throw std::runtime_error("Wymagany fizyczny plan PTP/LIN z sześcioma osiami");
       mks_servo_can::PreparedMotionProgram input;input.id=plan.id;input.revision=plan.configuration_revision;input.model_id=plan.model_id;input.settings_revision=request->settings_revision;
+      if(request->participation_mask>0x3f) throw std::runtime_error("Maska osi programu spoza J1–J6");
+      input.participation_mask=request->participation_mask;
       for(unsigned j=0;j<6;++j) if(plan.trajectory.joint_names[j]!="joint_"+std::to_string(j+1)) throw std::runtime_error("Nieprawidłowa kolejność osi");
       input.points.reserve(plan.trajectory.points.size());
       for(const auto &point:plan.trajectory.points) {

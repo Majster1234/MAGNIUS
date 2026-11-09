@@ -17,10 +17,18 @@ CRITICAL_FAULT_POLICY = 'safety.disable_enable_on_critical_fault'
 DISPATCH_MODE = 'motion.ptp_lin_dispatch_mode'
 # Człon całkujący celu F5 (korekcja stałego uchybu napędów); domyślnie wyłączony.
 POSITION_INTEGRAL = 'motion.position_integral'
+# Minimalna prędkość F5 / dolna granica ditheringu [RPM wału]; napęd zaokrągla w górę do jednostki MKS
+# (0,125 RPM przy mikrokroku 128, 1 RPM przy 16). Zero jest niedozwolone: F5 speed=0 oznacza STOP.
+MIN_DITHER_RPM = 'motion.min_dither_rpm'
+MIN_DITHER_DEFAULT = 0.125
+MIN_DITHER_MAX = 10.0
+# Kod przyspieszenia MKS (acc 1–255) ramek F5 w PTP/LIN i JOG TCP, wspólny dla osi;
+# null = execution_acceleration_codes z parametrów wykonania. acc=0 (skok prędkości bez rampy) niedozwolony.
+F5_ACCELERATION = 'motion.f5_acceleration_code'
 KEYS = (*TEXT, 'tool.mass', 'tool.com_x', 'tool.com_y', 'tool.com_z',
         *(f'tool.{key}' for key in TCP),
         *(f'joint.{axis}.{key}' for axis in range(1, 7) for key in (*ORIGIN, *CONTROL)),
-        *(f'tcp.{key}' for key in TCP_MOTION), CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL)
+        *(f'tcp.{key}' for key in TCP_MOTION), CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL, MIN_DITHER_RPM, F5_ACCELERATION)
 DEMO = ((0, 0, 100), (0, 0, 100), (0, 0, 250), (220, 0, 0), (80, 0, 0), (60, 0, 0))
 AXES = ((0, 0, 1), (0, 1, 0), (0, 1, 0), (1, 0, 0), (0, 1, 0), (1, 0, 0))
 
@@ -31,7 +39,8 @@ def now_iso():
 
 def empty_document():
     return {'schema_version': VERSION, 'units': UNITS, 'name': '', 'created_at': now_iso(),
-            'values': {**dict.fromkeys(KEYS), CRITICAL_FAULT_POLICY: True, DISPATCH_MODE: 'streamed', POSITION_INTEGRAL: False}}
+            'values': {**dict.fromkeys(KEYS), CRITICAL_FAULT_POLICY: True, DISPATCH_MODE: 'streamed', POSITION_INTEGRAL: False,
+                       MIN_DITHER_RPM: MIN_DITHER_DEFAULT, F5_ACCELERATION: None}}
 
 
 def validate(document):
@@ -40,13 +49,16 @@ def validate(document):
     if type(document.get('schema_version')) is not int or document['schema_version'] != VERSION or document.get('units') != UNITS:
         raise ValueError('Nieobsługiwana wersja lub jednostki snapshotu; wymagane mm-deg-kg, wersja 1')
     values = document.get('values')
-    required = set(KEYS) - {f'tcp.{key}' for key in TCP_MOTION} - {CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL}
+    required = set(KEYS) - {f'tcp.{key}' for key in TCP_MOTION} - {CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL, MIN_DITHER_RPM, F5_ACCELERATION}
     if not isinstance(values, dict) or set(values) - set(KEYS) or required - set(values):
         raise ValueError('Snapshot musi zawierać komplet znanych pól; nieznane dane zapisuj jako null')
     result = deepcopy(document)
     result['values'].setdefault(CRITICAL_FAULT_POLICY, True)
     result['values'].setdefault(DISPATCH_MODE, 'streamed')
     result['values'].setdefault(POSITION_INTEGRAL, False)
+    if result['values'].get(MIN_DITHER_RPM) is None:
+        result['values'][MIN_DITHER_RPM] = MIN_DITHER_DEFAULT
+    result['values'].setdefault(F5_ACCELERATION, None)
     for key in TCP_MOTION:
         result['values'].setdefault(f'tcp.{key}', None)
     values = result['values']
@@ -60,6 +72,11 @@ def validate(document):
                 raise ValueError(f'{key}: wymagane true albo false')
             continue
         if value is None:
+            continue
+        if key == F5_ACCELERATION:
+            if type(value) not in (int, float) or not math.isfinite(value) or value != int(value) or not 1 <= value <= 255:
+                raise ValueError(f'{key}: wymagana liczba całkowita 1–255 albo puste (parametry wykonania)')
+            result['values'][key] = int(value)
             continue
         if key in TEXT:
             if not isinstance(value, str) or len(value) > 256:
@@ -77,6 +94,8 @@ def validate(document):
                 raise ValueError(f'{key}: kierunek musi wynosić +1 albo -1')
             if key == 'tool.mass' and value < 0:
                 raise ValueError('Masa nie może być ujemna')
+            if key == MIN_DITHER_RPM and not 0 < value <= MIN_DITHER_MAX:
+                raise ValueError(f'{key}: wymagane RPM wału w zakresie (0; {MIN_DITHER_MAX:g}]')
     for axis in range(1, 7):
         lower, upper = (values[f'joint.{axis}.{key}'] for key in ('lower', 'upper'))
         if lower is not None and upper is not None and lower >= upper:
@@ -119,7 +138,7 @@ def profiles(document):
 
 def changed_axes(previous, candidate):
     a, b = previous['values'], candidate['values']
-    common = any(a.get(key) != b.get(key) for key in KEYS if key not in (CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL) and not key.startswith(('joint.', 'tcp.')))
+    common = any(a.get(key) != b.get(key) for key in KEYS if key not in (CRITICAL_FAULT_POLICY, DISPATCH_MODE, POSITION_INTEGRAL, MIN_DITHER_RPM, F5_ACCELERATION) and not key.startswith(('joint.', 'tcp.')))
     return [common or any(a[f'joint.{axis}.{key}'] != b[f'joint.{axis}.{key}'] for key in (*ORIGIN, *CONTROL))
             for axis in range(1, 7)]
 

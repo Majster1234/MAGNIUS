@@ -70,7 +70,8 @@ TEST(MotionProgram, PartialProgramCommandsOnlyDetectedParticipants) {
 }
 TEST(MotionProgram, SettingsModelAndStartChangesInvalidatePreparedProgram) {
   for(unsigned change=0;change<3;++change) {
-    Rig h;h.ready();const auto s=h.bus->prepare_program(h.program(),h.now);
+    // Test skokowo przestawia emulowany wał przy ENABLE=1 — bez nadzoru postoju.
+    auto c=config();c.hold_supervision=false;Rig h(c);h.ready();const auto s=h.bus->prepare_program(h.program(),h.now);
     if(change==0) h.bus->update_motion_settings("new",false,h.now);
     else if(change==1) h.bus->update_motion_model("new");
     else {h.port->positions[1]=1000;h.run(50);}

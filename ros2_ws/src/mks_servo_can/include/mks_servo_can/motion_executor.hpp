@@ -28,6 +28,9 @@ struct PreparedMotionProgram {
   std::string dispatch_mode{"streamed"};
   // Nawroty wyznaczone poza IO, wspólne dla uczestniczących osi.
   std::vector<double> reversal_times;
+  // Jawna maska osi programu (bit j = J(j+1)); 0 = wszystkie wykryte (dotychczasowe działanie).
+  // Osie spoza maski nie są komendowane ani sprawdzane (np. strojenie jednej osi przy ENABLE=0 pozostałych).
+  std::uint8_t participation_mask{0};
 };
 struct MotionProgramStatus {
   std::string program_id, state{"idle"}, mode, message, execution_key;
@@ -61,6 +64,7 @@ class MotionExecutor {
   // Aktywny dolot końcowy (streamed): rozkaz F5 = poprzedni rozkaz + zmierzony uchyb do celu.
   std::array<double,6> final_command{};
   Time final_started{}, final_next{};
+  Time settling_since{};  // pierwsze niepotwierdzenie postoju po dolocie (limit kSettleTimeout)
   bool sync_waiting_confirmation{}, sync_uncertain{};
   std::array<Time,6> staged_sent{};
   std::uint8_t staged_ack_mask{};

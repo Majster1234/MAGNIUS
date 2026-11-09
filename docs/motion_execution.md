@@ -106,8 +106,39 @@ max=2500 RPM i acc=135. Każda oś ma osobny akumulator ułamków RPM,
 zerowany przy starcie, postoju i zmianie kierunku. Prędkość 1,73 RPM przy
 mikrokroku16 daje 73 ramki z 2 RPM i 27 z 1 RPM na 100 cykli. W innych
 mikrokrokach dithering dotyczy odpowiednio przeskalowanych jednostek MKS.
-Poniżej minimum używamy holding zamiast zera; dla prędkości poniżej 1 RPM
-nie gwarantuje to ciągłości fizycznego ruchu. Korekcja zwiększa prędkość przy
+Poniżej minimum używamy holding zamiast zera (F5 z prędkością 0 oznacza STOP).
+Kod przyspieszenia `acc` ramek F5 w PTP/LIN (Streaming i Synchroniczny) oraz JOG TCP można
+nadpisać opcją `motion.f5_acceleration_code` (Konfiguracja → Ustawienia systemowe →
+„Przyspieszenie F5 (acc)”), wspólną dla osi, liczba całkowita 1–255. Puste pole (domyślnie)
+zostawia `execution_acceleration_codes` z parametrów wykonania (produkcja: 241). `acc=0`
+(skok prędkości bez rampy) jest zablokowany. Napęd zmienia prędkość o jedną jednostkę MKS
+co (256 − acc) × 50 µs (`f6_ramp_rpm_s`); przy mikrokroku 128: 255 ≈ 2500, 250 ≈ 420,
+241 ≈ 170, 200 ≈ 45, 135 ≈ 21 RPM/s, przy 16 ośmiokrotnie więcej. Droga:
+`RobotConfiguration.f5_acceleration_code` (0 = bez nadpisania) → `RobotProfile` →
+`CanBusManager::program_streaming(j)`. JOG osi (F6) i planer (podgląd) bez zmian.
+Zmiana działa od następnego ruchu po zapisie do ROS.
+
+Od 08.11.2026 domyślne nastawy produkcyjne (`config/local/execution.production.yaml`): wyprzedzenie celu
+**25 ms** (wcześniej 85 ms) i **Kp 4** (wcześniej 2,5), FF 1 bez zmian — testy A/B na czterech trajektoriach:
+odchyłka toru przy 40 mm/s −30%, najgorszy przypadek −42%, tętnienie i dolot bez zmian (`docs/benchmark_results.md`).
+
+Nastawy regulatora wykonania (`execution_lookahead_time_sec`, `execution_velocity_ff_scale`, `execution_position_kp`,
+`execution_position_integral_gain`, `execution_position_integral_limit_rad`) można od 08.11.2026 zmieniać w locie
+parametrami ROS węzła `robot_can_diagnostics` (lub `POST /api/v1/motion/execution-tuning`) — tylko w postoju,
+z walidacją zakresów i unieważnieniem przygotowanego programu (`CanBusManager::set_execution_tuning`).
+Aktywne i bazowe (z pliku) nastawy publikuje temat `/robot/motion/execution_tuning`; GUI ostrzega o nastawach
+testowych. Restart usługi wraca do pliku. Służy testom jakości ruchu, nie jest konfiguracją robota.
+
+Minimum dla PTP/LIN (Streaming i Synchroniczny) oraz JOG TCP ustawia opcja
+konfiguracji robota `motion.min_dither_rpm` (Konfiguracja → Ustawienia systemowe →
+„Minimalny dithering prędkości F5”, RPM wału, domyślnie 0,125, zakres (0; 10]).
+Wartość jest zaokrąglana w górę do jednostki MKS, nigdy poniżej jednej jednostki:
+0,125 RPM przy mikrokroku 128, 1 RPM przy 16. Wcześniej minimum wynosiło stałe 1 RPM
+(`execution_min_holding_rpm`, liczba całkowita z czasów mikrokroku 16, gdy 1 RPM było
+najmniejszą jednostką); przy mikrokroku 128 dawało to 8 jednostek i uniemożliwiało
+dithering poniżej 1 RPM. Parametr ROS pozostaje wartością bazową dla JTC
+(`robot_hardware`). Mniejsze minimum nie gwarantuje ciągłości ruchu fizycznego
+poniżej około 3 RPM (stick-slip napędów, próby F6 z 07.11.2026). Korekcja zwiększa prędkość przy
 pozostawaniu za referencją i zmniejsza ją przy wyprzedzeniu, w obu kierunkach.
 Może przekroczyć nominalny posuw referencji, do limitu osi i max_rpm.
 Dodatkowo obowiązuje rzeczywisty limit prędkości osi; za mały limit dla holding
@@ -210,7 +241,7 @@ Plik ROS `execution.example.yaml` pozostaje **wyłączony**. Parametry PTP:
 | execution_use_ack | false; true jest odrzucane |
 | execution_lookahead_time_sec / execution_velocity_ff_scale | 0,085 / 1,00 |
 | execution_position_kp | 2,5 1/s; skończone, nieujemne |
-| execution_min_holding_rpm / execution_max_rpm | 1 / 2500 |
+| execution_min_holding_rpm / execution_max_rpm | 1 / 2500 (minimum PTP/LIN i JOG TCP: `motion.min_dither_rpm`) |
 | execution_acceleration_codes | sześć razy 135 |
 | execution_position_period_ms | 10; inny okres jest odrzucany |
 | execution_position_tolerance_rad | sześć razy 0,00872664626; tylko koniec |
@@ -602,3 +633,30 @@ programu i sesji JOG TCP. Parametry ROS (wartości domyślne do strojenia na spr
 `execution_position_integral_gain` = 2,0 1/s (stała czasowa 0,5 s), `execution_position_integral_limit_rad`
 = 0,01745 (1° przegubu). Cel: usuwanie stałego uchybu napędów (np. przesunięcia układu F5 obserwowanego na J4/J6)
 i opóźnienia przy stałej prędkości; nie usuwa chwilowych zatrzymań napędu przy ~2–3 RPM.
+
+## Nadzór postoju (07.11.2026)
+
+Incydent 07.11.2026 10:50: po „STOP panelu” JOG TCP napęd J4 sam wykonał starą
+komendę F5 sprzed 3,8 s (cel −8743 imp., 70 jedn. = 8,75 RPM; ramka wysłana, gdy napęd
+był w stanie F1=3 hamowanie) i przejechał 16,8° przegubu bez komendy hosta. Ruch nie
+był wykrywany: po `tcp_done` nic nie porównywało pozycji z pozycją trzymania.
+
+`CanBusManager::supervise_hold` (wywoływany co tick po `manual_->tick`) pilnuje każdej
+osi z ENABLE=1, gdy nie ma aktywnego źródła ruchu, operacji ręcznej, programu w toku,
+skanowania ani zapisu konfiguracji:
+
+- kotwica = pierwszy świeży pomiar 0x31 (≤ 100 ms) po zakończeniu ruchu;
+- próg = `program_position_tolerance` osi (domyślnie 0,5° przegubu, 227 imp. wału
+  przy przełożeniu 10), nie mniej niż 45 imp. (1° wału);
+- przekroczenie → `fault(..., critical=true)`: F7, F5 STOP, ENABLE=0 według reguły
+  awarii krytycznej; komunikat „ruch bez komendy w postoju”, zdarzenie trace
+  `hold_violation`;
+- kotwica unieważniana przy starcie ruchu, ENABLE=0, zmianie zera wału
+  (`shaft_reference_changed`) i każdym STOP/awarii (`begin_recovery`); nieświeży pomiar
+  nie przesuwa kotwicy.
+
+Odtworzenie offline na nagraniach 07.11: incydent wykryty 408 ms po ostatnim F5
+(odchyłka J4 ≈ 0,7°); 7 porannych ruchów TCP bez fałszywego alarmu (maks. dobieg 65 imp.).
+Poza zakresem: osie nieuczestniczące w PTP/LIN w trakcie programu oraz ruch w trakcie
+strumienia (tam działa kontrola uchybu 1,25°). `BusConfig::hold_supervision` wyłącza
+nadzór wyłącznie w testach skokowo przestawiających emulowany wał.

@@ -18,7 +18,8 @@ void finish(Rig &h,const RobotProfile &p,const std::string &op="change") {
 }
 TEST(ConfigurationContinuity, NonzeroShaftsPreserveAnglesAcrossRepeatedRatiosAndBothDirections) {
   auto c=config();for(unsigned j=0;j<6;++j) {auto &a=c.axes[j];a.gear_ratio=1;a.direction=j%2 ? -1:1;a.offset=j%2 ? -.1:.2;}
-  Rig h(c);h.ready();for(unsigned j=1;j<=6;++j) h.port->positions[j]=j%2 ? -4096:4096;stopped(h);
+  // Test skokowo przestawia emulowany wał przy ENABLE=1 — bez nadzoru postoju.
+  c.hold_supervision=false;Rig h(c);h.ready();for(unsigned j=1;j<=6;++j) h.port->positions[j]=j%2 ? -4096:4096;stopped(h);
   const auto before=h.bus->control_state();const auto counts=h.port->counts;
   for(double ratio:{3.,1.,2.5,.5,12.5}) {
     auto p=profile(h,"ratio-"+std::to_string(ratio));for(auto &a:p.axes) a.gear_ratio=ratio;
@@ -81,7 +82,8 @@ TEST(ConfigurationContinuity, MissingAxisStaysUncalibratedUntilSelectiveConfirma
   EXPECT_TRUE(h.bus->manual().calibration_valid(1));EXPECT_FALSE(h.bus->manual().calibration_valid(2));
 }
 TEST(ConfigurationContinuity, RollbackRestoresOffsetAndInvalidatesCommandGeneration) {
-  Rig h;h.ready();h.port->positions[1]=4096;stopped(h);
+  // Test skokowo przestawia emulowany wał przy ENABLE=1 — bez nadzoru postoju.
+  auto c=config();c.hold_supervision=false;Rig h(c);h.ready();h.port->positions[1]=4096;stopped(h);
   const auto before=h.bus->control_state();const auto old=h.bus->config().axes[0];auto p=profile(h,"new");p.axes[0].gear_ratio=3;
   ASSERT_TRUE(prepare(h,p).accepted);ASSERT_TRUE(h.bus->configure(ConfigurationPhase::commit,"change","",p,h.now).accepted);
   EXPECT_NE(h.bus->config().axes[0].offset,old.offset);
@@ -91,7 +93,8 @@ TEST(ConfigurationContinuity, RollbackRestoresOffsetAndInvalidatesCommandGenerat
   EXPECT_DOUBLE_EQ(h.bus->config().axes[0].offset,old.offset);EXPECT_DOUBLE_EQ(after.positions[0].value,before.positions[0].value);
 }
 TEST(ConfigurationContinuity, PhysicalProgramStartsAtSameShaftCountAndUsesNewRatioForNextJointDelta) {
-  auto c=config();for(auto &a:c.axes) a.gear_ratio=1;
+  // Test skokowo przestawia emulowany wał przy ENABLE=1 — bez nadzoru postoju.
+  auto c=config();c.hold_supervision=false;for(auto &a:c.axes) a.gear_ratio=1;
   Rig h(c);h.ready();h.port->positions[1]=4096;stopped(h);
   const double start=h.bus->control_state().positions[0].value;
   auto p=profile(h,"rebased");p.axes[0].gear_ratio=3;

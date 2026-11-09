@@ -200,3 +200,17 @@ TEST(StreamingMath, PositionIntegralShiftsTargetOnlyDuringMotionAndIsLimited) {
   auto off=axis();StreamingState plain;
   EXPECT_NEAR(streaming_setpoint(off,.1,0.,plain,.095,16,0.,1.,0.).lookahead_position,.1,1e-12);EXPECT_EQ(plain.integral,0.);
 }
+TEST(StreamingMath, FractionalMinimumIsRoundedUpToOneMksSpeedUnitAndDithersBelowOneRpm) {
+  auto a=axis();a.streaming.min_holding_rpm=.125;StreamingState state;
+  // Mikrokrok 128: jednostka 0,125 RPM. Postój = 1 jednostka (nie 8 jak przy minimum 1 RPM), nigdy 0 (STOP F5).
+  EXPECT_EQ(streaming_setpoint(a,0,0,state,std::nullopt,128).rpm,1);
+  double total=0;const double v=.46*2*pi/60;
+  for(unsigned i=0;i<100;++i) total+=streaming_setpoint(a,0,v,state,std::nullopt,128).rpm*.125;
+  EXPECT_NEAR(total/100.,.46,.002) << "dithering poniżej 1 RPM wału";
+  // Mikrokrok 16: jednostka 1 RPM, więc minimum 0,125 RPM daje efektywnie 1 RPM.
+  StreamingState coarse;EXPECT_EQ(streaming_setpoint(a,0,v,coarse,std::nullopt,16).rpm,1);
+  a.streaming.min_holding_rpm=1;StreamingState legacy;
+  EXPECT_EQ(streaming_setpoint(a,0,v,legacy,std::nullopt,128).rpm,8) << "dotychczasowe minimum 1 RPM = 8 jednostek";
+  a.streaming.min_holding_rpm=0;EXPECT_THROW(streaming_setpoint(a,0,0,state),std::invalid_argument);
+  a.streaming.min_holding_rpm=NAN;EXPECT_THROW(streaming_setpoint(a,0,0,state),std::invalid_argument);
+}

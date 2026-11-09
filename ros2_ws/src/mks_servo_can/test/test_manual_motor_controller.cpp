@@ -113,7 +113,9 @@ struct Rig {
   CanBusManager bus;
   Time now{1s};
   static std::unique_ptr<Port> make(Port *&port) { auto p = std::make_unique<Port>(); port = p.get(); return p; }
-  Rig() : bus(BusConfig{}, make(port)) { bus.open(now); bus.start_scan(); step(180); }
+  // hold=false: test skokowo przestawia emulowany wał przy ENABLE=1 (bez nadzoru postoju).
+  explicit Rig(bool hold = true) : bus(hold_config(hold), make(port)) { bus.open(now); bus.start_scan(); step(180); }
+  static BusConfig hold_config(bool hold) { BusConfig c; c.hold_supervision = hold; return c; }
   void step(unsigned count = 1) {
     for (unsigned i = 0; i < count; ++i) { now += 1ms; port->now = now; port->advance(); bus.tick(now); }
   }
@@ -238,7 +240,7 @@ TEST(ManualMotor, EncoderOscillationWithinOneDegreeKeepsJogReadyAfterStop) {
   EXPECT_TRUE(r.start());
 }
 TEST(ManualMotor, JogRestToleranceIsAnchoredNotAppliedToEachPositionDelta) {
-  Rig r; r.enable();
+  Rig r(false); r.enable();
   for (unsigned i = 1; i <= 20; ++i) {
     r.port->motors[1].ticks = 20 * i; r.step(20);
     // Dopuszczamy opóźnienie pierwszej obserwacji do pełnego okresu 40 ms.
@@ -273,7 +275,7 @@ TEST(ManualMotor, ZeroOnlyStationaryAndConfirmed) {
   ASSERT_TRUE(r.start()); r.step(20); EXPECT_FALSE(r.manual().zero(1, r.now));
 }
 TEST(ManualMotor, ShaftTraceIncludesZeroConfirmationWithNewSegment) {
-  Rig r;r.port->motors[1].ticks=1000;r.enable();
+  Rig r(false);r.port->motors[1].ticks=1000;r.enable();
   std::array<ShaftPositionSample,4096> samples;
   auto n=r.bus.drain_shaft_trace(samples.data(),samples.size());std::uint64_t old_segment=0;
   for(unsigned i=0;i<n;++i) if(samples[i].axis==1) old_segment=samples[i].segment;
@@ -320,7 +322,7 @@ TEST(ManualMotor, ReceiveTimestampAfterTickEntryDoesNotInvalidateFreshSamples) {
   EXPECT_FALSE(state.fault); EXPECT_FALSE(state.busy); EXPECT_TRUE(state.axes[0].can_jog);
 }
 TEST(ManualMotor, SoftLimitIncludesBrakingDistance) {
-  Rig r; r.enable(); r.port->motors[1].ticks = 3590 * 16384 / 360.0; r.step(160);
+  Rig r(false); r.enable(); r.port->motors[1].ticks = 3590 * 16384 / 360.0; r.step(160);
   ASSERT_TRUE(r.state().axes[0].can_jog); EXPECT_FALSE(r.start());
   r.port->motors[1].ticks = 3500 * 16384 / 360.0; r.step(160);
   ASSERT_TRUE(r.start()); unsigned seq = 1;
@@ -554,4 +556,18 @@ TEST(Configuration, BusOffBetweenPrepareAndCommitCannotCommit) {
   EXPECT_TRUE(r.state().fault);EXPECT_FALSE(r.bus.service_allowed());
   EXPECT_FALSE(r.bus.reset_allowed()); // Nie przerywaj serii STOP resetem interfejsu.
   r.step(20);EXPECT_TRUE(r.bus.reset_allowed());
+}
+TEST(ManualMotor, HoldGuardStopsCreepWithEnableAndNoCommand) {
+  Rig r; r.enable(); r.step(100); ASSERT_FALSE(r.bus.snapshot().fault);
+  for (unsigned i = 1; i <= 20 && !r.bus.snapshot().fault; ++i) { r.port->motors[1].ticks = 20 * i; r.step(20); }
+  ASSERT_TRUE(r.bus.snapshot().fault) << "pełzanie wału przy ENABLE=1 bez komendy";
+  EXPECT_NE(r.bus.snapshot().message.find("ruch bez komendy w postoju"), std::string::npos) << r.bus.snapshot().message;
+  EXPECT_FALSE(r.start());
+}
+TEST(ManualMotor, HoldGuardIsReanchoredAfterJogAndZero) {
+  Rig r; r.enable(); ASSERT_TRUE(r.start()); unsigned seq = 1; r.held(500, seq);
+  ASSERT_TRUE(r.manual().jog(JogAction::stop, 1, 0, 0, "panel-a", ++seq, r.now, r.now)); r.step(800);
+  EXPECT_FALSE(r.bus.snapshot().fault) << "kotwica po JOG z pozycji końcowej; " << r.bus.snapshot().message;
+  ASSERT_TRUE(r.manual().zero(1, r.now)); r.step(300);
+  EXPECT_FALSE(r.bus.snapshot().fault) << "zerowanie zmienia układ wału, nie jest odjazdem; " << r.bus.snapshot().message;
 }

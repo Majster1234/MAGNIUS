@@ -30,6 +30,21 @@ class MotionClient:
         self.switch = node.create_client(SwitchController, '/controller_manager/switch_controller')
         self.controller = node.declare_parameter('execution_controller', 'joint_trajectory_controller').value
         self.preparation = {'state': 'idle'}
+        # Nastawy regulatora wykonania (testy jakości ruchu): publikuje je robot_can_diagnostics, zmiana parametrami ROS.
+        import json
+        from rclpy.qos import QoSProfile, DurabilityPolicy
+        from std_msgs.msg import String
+        from rcl_interfaces.srv import SetParameters
+        self.execution_tuning = None
+        def tuning_update(message):
+            try:
+                self.execution_tuning = json.loads(message.data)
+            except ValueError:
+                self.execution_tuning = None
+        node.create_subscription(String, '/robot/motion/execution_tuning', tuning_update,
+                                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        self.parameter_type = SetParameters
+        self.parameter_client = node.create_client(SetParameters, '/robot_can_diagnostics/set_parameters')
         self.task = None
         self.planner_handle = None
         self.lock = asyncio.Lock()
@@ -43,7 +58,61 @@ class MotionClient:
         from rosidl_runtime_py.convert import message_to_ordereddict
         response = await self.call(self.status_client, self.status_type.Request())
         return {**message_to_ordereddict(response.status), 'preparation': dict(self.preparation),
-                'motion_type': self.program_motion_type(response.status.program_id)}
+                'motion_type': self.program_motion_type(response.status.program_id),
+                'execution_tuning': getattr(self, 'execution_tuning', None)}
+
+    TUNING_PARAMETERS = {'lookahead_time_sec': 'execution_lookahead_time_sec', 'velocity_ff_scale': 'execution_velocity_ff_scale',
+                         'position_kp': 'execution_position_kp', 'integral_gain': 'execution_position_integral_gain',
+                         'integral_limit_rad': 'execution_position_integral_limit_rad',
+                         'acceleration_code': 'execution_acceleration_override'}   # test: 0–255, -1 = konfiguracja/plik
+
+    async def tuning(self):
+        if self.execution_tuning is None:
+            raise RuntimeError('Brak informacji o nastawach regulatora z wykonawcy ROS')
+        return dict(self.execution_tuning)
+
+    async def set_tuning(self, data):
+        """Zmiana nastaw regulatora wykonania poza konfiguracją robota; {"reset": true} przywraca wartości z pliku."""
+        from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+        if not isinstance(data, dict):
+            raise ValueError('Wymagany obiekt JSON z nastawami')
+        if data.get('reset') is True:
+            if self.execution_tuning is None:
+                raise RuntimeError('Nieznane nastawy bazowe wykonawcy')
+            values = dict(self.execution_tuning['baseline'])
+        else:
+            unknown = set(data) - set(self.TUNING_PARAMETERS)
+            if unknown or not data:
+                raise ValueError('Dozwolone nastawy: ' + ', '.join(self.TUNING_PARAMETERS))
+            values = data
+        request = self.parameter_type.Request()
+        for key, value in values.items():
+            if key not in self.TUNING_PARAMETERS:
+                continue
+            if key == 'acceleration_code':
+                if type(value) not in (int, float) or value != int(value) or not -1 <= value <= 255:
+                    raise ValueError('acceleration_code: liczba całkowita 0–255 albo -1')
+                request.parameters.append(Parameter(name=self.TUNING_PARAMETERS[key], value=ParameterValue(
+                    type=ParameterType.PARAMETER_INTEGER, integer_value=int(value))))
+                continue
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f'{key}: wymagana liczba')
+            request.parameters.append(Parameter(name=self.TUNING_PARAMETERS[key], value=ParameterValue(
+                type=ParameterType.PARAMETER_DOUBLE, double_value=float(value))))
+        async with self.lock:
+            if (await self.status())['busy']:
+                raise MotionConflict('Zmiana nastaw regulatora wymaga postoju')
+            response = await self.call(self.parameter_client, request)
+        failed = [result.reason for result in response.results if not result.successful]
+        if failed:
+            raise MotionConflict('; '.join(failed))
+        for _ in range(20):   # temat transient-local dociera asynchronicznie
+            current = self.execution_tuning or {}
+            if all(abs(current.get('active', {}).get(key, math.nan) - float(value)) < 1e-9
+                   for key, value in values.items() if key in self.TUNING_PARAMETERS):
+                break
+            await asyncio.sleep(0.05)
+        return await self.tuning()
 
     def program_motion_type(self, program_id):
         plan = getattr(self, 'physical_plan', None)
@@ -63,6 +132,20 @@ class MotionClient:
                 raise ValueError('Wybierz zapisany podgląd PTP lub LIN')
             if plan['motion_type'] == 'LIN':
                 lin_limits(plan.get('execution_limits', {}), require_all=True)
+            # Ruch izolowany jednej/kilku osi (np. strojenie): pozostałe osie nie są komendowane ani sprawdzane,
+            # więc ich cel musi być równy pozycji startowej planu. Tylko PTP (LIN wymaga wszystkich osi TCP).
+            mask = 0
+            if data.get('participating_axes') is not None:
+                axes = data['participating_axes']
+                if (not isinstance(axes, list) or not axes or len(set(axes)) != len(axes)
+                        or any(type(a) is not int or not 1 <= a <= 6 for a in axes)):
+                    raise ValueError('participating_axes: lista unikalnych osi 1–6')
+                if plan['motion_type'] != 'PTP':
+                    raise ValueError('Ruch osi wybranych wymaga PTP')
+                for j in range(6):
+                    if j + 1 not in axes and abs(plan['target_positions'][j] - plan['start_positions'][j]) > 1e-9:
+                        raise ValueError(f'J{j + 1} spoza osi ruchu ma inny cel niż pozycja startowa')
+                mask = sum(1 << (a - 1) for a in axes)
             code, settings = await self.configuration('system_get')
             if code != 200:
                 raise RuntimeError('Brak potwierdzonych ustawień ruchu')
@@ -84,7 +167,7 @@ class MotionClient:
             identifier = uuid.uuid4().hex
             self.preparation = {'id': identifier, 'state': 'planning', 'preview_plan_id': plan['id'],
                                 'motion_type': plan['motion_type'], 'message': f"Obliczanie fizycznego {plan['motion_type']}"}
-            self.task = asyncio.create_task(self.prepare_program(plan, settings, seeds, sources, snapshot, identifier))
+            self.task = asyncio.create_task(self.prepare_program(plan, settings, seeds, sources, snapshot, identifier, mask))
             return dict(self.preparation)
 
     async def release_controller(self):
@@ -102,7 +185,7 @@ class MotionClient:
             if not result.ok:
                 raise RuntimeError('Nie potwierdzono dezaktywacji JTC')
 
-    async def prepare_program(self, plan, settings, seeds, sources, snapshot, identifier):
+    async def prepare_program(self, plan, settings, seeds, sources, snapshot, identifier, mask=0):
         try:
             payload = {'model_id': plan['model_id'], 'configuration_revision': plan['configuration_revision'],
                        'motion_type': plan['motion_type'],
@@ -137,7 +220,8 @@ class MotionClient:
             if code != 200 or current.get('revision') != settings['revision']:
                 raise ValueError('Ustawienia zmieniły się podczas przygotowania')
             await self.release_controller()
-            request = self.prepare_type.Request(plan=physical, settings_revision=settings['revision'], issued_monotonic_ns=time.monotonic_ns())
+            request = self.prepare_type.Request(plan=physical, settings_revision=settings['revision'], issued_monotonic_ns=time.monotonic_ns(),
+                                                participation_mask=mask)
             prepared = await self.call(self.prepare_client, request, 10)
             if not prepared.accepted:
                 raise ValueError(prepared.message)
@@ -258,3 +342,9 @@ def add_motion_routes(app, client):
     @app.post('/api/v1/motion/stop')
     async def stop():
         return await call('stop')
+    @app.get('/api/v1/motion/execution-tuning')
+    async def tuning():
+        return await call('tuning')
+    @app.post('/api/v1/motion/execution-tuning')
+    async def set_tuning(request: Request):
+        return await call('set_tuning', await body(request))
