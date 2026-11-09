@@ -1,19 +1,19 @@
 # robot_hardware
 
-Miejsce na komponent C++ `hardware_interface::SystemInterface` dla sześciu osi
+Plugin C++ `robot_hardware/CanSystem` (`hardware_interface::SystemInterface`) dla sześciu osi
 `joint_1`–`joint_6`, zgodny z `ros2_control` w ROS 2 Humble.
 
-- `include/robot_hardware/` — przyszłe nagłówki adaptera;
+- `include/robot_hardware/` — nagłówki adaptera;
 - `src/` — cykl życia, odczyt i zapis oraz konwersja jednostek;
-- `test/` — przyszłe testy adaptera i ładowania pluginu.
+- `test/` — walidacja konfiguracji, interfejsy i ładowanie pluginu.
 
-Adapter będzie korzystał z `mks_servo_can` i mapował napędy na przeguby.
-Przeliczenia uwzględnią przełożenia, kierunki, offsety i jednostki ROS.
-Planowany interfejs pozycyjny pokazuje szablon kontrolerów w `robot_bringup`.
+Adapter używa `BusRuntime` i wspólnego publikatora diagnostyki. `read()` i `write()`
+korzystają z prób blokady i cache; nie czekają na IO. Wymagana konfiguracja:
+adresy, przekładnie, kierunki, offsety, limity, błąd śledzenia i kod przyspieszenia MKS.
 
-Obecnie nie ma biblioteki, pliku eksportu pluginu ani aktywacji sprzętu.
-Zależności od `hardware_interface`, `pluginlib`, `rclcpp`, `rclcpp_lifecycle`
-i `mks_servo_can` należy zadeklarować podczas implementacji.
+Aktywacja wymaga świeżych pozycji, ENABLE, braku stall, trybu CAN, lease źródła
+oraz odbioru synchronizacji i zatrzymania. Plugin nie ustawia automatycznie trybu
+ani ENABLE. Parametry i uruchomienie: [strategia CAN](../../../docs/can_strategy.md).
 
 Punkt odniesienia:
 [tworzenie komponentu sprzętowego dla Humble](https://control.ros.org/humble/doc/ros2_control/hardware_interface/doc/writing_new_hardware_component.html).

@@ -1,0 +1,12 @@
+uint64 monotonic_ns
+bool busy
+bool fault
+uint8 active_axis
+uint16 max_rpm
+string operation
+string message
+string recovery_state
+string recovery_message
+uint8 recovery_pending_mask
+ManualAxisState[6] axes
+string configuration_revision

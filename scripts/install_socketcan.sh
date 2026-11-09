@@ -16,6 +16,7 @@ Nie wysyła komend CAN i nie aktualizuje firmware.
 Opcje:
   --bitrate BIT_S    Wymagana prędkość zgodna z napędami, w bit/s.
   --interface NAME   Nazwa interfejsu CAN; domyślnie can0.
+  --txqueuelen N     Pojemność kolejki TX, domyślnie 1000 ramek.
   --dry-run          Sprawdź wymagania i pokaż plan bez zmian systemu.
   -h, --help         Pokaż pomoc.
 HELP
@@ -23,15 +24,16 @@ HELP
 
 interface=can0
 bitrate=''
+tx_queue_len=1000
 dry_run=false
 while (( $# > 0 )); do
     case "$1" in
-        --bitrate|--interface)
+        --bitrate|--interface|--txqueuelen)
             if (( $# < 2 )); then
                 printf 'Błąd: brak wartości opcji %s.\n' "$1" >&2
                 exit 2
             fi
-            if [[ "$1" == --bitrate ]]; then bitrate="$2"; else interface="$2"; fi
+            if [[ "$1" == --bitrate ]]; then bitrate="$2"; elif [[ "$1" == --txqueuelen ]]; then tx_queue_len="$2"; else interface="$2"; fi
             shift 2
             ;;
         --dry-run) dry_run=true; shift ;;
@@ -46,6 +48,10 @@ if [[ ! "$bitrate" =~ ^[1-9][0-9]{0,6}$ ]] || (( bitrate > 1000000 )); then
 fi
 if [[ ! "$interface" =~ ^can[0-9]+$ || ${#interface} -gt 15 ]]; then
     printf 'Błąd: oczekiwano nazwy interfejsu can0, can1 itd.\n' >&2
+    exit 2
+fi
+if [[ ! "$tx_queue_len" =~ ^[1-9][0-9]{0,5}$ ]] || (( tx_queue_len > 100000 )); then
+    printf 'Błąd: --txqueuelen musi być liczbą 1–100000.\n' >&2
     exit 2
 fi
 
@@ -67,6 +73,7 @@ fi
 
 systemd-analyze verify "$unit_source"
 printf 'Interfejs: %s, sterownik: %s, bitrate: %s bit/s.\n' "$interface" "$driver" "$bitrate"
+printf 'Kolejka TX: %s ramek.\n' "$tx_queue_len"
 printf 'Pliki: /etc/systemd/system/robot-can@.service i /etc/robot-can/%s.conf\n' "$interface"
 printf 'Pakiet: can-utils. Usługa: robot-can@%s.service (start wraz z urządzeniem).\n' "$interface"
 if [[ "$dry_run" == true ]]; then
@@ -91,7 +98,7 @@ done
 install -m 0644 "$unit_source" "$unit_target"
 temp_config="$(mktemp)"
 trap 'rm -f -- "$temp_config"' EXIT
-printf 'BITRATE=%s\n' "$bitrate" > "$temp_config"
+printf 'BITRATE=%s\nTX_QUEUE_LEN=%s\n' "$bitrate" "$tx_queue_len" > "$temp_config"
 install -m 0644 "$temp_config" "$config_target"
 systemctl daemon-reload
 systemctl enable "robot-can@$interface.service"

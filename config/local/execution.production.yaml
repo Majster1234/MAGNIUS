@@ -1,0 +1,39 @@
+# PTP500RPM; rewizja potwierdzona przy wdrożeniu poprawki ponownego zapisu.
+/**:
+  ros__parameters:
+    tcp_jog_enabled: true
+    tcp_jog_ik_position_tolerance: 0.000001
+    tcp_jog_ik_orientation_tolerance: 0.00001
+    tcp_jog_max_jerk: 0.5
+    motor_stop_tolerance_deg: 0.3  # tolerancja dojazdu TCP w stopniach wału silnika (operator 30.10.2026)
+    # SCHED_FIFO wątków IO/RX CAN (terminy SYNC); bez LimitRTPRIO w usłudze tylko ostrzeżenie w logu.
+    can_io_realtime_priority: 50
+    execution_enabled: true
+    # Jawny wyjątek operatora 29.10.2026: włączone mimo niepełnego odbioru J4.
+    # Nie stanowi potwierdzenia pozytywnego odbioru sprzętowego wszystkich osi.
+    execution_staged_reset_verified: true
+    response_timeout_ms: 24  # Przetestowane 20 ms +20%; bez zmiany świeżości ruchu.
+    execution_configuration_revision: 907f038cd3ed4db8968fd7d0cbc65ffb
+    # Mikrokrok 128 na wszystkich napędach (04.11.2026): jednostka prędkości 0,125 RPM, więc acc 241 daje tę samą
+    # rampę co acc 135 przy mikrokroku 16 (~165 RPM/s; co (256−acc)·50 µs +1 jednostka). Zgoda operatora 04.11.2026.
+    execution_acceleration_codes:
+    - 241
+    - 241
+    - 241
+    - 241
+    - 241
+    - 241
+    execution_use_ack: false
+    execution_lookahead_time_sec: 0.025
+    execution_velocity_ff_scale: 1.0
+    execution_min_holding_rpm: 1
+    execution_max_rpm: 500
+    execution_position_period_ms: 10
+    execution_position_tolerance_rad:
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    - 0.008726646259971648
+    execution_position_kp: 4.0

@@ -1,0 +1,9 @@
+# Ciągła diagnostyka i odstępy 6 ms pomiędzy seriami STOP.
+# Pełny odbiór J4 niezaliczony; operator jawnie włączył
+# execution_staged_reset_verified=true w produkcyjnym YAML 29.10.2026.
+# Przy potwierdzonym postoju:
+# sudo install -m 0644 system/application/stop-recovery-timing-ros.conf.example /etc/systemd/system/robot-web-status.service.d/zz-stop-recovery-timing.conf
+# sudo systemctl daemon-reload
+# sudo systemctl restart robot-web-status.service
+[Service]
+Environment="ROBOT_OVERLAY_SETUP=/home/mk/Desktop/Projekty/install/stop-recovery-timing-ros/setup.bash"

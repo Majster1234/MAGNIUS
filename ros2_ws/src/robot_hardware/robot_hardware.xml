@@ -1,0 +1,5 @@
+<library path="robot_hardware">
+  <class name="robot_hardware/CanSystem" type="robot_hardware::CanSystem" base_class_type="hardware_interface::SystemInterface">
+    <description>Sześć osi MKS, jeden manager CAN i nieblokujący read/write.</description>
+  </class>
+</library>

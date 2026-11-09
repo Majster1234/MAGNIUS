@@ -2,7 +2,11 @@
 # null = TODO, wartość wymaga ustalenia na podstawie fizycznego sprzętu.
 transport: socketcan
 interface: can0
-bitrate: 500000  # bit/s; prędkość napędów potwierdzona przez użytkownika
+bitrate: 1000000  # profil 6 osi/100 Hz; wymaga osobnego ustawienia WSZYSTKICH napędów
+# Fizyczny can0 pozostaje obecnie przy potwierdzonych 500000 bit/s.
+use_ack: false
+rx_poll_timeout_ms: 1
+tx_queue_len: 1000
 adapter:
   manufacturer: BIGTREETECH
   model: U2C

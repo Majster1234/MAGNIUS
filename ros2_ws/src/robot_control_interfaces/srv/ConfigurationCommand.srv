@@ -1,0 +1,6 @@
+# CRUD i stan operacji; dokument JSON jest wersjonowany i walidowany w robot_configuration.
+string operation
+string request_json
+---
+uint16 status_code
+string response_json

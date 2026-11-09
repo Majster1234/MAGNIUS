@@ -1,0 +1,9 @@
+PlanningContext context
+float64[6] target_positions
+---
+bool success
+string message
+CartesianPlan plan
+---
+float32 progress
+string phase

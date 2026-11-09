@@ -5,7 +5,14 @@
 # Limity dotyczą przegubu po przekładni, w jednostkach wskazanych w nazwach pól.
 joints:
   joint_1:
-    can_id: null
+    encoder_cpr: 16384
+    default_acc: 135
+    lookahead_time_sec: 0.085
+    velocity_ff_scale: 1.0
+    position_kp: 2.5
+    min_holding_rpm: 1
+    max_rpm: 2500
+    can_id: 1
     firmware_version: null
     gear_ratio: null
     direction: null
@@ -16,7 +23,14 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_2:
-    can_id: null
+    encoder_cpr: 16384
+    default_acc: 135
+    lookahead_time_sec: 0.085
+    velocity_ff_scale: 1.0
+    position_kp: 2.5
+    min_holding_rpm: 1
+    max_rpm: 2500
+    can_id: 2
     firmware_version: null
     gear_ratio: null
     direction: null
@@ -27,7 +41,14 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_3:
-    can_id: null
+    encoder_cpr: 16384
+    default_acc: 135
+    lookahead_time_sec: 0.085
+    velocity_ff_scale: 1.0
+    position_kp: 2.5
+    min_holding_rpm: 1
+    max_rpm: 2500
+    can_id: 3
     firmware_version: null
     gear_ratio: null
     direction: null
@@ -38,7 +59,14 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_4:
-    can_id: null
+    encoder_cpr: 16384
+    default_acc: 135
+    lookahead_time_sec: 0.085
+    velocity_ff_scale: 1.0
+    position_kp: 2.5
+    min_holding_rpm: 1
+    max_rpm: 2500
+    can_id: 4
     firmware_version: null
     gear_ratio: null
     direction: null
@@ -49,7 +77,14 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_5:
-    can_id: null
+    encoder_cpr: 16384
+    default_acc: 135
+    lookahead_time_sec: 0.085
+    velocity_ff_scale: 1.0
+    position_kp: 2.5
+    min_holding_rpm: 1
+    max_rpm: 2500
+    can_id: 5
     firmware_version: null
     gear_ratio: null
     direction: null
@@ -60,7 +95,14 @@ joints:
       velocity_rad_s: null
       acceleration_rad_s2: null
   joint_6:
-    can_id: null
+    encoder_cpr: 16384
+    default_acc: 135
+    lookahead_time_sec: 0.085
+    velocity_ff_scale: 1.0
+    position_kp: 2.5
+    min_holding_rpm: 1
+    max_rpm: 2500
+    can_id: 6
     firmware_version: null
     gear_ratio: null
     direction: null

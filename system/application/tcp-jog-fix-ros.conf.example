@@ -1,0 +1,4 @@
+# Sekwencja ENABLE 200 ms i regulowane tolerancje IK TCP.
+# Nakładka zawiera tylko zmienione pakiety; pozostałe pochodzą z tcp-settings-ros.
+[Service]
+Environment="ROBOT_OVERLAY_SETUP=/home/mk/Desktop/Projekty/install/tcp-jog-fix-ros/setup.bash"

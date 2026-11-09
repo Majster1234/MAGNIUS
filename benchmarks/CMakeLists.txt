@@ -1,0 +1,53 @@
+cmake_minimum_required(VERSION 3.16)
+project(robot_benchmarks LANGUAGES CXX)
+
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+  message(FATAL_ERROR "Benchmarki wymagają CMAKE_BUILD_TYPE=Release")
+endif()
+
+add_executable(technical_cpp examples/cpp_cycle.cpp)
+target_compile_features(technical_cpp PRIVATE cxx_std_17)
+target_compile_options(technical_cpp PRIVATE -Wall -Wextra -Wpedantic)
+target_include_directories(technical_cpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(harness_check EXCLUDE_FROM_ALL test_harness.cpp)
+target_compile_features(harness_check PRIVATE cxx_std_17)
+target_compile_options(harness_check PRIVATE -Wall -Wextra -Wpedantic)
+target_include_directories(harness_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+file(GLOB MOTION_CAN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../ros2_ws/src/mks_servo_can/src/*.cpp")
+add_library(motion_can STATIC ${MOTION_CAN_SOURCES})
+target_compile_features(motion_can PUBLIC cxx_std_17)
+target_include_directories(motion_can PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../ros2_ws/src/mks_servo_can/include)
+target_link_libraries(motion_can PUBLIC pthread)
+add_executable(motion_bus motion_bus.cpp)
+target_include_directories(motion_bus PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(motion_bus PRIVATE motion_can)
+add_executable(can_schedule can_schedule.cpp)
+target_include_directories(can_schedule PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(can_schedule PRIVATE motion_can)
+add_executable(shaft_capture shaft_capture.cpp)
+target_link_libraries(shaft_capture PRIVATE motion_can)
+add_executable(streaming_jtc streaming_jtc.cpp)
+target_link_libraries(streaming_jtc PRIVATE motion_can)
+add_executable(ptp_revision ptp_revision.cpp)
+target_link_libraries(ptp_revision PRIVATE motion_can)
+foreach(scenario stream6 stream4 native idle20 reset)
+  add_custom_target(can_${scenario}
+    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:can_schedule> ${CMAKE_CURRENT_BINARY_DIR}/can_${scenario}
+    DEPENDS can_schedule)
+endforeach()
+
+# Scenariusze planera wymagają środowiska ROS; pozostałe benchmarki działają bez niego.
+find_package(robot_motion_planner QUIET)
+if(robot_motion_planner_FOUND)
+  foreach(target planner_reference planner_physical_lin)
+    add_executable(${target} planner_motion.cpp ../ros2_ws/src/robot_motion_planner/src/planner.cpp)
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    target_include_directories(${target} BEFORE PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/../ros2_ws/src/robot_motion_planner/include)
+    target_link_libraries(${target} PRIVATE robot_motion_planner::robot_motion_planner)
+    target_compile_definitions(${target} PRIVATE DEMO_URDF="${CMAKE_CURRENT_SOURCE_DIR}/../ros2_ws/src/robot_description/urdf/preview_6dof.example.urdf")
+  endforeach()
+  target_compile_definitions(planner_physical_lin PRIVATE PHYSICAL_LIN_BENCH)
+endif()
