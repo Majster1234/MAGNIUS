@@ -8,6 +8,7 @@ import { ConfigurationPage } from "./ConfigurationPage";
 import { AppShell, emptyManualHeader, pageFromHash } from "./AppShell";
 import { ArchitecturePage } from "./ArchitecturePage";
 import { DiagnosticsPage } from "./DiagnosticsPage";
+import { ProgrammingPage } from "./ProgrammingPage";
 import { axisPresence, busStateLabel } from "./dashboardData";
 import { buildLabel } from "./buildInfo";
 import { driveCells, freshCan, pulseSections } from "./systemPulse";
@@ -207,7 +208,7 @@ function App() {
             API: receivedAt || undefined, WEB: receivedAt + canStatus.receivedAt || undefined } };
     return (
         <AppShell view={pageId} manual={manualHeader} online={online} connecting={connection === "connecting"} pulse={pulse}>
-                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : canView ? <CanPage /> : pageId === "diagnostics" ? null : pageId === "architecture" ? <ArchitecturePage status={snapshot} statusFresh={!stale} statusOnline={online} can={canStatus.snapshot} canFresh={canFresh} canOnline={canOnline} sections={sections} /> : <>
+                {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : pageId === "programming" ? <ProgrammingPage /> : canView ? <CanPage /> : pageId === "diagnostics" ? null : pageId === "architecture" ? <ArchitecturePage status={snapshot} statusFresh={!stale} statusOnline={online} can={canStatus.snapshot} canFresh={canFresh} canOnline={canOnline} sections={sections} /> : <>
                 <div className="page-title">
                     <div>
                         <div className="eyebrow">MONITOROWANIE SYSTEMU</div>

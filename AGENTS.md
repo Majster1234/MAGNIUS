@@ -2,6 +2,51 @@
 
 Zakres: całe repozytorium. Źródłem prawdy jest kod. Komunikacja i dokumentacja: język polski (zachowuj angielskie nazwy w kodzie/API).
 
+## 0. Programy ruchowe — szybki start dla agenta (pisanie skryptów robota)
+
+Edytor „⌖ Programowanie” (`#programming`) zapisuje programy jako JSON. Agent pisze program jako plik/JSON i wysyła
+przez API; wykonuje `scripts/run_program.py` (po zatwierdzeniu). Pełny opis: `docs/programming.md`.
+
+**Gdzie:** `~/.local/state/robot/programs/` → `programs/<id>.json` (programy), `library/commands.json` (rozkazy =
+definicje bloków), `library/variables.json`, `library/positions.json` (biblioteki), `programs/.trash/` (kosz).
+Backend: `ros2_ws/src/robot_web_bridge/robot_web_bridge/programs.py` (magazyn), `program_runner.py` (wykonawca:
+kursor robota i kursor programu), `program_interpreter.py`, `motion_chain.py`; planer ciągu: akcja
+`/robot/planning/compute_motion_chain`; frontend: `web/src/ProgrammingPage.tsx`, `programModel.ts`, `programRun.ts`.
+API: `http://192.168.1.69:8080` (bez proxy).
+
+**Format programu:** `{"name", "description", "variables": [...], "positions": [...], "blocks": [...]}`
+- zmienna: `{"name", "type": INT|REAL|BOOL|POZYCJA|TEKST, "init", "unit"?, "note"?, "min"?, "max"?}` (POZYCJA → `init` = nazwa pozycji);
+- pozycja: `{"name", "joints_deg": [J1..J6 w °], "note"?}` — kąty przegubów; nazwy: litera, potem litery/cyfry/_ (≤ 40), unikalne;
+- blok: `{"id": unikalny, "command": id rozkazu, "params": {...}, "body"?: [bloki], "else"?: [bloki], "disabled"?: true}`;
+- wartość parametru: literał albo `{"var": "nazwa"}` / `{"position": "nazwa"}`.
+
+**Rozkazy (biblioteka budowana od nowa, 09.11.2026):** obecnie tylko ruchy
+- `move_ptp`: `{"position": {"position": "P1"}, "speed": 1–100 [%], "blend_mm": 0–200}`;
+- `move_lin`: `{"position": …, "speed": mm/s ≤ tcp.max_linear_velocity, "blend_mm": 0–200}`.
+
+`blend_mm` = promień pominięcia punktu na torze TCP: **0 = dojazd i postój w punkcie**, > 0 = płynne przejście do
+następnego ruchu (planer może zmniejszyć promień lub zamienić go na postój — uwagi w wyniku sprawdzenia). Zawsze
+sprawdzaj aktualną listę w `GET /api/v1/program-library` (`commands.commands`); rozkazy spoza biblioteki backend
+odrzuci. Logika wykonania (ciągi ruchów liczone z wyprzedzeniem, kursory): `docs/programming.md` („Logika wykonania”).
+
+**Jak napisać i sprawdzić (bez ruchu, bez zgody):**
+1. Pozycje: z pliku/biblioteki albo `GET /api/v1/manual/status` (`axes[].joint_position_degrees`) — nie zgaduj kątów.
+2. `POST /api/v1/programs/check {"program": …}` → `problems` (walidacja bez zapisu);
+   `python3 scripts/run_program.py --file prog.json` → symulacja w wykonawcy (ciągi ruchów, oś czasu, promienie).
+3. Zapis: `POST /api/v1/programs {"program": …}` (nowy, zwraca `id`, `revision`) lub
+   `PUT /api/v1/programs/{id} {"program": …, "expected_revision": …}` (409 = konflikt rewizji).
+4. `python3 scripts/run_program.py <id>` — sprawdzenie zapisanego programu.
+
+**Wykonanie (ruch fizyczny) — wyłącznie za zgodą operatora:**
+- Operator zatwierdza konkretną rewizję w GUI („✔ Zatwierdź do wykonania”); każda zmiana programu unieważnia zatwierdzenie.
+  **Agent nigdy nie wywołuje `/api/v1/programs/{id}/approve`.**
+- Przed `python3 scripts/run_program.py <id> --execute` agent opisuje ruch (program, pozycje, prędkości, czas z
+  sprawdzenia, warunek zatrzymania) i **czeka na wyraźną zgodę w rozmowie** — za każdym uruchomieniem. Skrypt sam
+  odmawia wykonania niezatwierdzonej rewizji; Ctrl+C/błąd → STOP programu. Stała zgoda z §5 dotyczy tylko testu jakości TCP.
+
+**Jeśli Twoim zadaniem jest wyłącznie napisanie (lub sprawdzenie) skryptu ruchowego — nie czytaj dalej tego pliku.**
+Dalsze sekcje dotyczą rozwoju kodu, sprzętu i testów.
+
 ## 1. Dyrektywy efektywności (Krytyczne — zero zbędnych akcji)
 
 - **Zakaz rutynowego skanowania:** NIE sprawdzaj stanu Git, środowiska, drzewa plików ani testów na początku promptu, dopóki zadanie bezpośrednio tego nie wymaga.
@@ -46,6 +91,7 @@ Zakres: całe repozytorium. Źródłem prawdy jest kod. Komunikacja i dokumentac
 | `ros2_ws/src/robot_can_diagnostics`, `robot_system_monitor` | Diagnostyka C++, monitor systemu i CAN |
 | `ros2_ws/src/robot_configuration` | Snapshoty konfiguracji JSON/ROS |
 | `ros2_ws/src/robot_web_bridge`, `web/` | Backend FastAPI/WebSocket, frontend React/TypeScript |
+| `~/.local/state/robot/programs/` | Programy ruchowe (`programs/*.json`) i biblioteka rozkazów/zmiennych/pozycji (`library/`); opis `docs/programming.md` |
 | `scripts/`, `system/`, `start_ros2.sh` | Skrypty uruchomieniowe, systemd (SocketCAN i autostart) |
 | `temp/` | Propozycje wyglądu GUI: samodzielne pliki HTML z danymi przykładowymi, bez połączenia z API/ROS/CAN. Nowe makiety zapisuj w podfolderze nazwanym ogólnie wg tematu (np. `temp/sterowanie_reczne/`) z własnym `README.md`; zastąpione propozycje usuwaj. Nie są importowane przez `web/` ani wdrażane; wdrożenie wybranej propozycji to osobne zadanie w `web/src`. |
 
@@ -76,4 +122,4 @@ colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 
 ## Bieżący kontekst
 
-- 09.11.2026 — Szkice trybu „Programowanie trajektorii” (`temp/programowanie_trajektorii/`): operator wybrał v2 (bloki); dodane rozwinięcia `v2a_bloki_grafit`, `v2b_bloki_stal`, `v2c_bloki_monochrom` (przełącznik Bloki/Tekst, podgląd zmiennych podczas symulacji zamiast okna kodu, deklaracje zmiennych przed kodem, stonowane kolory); v1/v3/v4/v5 usunięte jako zastąpione. Bez zmian w kodzie i konfiguracji robota. Stan z 08.11: nastawy regulatora 25 ms / Kp 4 w `config/local/execution.production.yaml` (aktywne po restarcie usługi), acc 254, nadzór ucieczki osi SYNC, stała zgoda na testy do sprzęgnięcia mechanicznego.
+- 10.11.2026 — Programowanie: zmiana rodzaju rozkazu istniejącego bloku (PTP ↔ LIN) z listy po kliknięciu nazwy ruchu, bez usuwania bloku (`ProgrammingPage.tsx` `CommandSwitch`, `programModel.ts` `compatibleCommands`/`changeCommand`: id i parametry o tej samej nazwie zostają, wartość spoza zakresu → domyślna). Test `programModel.test.ts` (8/8), `web/dist` przebudowany (Ctrl+F5, bez restartu usługi); `docs/programming.md` uzupełniony.

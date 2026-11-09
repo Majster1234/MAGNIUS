@@ -202,6 +202,15 @@ TEST(MotionCompiler, MultiPointReferencePreservesVelocityAcrossInternalKnot) {
     EXPECT_NEAR((right.positions[0]-left.positions[0])/2e-6,point.velocities[0],1e-6);
   }
 }
+TEST(MotionCompiler, AcceptsChainWithIntermediateStopAndMovingWaypoints) {
+  // Ciąg ruchów (CHAIN): punkt pośredni w ruchu (v≠0) i postój w środku (v=0 + jeden cykl postoju).
+  auto axes=config().axes;std::array<uint16_t,6> steps;steps.fill(16);PreparedMotionProgram p;p.participating.fill(true);
+  ProgramPoint a,m,stop,hold,end;m.seconds=.25;m.positions.fill(.01);m.velocities.fill(.04);
+  stop.seconds=.5;stop.positions.fill(.02);hold.seconds=.51;hold.positions.fill(.02);end.seconds=1;end.positions.fill(.04);
+  p.points={a,m,stop,hold,end};p=compile_streaming_program(p,axes,steps);
+  ASSERT_EQ(p.frames.size(),101u);EXPECT_EQ(p.mode,"streamed");
+  p.points.back().velocities.fill(.01);EXPECT_THROW(compile_streaming_program(p,axes,steps),std::invalid_argument);   // koniec musi mieć v=0
+}
 TEST(MotionCompiler, RejectsBetweenPointOvershootAndNonfiniteSamples) {
   auto axes=config().axes;std::array<uint16_t,6> steps;steps.fill(16);PreparedMotionProgram p;p.participating.fill(true);
   ProgramPoint a,b;b.seconds=.0001;a.positions.fill(1.999);b.positions.fill(1.999);a.accelerations.fill(1e10);p.points={a,b};

@@ -98,7 +98,7 @@ class JogRateLimit:
         return True
 
 
-def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None, overview=None):
+def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None, overview=None, program_store=None, program_runner=None):
     from .system_overview import ConnectionCounter
     connections = overview.connections if overview is not None else ConnectionCounter()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -110,6 +110,10 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     add_motion_routes(app, motion_client)
     from .shaft_trace_api import add_shaft_trace_routes
     add_shaft_trace_routes(app, shaft_trace)
+    from .programs import add_program_routes
+    add_program_routes(app, program_store)
+    from .program_runner import add_program_run_routes
+    add_program_run_routes(app, program_runner)
 
     @app.get('/healthz')
     async def health():
@@ -503,6 +507,7 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
             await publish_state(websocket, snapshot, interval)
         finally:
             connections.closed(kind)
+    app.state.stream_state = stream_state
 
     async def publish_state(websocket, snapshot, interval):
         await websocket.accept()

@@ -14,3 +14,5 @@ bool simulation_only
 bool[6] simulated_start
 float64[6] target_positions
 string motion_type
+# Ciąg ruchów (motion_type "CHAIN"): czasy kolejnych ruchów; puste dla PTP/LIN/CARTESIAN.
+robot_control_interfaces/ChainSegmentTiming[] chain_segments

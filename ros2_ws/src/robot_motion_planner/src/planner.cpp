@@ -1,4 +1,4 @@
-#include "robot_motion_planner/planner.hpp"
+#include "planner_detail.hpp"
 #include "mks_servo_can/motion_sample.hpp"
 #include "mks_servo_can/bus_manager.hpp"
 #include <algorithm>
@@ -13,16 +13,13 @@
 #include <urdf_parser/urdf_parser.h>
 
 namespace robot_motion_planner {
-namespace {
-constexpr double cycle=mks_servo_can::kMotionCycleSeconds;
-constexpr size_t max_points=10000;
-constexpr double wrist_slow_velocity=5*3.141592653589793/180;
+namespace detail {
+namespace { constexpr double cycle=mks_servo_can::kMotionCycleSeconds; constexpr double wrist_slow_velocity=5*3.141592653589793/180; }
 double seconds(const builtin_interfaces::msg::Duration &duration) { return duration.sec+duration.nanosec*1e-9; }
 builtin_interfaces::msg::Duration duration(double t) {
   builtin_interfaces::msg::Duration result; const auto ns=static_cast<int64_t>(std::llround(t*1e9));
   result.sec=ns/1000000000; result.nanosec=ns%1000000000; return result;
 }
-struct Sample { robot_kinematics::Joints q{},v{},a{}; };
 struct TcpRates { Eigen::Vector3d v,a,w; };
 TcpRates tcp_rates(const robot_kinematics::Model &model,const Sample &s) {
   const auto jac=model.jacobian(s.q);
@@ -41,7 +38,7 @@ double tcp_excess(const robot_kinematics::Model &model,const Sample &s,const Tcp
   return std::max({1.,rates.v.norm()/limits.velocity,rates.w.norm()/limits.angular_velocity,
                    std::sqrt(rates.a.norm()/limits.acceleration)});
 }
-Sample sample(const trajectory_msgs::msg::JointTrajectory &trajectory, double t, size_t &index) {
+Sample sample(const Trajectory &trajectory, double t, size_t &index) {
   const auto &points=trajectory.points;
   while(index+1<points.size()-1 && seconds(points[index+1].time_from_start)<t) ++index;
   const auto &left=points[index], &right=points[std::min(index+1,points.size()-1)];
@@ -68,17 +65,22 @@ std::array<double,6> local_velocity_limits(const robot_kinematics::Model &model,
     limits[j]=wrist_slow_velocity+(requested[j]-wrist_slow_velocity)*blend;
   return limits;
 }
-void stretch_time(trajectory_msgs::msg::JointTrajectory &trajectory, double factor) {
+void stretch_time(Trajectory &trajectory, double factor) {
   for(auto &point:trajectory.points) {
     point.time_from_start=duration(seconds(point.time_from_start)*factor);
     for(unsigned j=0;j<6;++j) { point.velocities[j]/=factor; point.accelerations[j]/=factor*factor; }
   }
 }
-void limit_path_speed(trajectory_msgs::msg::JointTrajectory &trajectory, const robot_kinematics::Model &model,
-                const std::array<double,6> &vmax, const std::array<double,6> &amax, const TcpLimits &tcp,
+void limit_path_speed(Trajectory &trajectory, const robot_kinematics::Model &model,
+                const std::array<double,6> &vmax, const std::array<double,6> &amax, const CapProvider &caps, bool uniform,
                 const std::function<void()> &check) {
   const auto total=seconds(trajectory.points.back().time_from_start);
-  if(total<=0 || (tcp.velocity<=0 && vmax[3]<=wrist_slow_velocity && vmax[5]<=wrist_slow_velocity)) return;
+  if(total<=0) return;
+  if(uniform) {
+    // Stałe limity: bez TCP i bez zwalniania nadgarstka zegar zostaje (zachowanie sprzed ciągów ruchów).
+    caps.reset(); const auto constant=caps.at(robot_kinematics::Joints{});
+    if(constant.tcp.velocity<=0 && constant.v[3]<=wrist_slow_velocity && constant.v[5]<=wrist_slow_velocity) return;
+  }
   // Parametrem drogi pozostaje czas starej trajektorii s. Nowy zegar ma szybkość
   // u=ds/dt <= 1. Pozycje drogi się nie zmieniają; q'=q_s*u,
   // q''=q_ss*u²+q_s*du/dt. Ograniczamy również drugi składnik przy hamowaniu.
@@ -86,18 +88,22 @@ void limit_path_speed(trajectory_msgs::msg::JointTrajectory &trajectory, const r
   const double ds=total/(count-1);
   std::vector<Sample> samples; samples.reserve(count);
   std::vector<double> rate2(count,1.),budget(count,1e12);
-  size_t cursor=0; bool slowing=false;
+  size_t cursor=0; bool slowing=false,any_tcp=false; caps.reset();
   for(size_t k=0;k<count;++k) {
     check(); samples.push_back(sample(trajectory,k*ds,cursor)); const auto &s=samples.back();
-    const auto limits=local_velocity_limits(model,s,vmax);
+    const auto cap=caps.at(s.q); const auto &tcp=cap.tcp;
+    const auto limits=local_velocity_limits(model,s,cap.v);
     for(unsigned j=0;j<6;++j) {
       if(std::abs(s.v[j])>1e-10) {
         // Rezerwa na interpolację pomiędzy węzłami, tylko tam, gdzie limit zwalnia ruch.
         if(limits[j]<vmax[j]-1e-10) rate2[k]=std::min(rate2[k],std::pow(.995*limits[j]/std::abs(s.v[j]),2));
-        budget[k]=std::min(budget[k],std::max(0.,.999*amax[j]-std::abs(s.a[j]))/std::abs(s.v[j]));
+        budget[k]=std::min(budget[k],std::max(0.,.999*cap.a[j]-std::abs(s.a[j]))/std::abs(s.v[j]));
       }
+      // Niższy limit przyspieszenia odcinka niż ten z TOTG: ogranicz składnik krzywizny q_ss*u².
+      if(cap.a[j]<amax[j]-1e-10 && std::abs(s.a[j])>1e-10) rate2[k]=std::min(rate2[k],.9*cap.a[j]/std::abs(s.a[j]));
     }
     if(tcp.velocity>0) {
+      any_tcp=true;
       const auto rates=tcp_rates(model,s);
       if(rates.v.norm()>1e-10) rate2[k]=std::min(rate2[k],std::pow(.995*tcp.velocity/rates.v.norm(),2));
       if(rates.w.norm()>1e-10) rate2[k]=std::min(rate2[k],std::pow(.995*tcp.angular_velocity/rates.w.norm(),2));
@@ -108,7 +114,7 @@ void limit_path_speed(trajectory_msgs::msg::JointTrajectory &trajectory, const r
     }
     slowing=slowing || rate2[k]<1.-1e-10;
   }
-  if(!slowing && tcp.velocity<=0) return;
+  if(!slowing && !any_tcp) return;
   // Wyprzedzające hamowanie i ograniczenie przyspieszania po opuszczeniu strefy.
   // |d(u²)/ds| <= 2*budget; obie strony dostają wspólny budżet interwału.
   for(size_t k=1;k<count;++k) rate2[k]=std::min(rate2[k],rate2[k-1]+2*std::min(budget[k-1],budget[k])*ds);
@@ -131,11 +137,11 @@ void limit_path_speed(trajectory_msgs::msg::JointTrajectory &trajectory, const r
   }
   trajectory=std::move(output);
   // Interpolator JTC używa q/v/a, więc sprawdzamy cały wynik po zmianie zegara.
-  double correction=1.; cursor=0;
+  double correction=1.; cursor=0; caps.reset();
   for(double t=0;t<=seconds(trajectory.points.back().time_from_start);t+=.001) {
-    check(); const auto s=sample(trajectory,t,cursor); const auto limits=local_velocity_limits(model,s,vmax);
-    for(unsigned j=0;j<6;++j) correction=std::max({correction,std::abs(s.v[j])/limits[j],std::sqrt(std::abs(s.a[j])/amax[j])});
-    correction=std::max(correction,tcp_excess(model,s,tcp));
+    check(); const auto s=sample(trajectory,t,cursor); const auto cap=caps.at(s.q); const auto limits=local_velocity_limits(model,s,cap.v);
+    for(unsigned j=0;j<6;++j) correction=std::max({correction,std::abs(s.v[j])/limits[j],std::sqrt(std::abs(s.a[j])/cap.a[j])});
+    correction=std::max(correction,tcp_excess(model,s,cap.tcp));
   }
   if(correction>1.+1e-8) stretch_time(trajectory,correction*1.005);
   const double finish=seconds(trajectory.points.back().time_from_start);
@@ -163,7 +169,91 @@ std::string escape(std::string s) {
     size_t p=0; while((p=s.find(pair.first,p))!=std::string::npos) { s.replace(p,pair.first.size(),pair.second); p+=pair.second.size(); }
   } return s;
 }
+std::shared_ptr<moveit::core::RobotModel> make_moveit_model(const Context &c,const robot_kinematics::Model &kinematics) {
+  auto parsed=urdf::parseURDF(c.urdf); if(!parsed) throw std::invalid_argument("Nieprawidłowy URDF");
+  // MoveIt nie może zawinąć wieloobrotowego continuous do najkrótszego obrotu.
+  for(unsigned i=0;i<6;++i) {
+    auto joint=parsed->joints_.at("joint_"+std::to_string(i+1)); joint->type=urdf::Joint::REVOLUTE;
+    if(!joint->limits) joint->limits=std::make_shared<urdf::JointLimits>();
+    joint->limits->lower=c.lower[i]; joint->limits->upper=c.upper[i]; joint->limits->velocity=c.max_velocity[i];
+  }
+  auto srdf=std::make_shared<srdf::Model>();
+  if(!srdf->initString(*parsed,"<robot name=\""+escape(parsed->getName())+"\"><group name=\"arm\"><chain base_link=\""+escape(kinematics.base())+"\" tip_link=\""+escape(kinematics.tip())+"\"/></group></robot>"))
+    throw std::runtime_error("Nie udało się zbudować grupy kinematycznej");
+  return std::make_shared<moveit::core::RobotModel>(parsed,srdf);
 }
+Trajectory totg(const std::shared_ptr<moveit::core::RobotModel> &model,const std::vector<robot_kinematics::Joints> &positions,
+                const std::array<double,6> &vmax,const std::array<double,6> &amax,double deviation,const std::function<void()> &check) {
+  robot_trajectory::RobotTrajectory trajectory(model,"arm");
+  moveit::core::RobotState waypoint(model); waypoint.setToDefaultValues();
+  std::unordered_map<std::string,double> velocity_limits,acceleration_limits;
+  for(unsigned i=0;i<6;++i) { const auto name="joint_"+std::to_string(i+1); velocity_limits[name]=vmax[i]; acceleration_limits[name]=amax[i]; }
+  for(const auto &q:positions) {
+    for(unsigned i=0;i<6;++i) waypoint.setVariablePosition("joint_"+std::to_string(i+1),q[i]);
+    waypoint.update(); trajectory.addSuffixWayPoint(waypoint,0);
+  }
+  trajectory_processing::TimeOptimalTrajectoryGeneration retimer(deviation,cycle,1e-7);
+  if(!retimer.computeTimeStamps(trajectory,velocity_limits,acceleration_limits)) throw std::runtime_error("TOTG odrzucił drogę");
+  moveit_msgs::msg::RobotTrajectory message; trajectory.getRobotTrajectoryMsg(message);
+  auto output=message.joint_trajectory;
+  // TOTG (próbkowanie co cycle) dokłada punkt końcowy także wtedy, gdy czas trwania jest wielokrotnością cycle —
+  // dwa punkty o tym samym czasie odrzuca kompilator MKS („Nieciągły czas trajektorii”, regresja 07.11.2026).
+  // Zostaje późniejszy punkt (dokładny cel z prędkością końcową).
+  {
+    std::vector<trajectory_msgs::msg::JointTrajectoryPoint> unique;unique.reserve(output.points.size());
+    for(auto &point:output.points) {
+      if(!unique.empty() && seconds(point.time_from_start)<=seconds(unique.back().time_from_start)+1e-9) unique.back()=std::move(point);
+      else unique.push_back(std::move(point));
+    }
+    output.points=std::move(unique);
+  }
+  // Ustalona kolejność kontraktu ROS i kompilatora MKS.
+  std::vector<unsigned> order;
+  for(unsigned i=0;i<6;++i) { const auto name="joint_"+std::to_string(i+1); auto it=std::find(output.joint_names.begin(),output.joint_names.end(),name); if(it==output.joint_names.end()) throw std::runtime_error("Brak osi w wyniku TOTG"); order.push_back(it-output.joint_names.begin()); }
+  for(auto &point:output.points) { auto old=point; for(unsigned i=0;i<6;++i) { point.positions[i]=old.positions[order[i]]; point.velocities[i]=old.velocities[order[i]]; point.accelerations[i]=old.accelerations[order[i]]; } }
+  for(unsigned i=0;i<6;++i) output.joint_names[i]="joint_"+std::to_string(i+1);
+  if(output.points.size()<2) {
+    auto point=output.points.front(); point.time_from_start=duration(cycle); output.points.push_back(point);
+  }
+  double stretch=1.; size_t cursor=0;
+  const auto initial_duration=seconds(output.points.back().time_from_start);
+  if(initial_duration>200 || output.points.size()>max_points) throw std::runtime_error("Plan przekracza limit 200 s / 10000 punktów");
+  for(double t=0;t<=initial_duration;t+=.001) {
+    check(); const auto s=sample(output,t,cursor);
+    for(unsigned i=0;i<6;++i) stretch=std::max({stretch,std::abs(s.v[i])/vmax[i],std::sqrt(std::abs(s.a[i])/amax[i])});
+  }
+  // Zapas również wtedy, gdy szczyt pochodnej leży między próbkami walidacji.
+  stretch*=1.05;
+  if(initial_duration>0) stretch=std::ceil(initial_duration*stretch/cycle)*cycle/initial_duration;
+  stretch_time(output,stretch);
+  return output;
+}
+void compile_mks(Plan &plan,const Context &c,const std::array<int64_t,6> &codes,const std::function<void()> &check) {
+  const auto &output=plan.trajectory; const auto total=seconds(output.points.back().time_from_start);
+  try {
+    std::array<mks_servo_can::AxisConfig,6> axes;
+    for(unsigned i=0;i<6;++i) {
+      const auto &p=c.profiles[i];
+      if(!p.configured || codes[i]<1 || codes[i]>255) throw std::runtime_error("Brak pełnego profilu osi lub jawnie potwierdzonego kodu MKS acc; trajektoria pozostaje podglądem");
+      axes[i]={static_cast<uint16_t>(i+1),p.gear_ratio,double(p.direction),p.zero_offset_rad,p.lower_rad,p.upper_rad,p.velocity_rad_s,p.acceleration_rad_s2,0,static_cast<uint8_t>(codes[i])};
+      axes[i].streaming.acceleration=static_cast<uint8_t>(codes[i]);
+    }
+    auto previous=c.seed; size_t cursor=0;
+    for(double t=0;t<=total+1e-9;t+=cycle) {
+      check(); const auto s=sample(output,std::min(t,total),cursor); robot_control_interfaces::msg::MksPlanSample frame; frame.time_from_start=t;
+      for(unsigned i=0;i<6;++i) {
+        const auto motor=mks_servo_can::compile_motor_sample(axes[i],s.q[i],s.v[i],previous[i],cycle);
+        frame.position_ticks[i]=motor.ticks; frame.speed_rpm[i]=motor.rpm; frame.acceleration_code[i]=motor.acceleration; frame.operation[i]=motor.operation;
+        std::copy(motor.payload.begin(),motor.payload.end(),frame.payloads.begin()+i*8);
+      }
+      plan.mks_samples.push_back(frame); previous=s.q;
+    }
+    plan.mks_compatible=true; plan.mks_message="Przedstawialne F5 przy 100 Hz; płynność i śledzenie wymagają odbioru sprzętu";
+  } catch(const std::exception &e) { plan.mks_samples.clear(); plan.mks_message=e.what(); }
+}
+}
+using namespace detail;
+namespace { constexpr double cycle=mks_servo_can::kMotionCycleSeconds; }
 double wrist_singularity_blend(const robot_kinematics::Model &model, const robot_kinematics::Joints &positions) {
   // Wyłącznie część kątowa J4–J6: bez mieszania metrów z radianami i bez
   // zakładania osi obrotu z samego kąta J5. Kierunki pochodzą z aktualnego URDF.
@@ -229,73 +319,23 @@ static Plan compute_impl(const Context &c,const std::vector<Pose> &targets,doubl
       throw std::runtime_error("LIN prowadzi do innej konfiguracji końcowej; wybierz PTP lub zmień cel");
     positions.back()=*joint_target;
   }
-  auto parsed=urdf::parseURDF(c.urdf); if(!parsed) throw std::invalid_argument("Nieprawidłowy URDF");
-  // MoveIt nie może zawinąć wieloobrotowego continuous do najkrótszego obrotu.
-  for(unsigned i=0;i<6;++i) {
-    auto joint=parsed->joints_.at("joint_"+std::to_string(i+1)); joint->type=urdf::Joint::REVOLUTE;
-    if(!joint->limits) joint->limits=std::make_shared<urdf::JointLimits>();
-    joint->limits->lower=c.lower[i]; joint->limits->upper=c.upper[i]; joint->limits->velocity=c.max_velocity[i];
-  }
-  auto srdf=std::make_shared<srdf::Model>();
-  if(!srdf->initString(*parsed,"<robot name=\""+escape(parsed->getName())+"\"><group name=\"arm\"><chain base_link=\""+escape(kinematics.base())+"\" tip_link=\""+escape(kinematics.tip())+"\"/></group></robot>"))
-    throw std::runtime_error("Nie udało się zbudować grupy kinematycznej");
-  auto model=std::make_shared<moveit::core::RobotModel>(parsed,srdf);
-  robot_trajectory::RobotTrajectory trajectory(model,"arm");
-  moveit::core::RobotState waypoint(model); waypoint.setToDefaultValues();
-  std::unordered_map<std::string,double> velocity_limits,acceleration_limits;
-  for(unsigned i=0;i<6;++i) { const auto name="joint_"+std::to_string(i+1); velocity_limits[name]=c.max_velocity[i]*v_scale; acceleration_limits[name]=c.max_acceleration[i]*a_scale; }
-  for(const auto &q:positions) {
-    for(unsigned i=0;i<6;++i) waypoint.setVariablePosition("joint_"+std::to_string(i+1),q[i]);
-    waypoint.update(); trajectory.addSuffixWayPoint(waypoint,0);
-  }
-  report(.5,"TOTG: płynne połączenia i czas");
-  trajectory_processing::TimeOptimalTrajectoryGeneration retimer(joint_target ? 0. : std::min(.001,p_tol/.5),cycle,1e-7);
-  if(!retimer.computeTimeStamps(trajectory,velocity_limits,acceleration_limits)) throw std::runtime_error("TOTG odrzucił drogę");
-  moveit_msgs::msg::RobotTrajectory message; trajectory.getRobotTrajectoryMsg(message);
-  auto output=message.joint_trajectory;
-  // TOTG (próbkowanie co cycle) dokłada punkt końcowy także wtedy, gdy czas trwania jest wielokrotnością cycle —
-  // dwa punkty o tym samym czasie odrzuca kompilator MKS („Nieciągły czas trajektorii”, regresja 07.11.2026).
-  // Zostaje późniejszy punkt (dokładny cel z prędkością końcową).
-  {
-    std::vector<trajectory_msgs::msg::JointTrajectoryPoint> unique;unique.reserve(output.points.size());
-    for(auto &point:output.points) {
-      if(!unique.empty() && seconds(point.time_from_start)<=seconds(unique.back().time_from_start)+1e-9) unique.back()=std::move(point);
-      else unique.push_back(std::move(point));
-    }
-    output.points=std::move(unique);
-  }
-  // Ustalona kolejność kontraktu ROS i kompilatora MKS.
-  std::vector<unsigned> order;
-  for(unsigned i=0;i<6;++i) { const auto name="joint_"+std::to_string(i+1); auto it=std::find(output.joint_names.begin(),output.joint_names.end(),name); if(it==output.joint_names.end()) throw std::runtime_error("Brak osi w wyniku TOTG"); order.push_back(it-output.joint_names.begin()); }
-  for(auto &point:output.points) { auto old=point; for(unsigned i=0;i<6;++i) { point.positions[i]=old.positions[order[i]]; point.velocities[i]=old.velocities[order[i]]; point.accelerations[i]=old.accelerations[order[i]]; } }
-  for(unsigned i=0;i<6;++i) output.joint_names[i]="joint_"+std::to_string(i+1);
-  if(output.points.size()<2) {
-    auto point=output.points.front(); point.time_from_start=duration(cycle); output.points.push_back(point);
-  }
-  double stretch=1.; size_t cursor=0;
-  const auto initial_duration=seconds(output.points.back().time_from_start);
-  if(initial_duration>200 || output.points.size()>max_points) throw std::runtime_error("Plan przekracza limit 200 s / 10000 punktów");
-  for(double t=0;t<=initial_duration;t+=.001) {
-    check(); const auto s=sample(output,t,cursor);
-    for(unsigned i=0;i<6;++i) stretch=std::max({stretch,std::abs(s.v[i])/velocity_limits.at(output.joint_names[i]),std::sqrt(std::abs(s.a[i])/acceleration_limits.at(output.joint_names[i]))});
-  }
-  // Zapas również wtedy, gdy szczyt pochodnej leży między próbkami walidacji.
-  stretch*=1.05;
-  if(initial_duration>0) stretch=std::ceil(initial_duration*stretch/cycle)*cycle/initial_duration;
-  stretch_time(output,stretch);
+  auto model=make_moveit_model(c,kinematics);
   std::array<double,6> vmax,amax;
-  for(unsigned j=0;j<6;++j) { vmax[j]=velocity_limits.at(output.joint_names[j]); amax[j]=acceleration_limits.at(output.joint_names[j]); }
+  for(unsigned j=0;j<6;++j) { vmax[j]=c.max_velocity[j]*v_scale; amax[j]=c.max_acceleration[j]*a_scale; }
+  report(.5,"TOTG: płynne połączenia i czas");
+  auto output=totg(model,positions,vmax,amax,joint_target ? 0. : std::min(.001,p_tol/.5),check);
+  const CapProvider constant{[]{},[&](const robot_kinematics::Joints&) { return SampleCaps{vmax,amax,tcp}; }};
   report(.6,tcp.velocity>0 ? "Profil prędkości TCP i ograniczenia nadgarstka" : "Płynne zwalnianie J4/J6 przy osobliwości nadgarstka");
-  limit_path_speed(output,kinematics,vmax,amax,tcp,check);
+  limit_path_speed(output,kinematics,vmax,amax,constant,true,check);
   const auto total=seconds(output.points.back().time_from_start);
   if(total>200) throw std::runtime_error("Plan po ograniczeniu pochodnych przekracza 200 s");
-  report(.65,"Sprawdzenie interpolacji JTC i tolerancji TCP"); cursor=0;
+  report(.65,"Sprawdzenie interpolacji JTC i tolerancji TCP"); size_t cursor=0;
   for(double t=0;t<=total+1e-9;t+=.005) {
     check(); const auto s=sample(output,std::min(t,total),cursor);
     const auto limits=local_velocity_limits(kinematics,s,vmax);
     if(tcp_excess(kinematics,s,tcp)>1.+1e-5) throw std::runtime_error("Interpolacja przekracza prędkość lub przyspieszenie TCP");
     for(unsigned i=0;i<6;++i) if(!std::isfinite(s.q[i]) || s.q[i]<c.lower[i]-1e-9 || s.q[i]>c.upper[i]+1e-9 ||
-        std::abs(s.v[i])>limits[i]+1e-6 || std::abs(s.a[i])>acceleration_limits.at(output.joint_names[i])+1e-5 ||
+        std::abs(s.v[i])>limits[i]+1e-6 || std::abs(s.a[i])>amax[i]+1e-5 ||
         (c.locked[i] && std::abs(s.q[i]-c.seed[i])>1e-9)) throw std::runtime_error("Interpolacja narusza limit J"+std::to_string(i+1)+" t="+std::to_string(t)+" q="+std::to_string(s.q[i])+" v="+std::to_string(s.v[i])+" a="+std::to_string(s.a[i]));
     if(!ptp && !near_path(kinematics.fk(s.q),path,p_tol,r_tol)) throw std::runtime_error("Wygładzona droga przekracza tolerancję TCP; zmień punkty lub tolerancję");
   }
@@ -306,26 +346,7 @@ static Plan compute_impl(const Context &c,const std::vector<Pose> &targets,doubl
   plan.id=robot_kinematics::model_id(c.model_id+c.configuration_revision+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   plan.execution_ready=false; plan.execution_message="Podgląd: wykonanie wymaga odrębnego odbioru geometrii, kalibracji, synchronizacji i zatrzymania";
   report(.8,"Kompilacja podglądu F5 100 Hz z wyprzedzeniem pozycji");
-  try {
-    std::array<mks_servo_can::AxisConfig,6> axes;
-    for(unsigned i=0;i<6;++i) {
-      const auto &p=c.profiles[i];
-      if(!p.configured || codes[i]<1 || codes[i]>255) throw std::runtime_error("Brak pełnego profilu osi lub jawnie potwierdzonego kodu MKS acc; trajektoria pozostaje podglądem");
-      axes[i]={static_cast<uint16_t>(i+1),p.gear_ratio,double(p.direction),p.zero_offset_rad,p.lower_rad,p.upper_rad,p.velocity_rad_s,p.acceleration_rad_s2,0,static_cast<uint8_t>(codes[i])};
-      axes[i].streaming.acceleration=static_cast<uint8_t>(codes[i]);
-    }
-    auto previous=c.seed; cursor=0;
-    for(double t=0;t<=total+1e-9;t+=cycle) {
-      check(); const auto s=sample(output,std::min(t,total),cursor); robot_control_interfaces::msg::MksPlanSample frame; frame.time_from_start=t;
-      for(unsigned i=0;i<6;++i) {
-        const auto motor=mks_servo_can::compile_motor_sample(axes[i],s.q[i],s.v[i],previous[i],cycle);
-        frame.position_ticks[i]=motor.ticks; frame.speed_rpm[i]=motor.rpm; frame.acceleration_code[i]=motor.acceleration; frame.operation[i]=motor.operation;
-        std::copy(motor.payload.begin(),motor.payload.end(),frame.payloads.begin()+i*8);
-      }
-      plan.mks_samples.push_back(frame); previous=s.q;
-    }
-    plan.mks_compatible=true; plan.mks_message="Przedstawialne F5 przy 100 Hz; płynność i śledzenie wymagają odbioru sprzętu";
-  } catch(const std::exception &e) { plan.mks_samples.clear(); plan.mks_message=e.what(); }
+  compile_mks(plan,c,codes,check);
   report(1,"Plan gotowy do podglądu"); return plan;
 }
 Plan compute(const Context &c,const std::vector<Pose> &targets,double p_tol,double r_tol,double v_scale,double a_scale,

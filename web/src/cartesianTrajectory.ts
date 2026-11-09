@@ -5,7 +5,7 @@ export type CartesianPlan = {
     mks_compatible: boolean; mks_message: string; execution_ready: boolean; execution_message: string;
     mks_samples: { time_from_start: number; position_ticks: number[]; speed_rpm: number[]; acceleration_code: number[]; payloads: number[] }[];
     simulation_only?: boolean; simulated_start?: boolean[]; target_positions?: number[];
-    motion_type?: "PTP" | "LIN" | "CARTESIAN"; settings_revision?: string;
+    motion_type?: "PTP" | "LIN" | "CARTESIAN" | "CHAIN"; settings_revision?: string;
 };
 export const pointTime = (point: TrajectoryPoint) => point.time_from_start.sec + point.time_from_start.nanosec / 1e9;
 export function validateCartesianPlan(plan: CartesianPlan) {

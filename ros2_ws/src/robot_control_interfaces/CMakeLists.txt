@@ -9,7 +9,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ShaftPositionSample.msg" "msg/ShaftTraceBatch.msg"
   "msg/JointConfiguration.msg" "msg/RobotConfiguration.msg"
   "srv/SetMotorEnable.srv" "srv/ZeroMotor.srv" "srv/JogMotor.srv"
-  "msg/PlanningContext.msg" "msg/MksPlanSample.msg" "msg/CartesianPlan.msg"
+  "msg/PlanningContext.msg" "msg/MksPlanSample.msg" "msg/ChainSegmentTiming.msg" "msg/CartesianPlan.msg" "msg/MotionSegment.msg"
   "srv/SolveIK.srv" "action/ComputeCartesianPath.action"
   "action/ComputePreviewMotion.action"
   "srv/JogJoint.srv" "srv/ConfigureRobot.srv" "srv/ConfigurationCommand.srv"
@@ -17,7 +17,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetAllMotorsEnable.srv" "srv/SetDriveMicrostep.srv" "srv/DriveParameter.srv"
   "msg/MotionSettings.msg" "msg/MotionProgramStatus.msg"
   "srv/PrepareMotionProgram.srv" "srv/GetMotionProgram.srv" "action/ExecuteMotionProgram.action" "action/ComputePhysicalPtp.action"
-  "action/ComputePhysicalMotion.action"
+  "action/ComputePhysicalMotion.action" "action/ComputeMotionChain.action"
   DEPENDENCIES geometry_msgs trajectory_msgs)
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

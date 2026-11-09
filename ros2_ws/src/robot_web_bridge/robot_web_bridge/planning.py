@@ -72,6 +72,9 @@ class PlanningClient:
         self.preview_type = ComputePreviewMotion
         self.preview = ActionClient(node, ComputePreviewMotion, '/robot/planning/compute_preview_motion')
         self.ik = node.create_client(SolveIK, '/robot/planning/solve_ik')
+        from robot_control_interfaces.action import ComputeMotionChain
+        self.chain_type = ComputeMotionChain
+        self.chain = ActionClient(node, ComputeMotionChain, '/robot/planning/compute_motion_chain')
         self.descriptions, self.manual, self.configuration = descriptions, manual, configuration
         self.jobs, self.plans = OrderedDict(), OrderedDict()
         self.handles, self.tasks = {}, set()
@@ -129,7 +132,8 @@ class PlanningClient:
         seed = data.get('seed_degrees')
         if not isinstance(seed, list) or len(seed) != 6:
             raise ValueError('Wymagane sześć jawnie znanych pozycji startowych')
-        tcp_feed = preview and data.get('motion_type') == 'LIN' and 'tcp_velocity_mm_s' in data
+        # Ciąg ruchów (profile_limits): pełne limity profili — limity każdego ruchu niesie MotionSegment.
+        tcp_feed = preview and (data.get('profile_limits') is True or (data.get('motion_type') == 'LIN' and 'tcp_velocity_mm_s' in data))
         preview_v = math.radians(180 if tcp_feed else number(data.get('preview_velocity_degrees_s'), 'Prędkość podglądu', .01, 360))
         preview_a = math.radians(100 if tcp_feed else number(data.get('preview_acceleration_degrees_s2'), 'Przyspieszenie podglądu', .01, 3600))
         context = PlanningContext(model_id=identifier, configuration_revision=active['revision'], urdf=xml)
@@ -443,6 +447,68 @@ class PlanningClient:
         if task is not None:
             await asyncio.wait_for(asyncio.shield(task), 3)
         return job.copy()
+
+    # ----- ciągi ruchów (wykonawca programów, program_runner.py) -----
+    async def program_start(self):
+        """Model, aktywna konfiguracja i pozycja startowa (pomiar / ostatnia znana / 0) do sprawdzenia programu."""
+        (_, identifier), state = self.current(True)
+        code, snapshot = await self.configuration('status')
+        if code != 200 or not snapshot.get('active'):
+            raise RuntimeError('Brak aktywnej konfiguracji robota')
+        revision = snapshot['active']['revision']
+        seeds, sources = self.reference(identifier, revision, state)
+        return {'model_id': identifier, 'configuration_revision': revision, 'snapshot': (code, snapshot),
+                'values': snapshot['active']['document']['values'], 'seeds': seeds, 'sources': sources}
+
+    async def chain_context(self, seeds_degrees, physical, start):
+        data = {'model_id': start['model_id'], 'configuration_revision': start['configuration_revision'],
+                'seed_degrees': list(seeds_degrees), 'simulated_start': list(start.get('simulated_start') or [False] * 6),
+                'profile_limits': True}
+        context = await self.context(data, True, start['snapshot'])
+        if physical:
+            context.simulation_only = False
+            context.allow_missing_execution = False
+            context.simulated_start = [False] * 6
+            context.locked = [False] * 6
+        return context
+
+    async def plan_chain(self, context, segments, max_duration, feedback=None):
+        from robot_control_interfaces.msg import MotionSegment
+        from .program_runner import PlannerBusy
+        if not self.chain.server_is_ready():
+            raise RuntimeError('Planner ciągu ruchów jest niedostępny (zrestartuj planner po aktualizacji)')
+        goal = self.chain_type.Goal(context=context, max_duration=float(max_duration))
+        for item in segments:
+            goal.segments.append(MotionSegment(
+                motion_type=0 if item['motion_type'] == 'PTP' else 1, target_positions=item['target_positions'],
+                max_joint_velocity=item['max_joint_velocity'], max_joint_acceleration=item['max_joint_acceleration'],
+                tcp_velocity=item['tcp_velocity'], tcp_acceleration=item['tcp_acceleration'],
+                tcp_angular_velocity=item['tcp_angular_velocity'], blend_radius=item['blend_radius'], tag=item['tag']))
+        loop = asyncio.get_running_loop()
+        def progress(message):
+            if feedback and not loop.is_closed():
+                loop.call_soon_threadsafe(feedback, message.feedback.progress, message.feedback.phase)
+        handle = await ros_result(self.chain.send_goal_async(goal, feedback_callback=progress))
+        if not handle.accepted:
+            raise PlannerBusy('Planner odrzucił ciąg ruchów (zajęty albo nieaktualny kontekst)')
+        try:
+            result = (await ros_result(handle.get_result_async(), 120)).result
+        except BaseException:
+            handle.cancel_goal_async()
+            raise
+        reply = {'success': bool(result.success), 'message': result.message, 'planned_segments': int(result.planned_segments),
+                 'warnings': list(result.warnings), 'failed_segment': int(result.failed_segment)}
+        if result.success:
+            plan = result.plan
+            last = plan.trajectory.points[-1].time_from_start
+            reply.update(plan=plan, duration=last.sec + last.nanosec * 1e-9,
+                         target_degrees=[math.degrees(q) for q in plan.target_positions],
+                         mks_compatible=plan.mks_compatible, mks_message=plan.mks_message,
+                         timings=[{'segment': t.segment, 'tag': t.tag, 'start_time': t.start_time, 'end_time': t.end_time,
+                                   'transition_end': t.transition_end, 'stop': t.stop,
+                                   'requested_blend_radius': t.requested_blend_radius,
+                                   'applied_blend_radius': t.applied_blend_radius} for t in plan.chain_segments])
+        return reply
 
     async def get_plan(self, identifier):
         plan = self.plans.get(identifier)

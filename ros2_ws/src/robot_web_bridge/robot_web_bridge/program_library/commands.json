@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "description": "Biblioteka rozkazów edytora programów (bloki). Od 09.11.2026 budowana od nowa: ruchy PTP/LIN z promieniem pominięcia punktu (blend_mm: 0 = postój w punkcie, > 0 = płynne przejście do następnego ruchu). Format: docs/programming.md.",
+  "categories": [{"id": "ruch", "label": "Ruch"}],
+  "io": {"outputs": [], "inputs": []},
+  "commands": [
+    {"id": "move_ptp", "category": "ruch", "icon": "⤳",
+     "label": "PTP do {position} v {speed} ⌀ {blend_mm}",
+     "text": "MOVE_PTP({position}, v={speed}%, r={blend_mm} mm)",
+     "params": [
+       {"name": "position", "kind": "position", "label": "pozycja"},
+       {"name": "speed", "kind": "number", "label": "prędkość", "unit": "%", "default": 30, "min": 1, "max": 100},
+       {"name": "blend_mm", "kind": "number", "label": "promień pominięcia", "unit": "mm", "default": 0, "min": 0, "max": 200}]},
+    {"id": "move_lin", "category": "ruch", "icon": "⟶",
+     "label": "LIN do {position} v {speed} ⌀ {blend_mm}",
+     "text": "MOVE_LIN({position}, v={speed} mm/s, r={blend_mm} mm)",
+     "params": [
+       {"name": "position", "kind": "position", "label": "pozycja"},
+       {"name": "speed", "kind": "number", "label": "prędkość", "unit": "mm/s", "default": 50, "min": 0.1, "max": 10000},
+       {"name": "blend_mm", "kind": "number", "label": "promień pominięcia", "unit": "mm", "default": 0, "min": 0, "max": 200}]}
+  ]
+}

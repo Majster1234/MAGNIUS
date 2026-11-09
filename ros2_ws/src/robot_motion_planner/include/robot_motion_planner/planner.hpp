@@ -1,5 +1,7 @@
 #pragma once
 #include <functional>
+#include <stdexcept>
+#include <string>
 #include <vector>
 #include <geometry_msgs/msg/pose.hpp>
 #include "robot_kinematics/kinematics.hpp"
@@ -28,4 +30,19 @@ Plan compute_preview(const Context &context, const robot_kinematics::Joints &tar
 Plan compute(const Context &context, const std::vector<Pose> &targets, double position_tolerance, double orientation_tolerance,
              double velocity_scaling, double acceleration_scaling, const std::array<int64_t,6> &acceleration_codes,
              const std::function<bool()> &cancelled={}, const std::function<void(float,const std::string&)> &progress={});
+// Ciąg ruchów PTP/LIN z przejściami (promień na torze TCP) i postojami jako jedna trajektoria (motion_type "CHAIN").
+struct ChainSegment {
+  uint8_t motion_type{};               // 0 PTP, 1 LIN
+  robot_kinematics::Joints target{};   // rad
+  std::array<double,6> max_velocity{},max_acceleration{};
+  TcpLimits tcp;                       // LIN: dodatnie; PTP: zera
+  double blend_radius{};               // m; 0 = postój w punkcie
+  std::string tag;
+};
+struct ChainResult { Plan plan; size_t planned_segments{}; std::vector<std::string> warnings; };
+// Błąd przypisany do ruchu ciągu (indeks w wejściu).
+struct ChainError : std::runtime_error { int segment; ChainError(int s,const std::string &m):std::runtime_error(m),segment(s) {} };
+ChainResult compute_chain(const Context &context,const std::vector<ChainSegment> &segments,double max_duration,
+             const std::array<int64_t,6> &acceleration_codes,const std::function<bool()> &cancelled={},
+             const std::function<void(float,const std::string&)> &progress={});
 }

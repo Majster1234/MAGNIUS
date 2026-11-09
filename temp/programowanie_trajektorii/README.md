@@ -34,6 +34,8 @@ z `cel`), `WAIT`, `SET OUT1`, `chwyt_ok := IN2`, `cel := Odkładanie_[i]`, `licz
 | `v2b_bloki_stal.html` | stalowy `#6f93b3` | lewy panel z zakładkami Bloki · **Zmienne** · Pozycje; karty zmiennych (edycja/usuwanie) i okno „Nowa zmienna” z wyborem typu kafelkami i zakresem min/maks; pasek zmiennych nad Start | karty z dużą wartością i wykresem przebiegu (licznik, i); **pułapka**: zatrzymaj symulację, gdy zmienna = wartość |
 | `v2c_bloki_monochrom.html` | ciepła szarość `#a39e93` | blok **VAR** na początku programu edytowany jak tabela (nazwa, typ, wartość, opis, ×, „＋ dodaj zmienną”); bloki neutralne, kolor kategorii tylko na lewej krawędzi | zwarta lista wartości + **dziennik zmian** (czas, linia, zmienna: stara → nowa) |
 
+**Wdrożono 09.11.2026: `v2b_bloki_stal.html`** — mechanizm tworzenia programów (bloki, przeciąganie, zmienne, pozycje, biblioteka, zapis plików) w `web/src/ProgrammingPage.tsx` i `robot_web_bridge/programs.py`; opis `docs/programming.md`. Język, symulacja i wykonanie — później.
+
 Do decyzji przed wdrożeniem (osobne zadanie w `web/src` i backendzie): akcent i intensywność kolorów bloków,
 miejsce tworzenia zmiennych (nad programem / zakładka / blok VAR), forma podglądu (tabela / karty z przebiegiem /
 dziennik), jeden format zapisu programu (JSON/AST) dla obu widoków. Wykonanie na robocie — poza zakresem szkicu.

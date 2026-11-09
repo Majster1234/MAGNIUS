@@ -3,6 +3,7 @@
 #include "robot_control_interfaces/action/compute_preview_motion.hpp"
 #include "robot_control_interfaces/action/compute_physical_ptp.hpp"
 #include "robot_control_interfaces/action/compute_physical_motion.hpp"
+#include "robot_control_interfaces/action/compute_motion_chain.hpp"
 #include <type_traits>
 #include "robot_control_interfaces/msg/robot_configuration.hpp"
 #include "robot_control_interfaces/srv/solve_ik.hpp"
@@ -21,6 +22,8 @@ using PreviewAction=robot_control_interfaces::action::ComputePreviewMotion;
 using PhysicalAction=robot_control_interfaces::action::ComputePhysicalPtp;
 using MotionAction=robot_control_interfaces::action::ComputePhysicalMotion;
 using PreviewHandle=rclcpp_action::ServerGoalHandle<PreviewAction>;
+using ChainAction=robot_control_interfaces::action::ComputeMotionChain;
+using ChainHandle=rclcpp_action::ServerGoalHandle<ChainAction>;
 class PlannerNode : public rclcpp::Node {
  public:
   PlannerNode():Node("robot_motion_planner") {
@@ -68,6 +71,14 @@ class PlannerNode : public rclcpp::Node {
         if(worker_.joinable()) worker_.join(); worker_=std::thread([this,handle]() { execute_preview(handle); }); });
     physical_=physical_server<PhysicalAction>("/robot/planning/compute_physical_ptp");
     physical_motion_=physical_server<MotionAction>("/robot/planning/compute_physical_motion");
+    chain_=rclcpp_action::create_server<ChainAction>(this,"/robot/planning/compute_motion_chain",
+      [this](const rclcpp_action::GoalUUID &,std::shared_ptr<const ChainAction::Goal> goal) {
+        try { validate_context(goal->context); guard(goal->context); } catch(...) { return rclcpp_action::GoalResponse::REJECT; }
+        if(goal->segments.empty() || goal->segments.size()>64 || busy_.exchange(true)) return rclcpp_action::GoalResponse::REJECT;
+        return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+      }, [](const std::shared_ptr<ChainHandle>) { return rclcpp_action::CancelResponse::ACCEPT; },
+      [this](const std::shared_ptr<ChainHandle> handle) {
+        if(worker_.joinable()) worker_.join(); worker_=std::thread([this,handle]() { execute_chain(handle); }); });
   }
   ~PlannerNode() override { stopping_=true; if(worker_.joinable()) worker_.join(); }
  private:
@@ -136,6 +147,30 @@ class PlannerNode : public rclcpp::Node {
     }
     busy_=false;
   }
+  void execute_chain(const std::shared_ptr<ChainHandle> &handle) {
+    auto result=std::make_shared<ChainAction::Result>(); result->failed_segment=-1;
+    try {
+      const auto goal=handle->get_goal(); std::vector<ChainSegment> segments;
+      for(const auto &s:goal->segments) {
+        ChainSegment segment; segment.motion_type=s.motion_type; segment.target=s.target_positions;
+        segment.max_velocity=s.max_joint_velocity; segment.max_acceleration=s.max_joint_acceleration;
+        segment.tcp={s.tcp_velocity,s.tcp_acceleration,s.tcp_angular_velocity}; segment.blend_radius=s.blend_radius; segment.tag=s.tag;
+        segments.push_back(segment);
+      }
+      auto chain=compute_chain(goal->context,segments,goal->max_duration,codes_,
+        [&]() { return stopping_ || handle->is_canceling() || !context_valid(goal->context); },
+        [&](float progress,const std::string &phase) { auto f=std::make_shared<ChainAction::Feedback>(); f->progress=progress; f->phase=phase; handle->publish_feedback(f); });
+      guard(goal->context);
+      result->plan=std::move(chain.plan); result->planned_segments=chain.planned_segments; result->warnings=chain.warnings;
+      result->success=true; result->message=goal->context.simulation_only ? "Ciąg ruchów — symulacja" : "Fizyczny ciąg ruchów obliczony; wymagane przygotowanie wykonawcy";
+      if(handle->is_canceling()) { result->success=false; handle->canceled(result); } else handle->succeed(result);
+    } catch(const ChainError &e) {
+      result->message=e.what(); result->failed_segment=e.segment; if(handle->is_canceling()) handle->canceled(result); else handle->abort(result);
+    } catch(const std::exception &e) {
+      result->message=e.what(); if(handle->is_canceling()) handle->canceled(result); else handle->abort(result);
+    }
+    busy_=false;
+  }
   void execute(const std::shared_ptr<Handle> &handle) {
     auto result=std::make_shared<Action::Result>();
     try {
@@ -163,6 +198,7 @@ class PlannerNode : public rclcpp::Node {
   rclcpp_action::Server<PreviewAction>::SharedPtr preview_;
   rclcpp_action::Server<PhysicalAction>::SharedPtr physical_;
   rclcpp_action::Server<MotionAction>::SharedPtr physical_motion_;
+  rclcpp_action::Server<ChainAction>::SharedPtr chain_;
 };
 }
 int main(int argc,char **argv) {

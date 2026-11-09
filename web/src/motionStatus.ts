@@ -2,8 +2,8 @@ export type MotionStatus = {
     dispatch_mode?: "streamed" | "synchronized"; sync_cycle?: number; sync_state?: string; sync_lateness_ms?: number;
     state: string; program_id: string; mode: string; message: string; busy: boolean; progress: number;
     duration: number; elapsed?: number; start_positions: number[]; target_positions: number[];
-    motion_type?: "PTP" | "LIN" | null;
-    preparation?: { id?: string; state: string; preview_plan_id?: string; program_id?: string; motion_type?: "PTP" | "LIN"; message?: string };
+    motion_type?: "PTP" | "LIN" | "CHAIN" | null;
+    preparation?: { id?: string; state: string; preview_plan_id?: string; program_id?: string; motion_type?: "PTP" | "LIN" | "CHAIN"; message?: string };
     participating: boolean[]; tcp_verified: boolean; execution_key: string;
     // Nastawy regulatora wykonania (zmieniane poza konfiguracją przez testy jakości ruchu); test=true gdy różne od pliku.
     execution_tuning?: { test: boolean; active: ExecutionTuning; baseline: ExecutionTuning } | null;

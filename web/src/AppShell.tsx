@@ -6,6 +6,7 @@ export const pages = [
     { id: "can", label: "Magistrala CAN", icon: "⇄" },
     { id: "diagnostics", label: "Diagnostyka", icon: "∿" },
     { id: "manual", label: "Sterowanie ręczne", icon: "↔" },
+    { id: "programming", label: "Programowanie", icon: "⌖" },
     { id: "config", label: "Konfiguracja", icon: "⚙" },
     { id: "architecture", label: "Architektura", icon: "⌘" },
 ] as const;
@@ -21,8 +22,9 @@ export function AppShell({ view, manual, online, connecting, pulse, children }: 
     view: PageId; manual: ManualHeaderState; online: boolean; connecting: boolean; children: ReactNode;
     pulse?: React.ComponentProps<typeof StatusMonitor>;
 }) {
-    const [collapsed, setCollapsed] = useState(view === "manual");
-    useEffect(() => { setCollapsed(view === "manual"); }, [view]);
+    const wide = view === "manual" || view === "programming";
+    const [collapsed, setCollapsed] = useState(wide);
+    useEffect(() => { setCollapsed(wide); }, [wide]);
     useEffect(() => {
         // Po zatwierdzeniu układu scena odczytuje aktualny rozmiar kanwy.
         const frame = requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
@@ -32,7 +34,7 @@ export function AppShell({ view, manual, online, connecting, pulse, children }: 
     const fresh = isManual ? manual.fresh : online;
     const connectionText = isManual ? !connected ? "Brak połączenia" : fresh ? "Połączono · 20 Hz" : "Połączono · dane nieaktualne" :
         online ? "Połączono z backendem" : connecting ? "Łączenie z backendem" : "Backend niedostępny";
-    return <div className={`shell app-shell ${collapsed ? "sidebar-collapsed" : "sidebar-expanded"} ${isManual ? "is-manual" : ""}`}>
+    return <div className={`shell app-shell ${collapsed ? "sidebar-collapsed" : "sidebar-expanded"} ${isManual ? "is-manual" : ""} ${view === "programming" ? "is-programming" : ""}`}>
         <aside className="sidebar" aria-label="Nawigacja aplikacji">
             <a className="brand" href="#overview" title="ROBOT 6-DOF / STANOWISKO" aria-label="ROBOT 6-DOF / STANOWISKO">
                 <img src="/robot.svg" alt="" /><span className="sidebar-label">ROBOT<span className="brand-detail">6-DOF / STANOWISKO</span></span>

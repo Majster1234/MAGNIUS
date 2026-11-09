@@ -17,6 +17,7 @@ for directory in sorted({p.parent for p in web_dist.rglob('*') if p.is_file()}):
 
 setup(
     name=package_name, version='0.0.0', packages=find_packages(exclude=['test']),
+    package_data={package_name: ['program_library/*.json']}, include_package_data=True,
     data_files=data_files, install_requires=['setuptools'], zip_safe=False,
     maintainer='Project maintainer (TODO)', maintainer_email='maintainer@example.com',
     description='Diagnostyka robota i lokalny panel ROS 2.', license='TODO',

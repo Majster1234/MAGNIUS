@@ -48,6 +48,7 @@ class MotionClient:
         self.task = None
         self.planner_handle = None
         self.lock = asyncio.Lock()
+        self.owner = None   # token wykonawcy programu: ręczne prepare/execute przez HTTP są wtedy blokowane
 
     async def call(self, client, request, timeout=3):
         if not client.service_is_ready():
@@ -117,10 +118,71 @@ class MotionClient:
     def program_motion_type(self, program_id):
         plan = getattr(self, 'physical_plan', None)
         if program_id and program_id == getattr(self, 'prepared_program_id', None) and plan is not None:
-            return plan.motion_type if plan.motion_type in ('PTP', 'LIN') else None
+            return plan.motion_type if plan.motion_type in ('PTP', 'LIN', 'CHAIN') else None
         return None
 
+    # ----- wykonawca programów (program_runner.py) -----
+    def claim(self, token):
+        if getattr(self, 'owner', None) is not None and self.owner != token:
+            raise MotionConflict('Ruchem steruje inny przebieg programu')
+        self.owner = token
+
+    def release(self, token):
+        if getattr(self, 'owner', None) == token:
+            self.owner = None
+
+    def guard_owner(self, token=None):
+        owner = getattr(self, 'owner', None)
+        if owner is not None and owner != token:
+            raise MotionConflict('Ruchem steruje wykonawca programu; zatrzymaj program (STOP) przed ruchem ręcznym')
+
+    def measured_degrees(self):
+        (_, model), state = self.planning.current(False)
+        seeds, sources = self.planning.reference(model, state.get('configuration_revision'), state)
+        if any(source != 'measured' for source in sources):
+            raise ValueError('Wykonanie programu wymaga aktualnych pozycji pomiarowych wszystkich osi')
+        return seeds
+
+    async def prepare_chain(self, physical, token):
+        """Przygotowanie fizycznego ciągu ruchów (motion_type CHAIN) obliczonego przez wykonawcę programów."""
+        self.guard_owner(token)
+        async with self.lock:
+            if self.task and not self.task.done():
+                raise MotionConflict('Trwa przygotowanie programu')
+            if (await self.status())['busy']:
+                raise MotionConflict('Trwa wykonanie programu')
+            code, settings = await self.configuration('system_get')
+            if code != 200:
+                raise RuntimeError('Brak potwierdzonych ustawień ruchu')
+            (_, model), state = self.planning.current(False)
+            code, snapshot = await self.configuration('status')
+            if code != 200 or not configuration_ready(snapshot):
+                raise RuntimeError('Konfiguracja fizycznego robota nie jest uzgodniona')
+            if (physical.simulation_only or physical.motion_type != 'CHAIN' or physical.model_id != model or
+                    state.get('configuration_revision') != physical.configuration_revision or
+                    snapshot['active']['revision'] != physical.configuration_revision):
+                raise ValueError('Ciąg ruchów dotyczy innego modelu lub konfiguracji; uruchom program ponownie')
+            await self.release_controller()
+            request = self.prepare_type.Request(plan=physical, settings_revision=settings['revision'],
+                                                issued_monotonic_ns=time.monotonic_ns(), participation_mask=0)
+            prepared = await self.call(self.prepare_client, request, 10)
+            if not prepared.accepted:
+                raise ValueError(prepared.message)
+            self.physical_plan = physical
+            self.prepared_program_id = prepared.status.program_id
+            self.prepared_settings_revision = settings['revision']
+            self.prepared_configuration_revision = physical.configuration_revision
+            self.prepared_model_id = physical.model_id
+            self.preparation = {'id': uuid.uuid4().hex, 'state': 'ready', 'motion_type': 'CHAIN',
+                                'program_id': prepared.status.program_id, 'message': prepared.message}
+            return prepared.status.program_id
+
+    async def run_execute(self, program_id, key, token):
+        self.guard_owner(token)
+        return await self.execute({'program_id': program_id, 'execution_key': key}, token)
+
     async def prepare(self, data):
+        self.guard_owner()
         async with self.lock:
             if self.task and not self.task.done():
                 raise MotionConflict('Trwa przygotowanie programu')
@@ -256,7 +318,8 @@ class MotionClient:
                 plan['target_positions'][j] = plan['start_positions'][j]
         return {'program_id': status['program_id'], 'plan': plan}
 
-    async def execute(self, data):
+    async def execute(self, data, token=None):
+        self.guard_owner(token)
         async with self.lock:
             identifier, key = data.get('program_id'), data.get('execution_key')
             if not isinstance(identifier, str) or not isinstance(key, str) or not 1 <= len(key) <= 64:

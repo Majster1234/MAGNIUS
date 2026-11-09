@@ -63,6 +63,9 @@ def main(args=None):
         manual_store = ManualStore()
         trace_directory = node.declare_parameter('shaft_trace_directory', '').value
         shaft_trace = ShaftTraceStore(trace_directory or None)
+        from .programs import ProgramStore
+        # Programy ruchowe i biblioteka rozkazów/zmiennych/pozycji (domyślnie $XDG_STATE_HOME/robot/programs).
+        program_store = ProgramStore(node.declare_parameter('programs_directory', '').value or None)
         node.create_subscription(ShaftTraceBatch, '/robot/diagnostics/shaft_trace', shaft_trace.ingest,
                                  QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT))
         description_store = DescriptionStore()
@@ -73,6 +76,8 @@ def main(args=None):
         configuration_action = ConfigurationClient(node)
         planning_client = PlanningClient(node, description_store, manual_store, configuration_action)
         motion_client = MotionClient(node, planning_client, configuration_action)
+        from .program_runner import ProgramRunner
+        program_runner = ProgramRunner(program_store, planning_client, motion_client)
         def manual_update(message):
             manual_store.update(message)
             planning_client.remember_positions()
@@ -122,7 +127,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace, overview), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace, overview, program_store, program_runner), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

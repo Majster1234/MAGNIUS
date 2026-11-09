@@ -46,6 +46,13 @@ Panel oznacza **Próba LIN — tor TCP nie jest potwierdzony**; `tcp_verified=fa
 Nadal nie wolno pomijać obecnej osi z nieważną kalibracją lub bez ENABLE.
 Blending, fizyczny JOG TCP i wykrywanie kolizji nie należą do tej zmiany.
 
+**Ciąg ruchów `CHAIN` (09.11.2026).** Wykonawca programów (`docs/programming.md`, „Logika wykonania”) wysyła ciąg
+ruchów PTP/LIN z przejściami (promień na torze TCP) i postojami jako jeden program: `program_api.cpp` przyjmuje
+`motion_type` `PTP`, `LIN` albo `CHAIN` (planer: akcja `/robot/planning/compute_motion_chain`, pole planu
+`chain_segments` z czasami ruchów). Kompilator streamingu bez zmian: v = 0 na obu końcach, w środku dowolna prędkość
+(postój = punkt v = 0 i jeden cykl 10 ms postoju). Dolot ±0,5° i potwierdzenie postoju działają tylko na końcu ciągu
+— postoje wewnątrz ciągu nie są potwierdzane pomiarem (do obserwacji przy odbiorze sprzętowym).
+
 Kontrakt źródeł z 25.10.2026 (85 ms, korekcja pozycji i dithering RPM) zastępuje wcześniejsze F5/ACK/SYNC i oczekiwanie
 na pozycję w punktach pośrednich. Program jest lokalnym strumieniem F5 co 10 ms.
 Regulację silnika realizuje MKS. Na rozsprzęglonych 1/2/4 osiach sprawdzono ruch i powrót przy zadanym limicie 1 RPM.

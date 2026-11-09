@@ -15,7 +15,8 @@ from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String
 from robot_control_interfaces.msg import ManualState, ManualAxisState, PlanningContext, RobotConfiguration
 from robot_control_interfaces.srv import SolveIK
-from robot_control_interfaces.action import ComputeCartesianPath, ComputePreviewMotion, ComputePhysicalPtp, ComputePhysicalMotion
+from robot_control_interfaces.action import ComputeCartesianPath, ComputePreviewMotion, ComputePhysicalPtp, ComputePhysicalMotion, ComputeMotionChain
+from robot_control_interfaces.msg import MotionSegment
 
 
 def wait(future, seconds=15):
@@ -123,6 +124,23 @@ def test_ik_path_and_stale_revision(monkeypatch):
         result = wait(handle.get_result_async()).result
         assert result.success and result.plan.motion_type == 'PTP', result.message
         assert not wait(generic.send_goal_async(ComputePhysicalMotion.Goal(context=context,motion_type=2,target_positions=target))).accepted
+        # Ciąg ruchów: PTP z przejściem 20 mm → PTP z postojem, czasy ruchów z identyfikatorami bloków.
+        chain = ActionClient(node, ComputeMotionChain, '/robot/planning/compute_motion_chain')
+        assert chain.wait_for_server(timeout_sec=5)
+        first = list(context.seed); first[0] += .4
+        second = list(first); second[1] += .3; second[2] -= .2
+        segments = [MotionSegment(motion_type=0, target_positions=q, max_joint_velocity=[1.]*6, max_joint_acceleration=[2.]*6,
+                                  blend_radius=r, tag=tag) for q, r, tag in ((first, .02, 'b1'), (second, 0., 'b2'))]
+        handle = wait(chain.send_goal_async(ComputeMotionChain.Goal(context=context, segments=segments, max_duration=90.)))
+        assert handle.accepted
+        result = wait(handle.get_result_async(), 30).result
+        assert result.success and result.plan.motion_type == 'CHAIN' and result.planned_segments == 2, result.message
+        assert [t.tag for t in result.plan.chain_segments] == ['b1', 'b2'] and not result.plan.chain_segments[0].stop
+        assert abs(result.plan.chain_segments[0].applied_blend_radius - .02) < 1e-9 and result.failed_segment == -1
+        bad = [MotionSegment(motion_type=1, target_positions=first, max_joint_velocity=[1.]*6, max_joint_acceleration=[2.]*6, tag='x')]
+        handle = wait(chain.send_goal_async(ComputeMotionChain.Goal(context=context, segments=bad, max_duration=90.)))
+        result = wait(handle.get_result_async(), 30).result
+        assert not result.success and result.failed_segment == 0
         missing[5] = True; context.allow_missing_execution = True
         context.simulated_start = [False]*5+[True]
         time.sleep(.1)
