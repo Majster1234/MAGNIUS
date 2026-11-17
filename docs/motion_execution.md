@@ -667,3 +667,51 @@ Odtworzenie offline na nagraniach 07.11: incydent wykryty 408 ms po ostatnim F5
 Poza zakresem: osie nieuczestniczące w PTP/LIN w trakcie programu oraz ruch w trakcie
 strumienia (tam działa kontrola uchybu: 3° łagodne zatrzymanie, 4° awaria — `docs/tcp_jog.md`). `BusConfig::hold_supervision` wyłącza
 nadzór wyłącznie w testach skokowo przestawiających emulowany wał.
+
+## Postój z prędkości liczonej z pozycji — układ mieszany (17.11.2026)
+
+Przyczyna: MKS 1.0.9 po zatrzymaniu potrafi przez 1–2 s zwracać w 0x32 ostatnią prędkość ruchu. Nagranie JOG TCP
+z 17.11: po STOP pozycje osi w ±1 imp. wału po ok. 0,5 s, a 0x32 trzymało −12 → −2 RPM (J2) albo 8–9 RPM (J3, J6)
+przez 1,1–1,9 s. Dolot JOG TCP czekał na |RPM 0x32| ≤ 1, więc sterowanie było zajęte 1,6–2,1 s po każdym STOP
+(blokada JOG osi, PTP i programów).
+
+Prędkość z pozycji (`position_velocity.hpp`, `CanBusManager::position_velocity` / `position_standstill`): historia
+odczytów 0x31 na oś (128 próbek, zerowana przy `shaft_reference_changed`), nachylenie prostej MNK z okna 500 ms
+[RPM wału]. Ocena tylko przy spełnionych warunkach jakości — brak danych nigdy nie oznacza postoju:
+
+| Warunek | Wartość | Uzasadnienie |
+| --- | --- | --- |
+| okno / pokrycie | 500 ms / ≥ 400 ms | drgania trzymania J4 (±55 imp.) uśredniają się |
+| próbki | ≥ 8, przerwa ≤ 100 ms | ruch: 0x31 co 10 ms, bezczynność co 40 ms |
+| wiek ostatniej próbki | ≤ 100 ms (uzbrajanie: 300 ms) | uzbrajanie nie odpytuje pozycji, F5 wtedy nie idą |
+| odchyłka od prostej | ≤ 100 imp. | skok pozycji = przebieg nieliniowy, brak oceny |
+| nachylenie z ostatnich 200 ms | ≤ 3 × próg | początek ruchu po postoju „rozmyty” w długim oknie |
+
+Postój = dotychczasowy warunek z odczytów napędu **albo** prędkość z pozycji ≤ 1 RPM wału (`kHoldingSpeedNoiseRpm`):
+
+- dolot JOG TCP (`tcp_final`): oś stabilna (150 ms w paśmie) i świeży odczyt 0x32 (żywotność, wartość pomijana),
+  dalej tolerancja i dwa potwierdzenia ≥ 100 ms jak dotąd; zdarzenie `tcp_standstill_from_position`;
+- dolot SYNC: ścieżka pozycyjna wymaga **teraz także** prędkości z pozycji (dotąd samo pasmo tolerancji przez 500 ms
+  przepuszczało pełzanie do ok. 4 RPM wału przy przełożeniu 25); zdarzenie `sync_standstill_from_position`;
+- uzbrajanie SYNC (krok 0x32): zamrożony odczyt > 1 RPM nie wymaga 5 ponowień, gdy pozycja potwierdza postój
+  (`arming_standstill_from_position`); przy pełzaniu awaria jak dotąd, komunikat podaje też „z pozycji=…”;
+- zmiana trybu PTP/LIN przy ENABLE=1 (`dispatch_stopped`): 0x32 w bezczynności nie jest odpytywane, więc stara ścieżka
+  (świeże 0x32 == 0) była praktycznie nieosiągalna; F1=1 nadal wymagane (MKS odrzuca zapis przy F1=4).
+
+Bez zmian (0x32 zostaje): odzyskiwanie po awarii (wymaga 0x32 == 0 **i** stałej pozycji — niezależny czujnik),
+termin zatrzymania JOG osi, diagnostyka. Ostrzeżenia po limitach czasu dolotu (3 s SYNC, 5 s JOG TCP) działają jak
+dotąd — nie zamieniono ich na awarie krytyczne.
+
+Ograniczenie: wolne pełzanie (1–3 RPM wału) zaczynające się **po** pełnym postoju jest widoczne dopiero, gdy wypełni
+okno 500 ms; szybsze niż 3 RPM — po ok. 150 ms (okno 200 ms). Zabezpieczeniem jest nadzór postoju (odchyłka
+> tolerancja pozycji → awaria krytyczna).
+
+Diagnostyka rozbieżności (bez wpływu na sterowanie): przy każdym odczycie 0x32 porównanie z prędkością z okna 100 ms;
+różnica > 3 RPM + 25% przez ≥ 300 ms → `speed_source_mismatch`, koniec epizodu → `speed_source_mismatch_end`
+(0x32, prędkość z pozycji, maks. różnica, czas). Służy do oceny, jak często 0x32 zamarza i czy jego odpytywanie
+w ruchu można ograniczyć.
+
+Testy: `test_position_velocity` (MNK, jakość danych, drgania, skok, początek ruchu),
+`TcpJogOwner.FinalApproachWaitsForDriveStandstill` / `FrozenSpeedReadingDoesNotExtendFinalApproach`,
+`SynchronizedProgram.ArmingRereadsTransientMotionAndReportsPersistentOne` /
+`DispatchModeChangeWithEnabledAxesUsesPositionStandstill`.

@@ -6,8 +6,9 @@ import type { createPreviewScene } from "./robotPreviewScene";
 import type { Notice } from "./eventLog";
 import type { MotionTrace } from "./previewMotionTrail";
 import type { MotionObservation } from "./motionStatus";
+import type { MotionHint } from "./previewMotionHint";
 
-export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onCondition, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, simulationPositions = null, motionTrace = null, execution = null, simulationAllowed = false, expectedRevision, modelId, showMotionFrames = true }: {
+export function RobotPreview({ state, usable, pending, physicalJogActive, onNotice, onCondition, onModelStatus, planning, plannedPositions, planningReady, onPlanningStart, onPlanningSync, onPlanningEnd, simulationPositions = null, motionTrace = null, execution = null, simulationAllowed = false, expectedRevision, modelId, showMotionFrames = true, motionHint = null }: {
     state: ManualState | null; usable: boolean; onNotice: (notice: Notice) => void; planning: boolean;
     onCondition?:(key:string,value:Notice|null,resolution?:string)=>void;
     pending: boolean; physicalJogActive: boolean; plannedPositions: (number | null)[]; planningReady: boolean; onPlanningStart: () => void; onPlanningSync: () => void; onPlanningEnd: () => void;
@@ -16,12 +17,14 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     simulationPositions?: number[] | null; simulationAllowed?: boolean; expectedRevision?: string; modelId?: string;
     motionTrace?: MotionTrace | null;
     execution?: MotionObservation | null;
+    // Przycisk ruchu pod kursorem/fokusem albo trzymany: kierunek na modelu 3D.
+    motionHint?: MotionHint | null;
 }) {
     const host = useRef<HTMLDivElement>(null);
     const scene = useRef<ReturnType<typeof createPreviewScene> | null>(null);
     const pose = useRef(new PreviewPose());
     const poseRevision = useRef(state?.configuration_revision);
-    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames });
+    const input = useRef({ state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames, motionHint });
     const sample = useRef<{ state: ManualState | null; receivedAt: number; key: string }>({ state: null, receivedAt: -Infinity, key: "" });
     const sampleSequence = useRef(0);
     // Scena czyta spójny, zatwierdzony stan razem ze znacznikiem próbki przed
@@ -29,7 +32,7 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
     useLayoutEffect(() => {
         if (sample.current.state !== state)
             sample.current = { state, receivedAt: performance.now(), key: state?.state_monotonic_ns || String(++sampleSequence.current) };
-        input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames };
+        input.current = { state, usable, planning, plannedPositions, simulationPositions, motionTrace, execution, expectedRevision, showMotionFrames, motionHint };
     });
     const [message, setMessage] = useState("Wczytywanie modelu z ROS…");
     // Trace TCP rzeczywistego modelu (pomiary enkoderów); wybór zapamiętany w przeglądarce.
@@ -62,6 +65,14 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                 const revision = root.getAttribute("configuration_revision"), required = input.current.expectedRevision ?? input.current.state?.configuration_revision;
                 if ((revision && required && revision !== required) || (required && required !== "initial" && revision !== required)) throw Error("Oczekiwanie na model zgodny z rewizją sterowania ROS…");
                 const engine = await import('./robotPreviewScene');
+                // Model 3D z CAD (opcjonalny): brak lub błąd modelu = bryły z URDF, bez blokowania podglądu.
+                let sceneModel: import('./robotPreviewScene').SceneModel | null = null;
+                try {
+                    const { fetchRobotModel, loadAssemblyMeshes, assemblyMatrix } = await import('./robotModel');
+                    const stored = await fetchRobotModel();
+                    const items = await loadAssemblyMeshes(stored);
+                    if (items.length) sceneModel = {items, matrix: assemblyMatrix(stored.assembly)};
+                } catch { sceneModel = null; }
                 if (closed || !host.current || (input.current.expectedRevision ?? input.current.state?.configuration_revision) !== revisionToLoad) return;
                 try {
                     scene.current = engine.createPreviewScene(host.current, xml, () => {
@@ -74,11 +85,12 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                             motionTrace: input.current.motionTrace, showMotionFrames: input.current.showMotionFrames,
                             executionFrame: { state: sample.current.state === current ? current : null, usable: online,
                                 receivedAt: sample.current.receivedAt, sampleKey: sample.current.key,
-                                execution: input.current.execution, revision: revisionToLoad }, liveTrace: liveTraceRef.current };
+                                execution: input.current.execution, revision: revisionToLoad }, liveTrace: liveTraceRef.current,
+                            motionHint: input.current.motionHint };
                     },(subject,result)=>{
                         const warning=result && result.level!=="clear";
                         onCondition?.(`singularity-${subject}`,warning?{source:`singularity-${subject}`,severity:"warning",code:"singularity",context:subject,title:result.level==="critical"?"Bardzo blisko osobliwości modelu":"Blisko osobliwości modelu",message:`${subject}: ${result.source==="wrist"?"nadgarstek J4–J6":"ramię"} · ${result.level}.`}:null,result?undefined:`${subject}: ocena osobliwości niedostępna — brak pełnej pozycji.`);
-                    });
+                    }, sceneModel);
                     setMessage("");
                     onModelStatus({ ready: true, revision: revisionToLoad });
                     setModelKind(root.getAttribute("model_kind") ?? "partial-demo");

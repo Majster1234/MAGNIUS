@@ -23,7 +23,8 @@ Zmianę zatwierdza przycisk „Zapisz ustawienia do ROS”. Snapshot v1 zawiera 
 Pole `ptp_lin_dispatch_mode` przechodzi przez RobotConfiguration oraz transakcję
 PREPARE/COMMIT/ROLLBACK/FINISH. Właściciel CAN potwierdza faktycznie przyjętą wartość.
 Zmiana wymaga nieaktywnego sterowania i potwierdzonego postoju obecnych osi:
-stabilnej pozycji z ENABLE=0 albo stabilnej pozycji ze świeżymi 0 RPM i F1=1.
+stabilnej pozycji z ENABLE=0 albo F1=1 i stabilnej pozycji ze świeżymi 0 RPM albo prędkością z pozycji 0x31
+≤ 1 RPM wału (od 17.11.2026; 0x32 w bezczynności nie jest odpytywane).
 Warunki są sprawdzane ponownie przed COMMIT. Sama zmiana trybu nie zmienia
 kalibracji, przełożenia ani offsetu, ale unieważnia przygotowany program także
 po rollbacku. Zapis konfiguracji nie wysyła 4A ani 8C do silników.
@@ -261,9 +262,11 @@ do celu ruszyć w stronę wcześniejszych celów trasy (J3 18:57: −3,6° w 300
 - **ucieczka** (awaria krytyczna z odczytem 39h): |cel − pomiar| > 4° albo uchyb rosnący w dwóch kolejnych korektach;
 - **niepełny dolot** po 5 s przy stojących osiach: program `failed` bez awarii — przywrócenie 4A=0/8C, napędy trzymają
   pozycję (`soft_failure`); oś w ruchu po 5 s → awaria;
-- **postój**: |RPM| ≤ 1 i F1=1 po ostatnim SYNC albo pozycja stała ≥ 500 ms (MKS bywa w F1≠1 przy stojącym wale,
-  0x32 potrafi zamrozić prędkość); po `kSettleTimeout` stała pozycja wystarcza (ostrzeżenie w komunikacie),
-  awaria tylko przy zmiennej pozycji.
+- **postój**: |RPM| ≤ 1 i F1=1 po ostatnim SYNC albo pozycja stała ≥ 500 ms **i** prędkość z pozycji 0x31 (MNK z 500 ms)
+  ≤ 1 RPM wału (od 17.11.2026; MKS bywa w F1≠1 przy stojącym wale, 0x32 potrafi zamrozić prędkość, a samo pasmo
+  przepuszczało pełzanie); po `kSettleTimeout` stała pozycja wystarcza (ostrzeżenie w komunikacie), awaria tylko przy
+  zmiennej pozycji. Uzbrajanie: zamrożone 0x32 > 1 RPM przyjęte, gdy prędkość z pozycji potwierdza postój
+  (`docs/motion_execution.md`, „Postój z prędkości liczonej z pozycji”).
 
 Planer: PTP (także odcinki PTP ciągów programu) nie zwalnia J4/J6 przy osobliwości nadgarstka — to ruch w przegubach;
 zwalnianie zostaje dla LIN i przejść z udziałem LIN (`docs/cartesian_planning.md`). Próba długich ruchów:

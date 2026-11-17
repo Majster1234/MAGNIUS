@@ -972,6 +972,11 @@ footer {
 .preview-planning-legend .motion::before { content:""; display:inline-block; width:7px; height:7px; margin-right:3px; border-radius:50%; background:#f3a347; }
 .preview-tcp-axis { position:absolute; z-index:3; transform:translate(-50%,-50%); padding:0 2px; border-radius:2px; background:#111a22b3; font:bold 10px/13px sans-serif; pointer-events:none; }
 .preview-tcp-x { color:#ff7a7a; }.preview-tcp-y { color:#8ae18a; }.preview-tcp-z { color:#8faaff; }
+/* Podpowiedź kierunku ruchu przycisku pod kursorem (łuk/strzałka na modelu 3D, previewMotionHint.ts).
+   Przezroczystość ustawia scena razem z animacją 3D; styl jak etykiety osi, z delikatnym akcentem. */
+.preview-motion-hint { position:absolute; z-index:4; transform:translate(8px,-50%); padding:1px 5px; border:1px solid #e2c27d66; border-radius:3px; background:#131b22d9; color:#e9d6a8; font:600 10px/14px sans-serif; white-space:nowrap; pointer-events:none; }
+.preview-motion-hint.flip { transform:translate(calc(-100% - 8px),-50%); }
+.preview-motion-hint-axis { font-size:9px; line-height:12px; background:#111a2299; }
 .preview-singularity { position:absolute; z-index:3; width:0; height:0; color:#ffe19a; --singularity-border:#d5a33c; --singularity-background:#30281cf2; pointer-events:none; }
 .preview-singularity::before { content:""; position:absolute; bottom:0; left:-.5px; height:var(--singularity-offset,26px); width:1px; background:var(--singularity-border); }
 .preview-singularity::after { content:""; position:absolute; left:-3px; top:-3px; width:6px; height:6px; border:1px solid currentColor; border-radius:50%; background:var(--singularity-border); }
@@ -1865,3 +1870,39 @@ body.pendant-body { overflow:hidden; overscroll-behavior:none; touch-action:mani
 .pd-start .go { font-size:16px; padding:14px 28px; background:#173326; border-color:#3fd08f; color:#bff0d8; }
 .pd-start .link { border:0; background:none; color:#8193a6; text-decoration:underline; }
 @media (max-height:360px) { .pd-deadman { top:50px; bottom:82px; } .pd-right { top:50px; } .pd-warn { top:50px; } }
+
+/* Model 3D i układy przegubów (RobotModelPanel, konfiguracja robota). */
+.robot-model-panel { margin-top:10px; padding:12px 14px; border:1px solid var(--border); border-radius:6px; background:var(--surface); display:grid; gap:10px; min-width:0; }
+.robot-model-panel > header { display:flex; align-items:center; gap:10px; }
+.robot-model-panel h2 { font-size:13px; font-weight:600; }
+.robot-model-help, .robot-model-panel fieldset p { margin:0; color:var(--muted); font-size:10px; line-height:1.45; }
+.robot-model-error { margin:0; color:#f0a3a6; font-size:11px; }
+.robot-model-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; font-size:11px; }
+.robot-model-row > small { color:var(--muted); font-size:10px; }
+.robot-model-row label, .robot-model-transform label { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--muted); }
+.robot-model-panel select, .robot-model-panel input[type=number] { height:28px; padding:3px 6px; border:1px solid var(--border); border-radius:4px; background:var(--background); color:inherit; font:inherit; font-size:11px; min-width:0; }
+.robot-model-toggle { cursor:pointer; }
+.robot-model-table-scroll { max-height:260px; overflow:auto; border:1px solid var(--border); border-radius:4px; }
+.robot-model-table { width:100%; border-collapse:collapse; font-size:11px; }
+.robot-model-table th { position:sticky; top:0; padding:6px 8px; background:var(--surface-raised); color:var(--muted); font-weight:500; font-size:10px; text-align:left; }
+.robot-model-table td { padding:6px 8px; border-top:1px solid var(--border); vertical-align:top; font-variant-numeric:tabular-nums; }
+.robot-model-table td strong { display:block; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.robot-model-table td small { display:block; color:var(--muted); font-size:9.5px; margin-top:2px; }
+.robot-model-table tr[data-state="failed"] td:first-child small { color:#f0a3a6; }
+.robot-model-delete { width:24px; height:24px; padding:0; border-radius:4px; }
+.robot-model-panel fieldset { display:grid; gap:8px; margin:0; padding:10px 12px; border:1px solid var(--border); border-radius:5px; min-width:0; }
+.robot-model-panel legend { padding:0 4px; font-size:11px; font-weight:600; }
+.robot-model-transform { grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); }
+.robot-model-transform > p { grid-column:1 / -1; }
+.robot-model-transform label span { display:flex; align-items:center; gap:4px; }
+.robot-model-transform input[type=number] { width:86px; }
+.robot-model-pick-buttons { display:flex; flex-wrap:wrap; gap:6px; }
+.robot-model-pick-buttons button[aria-pressed="true"] { border-color:#e2c27d; background:#3a321f; color:#f2dfae; }
+.robot-model-pick-status, .robot-model-pick-result { margin:0; padding:7px 9px; border:1px solid #e2c27d55; border-radius:4px; background:#2a2414; color:#ecdcb4; font-size:10.5px; line-height:1.5; }
+.robot-model-pick-result { display:grid; gap:6px; }
+.robot-model-pick-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.robot-model-checks { font-variant-numeric:tabular-nums; }
+.configuration-pick-hint { position:absolute; left:50%; top:10px; transform:translateX(-50%); max-width:calc(100% - 100px); padding:4px 10px; border:1px solid #e2c27d66; border-radius:4px; background:#131b22e6; color:#ecdcb4; font-size:10.5px; pointer-events:none; text-align:center; }
+.configuration-preview.has-model { height:clamp(340px,52dvh,600px); }
+.robot-model-pick-buttons button { height:28px; padding:3px 10px; font-size:11px; }
+.robot-model-pick-actions button, .robot-model-pick-status button { height:26px; padding:2px 9px; font-size:10.5px; }

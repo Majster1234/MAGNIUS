@@ -2,6 +2,41 @@
 
 Przeniesiona 29.10.2026 bez zmian treści, zgodnie z regułą, że AGENTS.md zawiera wyłącznie kontekst ostatniego zapytania. Wpisy od najnowszego.
 
+- 17.11.2026 — (1) Układ mieszany potwierdzania postoju (prędkość z pozycji 0x31 obok 0x32; `position_velocity.hpp`,
+  opis `docs/motion_execution.md`, ostatnia sekcja) działa w usłudze od 14:21 (overlay `install/stop-recovery-ros`,
+  kopia poprzednich bibliotek `install/deployment-backups/mixed-standstill-1794920765`). Test jakości TCP 14:27
+  (`log/tcp_quality/20261117-142659`): 12/12 ruchów, wykonanie − plan 1,1 s, 13 × `sync_standstill_from_position`,
+  0 `hold_violation`; 0x32 nieaktualne w obu kierunkach (`docs/benchmark_results.md`, wpis 17.11). Po teście
+  ENABLE=0. (2) GUI: podpowiedź kierunku ruchu na podglądzie 3D przy najechaniu/fokusie/trzymaniu przycisku JOG osi
+  i JOG TCP — stonowana, z animacją pojawiania/znikania 180/140 ms (`web/src/previewMotionHint.ts`, `TcpControls.tsx` `onHint`, `ManualPage.tsx`, `RobotPreview.tsx`,
+  `robotPreviewScene.ts`, `style.css`; opis `docs/manual_control.md`). `web/dist` przebudowany (serwer panelu podaje
+  go bez restartu — wystarczy odświeżyć przeglądarkę). Testy web: 193/194 — porażka
+  `controlMessages.test.ts` („nie przypisuje nieznanemu błędowi…”) niezależna od zmian (pliki bez zmian wobec HEAD).
+  Node: `build/node22/runtime/bin` (brak w PATH).
+- 17.11.2026 — Układ mieszany potwierdzania postoju (przyczyna: blokada 1,6–2,1 s po STOP JOG TCP — MKS 1.0.9
+  zamraża 0x32 na 1–2 s przy wale stojącym w ±1 imp.). Nowy `position_velocity.hpp` (historia 0x31, MNK 500 ms,
+  warunki jakości: ≥ 8 próbek, przerwa ≤ 100 ms, wiek ≤ 100 ms, odchyłka od prostej ≤ 100 imp., nachylenie z 200 ms
+  ≤ 3 × próg); `CanBusManager::position_velocity`/`position_standstill` (pola w `bus_manager.hpp` = ABI). Postój =
+  dotychczasowe odczyty napędu ALBO prędkość z pozycji ≤ 1 RPM wału w: dolocie JOG TCP (`tcp_jog.cpp`), dolocie SYNC
+  (ścieżka pozycyjna zaostrzona: pasmo + prędkość), uzbrajaniu SYNC (wiek próbki ≤ 300 ms), `dispatch_stopped`
+  (F1=1 nadal wymagane). 0x32 bez zmian w odzyskiwaniu i diagnostyce. Zdarzenia: `tcp_/sync_/arming_standstill_from_position`,
+  `speed_source_mismatch(_end)`. Opis: `docs/motion_execution.md` (ostatnia sekcja). Testy mks_servo_can 675/675
+  (nowy `test_position_velocity`), robot_can_diagnostics 24/24. Overlay Release `install/stop-recovery-ros`
+  (4 pakiety) zbudowany, kopia `install/deployment-backups/mixed-standstill-1794920765`; **wymaga restartu
+  `robot-web-status`** i próby JOG TCP z nagrywaniem (oczekiwane zwolnienie ≤ 1 s, 0 `hold_violation`).
+- 11.11.2026 (wieczór) — PTP bez reakcji na osobliwość i strumień trzymania w programach. Planer: `SampleCaps::wrist`
+  — zwalnianie J4/J6 przy osobliwości tylko dla LIN/przejść z LIN, PTP (pojedynczy i w ciągach) bez niego
+  (`planner.cpp`, `chain.cpp`; testy planner 18, chain 10; `docs/cartesian_planning.md`). Wykonawca SYNC
+  (`synchronized_program.cpp`, `program_bus.cpp`, `bus_manager.cpp`, pola `motion_executor.hpp`/`bus_manager.hpp` = ABI):
+  dolot ze strumieniem trzymania na siatce 10 ms (okno zapytań/budżetu jak w ruchu), korekta osi stojącej, ucieczka
+  > 4°/rosnący uchyb = awaria, niepełny dolot przy stojących osiach = program `failed` bez ENABLE=0, postój F1=1 lub
+  pozycja stała ≥ 500 ms; `kSyncMaxShift` 10 → 30 ms; odzyskiwanie ponawia F3 ENABLE=0 co 300 ms
+  (`recovery.cpp`); przywracanie ponawia zapis 4A=0/8C odrzucony przy F1=4, ramki trzymania z prędkością ≥ pasmo tolerancji/100 ms (test SYNC 49). Opis:
+  `docs/synchronized_streaming.md` (dwie nowe sekcje). Próba: `scripts/motion_endurance.py`.
+  Przebieg bazowy (stary kod): 3 długie PTP OK, LIN 400 mm przerwany awarią SYNC 10 ms przy błędach CAN
+  (error-warn/pass 1 → 3), potem odzyskiwanie nieudane (J6 bez F3). Build overlay 4 pakietów, testy mks_servo_can
+  wszystkie (SYNC 47); **wymaga restartu `robot-web-status`** i próby. Wcześniej (ten sam dzień): niezawodność JOG TCP
+  z pendanta — `docs/tcp_jog.md` „Zatrzymania i nadzór”, sesja 21:09: 0 awarii, 138 przytrzymań.
 - 07.11.2026 — Tryb planowania (tylko `web/src`, backend bez zmian): (1) przerwania ruchu bliźniaka — przyczyna: `PlanningJog` zatrzymywał lokalny ruch, gdy wiek próbki enkodera + czas od stanu ≥ 250 ms (typowo ~70 ms + przerwy stanu 144–162 ms, mediana/p90 z `browser_state_gap`), przy luce animacji > 100 ms i przy przejściowym `null` kontekstu planowania; teraz ruch zależy od lokalnej pozycji planu i obecności osi (`plannable`), luka animacji jest pomijana bez nadrabiania, `configure(null)` nie przerywa; kopiowanie pozycji nadal wymaga świeżego enkodera, unieważnienie przy zmianie modelu/konfiguracji bez zmian. (2) ENABLE (osi i zbiorczy, wł./wył.) dostępny w trybie planowania bez utraty planu; zerowanie wału nadal zablokowane; w panelu PTP/LIN ostrzeżenie o osiach z ENABLE=0 z przyciskiem „Załącz wszystkie”. Testy web 163/164 (zastany błąd `controlMessages.test.ts`), build OK, `web/dist` podlinkowany w zasobach `robot_web_bridge` — działa po odświeżeniu przeglądarki. Robot: ENABLE J4/J5, nastawy = base. Każdy test ruchu wymaga nowej karty i zgody.
 - 05.11.2026 — Akwizycja diagnostyki: nagranie ciągłe **bez zamrażania po awarii** (usunięte `trace_freeze_after`/`freeze_after_fault`), pętla CAN `ROBOT_TRACE_CAN_MIB`=2048 (128×16 MiB), most `ROBOT_TRACE_BRIDGE_MIB`=1024 (128×8 MiB); przy starcie poprzednia sesja → `log/manual-can/previous/`. Migawki awarii w **jednym zwartym pliku** `log/manual-can/faults/faults.rfs` (bezstratne kodowanie `robot_web_bridge/fault_codec.py`: rekordy RFS1 + metadane + xz, krotki z deltami; 15 s ≈ 0,4 MiB zamiast 12 MiB; co najmniej 900 s okien — `ROBOT_FAULT_KEEP_S`, limit 256 MiB; odczyt `python3 -m robot_web_bridge.fault_snapshot --directory log/manual-can --list | --dump last|<id> [--output plik]`; 10 s przed, 5 s po; CAN, most, `/rosout`, dziennik usługi i jądra, konfiguracja i parametry w nagłówku): wyzwalacze `faults/trigger-*.json` tworzy wątek zapisu C++ (`is_fault_trace_event`: bus_fault, manual_fault, recovery_failed, socket_transport_lost, critical_enable_off_failed, nowy `tcp_jog_failed` w `tcp_jog_api.cpp`) i most (zbocze `message.fault`); zbiera je nowy proces `robot_web_bridge/fault_snapshot.py` (entry point `fault_snapshot`, w `web_status.launch.py` tylko przy `ROBOT_TRACE_DIR`). Opis `docs/can_recording.md`. Testy: mks_servo_can 233/233, robot_can_diagnostics 23/23, robot_web_bridge 199/199 (w tym bezstratność na migawce 22:37: 27 917 wierszy), test e2e z /rosout i journalctl. Wdrożenie w `install/stop-recovery-ros`: Release `libmks_servo_can.so` + `librobot_can_diagnostics.so` (kopia: `install/deployment-backups/fault-snapshot-1793911657`), `robot_web_bridge` przebudowany w nakładce (katalog modułu to symlink do `src`), launch i `scripts/start_web_status.sh` działają ze `src` — usługa zrestartowana 22:36:43 (nagrywanie i migawki działają, pierwsza migawka: 22:37:07 „Zmiana lub utrata pozycji przed ENABLE J1”); format `faults.rfs` wdrożony przez wznowienie samego procesu `fault_snapshot` (22:50, przeniósł migawkę 22:37), bez restartu usługi.
 - 05.11.2026 — Szybsza rampa zatrzymania JOG osi po puszczeniu przycisku: STOP F6 dostaje osobny kod acc `CanBusManager::f6_stop_code` → `manual_stop_acceleration_code` (`protocol.hpp/.cpp`) = najszybsza rampa ≤ limit przyspieszenia przegubu × |przełożenie| z konfiguracji (500 °/s² × 10 → 833 RPM/s, mikrokrok 128 → acc 253; dotąd 224 ≈ 78 RPM/s). Start JOG bez zmian (78 RPM/s). Kod używany w STOP JOG, STOP przy awarii, zamknięciu komunikacji i globalnym `send_zero_stop` (również STOP programu). Model drogi hamowania (miękkie limity) i termin STOP celowo na wolniejszej rampie startu. Opis `docs/manual_control.md`. Testy mks_servo_can: 232/232 (nowy `ManualJogStopRampFollowsJointAccelerationLimit`). Wdrożona `libmks_servo_can.so` (Release z `build/comm-stability-ros`) w `install/stop-recovery-ros` (kopia: `install/deployment-backups/manual-jog-stop-ramp-1793909565`) — **wymaga restartu usługi**. Usługa działa od 21:06 z poprzednią poprawką rampy JOG (acc zależny od mikrokroku).

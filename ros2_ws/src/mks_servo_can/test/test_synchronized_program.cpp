@@ -307,13 +307,50 @@ TEST(SynchronizedProgram, HoldingSpeedNoiseOfOneRpmCountsAsStandstill) {
   EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message << "; " << h.bus->snapshot().message;
 }
 TEST(SynchronizedProgram, ArmingRereadsTransientMotionAndReportsPersistentOne) {
-  for(unsigned blips:{3u,50u}) {
-    Rig h;h.ready();h.synchronized();h.port->speed_blip_rpm=2;h.port->speed_blips[6]=blips;
-    h.execute(h.program());h.run(1800);
-    if(blips<5) {EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;continue;}
+  // Układ mieszany (17.11.2026): trwałe 0x32 = 2 RPM przy stojącym wale (zamrożony odczyt po JOG) nie blokuje startu —
+  // postój potwierdza prędkość z pozycji 0x31; przy pełzającym wale (ok. 1,5 RPM) uzbrojenie kończy się awarią jak dotąd.
+  enum class Case {transient,frozen_reading,creeping};
+  for(auto c:{Case::transient,Case::frozen_reading,Case::creeping}) {
+    Rig h;h.ready();h.synchronized();h.port->speed_blip_rpm=2;h.port->speed_blips[6]=c==Case::transient ? 3 : 50;
+    // Pełzanie 6 imp./10 ms ≈ 2,2 RPM wału; w bezczynności 350 ms (210 imp., poniżej pasma nadzoru postoju 227 imp.).
+    const auto creep=[&](unsigned ms) {for(unsigned i=0;i<ms;++i) {if(c==Case::creeping && i%10==0) h.port->positions[6]+=6;h.run(1);}};
+    if(c==Case::creeping) {h.port->frozen[6]=true;creep(350);}
+    // Zamrożony odczyt: ścieżka pozycyjna dolotu SYNC wymaga nadal 500 ms w paśmie (kontrola co 100 ms) — dłuższy przebieg.
+    h.execute(h.program());creep(c==Case::frozen_reading ? 2500 : 1800);
+    if(c!=Case::creeping) {EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;continue;}
     EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
     EXPECT_NE(h.bus->snapshot().message.find("J6 (CAN ID 6): niepotwierdzony warunek uzbrojenia/odtwarzania: odczyt prędkości (0x32); odczyt=2 RPM"),std::string::npos)
         << h.bus->snapshot().message;
+    EXPECT_NE(h.bus->snapshot().message.find("z pozycji="),std::string::npos) << h.bus->snapshot().message;
+  }
+}
+TEST(SynchronizedProgram, DispatchModeChangeWithEnabledAxesUsesPositionStandstill) {
+  // Zmiana trybu PTP/LIN przy ENABLE=1 wymagała świeżego 0x32 == 0, a w bezczynności 0x32 nie jest odpytywane.
+  // Układ mieszany: postój potwierdza prędkość z pozycji 0x31 (MNK z 500 ms) przy F1=1; pełzanie wału blokuje.
+  // Ustalone pełzanie 3 imp./10 ms ≈ 1,1 RPM (≥ 600 ms, całe okno oceny); tolerancja 2° przegubu poszerza pasmo nadzoru
+  // postoju do ok. 910 imp., żeby pełzanie nie wywołało awarii. Ograniczenie metody: wolne pełzanie zaczynające się po
+  // postoju jest wykrywane dopiero, gdy wypełni okno 500 ms (szybsze niż 3 RPM — po ok. 150 ms, okno 200 ms).
+  // F1 w bezczynności jest odczytywane co 500 ms: próby przez 400 ms (ruch) albo 1 s (postój).
+  auto c=config();c.program_position_tolerance.fill(2*3.14159265358979323846/180);
+  for(bool moving:{false,true}) {
+    Rig h(c);h.ready();
+    if(moving) h.port->frozen[2]=true;
+    const auto step=[&] {if(moving) h.port->positions[2]+=3;h.run(10);};
+    for(unsigned i=0;i<60;++i) step();
+    auto p=h.bus->configure(ConfigurationPhase::status,"","",{},h.now).resolved_configuration;
+    p.revision="sync-bench";p.ptp_lin_dispatch_mode="synchronized";p.changed.fill(false);
+    bool prepared=false;unsigned eligible=0;
+    for(unsigned i=0;i<(moving ? 40u : 100u) && !prepared;++i) {
+      const auto &d=h.bus->snapshot().devices[2];
+      if(d.motor_state.fresh(h.now,150ms) && d.motor_state.value==1) ++eligible;
+      prepared=h.bus->configure(ConfigurationPhase::prepare,"sync-settings","bench",p,h.now).accepted;
+      if(!prepared) step();
+    }
+    ASSERT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+    if(moving) {EXPECT_FALSE(prepared) << "J2 pełznie";EXPECT_GT(eligible,0u) << "test bez chwili ze świeżym F1=1";continue;}
+    ASSERT_TRUE(prepared);
+    EXPECT_TRUE(h.bus->configure(ConfigurationPhase::commit,"sync-settings","bench",p,h.now).accepted);
+    EXPECT_TRUE(h.bus->configure(ConfigurationPhase::finish,"sync-settings","bench",p,h.now).accepted);
   }
 }
 TEST(SynchronizedProgram, FinalApproachCorrectsDriveOffsetWithSyncSetsAndTimesOutWhenStuck) {

@@ -15,6 +15,7 @@
 #include "mks_servo_can/configuration.hpp"
 #include "mks_servo_can/motion_executor.hpp"
 #include "mks_servo_can/motion_timing.hpp"
+#include "mks_servo_can/position_velocity.hpp"
 #include "mks_servo_can/shaft_trace.hpp"
 #include "mks_servo_can/streaming_motion.hpp"
 #include "mks_servo_can/drive_parameters.hpp"
@@ -239,10 +240,22 @@ class CanBusManager {
   void require_configuration();
   ConfigurationResult configure(ConfigurationPhase phase, const std::string &operation,
       const std::string &expected, const RobotProfile &profile, Time now);
+  // Prędkość wału przegubu joint (0–5) z historii odczytów 0x31 (position_velocity.hpp), niezależna od 0x32.
+  PositionVelocity position_velocity(std::size_t joint, Time now,
+      const PositionVelocityLimits &limits = kStandstillVelocityLimits) const;
+  // Postój potwierdzony pozycją: nachylenie z okna 500 ms ≤ kHoldingSpeedNoiseRpm przy spełnionych warunkach jakości.
+  bool position_standstill(std::size_t joint, Time now) const;
 
  private:
   friend class ManualMotorController;
   void shaft_reference_changed(unsigned axis);
+  // Historia pozycji dla prędkości z 0x31; zerowana przy zmianie odniesienia wału.
+  void record_position_history(std::uint16_t address, std::int64_t ticks, Time stamp);
+  // Diagnostyka: rozbieżność 0x32 i prędkości z pozycji > 3 RPM + 25% przez ≥ 300 ms → zdarzenia w nagraniu.
+  void observe_speed_sources(std::uint16_t address, int reported_rpm, Time stamp);
+  std::array<PositionHistory,kAxes> position_history_{};
+  struct SpeedMismatch {Time since{}, last{};bool reported{};int reported_rpm{};double derived_rpm{}, max_difference{};};
+  std::array<SpeedMismatch,kAxes> speed_mismatch_{};
   void record_shaft_position(unsigned axis,std::int64_t ticks,Time stamp,std::int64_t kernel_utc_ns);
   ShaftTraceQueue shaft_trace_;
   std::array<std::uint64_t,6> shaft_sequences_{}, shaft_segments_{};

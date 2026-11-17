@@ -73,6 +73,42 @@ void CanBusManager::shaft_reference_changed(unsigned axis) {
   shaft_segments_[axis-1]=std::max(shaft_segments_[axis-1]+1,static_cast<std::uint64_t>(next));
   shaft_flags_[axis-1]|=1;shaft_reference_flags_[axis-1]|=1;shaft_command_flags_[axis-1]|=1;shaft_rpm_flags_[axis-1]|=1;
   hold_valid_[axis-1]=false;  // nowe zero wału: pozycja trzymania z poprzedniego układu jest nieważna
+  position_history_[axis-1].clear();speed_mismatch_[axis-1]={};  // skok odniesienia = fałszywa prędkość z pozycji
+}
+void CanBusManager::record_position_history(std::uint16_t address,std::int64_t ticks,Time stamp) {
+  const auto joint=axis_index(address);
+  if(joint<kAxes) position_history_[joint].push(ticks,stamp);
+}
+PositionVelocity CanBusManager::position_velocity(std::size_t joint,Time now,const PositionVelocityLimits &limits) const {
+  if(joint>=kAxes) {PositionVelocity out;out.reason="nieznana oś";return out;}
+  return position_history_[joint].estimate(now,limits);
+}
+bool CanBusManager::position_standstill(std::size_t joint,Time now) const {
+  return position_velocity(joint,now).still(kHoldingSpeedNoiseRpm);
+}
+void CanBusManager::observe_speed_sources(std::uint16_t address,int reported_rpm,Time stamp) {
+  // Tylko diagnostyka: prędkość z krótkiego okna pozycji (≈ 50 ms opóźnienia) wobec 0x32. Próg z zapasem na drgania
+  // trzymania (±2,1 RPM) i opóźnienia ramp; epizod = kolejne rozbieżne odczyty 0x32 przez ≥ 300 ms.
+  constexpr double kAbsolute=3.,kRelative=.25;constexpr auto kPersist=std::chrono::milliseconds(300);
+  const auto joint=axis_index(address);if(joint>=kAxes) return;
+  const auto derived=position_history_[joint].estimate(stamp,kComparisonVelocityLimits);
+  auto &m=speed_mismatch_[joint];
+  if(!derived.valid) return;  // bez oceny epizod nie jest ani przedłużany, ani zamykany
+  const double difference=std::abs(reported_rpm-derived.rpm);
+  const bool mismatch=difference>kAbsolute+kRelative*std::max(std::abs(static_cast<double>(reported_rpm)),std::abs(derived.rpm));
+  const auto describe=[&](const char *prefix) {
+    return std::string(prefix)+"0x32="+std::to_string(m.reported_rpm)+" RPM, z pozycji="+diagnostic_number(m.derived_rpm)+
+        " RPM (początek); maks. różnica "+diagnostic_number(m.max_difference)+" RPM; czas "+
+        std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(m.last-m.since).count())+" ms";
+  };
+  if(mismatch) {
+    if(m.since==Time{}) {m={};m.since=stamp;m.reported_rpm=reported_rpm;m.derived_rpm=derived.rpm;}
+    m.last=stamp;m.max_difference=std::max(m.max_difference,difference);
+    if(!m.reported && m.last-m.since>=kPersist) {m.reported=true;trace_note("speed_source_mismatch",describe(""),address,0x32);}
+    return;
+  }
+  if(m.reported) {m.last=stamp;trace_note("speed_source_mismatch_end",describe("koniec: "),address,0x32);}
+  m={};
 }
 void CanBusManager::record_shaft_reference(unsigned joint,double position,Time stamp) {
   if(joint>=kAxes) return;
@@ -527,13 +563,14 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
       const auto v = parse_position(p.address, frame.data); if (!v) return false;
       d.position.set(*v, stamp); d.position_sent = p.sent;
       record_shaft_position(p.address,*v,stamp,frame.kernel_utc_ns);
+      record_position_history(p.address,*v,stamp);
       if (d.consecutive_timeouts >= 3) next_position_[p.address] = next_cycle_;
       break;
     }
     case Kind::enable: { const auto v = parse_enable(p.address, frame.data); if (!v) return false; d.enable.set(*v, stamp); break; }
     case Kind::stall: { const auto v = parse_stall(p.address, frame.data); if (!v) return false; d.stall.set(*v, stamp); break; }
     case Kind::motor: { const auto v = parse_motor_state(p.address, frame.data); if (!v) return false; d.motor_state.set(*v, stamp); break; }
-    case Kind::speed: { const auto v = parse_speed(p.address, frame.data); if (!v) return false; d.speed.set(*v, stamp); break; }
+    case Kind::speed: { const auto v = parse_speed(p.address, frame.data); if (!v) return false; d.speed.set(*v, stamp); observe_speed_sources(p.address,*v,stamp); break; }
     case Kind::work_current: {
       if(frame.data.size()!=4) return false;
       const auto value=static_cast<std::uint16_t>((frame.data[1]<<8)|frame.data[2]);

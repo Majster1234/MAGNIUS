@@ -1,20 +1,47 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import URDFLoader from "urdf-loader";
+import URDFLoader, { type URDFRobot } from "urdf-loader";
+import type { LoadedLinkMesh } from "./robotModel";
 import { createLimitGlows } from "./previewLimitGlow";
 import type { LimitIndicator } from "./previewLimits";
 import { createMotionTrail, type MotionTrace } from "./previewMotionTrail";
 import { robotSingularity, type Singularity } from "./previewSingularity";
 import { createExecutionTrail, createLiveTrail, type ExecutionFrame } from "./previewExecutionTrail";
+import { createMotionHint, type MotionHint } from "./previewMotionHint";
 
 export type CameraView = "iso" | "front" | "side" | "top" | "fit";
-export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null; showMotionFrames?: boolean; executionFrame?: ExecutionFrame; liveTrace?: boolean };
-export function createPreviewScene(host: HTMLElement, xml: string, frame: () => PoseFrame, onAssessment?:(subject:string,result:Singularity|null)=>void) {
+export type PoseFrame = { angles: number[]; valid: boolean[]; active: number; limits: LimitIndicator[][]; planning: boolean; plannedAngles: (number | null)[]; motionAngles?: number[] | null; motionTrace?: MotionTrace | null; showMotionFrames?: boolean; executionFrame?: ExecutionFrame; liveTrace?: boolean; motionHint?: MotionHint | null };
+// Model 3D z CAD (robotModel.ts): siatki w układzie złożenia, pozycja zerowa; matrix = złożenie → baza.
+export type SceneModel = { items: LoadedLinkMesh[]; matrix: THREE.Matrix4 };
+// Siatki dołączone do członów URDF z przesunięciem inv(człon w pozycji zerowej)·złożenie — poruszają się z członami.
+// Bryły zastępcze członu z siatką są ukrywane. Wywołanie przed klonowaniem bliźniaka (klony współdzielą geometrię).
+export function attachModel(robot: URDFRobot, model: SceneModel) {
+    robot.updateMatrixWorld(true);
+    const linkOf = (key: string): THREE.Object3D | null => {
+        if (key === "base") return robot.joints.joint_1?.parent ?? null;
+        const joint = key === "tool" ? robot.joints.tool_fixed : robot.joints[`joint_${key.slice(5)}`];
+        return joint?.children.find(child => (child as { isURDFLink?: boolean }).isURDFLink) ?? null;
+    };
+    let attached = 0;
+    for (const item of model.items) {
+        const link = linkOf(item.link);
+        if (!link) continue;
+        for (const child of link.children) if ((child as { isURDFVisual?: boolean }).isURDFVisual) child.visible = false;
+        const mesh = new THREE.Mesh(item.geometry, new THREE.MeshStandardMaterial());
+        mesh.name = `model_${item.link}`; mesh.userData.modelMesh = item.id;
+        mesh.matrixAutoUpdate = false;
+        mesh.matrix.copy(link.matrixWorld.clone().invert().multiply(model.matrix));
+        link.add(mesh); attached++;
+    }
+    return attached;
+}
+export function createPreviewScene(host: HTMLElement, xml: string, frame: () => PoseFrame, onAssessment?:(subject:string,result:Singularity|null)=>void, model?: SceneModel | null) {
     const document = new DOMParser().parseFromString(xml, "application/xml");
     if (document.querySelector("parsererror, mesh, texture") || document.documentElement.tagName !== "robot")
         throw Error("Nieprawidłowy model URDF");
     const robot = new URDFLoader().parse(xml);
     for (let i = 1; i <= 6; i++) if (!robot.joints[`joint_${i}`]) throw Error("Brak sześciu osi w URDF");
+    const attachedMeshes = model?.items.length ? attachModel(robot, model) : 0;
     const twin = robot.clone(true) as typeof robot;
     const motion = robot.clone(true) as typeof robot;
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "low-power" });
@@ -43,6 +70,8 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
             transparent: planning, opacity: playback ? .22 : planning ? .3 : 1, depthWrite: !planning,
             polygonOffset: planning, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
         const old = Array.isArray(object.material) ? object.material : [object.material]; old.forEach(m => m.dispose());
+        // Siatki CAD: materiał dwustronny — eksport z niespójną orientacją ścian nie „wycina” fragmentów.
+        if (object.userData.modelMesh) material.side = THREE.DoubleSide;
         object.material = material; entries.push({ axis, material, mesh: object }); if (!planning) materials.push({ axis, material, mesh: object });
     }); }
     replaceMaterials(robot); replaceMaterials(twin, true); replaceMaterials(motion, true, true);
@@ -90,6 +119,8 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
         return { subject, element, bubble, marker, name: ["Robot", "Cel", "Symulacja"][i], key: "", assessmentKey:"", result: null as Singularity | null, point: new THREE.Vector3() };
     });
     const limitGlows = createLimitGlows(robot, host);
+    // Podpowiedź kierunku ruchu przycisku pod kursorem (JOG osi: łuk wokół osi; JOG TCP: układ TCP i strzałka).
+    const motionHint = createMotionHint(scene, host, new THREE.Box3().setFromObject(robot).getSize(new THREE.Vector3()).length());
     let width = 1, height = 1, dirty = true, disposed = false, lastRender = -Infinity;
     const angles = Array(6).fill(NaN) as number[], twinAngles = Array(6).fill(NaN) as number[];
     const motionAngles = Array(6).fill(NaN) as number[];
@@ -183,6 +214,8 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
             if (indicator.marker.material.opacity !== opacity || indicator.marker.scale.x !== size) dirty = true;
             indicator.marker.material.opacity = opacity; indicator.marker.scale.setScalar(size);
         }
+        // JOG w planowaniu porusza bliźniakiem — podpowiedź na nim; na żywo na modelu robota.
+        if (motionHint.update(state.motionHint ?? null, state.planning && twin.visible ? twin : robot, now)) dirty = true;
         if (!initialPoseFit && (state.valid.some(Boolean) || state.planning)) { view("iso"); initialPoseFit = true; }
         const nextSignature = `${state.valid.join()}/${state.active}`;
         if (signature !== nextSignature) {
@@ -193,6 +226,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
         if (!dirty) return;
         scene.updateMatrixWorld(true); renderer.render(scene, camera);
         limitGlows.project(camera, width, height);
+        motionHint.project(camera, width, height);
         labels.forEach(({ object, element, point }) => {
             object.getWorldPosition(point).project(camera);
             element.style.left = `${(point.x + 1) * width / 2}px`; element.style.top = `${(1 - point.y) * height / 2}px`;
@@ -212,6 +246,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
         }
         // Bieżący stan elementu, bez historii; używany także w teście zgodności renderowanej pozy.
         renderer.domElement.dataset.jointAngles = JSON.stringify(angles);
+        renderer.domElement.dataset.modelMeshes = String(attachedMeshes);
         renderer.domElement.dataset.plannedJointAngles = state.planning ? JSON.stringify(twinAngles) : "";
         renderer.domElement.dataset.planningOpacity = twin.visible ? ".3" : "";
         renderer.domElement.dataset.motionJointAngles = motion.visible ? JSON.stringify(motionAngles) : "";
@@ -220,6 +255,7 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
             subject: tcp.subject === twin ? "target" : "motion", position: tcp.axes.getWorldPosition(new THREE.Vector3()).toArray(),
             quaternion: tcp.axes.getWorldQuaternion(new THREE.Quaternion()).toArray(),
         })));
+        renderer.domElement.dataset.motionHint = JSON.stringify(motionHint.snapshot());
         renderer.domElement.dataset.motionTrace = JSON.stringify(trail.snapshot());
         renderer.domElement.dataset.executionTrace = JSON.stringify(executionTrail.snapshot());
         renderer.domElement.dataset.liveTrace = JSON.stringify(liveTrail.snapshot());

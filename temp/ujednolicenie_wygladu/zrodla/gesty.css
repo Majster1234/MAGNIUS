@@ -1,0 +1,125 @@
+/* ===== Warstwa „gęsta” dla C1–C3: styl C, mniejsze odstępy, ekrany dopasowane do okna (przewijają się tylko listy) ===== */
+:root{
+  --fs-1:11px; --fs-2:13px; --fs-3:14px; --fs-4:17px; --fs-5:22px; --fs-6:28px;
+  --gap:8px; --pad-x:14px; --pad-y:10px; --top-h:36px; --nav-item-h:60px;
+  --ctl-h:34px; --badge-h:22px; --tab-h:36px; --ph-h:40px; --card-h:36px; --card-pad-x:12px; --card-pad-y:5px; --td-pad:6px; --pad-btn:46px;
+  --stop-h:38px; --stop-w:132px; --sw-w:46px; --sw-h:24px;
+}
+/* ----- Dopasowanie do okna ----- */
+.content{display:flex;flex-direction:column;padding:var(--pad-y) var(--pad-x)}
+.screen.active{flex:1 0 auto}
+.screen.fit.active{flex:1 1 0;min-height:0;overflow:hidden}
+.fill{flex:1 1 0;min-height:0}
+.scroll{overflow:auto;min-height:0;flex:1 1 0}
+.grow{flex:1 1 0;min-height:0}
+.card{min-height:0}
+.ph{padding:0 0 8px;min-height:var(--ph-h)}
+.btn.stop{font-size:var(--fs-2)}
+
+/* pasek stanu: przełącznik makiety wbudowany */
+.top .mock-switch{position:static;box-shadow:none;border:0;background:none;padding:0 0 0 8px;border-left:1px solid var(--line);border-radius:0;margin-left:4px}
+.top .mock-switch a{padding:3px 8px}
+
+/* ----- Przegląd ----- */
+.ov-bottom{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:var(--gap)}
+.ov-bottom>.card{overflow:hidden}
+.ov-bottom .view-body{min-height:0}
+.ov-axes{display:grid;grid-template-rows:repeat(6,minmax(0,1fr));flex:1 1 0;min-height:0}
+.ova{display:grid;grid-template-columns:56px 74px 14px minmax(0,1fr) 70px;align-items:center;gap:8px;padding:0 var(--card-pad-x);border-bottom:1px solid var(--line)}
+.ova:last-child{border-bottom:0}
+.ova b{font-size:var(--fs-5);font-family:var(--num-font);text-align:right}
+.ova .track{margin:0}
+.ova .muted{font-size:var(--fs-1);text-align:right}
+.tile .card-b{gap:6px}
+.tile{overflow:hidden}
+.tile .card-b{flex:1;overflow:hidden}
+.card-f{display:flex;align-items:center}
+.card-f .more{margin-left:auto;color:var(--text-2);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.card-f .more:hover{color:var(--text)}
+
+/* ----- Sterowanie ręczne: siatka obszarów (układ w pliku wariantu) ----- */
+.manual.fill{display:grid;gap:var(--gap)}
+.manual .view{grid-area:view;display:flex;flex-direction:column}
+.manual .view-body{min-height:0}
+.axes-card{grid-area:axes;overflow:hidden}
+.jog-card{grid-area:jog;overflow:hidden}
+.msgs-card{grid-area:msgs;overflow:hidden}
+.msgs-card .card-b{overflow:auto;flex:1 1 0;min-height:0}
+.axrow{padding:5px var(--card-pad-x);grid-template-columns:100px minmax(150px,1fr) 78px 80px 64px 88px;gap:8px}
+.axhead{padding-top:5px;padding-bottom:5px}
+.tcp{padding:10px var(--card-pad-x);gap:16px}
+.opts{gap:6px 12px}
+.range input{width:110px}
+.range span{white-space:nowrap}
+.alert{padding:8px 12px}
+.log div{padding:3px 0}
+
+/* ----- Programowanie ----- */
+.prog.fill{align-items:stretch;grid-template-rows:minmax(0,1fr)}
+.prog>.card{overflow:hidden}
+.prog .pal{overflow:auto;flex:1 1 0;min-height:0;padding:8px}
+.prog .pal-item{padding:6px 10px}
+.prog .flow,.prog .code{flex:1 1 0;min-height:0;overflow:auto}
+.prog .runcol{min-height:0}
+.prog .runcol .view-body{min-height:140px}
+@media (max-width:1500px){.prog.fill{grid-template-columns:240px minmax(0,1fr) 300px}.prog.fill .runcol{grid-column:auto;display:flex}}
+
+/* ----- Konfiguracja ----- */
+.grid-2.start.fill{align-content:start;overflow:auto}
+.setrow{min-height:46px;padding:8px var(--card-pad-x)}
+.stack.fill>.view{flex:1 1 0;min-height:180px}
+.stack.fill .view-body{min-height:0}
+
+/* ----- Diagnostyka: elementy wspólne ----- */
+.kpis{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));flex:none}
+.kpi{display:flex;flex-direction:column;gap:3px;padding:6px 12px;border-right:1px solid var(--line);min-width:0}
+.kpi:last-child{border-right:0}
+.kpi-v{white-space:nowrap}
+.kpi-v b{font-size:var(--fs-4);font-weight:700;font-family:var(--num-font)}
+.kpi-v em{font-style:normal;color:var(--text-3);font-size:var(--fs-1);margin-left:4px}
+.kpi .meter{height:4px}
+.toolbar.slim{padding:6px var(--card-pad-x);gap:8px;border-bottom:1px solid var(--line);flex:none;border-radius:0}
+.chart-grid{display:grid;flex:1 1 0;min-height:0;gap:1px;background:var(--line);grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+.chart-grid.two{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr))}
+.chart-card{display:flex;flex-direction:column;background:var(--panel);min-height:0;min-width:0}
+.chart-card .chart-h{padding:5px 10px;gap:8px}
+.chart-card .chart{flex:1 1 0;height:auto;min-height:36px;margin:4px 10px 10px 54px}
+.chart-card .chart:not([data-mini]){margin-bottom:22px}
+.chart[data-mini] .yl{font-size:9.5px}
+.hl{outline:2px solid var(--text);outline-offset:-2px}
+tr.hl td{background:var(--raised)}
+.table.dense{font-size:var(--fs-2)}
+.table.dense td{padding:4px 8px}
+.table.dense td.mono{white-space:nowrap}
+.toolbar.slim .chk{margin-right:4px}
+.toolbar.slim .chk .lg{margin-left:2px}
+.table.dense th{padding:5px 8px;position:sticky;top:0;z-index:1}
+.table .ell{max-width:0;width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.events{display:flex;flex-direction:column}
+.ev-now{display:flex;align-items:center;gap:8px;padding:6px var(--card-pad-x);color:var(--ok-text);font-size:var(--fs-2);font-weight:700}
+.ev{display:grid;grid-template-columns:58px 8px 110px minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px var(--card-pad-x);border-top:1px solid var(--line);font-size:var(--fs-2)}
+.ev-t{color:var(--text-3)}
+.ev-dot{width:8px;height:8px;background:var(--text-3)}
+.ev.warn .ev-dot{background:var(--warn)}
+.ev.plan .ev-dot{background:var(--plan)}
+.ev-src{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-txt{color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev-st{color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.events.big .ev{grid-template-columns:76px 8px 180px minmax(0,1fr) auto;padding:8px var(--card-pad-x)}
+.sect{padding:8px var(--card-pad-x) 6px;font-size:var(--fs-1);font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em}
+.kv-grid{display:flex;flex-direction:column;padding:2px var(--card-pad-x);overflow:auto;flex:1 1 0;min-height:0}
+.kv-grid .kv{padding:4px 0;border-bottom:1px dashed var(--line)}
+.kv-grid .kv:last-child{border-bottom:0}
+
+/* ----- Awaryjnie: mały ekran → zwykłe przewijanie strony ----- */
+@media (max-width:1250px),(max-height:740px){
+  .content{display:block;overflow:auto}
+  .screen.fit.active{overflow:visible}
+  .fill{flex:none}
+  .manual.fill{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:none!important;grid-template-areas:"view" "axes" "jog" "msgs"!important}
+  .manual .view-body{min-height:380px}
+  .diag1,.diag2,.dock{grid-template-columns:minmax(0,1fr)!important}
+  .diag3{grid-template-rows:auto auto!important}
+  .chart-grid,.strips{min-height:620px}
+  .scroll{max-height:420px}
+}

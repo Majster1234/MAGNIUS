@@ -211,17 +211,30 @@ TEST(TcpJogOwner, ModerateTrackingErrorStopsSoftlyLargeErrorFaults) {
   }
 }
 TEST(TcpJogOwner, FinalApproachWaitsForDriveStandstill) {
-  // Napęd zgłasza ruch (F1=4) mimo pozycji w tolerancji: brak potwierdzenia końca (nadzór postoju nie kotwiczy w ruchu).
+  // Układ mieszany (17.11.2026): po STOP wał J4 dalej pełznie ok. 1,5 RPM w paśmie tolerancji (pasmo stabilności
+  // przepuściłoby to jako postój), 0x32 zgłasza 5 RPM — brak końca; nadzór postoju nie kotwiczy w ruchu.
   Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);
-  std::vector<ProgramPoint> hold(6);for(unsigned k=0;k<hold.size();++k) hold[k].seconds=k*.01;
-  ASSERT_TRUE(rig.bus->append_tcp_points("session",generation,hold,true,rig.now));
-  // Napęd zgłasza prędkość 5 RPM (jeszcze dojeżdża): brak końca mimo pozycji w tolerancji.
-  rig.port->speed_blips[4]=1000;rig.port->speed_blip_rpm=5;
-  for(unsigned i=0;i<20;++i) {rig.bus->tcp_jog_control("session",generation,i+10,rig.now,rig.now);rig.run(50);}
+  Feeder feed;feed.run(rig,generation,30);ASSERT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+  rig.port->speed_blips[4]=100000;rig.port->speed_blip_rpm=5;
+  ASSERT_TRUE(rig.bus->cut_tcp_jog("session",generation,"STOP panelu",rig.now));
+  rig.port->frozen[4]=true;
+  // Ruch J4 do celu ucięcia trwa 85 ms (≈ 110 imp. za celem przy zamrożeniu), potem pełzanie +4 imp./10 ms ≈ 1,46 RPM:
+  // razem ok. +90 imp. od celu — w tolerancji 0,5° przegubu × przełożenie 10 ≈ 227 imp.
+  for(unsigned i=0;i<50;++i) {rig.port->positions[4]+=4;rig.run(10);}
   EXPECT_FALSE(rig.bus->tcp_trajectory(rig.now).done);EXPECT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
-  // F1=4 przy stojącym wale (MKS): postój potwierdza stała pozycja ≥ 500 ms.
-  rig.port->speed_blips[4]=0;rig.port->motor_state_override[4]=4;
+  // Wał stanął, 0x32 zostaje zamrożone na 5 RPM i F1=4 (MKS 1.0.9): postój potwierdza prędkość z pozycji 0x31.
+  rig.port->motor_state_override[4]=4;const auto stopped=rig.now;
   settle(rig,generation);
+  EXPECT_LT(rig.now-stopped,900ms);
+}
+TEST(TcpJogOwner, FrozenSpeedReadingDoesNotExtendFinalApproach) {
+  // Nagranie 17.11.2026: po STOP 0x32 trzyma −12…9 RPM przez 1,1–1,9 s przy wale w ±1 imp. — dolot nie czeka na 0x32.
+  Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);
+  Feeder feed;feed.run(rig,generation,30);ASSERT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+  rig.port->speed_blips.fill(100000);rig.port->speed_blip_rpm=12;
+  ASSERT_TRUE(rig.bus->cut_tcp_jog("session",generation,"STOP panelu",rig.now));const auto cut=rig.now;
+  settle(rig,generation,1500);
+  EXPECT_LT(rig.now-cut,1200ms) << "zwolnienie sterowania bez odmrożenia 0x32";
 }
 TEST(TcpJogOwner, FinalApproachWithoutStandstillFaultsAfterTimeoutStandingOffsetEndsWithWarning) {
   for(bool standing:{true,false}) {
@@ -251,8 +264,10 @@ TEST(TcpJogOwner, NewStartOfSameSessionPreemptsFinalApproachOnly) {
   Feeder feed;feed.run(rig,generation,20);ASSERT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
   EXPECT_EQ(rig.bus->begin_tcp_jog("session","bench","model",200,rig.now,rig.now),0u) << "otwarta kolejka: brak przejęcia";
   ASSERT_TRUE(rig.bus->cut_tcp_jog("session",generation,"STOP panelu",rig.now));
-  rig.port->speed_blips[3]=1000;rig.port->speed_blip_rpm=5;   // dolot trwa (napęd jeszcze się porusza)
-  for(unsigned i=0;i<40;++i) rig.run(10);
+  // Dolot trwa: J3 jeszcze pełznie (ok. 1,5 RPM wału w paśmie tolerancji), 0x32 zgłasza 5 RPM.
+  rig.port->speed_blips[3]=1000;rig.port->speed_blip_rpm=5;rig.port->frozen[3]=true;
+  for(unsigned i=0;i<40;++i) {rig.port->positions[3]+=4;rig.run(10);}
+  rig.port->frozen[3]=false;
   ASSERT_FALSE(rig.bus->tcp_trajectory(rig.now).done);
   EXPECT_EQ(rig.bus->begin_tcp_jog("other","bench","model",201,rig.now,rig.now),0u) << "inna sesja";
   EXPECT_TRUE(rig.bus->control_state().active) << "nieudane przejęcie nie przerywa dolotu";

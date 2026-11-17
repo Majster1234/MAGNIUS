@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EventConsole, useEventConsole } from "./EventConsole";
-import { ConfigurationPreview } from "./ConfigurationPreview";
-import { dispatchModeKey, criticalFaultPolicyKey, positionIntegralKey, minDitherKey, minDitherDefault, minDitherMax, f5AccelerationKey, systemConfigurationKeys, dirtyKeys, fieldErrors } from "./configurationData";
+import { ConfigurationPreview, type PreviewModel } from "./ConfigurationPreview";
+import { dispatchModeKey, criticalFaultPolicyKey, positionIntegralKey, minDitherKey, minDitherDefault, minDitherMax, f5AccelerationKey, systemConfigurationKeys, dirtyKeys, fieldErrors, configurationKeys, valueOf } from "./configurationData";
+import { RobotModelPanel } from "./RobotModelPanel";
+import type { ModelPick, PickOverlay } from "./configurationScene";
 import { useConfiguration } from "./useConfiguration";
 import { useSystemSettings } from "./planningContext";
 import { setAnimationsEnabled, useAnimationsEnabled } from "./animations";
@@ -129,6 +131,14 @@ export function ConfigurationPage() {
     const [stored, setStored] = useState(true);
     const [selectedAxis, setSelectedAxis] = useState(0);
     const [confirmAxes, setConfirmAxes] = useState<number[]>([]);
+    // Model 3D na podglądzie konfiguracji i wskazywanie układów przegubów (RobotModelPanel).
+    const [modelPreview, setModelPreview] = useState<{model: PreviewModel | null; display: {safety: boolean; primitives: boolean}; overlay: PickOverlay; onPick: ((pick: ModelPick) => void) | null; hint: string}>(
+        {model: null, display: {safety: false, primitives: true}, overlay: {}, onPick: null, hint: ""});
+    const modelValues = useMemo(() => {
+        const bad = {...fieldErrors(draft), ...nativeErrors};
+        return Object.fromEntries(configurationKeys.map(key => [key, bad[key] ? null : valueOf(key, draft[key] ?? "")]));
+    }, [draft, nativeErrors]);
+    const applyModelDraft = useCallback((updates: Record<string, string>) => setDraft(previous => ({...previous, ...updates})), []);
     const {entries, notice} = useEventConsole();
     const hasLocal = useRef((() => {try { return sessionStorage.getItem(storageKey) !== null || sessionStorage.getItem(legacyStorageKey) !== null; } catch { return true; }})());
     const fileInput = useRef<HTMLInputElement>(null);
@@ -316,7 +326,10 @@ export function ConfigurationPage() {
                 </table></div>
                 <p className="machine-note">{tableView === "geometry" ? "Translacja i rotacja względem poprzedniego członu." : "Zmiana przełożenia zachowuje bieżący kąt przez przeliczenie offsetu. Zmianę offsetu lub kierunku wykonaj osobno. Bez pomiaru odniesienie pozostaje niepotwierdzone."}</p>
             </section>
-            <ConfigurationPreview draft={draft} view={tableView} selected={selectedAxis} nativeErrors={nativeErrors}/>
+            <ConfigurationPreview draft={draft} view={tableView} selected={selectedAxis} nativeErrors={nativeErrors}
+                model={modelPreview.model} display={modelPreview.display} onPick={modelPreview.onPick} overlay={modelPreview.overlay} pickHint={modelPreview.hint}/>
+            <RobotModelPanel values={modelValues}
+                onDraft={applyModelDraft} onNotice={notice} onPreview={setModelPreview}/>
             <div className="settings-extras">
                 <SettingsCard title="Fizyczny JOG TCP — wymagane limity" description="Uzupełnij cztery dodatnie wartości dla rzeczywistego robota i wybierz Zapisz do ROS. Puste pole oznacza brak danych i blokuje fizyczny TCP. Wymagane są również kompletna geometria, sześć składników TCP narzędzia oraz sześć skalibrowanych osi.">{fields("tcp", tcpMotionFields)}</SettingsCard>
                 <SettingsCard title="Dane robota" description="Nazwy i układy odniesienia wspólne dla modelu.">{fields("robot", robotFields)}</SettingsCard>

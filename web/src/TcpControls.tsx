@@ -4,12 +4,16 @@ import type { TcpAxis, TcpFrame, TcpHeld } from "./planningTcpJog";
 import { TCP_STEPS } from "./planningTcpStep";
 import type { TcpJogStatus } from "./physicalTcpJog";
 
-export function TcpControls({ allowed, planning, held, stepAvailable, start, stop, onNotice, onCondition, liveStatus, busy = false }: {
+export type TcpHint = { axis: TcpAxis; direction: number; frame: TcpFrame };
+
+export function TcpControls({ allowed, planning, held, stepAvailable, start, stop, onNotice, onCondition, liveStatus, busy = false, onHint }: {
     allowed: boolean; planning: boolean; missing: string[]; held: TcpHeld | null;
     stepAvailable: boolean;
     start: (axis: TcpAxis, direction: number, frame: TcpFrame, speed: number, step?: number) => void; stop: (emergency?: boolean) => void;
     liveStatus?: TcpJogStatus; busy?: boolean;
     onNotice?:(value:Notice)=>void;onCondition?:(key:string,value:Notice|null)=>void;
+    // Kierunek przycisku pod kursorem/fokusem albo trzymanego (podpowiedź na modelu 3D); null = brak.
+    onHint?:(hint:TcpHint|null)=>void;
 }) {
     const [frame, setFrame] = useState<TcpFrame>("base");
     const [linear, setLinear] = useState<number | "">(planning ? 10 : ""), [angular, setAngular] = useState<number | "">(planning ? 5 : "");
@@ -38,9 +42,15 @@ export function TcpControls({ allowed, planning, held, stepAvailable, start, sto
         return () => { window.removeEventListener("keydown", key); window.removeEventListener("keyup", key); window.removeEventListener("blur", blur); };
     }, []);
     const rotation = held ? held.axis.startsWith("r") : rotationMode !== shift;
+    // Najechanie zapamiętuje pozycję przycisku, nie oś: Shift zmienia znaczenie przycisku pod kursorem (przesuw/obrót).
+    const [hoverPosition, setHoverPosition] = useState<string | null>(null);
+    let hovered: { axis: TcpAxis; direction: number } | null = null;
     function button(axis: TcpAxis, direction: number, label: string, position: string) {
         const active = held?.axis === axis && held.direction === direction;
+        if (hoverPosition === position) hovered = { axis, direction };
+        const enter = () => setHoverPosition(position), leave = () => setHoverPosition(current => current === position ? null : current);
         return <button type="button" className={`tcp-direction tcp-${position}${active ? " tcp-held" : ""}`}
+            onPointerEnter={enter} onPointerLeave={leave} onFocus={enter} onBlur={leave}
             aria-label={`TCP ${axis.toUpperCase()} ${direction > 0 ? "plus" : "minus"}`} aria-pressed={active}
             disabled={!allowed && !active || busy && !active || impulse && !stepAvailable || !!held && (!active || planning && !!held.impulse)}
             onPointerDown={event => {
@@ -62,9 +72,7 @@ export function TcpControls({ allowed, planning, held, stepAvailable, start, sto
                 onClick={() => change(option)}>{label}</button>)}</span>;
     }
     const r = rotation ? "r" : "", sign = (axis: string) => rotation ? `R${axis}` : axis.toUpperCase();
-    return <section className={`tcp-controls${impulse ? " tcp-impulse" : ""}`} aria-label="Sterowanie TCP">
-        <div className="tcp-numpad">
-            <div className="tcp-pad" role="group" aria-label={rotation ? "Obrót TCP" : "Przesuw TCP"}>
+    const pad = <>
                 {button(`${r}z` as TcpAxis, 1, `${sign("z")}+`, "z-plus")}
                 {button(`${r}y` as TcpAxis, 1, `${sign("y")}+`, "up")}
                 <span className="tcp-gap" aria-hidden="true" />
@@ -74,7 +82,14 @@ export function TcpControls({ allowed, planning, held, stepAvailable, start, sto
                 {button(`${r}z` as TcpAxis, -1, `${sign("z")}−`, "z-minus")}
                 {button(`${r}y` as TcpAxis, -1, `${sign("y")}−`, "down")}
                 <span className="tcp-gap" aria-hidden="true" />
-            </div>
+    </>;
+    const shown = (held && { axis: held.axis, direction: held.direction }) || hovered as { axis: TcpAxis; direction: number } | null;
+    const hintKey = shown ? `${shown.axis}/${shown.direction}/${frame}` : "";
+    useEffect(() => { onHint?.(shown ? { axis: shown.axis, direction: shown.direction, frame } : null); }, [hintKey]);
+    useEffect(() => () => onHint?.(null), [onHint]);
+    return <section className={`tcp-controls${impulse ? " tcp-impulse" : ""}`} aria-label="Sterowanie TCP">
+        <div className="tcp-numpad">
+            <div className="tcp-pad" role="group" aria-label={rotation ? "Obrót TCP" : "Przesuw TCP"}>{pad}</div>
             <div className="tcp-options">
                 {segment("Grupa TCP", rotation ? "rotation" : "translation", [["translation", "Przesuw"], ["rotation", "Obrót"]], value => setRotationMode((value === "rotation") !== shift))}
                 {segment("Układ TCP", frame, [["base", "Baza"], ["tool", "Narzędzie"]], setFrame)}

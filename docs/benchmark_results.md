@@ -1648,3 +1648,28 @@ Razem (12 ruchów na prędkość): odchyłka drogi max 5/15/40 mm/s A 1,01/1,34/
 0,30/0,33/0,35 mm; tętnienie 226/117/54 → 229/120/57 %, zatrzymania bez zmian, błąd po dolocie 0,18–0,22 →
 0,23–0,28 mm. Wniosek: B potwierdzone na wszystkich trajektoriach — odchyłka toru przy 40 mm/s −30%,
 najgorszy przypadek −42%; nieznacznie wyższe tętnienie (+3 pkt %) i błąd po dolocie (+0,05 mm) w granicach rozrzutu.
+
+## 2026-11-17 — test jakości ruchu TCP po wdrożeniu układu mieszanego postoju (acc 254, 25 ms + Kp 4)
+
+Build `install/stop-recovery-ros` 17.11 14:08 (prędkość z pozycji 0x31 w potwierdzaniu postoju, `docs/motion_execution.md`),
+usługa od 14:21, tryb `synchronized`, wały rozsprzęglone, start od zerowania MKS. Wyniki:
+`log/tcp_quality/20261117-142659/` — 12/12 ruchów zaliczonych, 0 korekt dolotu, 0 awarii.
+
+| Wskaźnik (średnio 12 ruchów) | 08.11 T1B / T3B (stary kod) | 17.11 |
+| --- | --- | --- |
+| tętnienie v [mm/s] / [%] | 14,86 / 126,7 · 15,32 / 137,6 | 7,18 / 66,9 |
+| zatrzymania [%] | 12,2 · 15,6 | 6,5 |
+| odchyłka drogi max / RMS [mm] | 1,216 / 0,453 · 1,126 / 0,457 | 0,547 / 0,208 |
+| uchyb końca trajektorii [mm] | 0,343 · 0,368 | 0,233 |
+| błąd po dolocie [mm] | 0,271 · 0,263 | 0,216 |
+| wykonanie − plan [s] śr. (min–max) | 2,02 (1,34–3,23) · 1,93 (1,56–2,32) | 1,11 (1,06–1,14) |
+
+SYNC: odstęp mediana/p99/max 10,0/10,08/17,2 ms, F5→ACK 1,27/2,13/8,01 ms. Porównanie nie jest ścisłym A/B — między
+08.11 a 17.11 weszły też m.in. strumień trzymania dolotu SYNC i ponawianie zapisów przy F1=4 (11.11). Czas
+wykonanie − plan (dolot + potwierdzenie postoju) jest stały ok. 1,1 s i nie zależy już od ruchu.
+
+Nagranie CAN (14:27–14:33): 13 × `sync_standstill_from_position` — postój potwierdzony pozycją przy zamrożonym 0x32
+(skrajnie J5: 0x32 = 65 RPM przy prędkości z pozycji 0,42 RPM); 0 `hold_violation`, 0 `bus_fault`.
+`speed_source_mismatch`: 89 epizodów ≥ 300 ms — 23 „0x32 > 3 RPM, wał stoi”, 38 „0x32 ≈ 0, wał w ruchu > 3 RPM”,
+28 różne wartości w ruchu. 0x32 bywa więc nieaktualne w obu kierunkach (także ≈ 0 na początku ruchu) — do
+dalszej analizy przed jakimkolwiek ograniczeniem jego odpytywania.

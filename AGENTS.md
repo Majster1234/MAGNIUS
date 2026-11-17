@@ -99,6 +99,7 @@ Dalsze sekcje dotyczą rozwoju kodu, sprzętu i testów.
 | `ros2_ws/src/robot_can_diagnostics`, `robot_system_monitor` | Diagnostyka C++, monitor systemu i CAN |
 | `ros2_ws/src/robot_configuration` | Snapshoty konfiguracji JSON/ROS |
 | `ros2_ws/src/robot_web_bridge`, `web/` | Backend FastAPI/WebSocket, frontend React/TypeScript |
+| `~/.local/state/robot/models/` | Model 3D z CAD (siatki członów, siatki bezpieczeństwa 2 mm, złożenie) — poza kinematycznym URDF; opis `docs/robot_model_3d.md` |
 | `~/.local/state/robot/programs/` | Programy ruchowe (`programs/*.json`) i biblioteka rozkazów/zmiennych/pozycji (`library/`); opis `docs/programming.md` |
 | `scripts/`, `system/`, `start_ros2.sh` | Skrypty uruchomieniowe, systemd (SocketCAN i autostart) |
 | `temp/` | Propozycje wyglądu GUI: samodzielne pliki HTML z danymi przykładowymi, bez połączenia z API/ROS/CAN. Nowe makiety zapisuj w podfolderze nazwanym ogólnie wg tematu (np. `temp/sterowanie_reczne/`) z własnym `README.md`; zastąpione propozycje usuwaj. Nie są importowane przez `web/` ani wdrażane; wdrożenie wybranej propozycji to osobne zadanie w `web/src`. |
@@ -130,16 +131,15 @@ colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 
 ## Bieżący kontekst
 
-- 11.11.2026 (wieczór) — PTP bez reakcji na osobliwość i strumień trzymania w programach. Planer: `SampleCaps::wrist`
-  — zwalnianie J4/J6 przy osobliwości tylko dla LIN/przejść z LIN, PTP (pojedynczy i w ciągach) bez niego
-  (`planner.cpp`, `chain.cpp`; testy planner 18, chain 10; `docs/cartesian_planning.md`). Wykonawca SYNC
-  (`synchronized_program.cpp`, `program_bus.cpp`, `bus_manager.cpp`, pola `motion_executor.hpp`/`bus_manager.hpp` = ABI):
-  dolot ze strumieniem trzymania na siatce 10 ms (okno zapytań/budżetu jak w ruchu), korekta osi stojącej, ucieczka
-  > 4°/rosnący uchyb = awaria, niepełny dolot przy stojących osiach = program `failed` bez ENABLE=0, postój F1=1 lub
-  pozycja stała ≥ 500 ms; `kSyncMaxShift` 10 → 30 ms; odzyskiwanie ponawia F3 ENABLE=0 co 300 ms
-  (`recovery.cpp`); przywracanie ponawia zapis 4A=0/8C odrzucony przy F1=4, ramki trzymania z prędkością ≥ pasmo tolerancji/100 ms (test SYNC 49). Opis:
-  `docs/synchronized_streaming.md` (dwie nowe sekcje). Próba: `scripts/motion_endurance.py`.
-  Przebieg bazowy (stary kod): 3 długie PTP OK, LIN 400 mm przerwany awarią SYNC 10 ms przy błędach CAN
-  (error-warn/pass 1 → 3), potem odzyskiwanie nieudane (J6 bez F3). Build overlay 4 pakietów, testy mks_servo_can
-  wszystkie (SYNC 47); **wymaga restartu `robot-web-status`** i próby. Wcześniej (ten sam dzień): niezawodność JOG TCP
-  z pendanta — `docs/tcp_jog.md` „Zatrzymania i nadzór”, sesja 21:09: 0 awarii, 138 przytrzymań.
+- 17.11.2026 (popołudnie) — Import modelu 3D z CAD (Fusion 360: człony jako komponenty, pozycja zerowa, wspólne
+  złożenie) i konfiguracja układów przegubów przez wskazanie walców na siatkach. Opis: `docs/robot_model_3d.md`.
+  Backend `robot_web_bridge`: `robot_model.py` (magazyn `~/.local/state/robot/models`, API `/api/v1/robot/model…`,
+  kolejka), `robot_model_mesh.py` (osobny proces nice 10, RLIMIT_AS 2 GiB: STL/OBJ, siatka bezpieczeństwa 2 mm —
+  testy: min 1,99 / śr. 2,02 / max ≤ 2,5 mm), parametr `robot_model_directory`; testy `test_robot_model.py` 11/11.
+  Frontend: `robotModel.ts`, `axisFit.ts`, `frameEdit.ts`, `RobotModelPanel.tsx`, `configurationScene.ts`,
+  `ConfigurationPreview.tsx`, `ConfigurationPage.tsx`, `robotPreviewScene.ts` (`attachModel`), `RobotPreview.tsx`,
+  `style.css`; testy web 200/201 (porażka `controlMessages.test.ts` niezależna, pliki bez zmian wobec HEAD).
+  `web/dist` przebudowany. **Nowe moduły Pythona mostu wymagają restartu `robot-web-status`** (pakiet w overlay
+  jest dowiązaniem do źródeł — bez przebudowy). Kolizje: kolejny etap. Uwaga: test 17.11 ~15:47 przekroczył pamięć
+  (OOM zabił proces testu, usługa działała, swap zapełniony) — od tej pory proces importu ma limit 2 GiB.
+  Node: `build/node22/runtime/bin` (brak w PATH).

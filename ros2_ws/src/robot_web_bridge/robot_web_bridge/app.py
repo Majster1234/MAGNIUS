@@ -98,7 +98,7 @@ class JogRateLimit:
         return True
 
 
-def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None, overview=None, program_store=None, program_runner=None):
+def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None, overview=None, program_store=None, program_runner=None, robot_model_store=None):
     from .system_overview import ConnectionCounter
     connections = overview.connections if overview is not None else ConnectionCounter()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -114,6 +114,8 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     add_program_routes(app, program_store)
     from .program_runner import add_program_run_routes
     add_program_run_routes(app, program_runner)
+    from .robot_model import add_robot_model_routes
+    add_robot_model_routes(app, robot_model_store)
 
     @app.get('/healthz')
     async def health():

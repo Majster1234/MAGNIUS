@@ -414,6 +414,26 @@ przyjmuje konfigurację przez API i restartuje usługę. Nie zeruje enkoderów i
 nie wykonuje ruchu. Raport wdrożenia: [CAN 1M](can_1m_results.md).
 
 
+### Podpowiedź kierunku ruchu na podglądzie 3D (17.11.2026)
+
+Najechanie kursorem (albo fokus klawiatury, albo przytrzymanie) na przycisk ruchu pokazuje na modelu 3D, co się
+stanie — także gdy przycisk jest chwilowo nieaktywny (`previewMotionHint.ts`):
+
+- **JOG osi** (‹ ›): żółty łuk ze strzałką wokół osi przegubu i etykieta „J2 +”; kierunek łuku = kierunek obrotu
+  modelu przy rosnącym kącie (reguła prawej dłoni wokół osi z URDF), ‹ = kierunek ujemny;
+- **JOG TCP**: układ współrzędnych TCP (X czerwona, Y zielona, Z niebieska) w wybranym układzie — „Baza” (osie korzenia
+  modelu) albo „Narzędzie” (orientacja TCP) — oraz żółta strzałka przesuwu albo łuk obrotu wokół osi przez TCP,
+  etykieta np. „TCP RZ+ · narzędzie” (jak `robot_kinematics/src/tcp_jog.cpp`). Shift (przesuw ↔ obrót) zmienia
+  podpowiedź pod kursorem od razu.
+
+W trybie Planowanie podpowiedź jest rysowana na bliźniaku (to on się porusza), na żywo — na modelu robota. Stan
+podpowiedzi: `canvas.dataset.motionHint`.
+
+Wygląd (17.11.2026, wersja stonowana): cienkie, półprzezroczyste elementy (łuk przegubu r ≈ 4 cm, strzałka TCP ≈ 8,5 cm,
+osie układu TCP ≈ 5,5 cm przy modelu ok. 0,8 m; skala z rozmiaru modelu), barwy przygaszone, etykieta w stylu etykiet
+osi. Pojawianie 180 ms, znikanie 140 ms (przezroczystość + powiększenie z 80%); przy „ogranicz animacje” w systemie
+— bez animacji.
+
 ### Ślady TCP na podglądzie 3D
 
 Linia niebieska oznacza plan PTP/LIN, a złota — historię fizycznego PTP z

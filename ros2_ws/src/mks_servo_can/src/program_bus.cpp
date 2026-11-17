@@ -163,19 +163,32 @@ bool CanBusManager::execute_program(const std::string &id,const std::string &key
 namespace {
 constexpr unsigned kArmingSpeedReads=5;
 constexpr auto kArmingSpeedRetry=20ms;
+// Uzbrajanie nie odpytuje pozycji (synchronized_query_window); osie uzbrajane później mają starszą ostatnią próbkę.
+// W tym czasie nie idą ramki F5, a F1=1 sprawdza krok 1 świeżym odczytem — dopuszczalny wiek 300 ms.
+constexpr PositionVelocityLimits kArmingVelocityLimits{std::chrono::milliseconds(500),std::chrono::milliseconds(100),
+    std::chrono::milliseconds(300),8};
 }
 void CanBusManager::program_setup_reply(const Frame &frame,Time now) {
   auto &e=executor_;
   const bool restoring=e.status.state=="restoring";
   const bool synchronized=e.status.dispatch_mode=="synchronized" && !restoring;
   if((e.status.state!="arming" && !restoring) || !e.waiting || frame.address!=config_.axes[e.setup_axis].address) { fault("Nieoczekiwane potwierdzenie uzbrojenia");return; }
-  bool good=false;std::string detail;
+  bool good=false,arming_by_position=false;std::string detail;
   if(!restoring && e.setup_step==0) {
     const auto speed=parse_speed(frame.address,frame.data);
     detail=speed ? "; odczyt="+std::to_string(*speed)+" RPM, wymagane |RPM| ≤ "+std::to_string(kHoldingSpeedNoiseRpm)+" w "+std::to_string(kArmingSpeedReads)+" odczytach co "+
         std::to_string(kArmingSpeedRetry.count())+" ms" : "; nieprawidłowa odpowiedź 0x32";
     // SYNC wymaga postoju: niezerowe RPM odczytujemy ponownie, zanim uznamy brak postoju (F1=1 sprawdza krok 1).
-    if(speed && std::abs(*speed)>kHoldingSpeedNoiseRpm && synchronized && ++e.setup_retries<kArmingSpeedReads) {
+    // Układ mieszany (17.11.2026): zamrożone 0x32 po JOG nie blokuje startu, gdy prędkość z pozycji 0x31 (MNK z 500 ms)
+    // potwierdza postój ≤ 1 RPM wału; wtedy bez ponowień.
+    if(speed && std::abs(*speed)>kHoldingSpeedNoiseRpm && synchronized) {
+      const auto velocity=position_velocity(e.setup_axis,now,kArmingVelocityLimits);
+      arming_by_position=velocity.still(kHoldingSpeedNoiseRpm);
+      detail+=", z pozycji="+(velocity.valid ? diagnostic_number(velocity.rpm)+" RPM" : velocity.reason);
+      if(arming_by_position) trace_note("arming_standstill_from_position",std::to_string(*speed)+" RPM 0x32, z pozycji "+
+          diagnostic_number(velocity.rpm)+" RPM",frame.address,0x32);
+    }
+    if(speed && std::abs(*speed)>kHoldingSpeedNoiseRpm && synchronized && !arming_by_position && ++e.setup_retries<kArmingSpeedReads) {
       trace_note("arming_speed_retry",std::to_string(*speed)+" RPM",frame.address,0x32);
       e.waiting=false;e.setup_retry_at=now+kArmingSpeedRetry;return;
     }
@@ -191,7 +204,7 @@ void CanBusManager::program_setup_reply(const Frame &frame,Time now) {
     if(good && e.setup_step==1) {devices_[frame.address].synchronization_known=true;devices_[frame.address].synchronization_disabled=true;}
     if(good && e.setup_step==3) {devices_[frame.address].responses_known=true;devices_[frame.address].responses_disabled=true;}
   } else switch(e.setup_step) {
-    case 0:{const auto speed=parse_speed(frame.address,frame.data);good=speed && (!synchronized || std::abs(*speed)<=kHoldingSpeedNoiseRpm);break;}
+    case 0:{const auto speed=parse_speed(frame.address,frame.data);good=speed && (!synchronized || std::abs(*speed)<=kHoldingSpeedNoiseRpm || arming_by_position);break;}
     case 1:{const auto state=parse_motor_state(frame.address,frame.data);good=state && *state==1;break;}
     case 2:case 4:good=frame.data[1]==1;break;
     case 3:good=frame.data[1]==(synchronized ? 1 : 0) && frame.data[2]==0;devices_[frame.address].responses_known=good;devices_[frame.address].responses_disabled=good && !synchronized;break;
@@ -353,7 +366,9 @@ void CanBusManager::schedule_program(Time now) {
       // Postój po ostatnim SYNC: |RPM| ≤ 1 i F1=1. MKS bywa w F1=4 przy stojącym wale, a 0x32 potrafi zamrozić ostatnią
       // prędkość (11.11.2026): pozycja stała ≥ kSettledByPosition też potwierdza postój; po kSettleTimeout wystarczy
       // stała pozycja (ostrzeżenie), awaria tylko przy zmiennej pozycji.
-      bool waiting=false,all_long=true;std::string axes;
+      // Od 17.11.2026 ścieżka pozycyjna wymaga też prędkości z pozycji 0x31 (MNK z 500 ms) ≤ 1 RPM wału: samo pasmo
+      // tolerancji przepuszczało pełzanie do ok. 4 RPM wału (0,5° przegubu × przełożenie 25 = 569 imp. w 500 ms).
+      bool waiting=false,all_long=true;std::string axes,by_position_axes;
       for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
         const auto &d=devices_[config_.axes[j].address];
         const bool long_stable=d.position.fresh(now,kProgramFeedbackTimeout) && final_stable_since_[j]!=Time{} &&
@@ -361,12 +376,19 @@ void CanBusManager::schedule_program(Time now) {
         all_long=all_long && long_stable;
         const bool speed=d.speed.fresh(now,150ms) && std::abs(d.speed.value)<=kHoldingSpeedNoiseRpm && d.speed.stamp>=e.last_sync;
         const bool state=d.motor_state.fresh(now,150ms) && d.motor_state.value==1 && d.motor_state.stamp>=e.last_sync;
-        if(!((speed && state) || (long_stable && d.speed.stamp>=e.last_sync))) {
+        const auto velocity=position_velocity(j,now);
+        const bool by_position=long_stable && velocity.still(kHoldingSpeedNoiseRpm) && d.speed.stamp>=e.last_sync;
+        if(!((speed && state) || by_position)) {
           waiting=true;
           axes+=" J"+std::to_string(j+1)+": RPM="+(d.speed.valid ? std::to_string(d.speed.value) : std::string("?"))+
-              ", F1="+(d.motor_state.valid ? std::to_string(d.motor_state.value) : std::string("?"))+(long_stable ? "" : ", pozycja zmienna")+";";
+              ", F1="+(d.motor_state.valid ? std::to_string(d.motor_state.value) : std::string("?"))+", z pozycji="+
+              (velocity.valid ? diagnostic_number(velocity.rpm)+" RPM" : velocity.reason)+(long_stable ? "" : ", pozycja zmienna")+";";
+        } else if(!(speed && state)) {
+          by_position_axes+=" J"+std::to_string(j+1)+": RPM 0x32="+std::to_string(d.speed.value)+", F1="+
+              std::to_string(d.motor_state.value)+", z pozycji="+diagnostic_number(velocity.rpm)+" RPM;";
         }
       }
+      if(!waiting && e.settled==Time{} && !by_position_axes.empty()) trace_note("sync_standstill_from_position",by_position_axes);
       if(waiting) {
         if(e.settling_since==Time{}) e.settling_since=now;
         if(now-e.settling_since<kSettleTimeout) {

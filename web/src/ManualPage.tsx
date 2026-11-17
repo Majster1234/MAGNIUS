@@ -8,7 +8,8 @@ import { CartesianPlanning } from "./CartesianPlanning";
 import { contextKey, usePlanningContext } from "./planningContext";
 import { PlanningTcpJog } from "./planningTcpJog";
 import type { TcpHeld, TcpAxis, TcpFrame } from "./planningTcpJog";
-import { TcpControls } from "./TcpControls";
+import { TcpControls, type TcpHint } from "./TcpControls";
+import type { MotionHint } from "./previewMotionHint";
 import { PlanningTcpStep } from "./planningTcpStep";
 import { PhysicalTcpJog } from "./physicalTcpJog";
 import type { MotionTrace } from "./previewMotionTrail";
@@ -87,6 +88,10 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const control = useRef<JogControl | null>(null);
     const planningControl = useRef(new PlanningJog());
     const [tcpHeld, setTcpHeld] = useState<TcpHeld | null>(null);
+    // Podpowiedź kierunku na modelu 3D: strzałka JOG osi pod kursorem/fokusem albo przycisk TCP (z TcpControls).
+    const [jointHover, setJointHover] = useState<{ axis: number; direction: number } | null>(null);
+    const [tcpHint, setTcpHint] = useState<TcpHint | null>(null);
+    const onTcpHint = useCallback((hint: TcpHint | null) => setTcpHint(hint), []);
     const tcpPlannerReady = useRef(false);
     const tcpEnvironment = useRef({ allowed: false, key: "" });
     const tcpContextKey = useRef("");
@@ -339,8 +344,10 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             (locallyHeld ? plan.activeAxis !== axis.axis : !planningControl.current.canStart(axis.axis, direction, speeds[axis.axis - 1], performance.now())) :
             !locallyHeld && (!fresh || !connected || !axis.can_jog || pending || physicalTcpBusy || !!state?.tcp_jog?.busy);
         const stopJog = () => { if (planningMode.current) planningControl.current.stop(); else control.current?.stop(); setPlan(planningControl.current.snapshot(performance.now())); setHeld(null); };
+        const hover = () => setJointHover({ axis: axis.axis, direction });
+        const unhover = () => setJointHover(current => current?.axis === axis.axis && current.direction === direction ? null : current);
         return <button className="jog-arrow" aria-label={`JOG J${axis.axis} ${direction > 0 ? "prawo" : "lewo"}`}
-            disabled={disabled}
+            disabled={disabled} onPointerEnter={hover} onPointerLeave={unhover} onFocus={hover} onBlur={unhover}
             onPointerDown={(event) => {
                 if (event.button !== 0) return;
                 event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
@@ -357,6 +364,9 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             onPointerUp={stopJog} onPointerCancel={stopJog} onLostPointerCapture={stopJog}
             onContextMenu={(event) => event.preventDefault()}>{direction > 0 ? "›" : "‹"}</button>;
     }
+    const jointHint = jointHover ?? held;
+    const motionHint: MotionHint | null = jointHover ? { kind: "joint", ...jointHover } : tcpHint ? { kind: "tcp", ...tcpHint } :
+        jointHint ? { kind: "joint", ...jointHint } : null;
     function stopTcp(emergency = false) { physicalTcp.current?.stop(emergency); tcpControl.current?.stop(); tcpStepControl.current?.stop(); setTcpHeld(null); }
     function startTcp(axis: TcpAxis, direction: number, frame: TcpFrame, speed: number, step?: number) {
         if (!planningMode.current) {
@@ -428,7 +438,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         </header>
         <div className="manual-workspace"><div className="manual-observation">
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onCondition={condition} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
-            simulationPositions={simulationPositions} motionTrace={motionTrace} execution={execution} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} />
+            simulationPositions={simulationPositions} motionTrace={motionTrace} execution={execution} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} motionHint={motionHint} />
         <div className={`manual-status-line level-${statusLine.level}`} aria-label="Stan sterowania"><span className="manual-status-dot" aria-hidden="true"/><strong>{statusLine.title}</strong>{statusLine.detail && <span>· {statusLine.detail}</span>}
             <button type="button" className="manual-status-link" onClick={() => { const panel = document.getElementById("manual-messages"); panel?.scrollIntoView({ block: "nearest" }); panel?.focus({ preventScroll: true }); }}>{active.length ? remarks(active.length) : "Komunikaty"} →</button></div>
         </div><div className="manual-controls-row"><div className="manual-table"><table><colgroup>
@@ -460,7 +470,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             <div className="manual-dock-pane" role="tabpanel" id="manual-pane-tcp" aria-labelledby="manual-tab-tcp" hidden={dockTab !== "tcp"}>
                 <TcpControls key={planning ? "plan" : "live"} allowed={planning ? tcpAllowed && plan.activeAxis === 0 : liveTcpAllowed} planning={planning} held={tcpHeld} stepAvailable={planning ? !!context?.tcp_step_available : true}
                     liveStatus={state?.tcp_jog} busy={!planning && (physicalTcpBusy || !!state?.tcp_jog?.busy)}
-                    missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} onNotice={notice} onCondition={condition}/></div>
+                    missing={axes.filter(axis => !usable || !axis.available).map(axis => `J${axis.axis}`)} start={startTcp} stop={stopTcp} onNotice={notice} onCondition={condition} onHint={onTcpHint}/></div>
             <div className="manual-dock-pane motion-workflow" role="tabpanel" id="manual-pane-motion" aria-labelledby="manual-tab-motion" aria-label="Ruch PTP i LIN" hidden={dockTab !== "motion"}>
                 <MotionExecution planId={physicalPlanId} motionType={physicalMotionType} disabled={!planning || !connected || !modelReady || plan.activeAxis !== 0 || !!tcpHeld} onPreview={showPreparedPreview} onExecuteRequest={restartMotionPreview} onStatus={setExecution} onNotice={notice} onCondition={condition} onStopReady={registerStop}
                     enableWarning={planning ? {axes: axes.filter(a => a.available && (!a.enable_known || !a.enabled)).map(a => `J${a.axis}`),

@@ -219,7 +219,7 @@ void CanBusManager::tcp_final(Time now,double cost) {
     previous_velocity_.fill(0);committed_positions_=tcp_target_;final_prev_error_.fill(-1);final_growth_.fill(0);
     final_stable_since_.fill(Time{});final_stable_seen_.fill(Time{});
   }
-  bool fresh=true,newer=true,within=true,still=true,all_stable=true;std::string axes,moving;
+  bool fresh=true,newer=true,within=true,still=true,all_stable=true;std::string axes,moving,by_position_axes;
   std::array<double,kAxes> error{};std::array<bool,kAxes> stable{};
   for(unsigned j=0;j<kAxes;++j) {
     record_shaft_reference(j,tcp_target_[j],now);
@@ -243,19 +243,31 @@ void CanBusManager::tcp_final(Time now,double cost) {
     if(std::abs(error[j])>config_.program_position_tolerance[j]) {within=false;axes+=name+"="+diagnostic_number(error[j]*180/kPi)+"°";}
     const bool settled_long=d.position.stamp-final_stable_since_[j]>=kTcpStandstillWithoutF1;
     if(!stable[j]) all_stable=false;
-    const bool standing=stable[j] && d.speed.fresh(now,150ms) && std::abs(d.speed.value)<=kHoldingSpeedNoiseRpm &&
+    // Układ mieszany (17.11.2026): postój = odczyty napędu (|RPM 0x32| ≤ 1 i F1=1 albo pozycja stała ≥ 500 ms) ALBO
+    // prędkość z pozycji 0x31 (MNK z 500 ms) ≤ 1 RPM wału. Zamrożone 0x32 (1–2 s po zatrzymaniu) nie wydłuża dolotu;
+    // świeży odczyt 0x32 jest nadal wymagany (żywotność napędu), jego wartość nie.
+    const bool reported=std::abs(d.speed.value)<=kHoldingSpeedNoiseRpm &&
         ((d.motor_state.fresh(now,150ms) && d.motor_state.value==1) || settled_long);
+    const auto velocity=position_velocity(j,now);
+    const bool by_position=velocity.still(kHoldingSpeedNoiseRpm);
+    const bool standing=stable[j] && d.speed.fresh(now,150ms) && (reported || by_position);
+    if(standing && !reported) by_position_axes+=name+": RPM 0x32="+std::to_string(d.speed.value)+", z pozycji="+diagnostic_number(velocity.rpm)+";";
     if(!standing) {
       still=false;
       moving+=name+": RPM="+(d.speed.valid ? std::to_string(d.speed.value) : std::string("?"))+", F1="+
-          (d.motor_state.valid ? std::to_string(d.motor_state.value) : std::string("?"))+(stable[j] ? "" : ", pozycja zmienna")+";";
+          (d.motor_state.valid ? std::to_string(d.motor_state.value) : std::string("?"))+", z pozycji="+
+          (velocity.valid ? diagnostic_number(velocity.rpm)+" RPM" : velocity.reason)+(stable[j] ? "" : ", pozycja zmienna")+";";
     }
     if(d.position.stamp<=tcp_check_started_ || d.speed.stamp<=tcp_check_started_ || d.motor_state.stamp<=tcp_check_started_) newer=false;
   }
   const bool settled=fresh && within && still;
   if(tcp_within_since_!=Time{}) {
     // Potwierdzenie z pomiarów po starcie okna; drgnięcie albo wyjście z tolerancji = od nowa.
-    if(newer && settled && now-tcp_within_since_>=100ms) {tcp_done_=true;message_="JOG TCP: pozycja końcowa i postój potwierdzone";return;}
+    if(newer && settled && now-tcp_within_since_>=100ms) {
+      tcp_done_=true;message_="JOG TCP: pozycja końcowa i postój potwierdzone";
+      if(!by_position_axes.empty()) trace_note("tcp_standstill_from_position",by_position_axes);
+      return;
+    }
     if(newer && !settled) tcp_within_since_={};
   } else if(settled) {tcp_within_since_=now;tcp_check_started_=now;}
   if(now-tcp_final_started_>=kFinalApproachTimeout) {

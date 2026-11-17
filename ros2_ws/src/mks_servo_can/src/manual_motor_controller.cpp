@@ -235,8 +235,13 @@ bool ManualMotorController::configuration_stopped(unsigned axis, Time now) const
 }
 bool ManualMotorController::dispatch_stopped(unsigned axis, Time now) const {
   const auto &d=bus_.devices_[axis];
-  return configuration_stopped(axis,now) || (position_stable(axis,now,100ms) && d.speed.fresh(now,150ms) && d.speed.value==0 &&
-      d.motor_state.fresh(now,150ms) && d.motor_state.value==1);
+  // Układ mieszany (17.11.2026): 0x32 == 0 (świeże) albo prędkość z pozycji 0x31 (MNK z 500 ms) ≤ 1 RPM wału. W bezczynności
+  // 0x32 nie jest odpytywane (tylko program i szybkie sprzężenie JOG), więc ścieżka 0x32 przy ENABLE=1 była praktycznie
+  // nieosiągalna; zamrożone 0x32 i szum ±1 RPM też jej nie blokują. F1=1 zostaje w obu ścieżkach: MKS odrzuca zapis przy F1=4.
+  if(configuration_stopped(axis,now)) return true;
+  if(!d.motor_state.fresh(now,150ms) || d.motor_state.value!=1) return false;
+  return (position_stable(axis,now,100ms) && d.speed.fresh(now,150ms) && d.speed.value==0) ||
+      bus_.position_standstill(bus_.axis_index(axis),now);
 }
 bool ManualMotorController::limit_reached(unsigned axis, int direction, double rpm, Time now) const {
   const auto motor = degrees(bus_.devices_[axis].position.value);
@@ -377,7 +382,7 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
   for (std::size_t i = 1; i + 1 < data.size(); ++i) value = (value << 8) | data[i];
   auto &d = bus_.devices_[axis_];
   if (data[0] == 0x32) { const auto v = parse_speed(axis_, data); if (!v) { fail("Błędny odczyt prędkości"); return; } d.speed.set(*v, stamp); value = *v; }
-  if (data[0] == 0x31) { const auto v = parse_position(axis_, data); if (!v) { fail("Błędny odczyt pozycji"); return; } d.position.set(*v, stamp); value = *v; }
+  if (data[0] == 0x31) { const auto v = parse_position(axis_, data); if (!v) { fail("Błędny odczyt pozycji"); return; } d.position.set(*v, stamp); bus_.record_position_history(axis_, *v, stamp); value = *v; }
   if (data[0] == 0x32 && s.expected == 0) {
     // Zerowanie ustala odniesienie: ±3 imp.; ENABLE/ENABLE=0 osi trzymającej pozycję dopuszcza jej oscylację (≤ 3 RPM).
     if (!(operation_ == Operation::zero ? position_stable(axis_, stamp) : group_axis_still(axis_, stamp))) { retry_at_ = stamp + 20ms; return; }

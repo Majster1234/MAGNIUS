@@ -66,6 +66,9 @@ def main(args=None):
         from .programs import ProgramStore
         # Programy ruchowe i biblioteka rozkazów/zmiennych/pozycji (domyślnie $XDG_STATE_HOME/robot/programs).
         program_store = ProgramStore(node.declare_parameter('programs_directory', '').value or None)
+        from .robot_model import RobotModelStore
+        # Model 3D robota (siatki CAD, siatki bezpieczeństwa, złożenie; domyślnie $XDG_STATE_HOME/robot/models).
+        robot_model_store = RobotModelStore(node.declare_parameter('robot_model_directory', '').value or None)
         node.create_subscription(ShaftTraceBatch, '/robot/diagnostics/shaft_trace', shaft_trace.ingest,
                                  QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT))
         description_store = DescriptionStore()
@@ -127,7 +130,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace, overview, program_store, program_runner), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace, overview, program_store, program_runner, robot_model_store), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

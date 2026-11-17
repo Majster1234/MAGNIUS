@@ -350,10 +350,13 @@ trzymania**). Bez niego MKS po dojechaniu do ostatniego celu F5 potrafił ruszy�
 celów trasy (jak wykonanie zaległej komendy; 8 awarii „> 4° od celu” w sesji 1, 0 po zmianie). Korekta
 `F5 += cel − pomiar` co ≥ 200 ms tylko dla osi poza tolerancją, która **stoi** (pomiary w ±tolerancji pozycji przez
 150 ms; J4 w trzymaniu oscyluje ±55 imp. wału) albo nie ustała po 600 ms od poprzedniej korekty. Koniec, gdy
-wszystkie osie są w tolerancji, stabilne, |RPM| ≤ 1 i F1=1 albo pozycja stała ≥ 500 ms (MKS bywa w F1=4 przy
-stojącym wale), dwukrotnie w odstępie ≥ 100 ms; dopiero wtedy nadzór postoju kotwiczy pozycję trzymania.
+wszystkie osie są w tolerancji, stabilne i stoją — |RPM 0x32| ≤ 1 i F1=1 (albo pozycja stała ≥ 500 ms; MKS bywa
+w F1=4 przy stojącym wale) **albo** prędkość z pozycji 0x31 (MNK z 500 ms) ≤ 1 RPM wału — dwukrotnie w odstępie
+≥ 100 ms; dopiero wtedy nadzór postoju kotwiczy pozycję trzymania. Ścieżka pozycyjna (od 17.11.2026) omija
+zamrożone 0x32, które dotąd przedłużało dolot do 1,6–2,1 s (`docs/motion_execution.md`, „Postój z prędkości liczonej
+z pozycji”).
 
-**Przejęcie dolotu:** START z tej samej sesji panelu w trakcie dolotu (stan `settling`, ok. 1–2 s po puszczeniu)
+**Przejęcie dolotu:** START z tej samej sesji panelu w trakcie dolotu (stan `settling`, do ok. 1 s po puszczeniu)
 od razu rozpoczyna nowy ruch — `begin_tcp_jog` kończy dolot i aktywuje nową sesję atomowo (nieudany start = dolot
 trwa dalej). Klient i most dopuszczają taki START; inna sesja lub otwarta kolejka — odrzucenie.
 Start JOG TCP wymaga postoju wału |pochodna pozycji| ≤ 3 RPM (`kStandstillShaftRpm`; oscylacja trzymania J4 do
