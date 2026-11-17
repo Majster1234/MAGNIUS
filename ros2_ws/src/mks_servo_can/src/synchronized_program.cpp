@@ -14,9 +14,15 @@ constexpr auto kSyncLateness=2500us;
 constexpr unsigned kSyncMissedAckLimit=2;
 // Spóźnienie wyzwolenia lub potwierdzenia ponad 2,5 ms przesuwa oś czasu programu zamiast przerywać ruch:
 // wszystkie osie wykonują ten sam zestaw później o tę samą wartość, tor się nie zmienia. Powyżej limitu — awaria.
-constexpr auto kSyncMaxShift=10ms;
+// Maks. przesunięcie podstawy czasu i termin potwierdzenia nadania SYNC. 10 ms kończyło długi LIN awarią przy chwilowych
+// błędach magistrali (11.11.2026: brak potwierdzenia przez > 10 ms, liczniki error-warn/error-pass ↑); 30 ms = 3 cykle —
+// krócej niż cisza, po której MKS wykonywał zaległe cele (≥ 50 ms). Wartość do potwierdzenia w próbach.
+constexpr auto kSyncMaxShift=30ms;
 // Minimalny czas od wysłania zestawu do SYNC na odebranie ACK, gdy przygotowanie samo się spóźniło.
 constexpr auto kSyncPrepareMargin=3ms;
+// Dolot: oś stoi, gdy pomiary przez to okno mieszczą się w ±tolerancji pozycji (min. kHoldMinimumTicks).
+constexpr auto kFinalStableWindow=150ms;
+constexpr auto kFinalCorrectionWhileMoving=600ms;
 double ms(Clock::duration d) {return std::chrono::duration<double,std::milli>(d).count();}
 std::uint8_t participants(const MotionProgramStatus &s) {
   std::uint8_t mask=0;for(unsigned j=0;j<6;++j) if(s.participating[j]) mask|=1u<<j;return mask;
@@ -61,7 +67,8 @@ bool CanBusManager::synchronized_query_window(Time now) const {
   const auto &e=executor_;
   if(e.status.dispatch_mode!="synchronized") return true;
   if(e.status.state=="arming" || e.status.state=="restoring") return false;
-  if(!e.program || e.frame>=e.program->frames.size()) return true;
+  // Po trajektorii: strumień trzymania dolotu (zestawy co cykl) ma to samo okno co ruch; po nim zapytania swobodnie.
+  if(!e.program || (e.frame>=e.program->frames.size() && e.hold_done)) return true;
   // Zestaw k+1 powstaje po echu SYNC k. Przerwa 4 ms przed najwcześniejszą
   // kolejną wysyłką F5; RX i potwierdzenia nie są wstrzymywane.
   return e.staged && !e.sync_waiting_confirmation && now<std::min(e.due,e.batch_started+kStreamingCycle)-4ms;
@@ -129,60 +136,114 @@ void CanBusManager::synchronized_confirmation(const Frame &frame,Time now) {
   e.due=e.phase_origin+kStreamingCycle*e.frame;
   if(e.frame==e.program->frames.size()) {s.state="settling";e.next_check=now;begin_program_check(now);}
 }
+// Dolot końcowy SYNC (11.11.2026, jak JOG TCP `tcp_final`):
+// - strumień trzymania: zestaw z celem końcowym (z korektami) aktywowany co cykl 10 ms, dopóki wszystkie osie nie są
+//   w tolerancji i stabilne — po ciszy na CAN MKS potrafił ruszyć w stronę wcześniejszych celów trasy (J3 18:57);
+// - korekta `F5 += cel − pomiar` co ≥ kFinalApproachPeriod tylko dla osi stojącej (pomiary w ±tolerancji przez
+//   kFinalStableWindow) albo nieustalonej po kFinalCorrectionWhileMoving — korekta w trakcie drgań rozbujała J3;
+// - ucieczka (awaria krytyczna z odczytem 39h): |cel − pomiar| > 4° albo uchyb osi rosnący w dwóch kolejnych korektach;
+// - po kFinalApproachTimeout poza tolerancją: osie stoją → program nieudany bez awarii (przywrócenie 4A=0, napędy
+//   trzymają pozycję); oś w ruchu → awaria.
 void CanBusManager::synchronized_final_approach(Time now) {
   auto &e=executor_;auto &s=e.status;const auto &p=*e.program;
   if(e.staged || e.sync_waiting_confirmation) {schedule_synchronized_program(now);return;}
-  if(e.final_started==Time{}) {e.final_started=now;e.final_next=now+kFinalApproachDelay;e.final_command=p.target;final_prev_error_.fill(-1);final_growth_.fill(0);}
-  bool outside=false;std::string axes;
+  if(e.final_started==Time{}) {
+    e.final_started=now;e.final_next=now+kFinalApproachDelay;e.final_command=p.target;final_prev_error_.fill(-1);final_growth_.fill(0);
+    final_stable_since_.fill(Time{});final_stable_seen_.fill(Time{});e.hold_done=false;
+  }
+  bool outside=false,all_stable=true;std::string axes;std::array<double,kAxes> error{};std::array<bool,kAxes> stable{};
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    const auto &d=devices_[config_.axes[j].address];
+    const auto &a=config_.axes[j];const auto &d=devices_[a.address];
     if(!d.position.fresh(now,kProgramFeedbackTimeout)) return;
-    const double error=p.target[j]-position_to_joint(config_.axes[j],d.position.value);
-    if(std::abs(error)>config_.program_position_tolerance[j]) {outside=true;axes+=" J"+std::to_string(j+1)+"="+diagnostic_number(error*180/std::acos(-1.))+"°";}
-  }
-  if(!outside) return;
-  e.settling_since={};  // korekcja dolotu: limit potwierdzenia postoju liczony od nowa
-  if(now-e.final_started>=kFinalApproachTimeout) {
-    fault("SYNC: dolot końcowy nieudany po "+std::to_string(kFinalApproachTimeout.count())+" ms; uchyb (cel − pomiar):"+axes+
-        ", tolerancja ±"+diagnostic_number(config_.program_position_tolerance[0]*180/std::acos(-1.))+"°");return;
-  }
-  // Odpowiedź osi na zapytanie zderzyłaby się z F5 o tym samym ID: korekta po jej odebraniu.
-  if(now<e.final_next || std::any_of(pending_.begin(),pending_.end(),[this](const Pending &q){return q.used && axis_index(q.address)<kAxes;})) return;
-  // Uchyb rosnący w kolejnych korektach (oś oddala się mimo korekty celu) — nie czekamy na limit 5 s.
-  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    const double error=std::abs(p.target[j]-position_to_joint(config_.axes[j],devices_[config_.axes[j].address].position.value));
-    final_growth_[j]=final_prev_error_[j]>=0 && error>final_prev_error_[j]+kRunawayFinalGrowthRad ? final_growth_[j]+1 : 0;
-    final_prev_error_[j]=error;
-    if(final_growth_[j]>=2 && error>kRunawayFinalMinRad) {
-      runaway_detected(j,"uchyb dolotu rośnie mimo korekt ("+diagnostic_number(error*180/std::acos(-1.))+"°)",now);return;
+    if(d.position.stamp>final_stable_seen_[j]) {
+      const double gear=std::isfinite(a.gear_ratio) && a.gear_ratio>0 ? a.gear_ratio : 1.;
+      const double band=std::max(kHoldMinimumTicks,config_.program_position_tolerance[j]*gear*16384/(2*std::acos(-1.)));
+      if(final_stable_since_[j]==Time{} || std::abs(static_cast<double>(d.position.value-final_stable_anchor_[j]))>band) {
+        final_stable_anchor_[j]=d.position.value;final_stable_since_[j]=d.position.stamp;
+      }
+      final_stable_seen_[j]=d.position.stamp;
     }
+    stable[j]=d.position.stamp-final_stable_since_[j]>=kFinalStableWindow;all_stable=all_stable && stable[j];
+    error[j]=p.target[j]-position_to_joint(a,d.position.value);
+    if(std::abs(error[j])>kRunawayTrackingLimitRad) {
+      runaway_detected(j,"oś "+diagnostic_number(error[j]*180/std::acos(-1.))+"° od celu w dolocie (cel − pomiar), limit 4°",now);return;
+    }
+    if(std::abs(error[j])>config_.program_position_tolerance[j]) {outside=true;axes+=" J"+std::to_string(j+1)+"="+diagnostic_number(error[j]*180/std::acos(-1.))+"°";}
+  }
+  // Osie w tolerancji i stabilne: koniec strumienia; potwierdzenie postoju (F1/RPM po ostatnim SYNC) w schedule_program.
+  if(!outside && (all_stable || e.hold_done)) {e.hold_done=true;return;}
+  e.hold_done=false;
+  if(outside) e.settling_since={};  // korekcja dolotu: limit potwierdzenia postoju liczony od nowa
+  if(outside && now-e.final_started>=kFinalApproachTimeout) {
+    const auto text="SYNC: dolot końcowy niepełny po "+std::to_string(kFinalApproachTimeout.count())+" ms; uchyb (cel − pomiar):"+axes+
+        ", tolerancja ±"+diagnostic_number(config_.program_position_tolerance[0]*180/std::acos(-1.))+"°";
+    if(all_stable) {e.soft_failure=text+"; osie stoją — napędy trzymają pozycję";e.hold_done=true;trace_note("sync_final_incomplete",axes);return;}
+    fault(text+"; oś nadal w ruchu");return;
+  }
+  // Odpowiedź osi na zapytanie zderzyłaby się z F5 o tym samym ID.
+  if(std::any_of(pending_.begin(),pending_.end(),[this](const Pending &q){return q.used && axis_index(q.address)<kAxes;})) return;
+  bool correct=false;
+  if(outside && now>=e.final_next) for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    const auto &axis=config_.axes[j];
+    if(std::abs(error[j])<=config_.program_position_tolerance[j]) continue;
+    if(!stable[j] && now-e.final_next<kFinalCorrectionWhileMoving-kFinalApproachPeriod) continue;
+    // Uchyb rosnący w kolejnych korektach (oś oddala się mimo korekty celu) — nie czekamy na limit 5 s.
+    const double magnitude=std::abs(error[j]);
+    final_growth_[j]=final_prev_error_[j]>=0 && magnitude>final_prev_error_[j]+kRunawayFinalGrowthRad ? final_growth_[j]+1 : 0;
+    final_prev_error_[j]=magnitude;
+    if(final_growth_[j]>=2 && magnitude>kRunawayFinalMinRad) {
+      runaway_detected(j,"uchyb dolotu rośnie mimo korekt ("+diagnostic_number(magnitude*180/std::acos(-1.))+"°)",now);return;
+    }
+    e.final_command[j]=std::clamp(e.final_command[j]+error[j],axis.lower,axis.upper);correct=true;
   }
   unsigned count=0;for(bool yes:s.participating) count+=yes;
   const double cost=count*(can_frame_bits(8)+can_frame_bits(3))+can_frame_bits(2);
   const double budget=config_.bitrate*.01*std::min(kPlannedUtilization,config_.utilization_limit);
+  // Okno budżetu = cykl zestawu (jak trajektoria): zestaw, jego odczyty pozycji i ograniczona diagnostyka.
+  if(sync_batch_window()) {spent_bits_=background_bits_=0;diagnostic_transactions_=0;}
   if(spent_bits_+cost>budget) return;
   staged_streaming_states_=streaming_states_;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
     auto axis=config_.axes[j];axis.streaming=program_streaming(j);
     const auto &d=devices_[axis.address];
-    const double measured=position_to_joint(axis,d.position.value),error=p.target[j]-measured;
-    if(std::abs(error)>config_.program_position_tolerance[j]) e.final_command[j]=std::clamp(e.final_command[j]+error,axis.lower,axis.upper);
-    const auto sample=streaming_setpoint(axis,p.target[j],0.,staged_streaming_states_[j],measured,d.microstep.value,0.,0.,
+    const double measured=position_to_joint(axis,d.position.value);
+    auto sample=streaming_setpoint(axis,p.target[j],0.,staged_streaming_states_[j],measured,d.microstep.value,0.,0.,
         std::chrono::duration<double>(now-d.position.stamp).count(),e.final_command[j]);
+    // Dolna granica prędkości ramki trzymania: pasmo tolerancji pozycji w 100 ms (0,5° przegubu × 10 ≈ 8,3 RPM wału).
+    // Minimalna jednostka F5 (0,125 RPM przy mikrokroku 128) zostawiała napęd pełzający sekundami w F1=4 do celu we
+    // własnym układzie — MKS odrzucał wtedy zapis 4A=0 i kolejne uzbrojenie (11.11.2026).
+    {
+      const double gear=std::isfinite(axis.gear_ratio) && axis.gear_ratio>0 ? axis.gear_ratio : 1.;
+      const double hold_rpm=config_.program_position_tolerance[j]*gear/(2*std::acos(-1.))*60/.1;
+      const double scale=speed_scale(d.microstep.value);
+      const double cap=std::min<double>(axis.streaming.max_rpm,axis.max_velocity*gear*60/(2*std::acos(-1.)));
+      const auto floor=static_cast<std::uint16_t>(std::clamp(std::ceil(std::min(hold_rpm,cap)/scale),1.,3000.));
+      if(sample.rpm<floor) {
+        sample.bytes[1]=static_cast<std::uint8_t>((floor>>8)&0x0f);sample.bytes[2]=static_cast<std::uint8_t>(floor);
+        unsigned sum=axis.address;for(unsigned i=0;i<7;++i) sum+=sample.bytes[i];sample.bytes[7]=static_cast<std::uint8_t>(sum);
+      }
+    }
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
   }
   e.staged_reference=ProgramPoint{};e.staged_reference.seconds=p.duration;e.staged_reference.positions=p.target;
   e.staged_ack_mask=e.staged_sent_mask=0;s.sync_ack_mask=0;e.batch_started=now;
-  e.due=now+kSyncPrepareMargin+2ms;e.staged=e.correction=true;s.sync_state="waiting_ack";s.sync_due_monotonic_ns=trace_ns(e.due);
+  // Termin na siatce trajektorii (phase_origin + k·10 ms): ta sama faza zestawów i odczytów co w trakcie ruchu.
+  {
+    const auto earliest=now+kSyncPrepareMargin+2ms;
+    const auto cycles=earliest>e.phase_origin ? (earliest-e.phase_origin+kStreamingCycle-Clock::duration{1})/kStreamingCycle : 0;
+    e.due=e.phase_origin+cycles*kStreamingCycle;
+  }
+  e.staged=e.correction=true;s.sync_state="waiting_ack";s.sync_due_monotonic_ns=trace_ns(e.due);
   spent_bits_+=cost;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
     e.staged_sent[j]=current_time(now);
     try {transport_->send(config_.axes[j].address,stream_payloads_[j]);++stats_.tx;}
     catch(const std::exception &error) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": błąd wysłania korekty F5 SYNC: "+error.what());return;}
-    e.staged_sent_mask|=1u<<j;sync_trace("sync_correction_prepared",e,e.staged_sent[j],config_.axes[j].address,&stream_payloads_[j]);
+    e.staged_sent_mask|=1u<<j;sync_trace(correct ? "sync_correction_prepared" : "sync_hold_prepared",e,e.staged_sent[j],config_.axes[j].address,&stream_payloads_[j]);
   }
-  e.final_next=now+kFinalApproachPeriod;s.state="waiting_position";s.message="Dolot końcowy SYNC: korekta"+axes;
-  trace_note("sync_final_approach",axes);motion_this_cycle_=true;
+  s.state="waiting_position";motion_this_cycle_=true;
+  if(correct) {e.final_next=now+kFinalApproachPeriod;s.message="Dolot końcowy SYNC: korekta"+axes;trace_note("sync_final_approach",axes);}
+  else s.message="Dolot końcowy SYNC: trzymanie celu"+(axes.empty() ? std::string() : " —"+axes);
 }
 void CanBusManager::schedule_synchronized_program(Time now) {
   auto &e=executor_;auto &s=e.status;const auto &p=*e.program;

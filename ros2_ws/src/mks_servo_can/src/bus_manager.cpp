@@ -702,7 +702,8 @@ void CanBusManager::start_cycle(Time now) {
 bool CanBusManager::sync_batch_window() const {
   const auto &e=executor_;
   return active_ && source_==Source::program && e.status.dispatch_mode=="synchronized" && e.program &&
-      e.frame<e.program->frames.size() && e.status.state!="arming" && e.status.state!="restoring";
+      (e.frame<e.program->frames.size() || (e.final_started!=Time{} && !e.hold_done)) &&   // także strumień trzymania dolotu
+      e.status.state!="arming" && e.status.state!="restoring";
 }
 void CanBusManager::schedule_feedback(Time now) {
   if(active_) {

@@ -665,5 +665,5 @@ skanowania ani zapisu konfiguracji:
 Odtworzenie offline na nagraniach 07.11: incydent wykryty 408 ms po ostatnim F5
 (odchyłka J4 ≈ 0,7°); 7 porannych ruchów TCP bez fałszywego alarmu (maks. dobieg 65 imp.).
 Poza zakresem: osie nieuczestniczące w PTP/LIN w trakcie programu oraz ruch w trakcie
-strumienia (tam działa kontrola uchybu 1,25°). `BusConfig::hold_supervision` wyłącza
+strumienia (tam działa kontrola uchybu: 3° łagodne zatrzymanie, 4° awaria — `docs/tcp_jog.md`). `BusConfig::hold_supervision` wyłącza
 nadzór wyłącznie w testach skokowo przestawiających emulowany wał.

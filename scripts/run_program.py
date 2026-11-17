@@ -56,6 +56,10 @@ def report(status, log):
     if status.get('timeline'):
         print('\n  blok         ciąg  start [s]  koniec [s]  postój  promień [mm] żądany→zastosowany')
         for entry in status['timeline']:
+            if entry.get('kind'):   # czekanie / czekanie na operatora (punkt synchronizacji między ciągami)
+                print(f"  {entry['block_id']:<12} {entry['chain']:>4}  {entry['start_s']:>9.2f}  {entry['end_s']:>10.2f}  "
+                      f"{'czekanie' if entry['kind'] == 'wait' else 'operator':>8}  {entry.get('text', '')}")
+                continue
             print(f"  {entry['block_id']:<12} {entry['chain']:>4}  {entry['start_s']:>9.2f}  {entry['transition_end_s']:>10.2f}  "
                   f"{'tak' if entry['stop'] else 'nie':>6}  {entry['blend_mm_requested']:g} → {entry['blend_mm_applied']:g}")
     log('result', **{k: status.get(k) for k in ('state', 'message', 'error', 'warnings', 'timeline', 'total_s', 'chains')})

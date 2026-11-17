@@ -2,9 +2,10 @@
 #include <cmath>
 #include <stdexcept>
 namespace robot_can_diagnostics {
-// Postój wału: enkoder magnetyczny i małe zawahania silnika dają szum pochodnej pozycji (filtr 100 ms)
-// rzędu setnych RPM. 0,5 RPM wału ≈ 0,3° wału na 100 ms, czyli rząd tolerancji dojazdu.
-inline constexpr double kStandstillShaftRpm=.5;
+// Postój wału (start JOG TCP, zmiana limitów): pochodna pozycji (filtr 100 ms). Trzymanie MKS oscyluje: J4 ±55 imp.
+// wału daje do ±2,1 RPM (11.11.2026; przy 0,5 RPM gotowość migała co 100 ms i odrzucała starty). 3 RPM wału =
+// 1,8°/s przegubu przy przełożeniu 10 — praktyczny postój; generator startuje od zmierzonej pozycji z v=0.
+inline constexpr double kStandstillShaftRpm=3.;
 inline bool shaft_at_standstill(double rpm) {return std::isfinite(rpm) && std::abs(rpm)<=kStandstillShaftRpm;}
 inline void validate_tcp_parameters(double jerk,double motor_tolerance_deg) {
   if(!std::isfinite(jerk) || jerk<=0 || jerk>10)throw std::invalid_argument("tcp_jog_max_jerk: wymagane (0, 10] m/s³");

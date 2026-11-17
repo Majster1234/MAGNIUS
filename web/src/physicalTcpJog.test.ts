@@ -21,13 +21,13 @@ it.each([false,true])("LIVE: mm i stopnie przechodzą do SI; puszczenie hamuje r
 });
 it.each(["ack","stale","socket","revision","hidden"])("utrata warunku %s zatrzymuje i nie wznawia automatycznie", reason=>{
     const s=setup();s.jog.start("z",-1,"base",10);s.jog.ack(1,true);s.status({ready:false,busy:true,generation:1});
-    if(reason==="ack") {s.time(50);s.jog.pulse();s.time(150);s.jog.pulse();}
-    if(reason==="stale") {s.time(250);s.jog.pulse();}
+    if(reason==="ack") {for(let t=50;t<=450;t+=50) {s.time(t);s.status({ready:false,busy:true,generation:1});s.jog.pulse();}}
+    if(reason==="stale") {s.time(500);s.jog.pulse();}
     if(reason==="socket") {s.socket.readyState=3;s.jog.pulse();}
     if(reason==="revision") s.status({configuration_revision:"other"});
     if(reason==="hidden") s.jog.stop(true);
     expect(s.jog.held).toBeNull();s.status({generation:1,state:"stopped"});const count=s.sent.length;
-    s.time(500);s.jog.pulse();expect(s.sent).toHaveLength(count);
+    s.time(1000);s.jog.pulse();expect(s.sent).toHaveLength(count);
     if(reason!=="socket") expect(s.sent.at(-1)).toMatchObject({action:"stop",emergency:true});
 });
 it("blokuje brak gotowości i przekroczenie fizycznego limitu",()=>{
@@ -38,4 +38,19 @@ it("KEEPALIVE TCP przy tyknięciu 45 ms zamiast przeskoku do 100 ms", ()=>{
     const s=setup();expect(s.jog.start("z",1,"base",10)).toBe(true);s.jog.ack(1,true);s.status({ready:false,busy:true,generation:1});
     s.time(30);s.jog.pulse();expect(s.sent).toHaveLength(1);
     s.time(45);s.jog.pulse();expect(s.sent[1]).toMatchObject({action:"keepalive"});
+});
+it("KEEPALIVE w potoku: opóźnione ACK nie wstrzymuje podtrzymania; odrzucenie po końcu sesji bez błędu", ()=>{
+    const s=setup();expect(s.jog.start("x",1,"base",10)).toBe(true);s.jog.ack(1,true);
+    for(let t=50;t<=300;t+=50) {s.time(t);s.status({ready:false,busy:true,generation:1});s.jog.pulse();}
+    expect(s.sent.filter(m=>m.action==="keepalive")).toHaveLength(6);expect(s.jog.held).not.toBeNull();
+    s.jog.ack(7,true);s.time(350);s.status({ready:false,busy:true,generation:1});s.jog.pulse();expect(s.jog.held).not.toBeNull();
+    // Serwer zakończył sesję (np. łagodne zatrzymanie): odrzucony KEEPALIVE kończy lokalnie, bez komunikatu.
+    s.status({ready:true,busy:false,generation:1,state:"stopped"});expect(s.jog.busy).toBe(false);
+    s.jog.ack(8,false,"Brak pasującego wykonania JOG TCP");expect(s.error).not.toHaveBeenCalled();
+});
+it("nowy START przejmuje własny ruch w dolocie (settling), ale nie ruch trzymany", ()=>{
+    const s=setup();expect(s.jog.start("x",1,"base",10)).toBe(true);s.jog.ack(1,true);s.status({ready:false,busy:true,generation:1,state:"running"});
+    expect(s.jog.start("y",1,"base",10)).toBe(false);
+    s.jog.stop();s.status({ready:false,busy:true,generation:1,state:"settling"});
+    expect(s.jog.start("y",-1,"base",10)).toBe(true);expect(s.sent.at(-1)).toMatchObject({action:"start",axis:"y",direction:-1});
 });

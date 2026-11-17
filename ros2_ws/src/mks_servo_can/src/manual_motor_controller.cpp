@@ -19,6 +19,15 @@ bool ManualMotorController::stopped(unsigned axis, Time now, std::chrono::millis
   return d.speed.fresh(now, 100ms) &&
       d.motor_state.fresh(now, 150ms) && d.motor_state.value == 1 && position_stable(axis, now, window);
 }
+// Oś z ENABLE=1 trzyma pozycję w pętli zamkniętej; MKS oscyluje przy tym (J4 ±55 imp. wału, ±2,1 RPM, 11.11.2026), więc
+// pasmo ±3 imp. blokowało zbiorcze ENABLE i ENABLE=0. Luźny wał (ENABLE=0) nadal musi stać w ±3 imp.
+bool ManualMotorController::group_axis_still(unsigned axis, Time now) const {
+  constexpr double kHoldingShaftRpm=3.;
+  const auto &d=bus_.devices_[axis];const auto &velocity=velocity_[axis-1];
+  if(d.enable.fresh(now,300ms) && d.enable.value)
+    return d.position.fresh(now,60ms) && velocity.valid && std::abs(velocity.value)<=kHoldingShaftRpm;
+  return position_stable(axis,now,100ms);
+}
 bool ManualMotorController::position_stable(unsigned axis, Time now, std::chrono::milliseconds window) const {
   const auto &p = bus_.devices_[axis].position; const auto &anchor = stationary_anchor_[axis - 1];
   return p.fresh(now, 60ms) && anchor.valid && p.stamp >= anchor.stamp + window &&
@@ -138,7 +147,7 @@ bool ManualMotorController::set_enable_all(bool enabled, Time now) {
   for(unsigned j=0;j<kAxes;++j) {
     const auto &device=bus_.devices_[j+1];
     if(!device.detected) continue;
-    if(!device.position.fresh(now,60ms) || !position_stable(j+1,now,100ms)) return false;
+    if(!device.position.fresh(now,60ms) || !group_axis_still(j+1,now)) return false;
     targets[j]=true;
   }
   if(std::none_of(targets.begin(),targets.end(),[](bool value){return value;})) return false;
@@ -160,7 +169,7 @@ void ManualMotorController::group_tick(Time now) {
     for(unsigned j=0;j<kAxes;++j) if(group_targets_[j] && !group_done_[j]) {
       if(now<group_next_) return;
       const auto &position=bus_.devices_[j+1].position;
-      if(!position.fresh(now,60ms) || position.stamp<=group_commit_started_ || !position_stable(j+1,now,100ms)) {
+      if(!position.fresh(now,60ms) || position.stamp<=group_commit_started_ || !group_axis_still(j+1,now)) {
         if(group_settle_deadline_==Time{}) group_settle_deadline_=now+1s;
         if(now<group_settle_deadline_) return;
         fail("Zmiana lub utrata pozycji przed ENABLE J"+std::to_string(j+1)+
@@ -370,7 +379,8 @@ void ManualMotorController::reply(const std::vector<std::uint8_t> &data, Time st
   if (data[0] == 0x32) { const auto v = parse_speed(axis_, data); if (!v) { fail("Błędny odczyt prędkości"); return; } d.speed.set(*v, stamp); value = *v; }
   if (data[0] == 0x31) { const auto v = parse_position(axis_, data); if (!v) { fail("Błędny odczyt pozycji"); return; } d.position.set(*v, stamp); value = *v; }
   if (data[0] == 0x32 && s.expected == 0) {
-    if (!position_stable(axis_, stamp)) { retry_at_ = stamp + 20ms; return; }
+    // Zerowanie ustala odniesienie: ±3 imp.; ENABLE/ENABLE=0 osi trzymającej pozycję dopuszcza jej oscylację (≤ 3 RPM).
+    if (!(operation_ == Operation::zero ? position_stable(axis_, stamp) : group_axis_still(axis_, stamp))) { retry_at_ = stamp + 20ms; return; }
     // 32H potrafi zachować ostatnią prędkość po postoju (potwierdzone na 1.0.9).
     // Warunek fizyczny pochodzi z kolejnych pozycji; w SR dodatkowo sprawdzamy F1.
     value = 0;

@@ -37,6 +37,7 @@ class Port final : public Transport {
   bool tx_confirmations{true},drop_sync_confirmation{},fail_f5{};
   unsigned missing_ack{},rejected_ack{},late_ack{},bad_firmware{};
   bool missing_speed{};
+  unsigned reject_sync_writes{};  // N kolejnych zapisów 0x4A odrzuconych (status 0)
   bool clear_pending_on_sync_disable{true}, reject_disabled_f5{};
   bool f7_clears_pending{true};
   std::uint32_t watchdog{300};
@@ -102,7 +103,9 @@ class Port final : public Transport {
         else reply={data[1],static_cast<uint8_t>(data[1]==0x82 ? 5 : data[1]==0x84 ? microsteps[axis] : bad_sync_mode || sync[axis])};
         break;
       case 0x8c:respond[axis]=data[1];complete[axis]=data[2];reply={0x8c,1};break;
-      case 0x4a:sync[axis]=data[1];if(!sync[axis] && clear_pending_on_sync_disable) pending_targets_valid[axis]=false;reply={0x4a,1};break;
+      case 0x4a:
+        if(reject_sync_writes) {--reject_sync_writes;reply={0x4a,0};break;}   // napęd w ruchu (F1=4) odrzuca zapis
+        sync[axis]=data[1];if(!sync[axis] && clear_pending_on_sync_disable) pending_targets_valid[axis]=false;reply={0x4a,1};break;
       case 0xf7:if(f7_clears_pending) pending_targets_valid[axis]=false;reply={data[0],1};break;
       case 0x82:case 0x98:reply={data[0],1};break;
       case 0x84:microsteps[axis]=data[1];reply={0x84,1};break;

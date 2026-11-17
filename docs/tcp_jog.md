@@ -95,8 +95,9 @@ referencje podczas TCP. Chwilowa kolizja pomija próbkę; dłuższą przerwę wy
 
 Usługa `/robot/manual/jog_tcp` (`JogTcp`) przyjmuje START/KEEPALIVE/STOP. START
 przekazuje kierunek, układ, prędkość, tryb/krok, model i rewizję. Most WebSocket
-nadaje sesję i czas monotoniczny. Pole `emergency` przy STOP wybiera natychmiastową
-ścieżkę STOP właściciela CAN. W zwykłym STOP kontroler wykonuje sprawdzone hamowanie.
+nadaje sesję i czas monotoniczny. Pole `emergency` przy STOP (klient wysyła je przy utracie
+łączności/danych panelu) od 11.11.2026 daje to samo łagodne zatrzymanie co zwykły STOP; przyczyna trafia
+do komunikatu końcowego („przerwano: STOP panelu …”) i telemetrii `panel_emergency`.
 Status `/robot/manual/tcp_status` (`TcpJogStatus`) trafia do `tcp_jog` w istniejących
 paczkach WebSocket stanu manualnego; po 250 ms przestaje być świeży.
 
@@ -326,3 +327,39 @@ Nowy build wymaga restartu usługi przy potwierdzonym postoju:
 ```bash
 sudo systemctl restart robot-web-status.service
 ```
+
+## Zatrzymania i nadzór (od 11.11.2026)
+
+Zasada: **ENABLE=0 tylko przy najgorszych awariach** (ucieczka osi, brak postoju napędu, limit mechaniczny
+w pomiarze, utrata odczytów CAN). Zakłócenia łączności panelu i umiarkowane uchyby kończą ruch łagodnie:
+ucięcie kolejki → dolot → potwierdzenie postoju → status `stopped` z przyczyną; napędy trzymają pozycję.
+
+| Zdarzenie | Reakcja |
+| --- | --- |
+| Brak KEEPALIVE ≥ 150 ms (`TcpJogApi`) lub ≥ 200 ms (właściciel CAN) | łagodne ucięcie, „przerwano: brak KEEPALIVE …” |
+| STOP z `emergency` (przeglądarka: cisza ACK ≥ 400 ms / stanu ≥ 500 ms, zamknięty socket) | łagodne ucięcie |
+| Wyjątek generatora/API przy aktywnej sesji (odrzucone punkty, timeout impulsu, zmiana konfiguracji) | łagodne ucięcie (`tcp_jog_soft_stop`); STOP z ENABLE=0 tylko, gdy ucięcie niemożliwe |
+| Uchyb śledzenia > 3° (referencja w chwili odbioru pomiaru − pomiar, jak SYNC) | łagodne ucięcie (`tcp_soft_stop`) |
+| Uchyb śledzenia > 4° (`kRunawayTrackingLimitRad`) | awaria krytyczna „ucieczka osi” |
+| Dolot: |cel − pomiar| > 4° lub uchyb rośnie po dwóch kolejnych korektach (> 1°) | awaria krytyczna „ucieczka osi” |
+| Dolot 5 s, pozycja nadal zmienna (poza oknem tolerancji) | awaria krytyczna „brak postoju” |
+| Dolot 5 s, pozycje stałe (uchyb poza tolerancją lub F1≠1) | koniec z ostrzeżeniem (`tcp_final_incomplete`) |
+
+Dolot (`CanBusManager::tcp_final`): przez cały dolot cel końcowy jest wysyłany co slot 10 ms (**strumień
+trzymania**). Bez niego MKS po dojechaniu do ostatniego celu F5 potrafił ruszyć z powrotem w stronę wcześniejszych
+celów trasy (jak wykonanie zaległej komendy; 8 awarii „> 4° od celu” w sesji 1, 0 po zmianie). Korekta
+`F5 += cel − pomiar` co ≥ 200 ms tylko dla osi poza tolerancją, która **stoi** (pomiary w ±tolerancji pozycji przez
+150 ms; J4 w trzymaniu oscyluje ±55 imp. wału) albo nie ustała po 600 ms od poprzedniej korekty. Koniec, gdy
+wszystkie osie są w tolerancji, stabilne, |RPM| ≤ 1 i F1=1 albo pozycja stała ≥ 500 ms (MKS bywa w F1=4 przy
+stojącym wale), dwukrotnie w odstępie ≥ 100 ms; dopiero wtedy nadzór postoju kotwiczy pozycję trzymania.
+
+**Przejęcie dolotu:** START z tej samej sesji panelu w trakcie dolotu (stan `settling`, ok. 1–2 s po puszczeniu)
+od razu rozpoczyna nowy ruch — `begin_tcp_jog` kończy dolot i aktywuje nową sesję atomowo (nieudany start = dolot
+trwa dalej). Klient i most dopuszczają taki START; inna sesja lub otwarta kolejka — odrzucenie.
+Start JOG TCP wymaga postoju wału |pochodna pozycji| ≤ 3 RPM (`kStandstillShaftRpm`; oscylacja trzymania J4 do
+±2,1 RPM przy progu 0,5 RPM przełączała gotowość co 100 ms).
+
+Klient (`physicalTcpJog.ts`): KEEPALIVE w potoku co ≥ 40 ms bez czekania na ACK poprzedniego (opóźnione ACK
+WiFi nie wstrzymuje podtrzymania); deadman pozostaje po stronie serwera (150 ms). Pendant po łagodnym
+zatrzymaniu z powodu łączności wznawia ruch przy trzymanym drążku; po końcu drogi (limit, osobliwość, uchyb)
+czeka na powrót drążka do środka (`docs/teach_pendant.md`).

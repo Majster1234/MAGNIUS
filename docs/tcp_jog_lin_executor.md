@@ -40,7 +40,7 @@ Jedyna różnica względem LIN: koniec ruchu nie jest znany z góry.
 - Brak danych generatora (kolejka się skończyła) = ucięcie na końcu kolejki, bez awarii.
 - **Dolot i potwierdzenie jak PTP:** po 300 ms co 200 ms F5 += cel − pomiar dla osi poza `execution_position_tolerance_rad`;
   koniec po dwóch pomiarach w tolerancji odległych ≥ 100 ms; awaria po 5 s.
-- Zostały zabezpieczenia: KEEPALIVE 200 ms (tylko przy otwartej kolejce), uchyb śledzenia ≤ 1,25°,
+- Zostały zabezpieczenia (od 11.11.2026 łagodne zatrzymania, ENABLE=0 tylko przy ucieczce — `docs/tcp_jog.md` „Zatrzymania i nadzór”): KEEPALIVE 200 ms (tylko przy otwartej kolejce), uchyb śledzenia 3°/4°,
   pomiar w limitach mechanicznych, świeżość pozycji, siatka F5 z oknem odczytów.
 - Usunięte: `tcp_streaming_setpoint`, `tcp_final_approach`, `brake_tcp_jog`, liczenie kroków generatora,
   przyjmowanie pojedynczych paczek `CommandBatch` od JOG TCP.

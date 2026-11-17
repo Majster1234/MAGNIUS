@@ -65,6 +65,10 @@ class MotionExecutor {
   std::array<double,6> final_command{};
   Time final_started{}, final_next{};
   Time settling_since{};  // pierwsze niepotwierdzenie postoju po dolocie (limit kSettleTimeout)
+  // Dolot SYNC (11.11.2026): koniec strumienia trzymania (osie w tolerancji i stabilne); niepełny dolot przy stojących
+  // osiach = program nieudany bez awarii/ENABLE=0 (po przywróceniu 4A=0); ostrzeżenie dołączane do komunikatu końca.
+  bool hold_done{};
+  std::string soft_failure, warning;
   bool sync_waiting_confirmation{}, sync_uncertain{};
   std::array<Time,6> staged_sent{};
   std::uint8_t staged_ack_mask{};

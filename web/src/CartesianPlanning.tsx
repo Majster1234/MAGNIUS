@@ -215,7 +215,7 @@ export function CartesianPlanning({ positions, context, editing, usable, onMotio
         </div>
         <div className="motion-extra"><label className="motion-frames-toggle"><input type="checkbox" checked={showMotionFrames} onChange={event => onShowMotionFrames?.(event.target.checked)} />Pokaż klatki pośrednie</label>
         <details className="motion-more" open={invalidStart || undefined}><summary>Start symulacji</summary>
-            <small>Przy osobliwości nadgarstka J4/J6 zwalniają do maks. 5°/s.</small>{" "}
+            <small>LIN przy osobliwości nadgarstka: J4/J6 zwalniają do maks. 5°/s (PTP — bez ograniczenia).</small>{" "}
             {start && <small>Stały start · symulowane odniesienie: {start.simulated.map((value, i) => value ? `J${i + 1}` : "").filter(Boolean).join(", ") || "brak"}</small>}
             <p>Pomiar → ostatni pomiar → 0° tylko w symulacji. Korekta obowiązuje przy następnym wyborze ruchu.</p>
             <div className="cartesian-seed">{Array.from({ length: 6 }, (_, i) => <label key={i}>J{i + 1} · {context?.seed_sources[i] === "measured" ? "pomiar" : context?.seed_sources[i] === "last" ? "ostatni" : "sym. 0°"}

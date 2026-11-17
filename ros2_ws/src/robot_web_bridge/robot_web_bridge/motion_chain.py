@@ -2,7 +2,8 @@
 
 Ciąg = ruchy wysyłane do wykonawcy jako jedna trajektoria (planer: ComputeMotionChain, motion_type "CHAIN").
 Wewnątrz ciągu promień 0 oznacza postój w punkcie (v=0), promień > 0 — płynne przejście. Ciąg kończy się na końcu
-programu, punkcie synchronizacji albo limicie (czas, liczba ruchów); ostatni ruch ciągu zawsze się zatrzymuje.
+programu, punkcie synchronizacji (czekanie, czekanie na operatora) albo limicie (czas, liczba ruchów); ostatni ruch ciągu
+zawsze się zatrzymuje. Punkty synchronizacji przed ruchami ciągu: ``ChainBuilder.leading``.
 """
 import math
 from collections import deque
@@ -14,12 +15,28 @@ CHAIN_MAX_DURATION_S = 95.    # limit planera dla ciągu (wykonawca: 10 000 punk
 BLEND_MAX_MM = 500.
 
 
+def joint_ranges(values):
+    """Zakresy osi z konfiguracji: (joint.N.lower, joint.N.upper) [°]; None, gdy brak danych (null ≠ 0)."""
+    out = []
+    for j in range(1, 7):
+        low, high = values.get(f'joint.{j}.lower'), values.get(f'joint.{j}.upper')
+        ok = all(type(v) in (int, float) and math.isfinite(v) for v in (low, high)) and low < high
+        out.append((float(low), float(high)) if ok else None)
+    return out
+
+
+def limit_violations(joints_deg, ranges):
+    """[(oś 1–6, kąt, dolny, górny)] dla kątów poza zakresem."""
+    return [(j + 1, q, r[0], r[1]) for j, (q, r) in enumerate(zip(joints_deg, ranges)) if r and not r[0] - 1e-6 <= q <= r[1] + 1e-6]
+
+
 class MotionLimits:
     """Limity osi i TCP z aktywnej konfiguracji robota (istniejące klucze; nic nie jest zgadywane)."""
 
-    def __init__(self, joint_velocity, joint_acceleration, tcp_velocity, tcp_acceleration, tcp_angular):
+    def __init__(self, joint_velocity, joint_acceleration, tcp_velocity, tcp_acceleration, tcp_angular, joint_range=None):
         self.joint_velocity, self.joint_acceleration = list(joint_velocity), list(joint_acceleration)   # °/s, °/s²
         self.tcp_velocity, self.tcp_acceleration, self.tcp_angular = tcp_velocity, tcp_acceleration, tcp_angular
+        self.joint_range = joint_range or [None] * 6   # (dolny, górny) [°] albo None (brak danych)
 
     @classmethod
     def from_configuration(cls, values):
@@ -31,10 +48,15 @@ class MotionLimits:
         tcp = [values.get(key) for key in ('tcp.max_linear_velocity', 'tcp.linear_acceleration', 'tcp.max_angular_velocity')]
         if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in velocity + acceleration):
             raise ProgramFailure('Konfiguracja robota: limity osi muszą być dodatnie')
-        return cls(velocity, acceleration, *[float(v) if type(v) in (int, float) else None for v in tcp])
+        return cls(velocity, acceleration, *[float(v) if type(v) in (int, float) else None for v in tcp], joint_ranges(values))
 
     def segment(self, move):
         """Ruch → pola MotionSegment (SI). PTP: % najwolniejszej osi (jak dawny Mover); LIN: mm/s ≤ tcp.max_linear_velocity."""
+        if move.joints_deg is None:
+            raise ProgramFailure('Ruch względny bez wyznaczonego celu (IK)', move.block_id)
+        for j, (q, bounds) in enumerate(zip(move.joints_deg, self.joint_range)):
+            if bounds and not bounds[0] - 1e-6 <= q <= bounds[1] + 1e-6:
+                raise ProgramFailure(f'{move.position}: J{j + 1} = {q:.2f}° poza zakresem osi [{bounds[0]:g}, {bounds[1]:g}]°', move.block_id)
         if not 0 <= move.blend_mm <= BLEND_MAX_MM:
             raise ProgramFailure(f'Promień pominięcia {move.blend_mm:g} mm poza zakresem 0–{BLEND_MAX_MM:g} mm', move.block_id)
         segment = {'tag': move.block_id, 'motion_type': move.kind, 'target_positions': [math.radians(q) for q in move.joints_deg],
@@ -49,16 +71,28 @@ class MotionLimits:
         if None in (self.tcp_velocity, self.tcp_acceleration, self.tcp_angular):
             raise ProgramFailure('Konfiguracja robota: brak limitów TCP (tcp.max_linear_velocity / linear_acceleration / '
                                  'max_angular_velocity)', move.block_id)
-        if not 0 < move.speed <= self.tcp_velocity:
-            raise ProgramFailure(f'LIN: prędkość {move.speed:g} mm/s poza zakresem (0, {self.tcp_velocity:g}] z konfiguracji', move.block_id)
+        angular = min(360., max(10., self.tcp_angular))
+        if move.angular_speed is not None:   # obrót względny: prędkość kątowa z bloku, posuw liniowy bez ograniczenia z bloku
+            if not 0 < move.angular_speed <= angular:
+                raise ProgramFailure(f'Obrót: prędkość {move.angular_speed:g}°/s poza zakresem (0, {angular:g}] z konfiguracji', move.block_id)
+            angular, linear = move.angular_speed, self.tcp_velocity
+        else:
+            if not 0 < move.speed <= self.tcp_velocity:
+                raise ProgramFailure(f'LIN: prędkość {move.speed:g} mm/s poza zakresem (0, {self.tcp_velocity:g}] z konfiguracji', move.block_id)
+            linear = move.speed
         segment['max_joint_velocity'] = [math.radians(v) for v in self.joint_velocity]
         segment['max_joint_acceleration'] = [math.radians(a) for a in self.joint_acceleration]
-        segment.update(tcp_velocity=move.speed / 1000, tcp_acceleration=max(100., self.tcp_acceleration) / 1000,
-                       tcp_angular_velocity=math.radians(min(360., max(10., self.tcp_angular))))
+        segment.update(tcp_velocity=linear / 1000, tcp_acceleration=max(100., self.tcp_acceleration) / 1000,
+                       tcp_angular_velocity=math.radians(angular))
         return segment
 
     def estimate(self, start_deg, move):
         """Przybliżony czas ruchu [s] (podział na ciągi; dokładny czas liczy planer)."""
+        if move.joints_deg is None:   # ruch względny przed IK: szacunek z przyrostu
+            relative = move.relative or {}
+            if move.angular_speed:
+                return max(abs(v) for v in relative.get('rotation_deg', [0.])) / move.angular_speed + 1.
+            return math.dist(relative.get('translation_mm', [0., 0., 0.]), (0., 0., 0.)) / max(move.speed, 1e-6) + 1.
         if start_deg is None:
             return 0.
         if move.kind == 'PTP':
@@ -75,6 +109,7 @@ class ChainBuilder:
         self.events, self.limits = iter(events), limits
         self.pending = deque()
         self.finished = False
+        self.leading = []
 
     def peek(self):
         if not self.pending and not self.finished:
@@ -101,14 +136,17 @@ class ChainBuilder:
     def next_chain(self, start_deg=None):
         """→ (ruchy, ostrzeżenia). Ruchy = kopie zdarzeń Move (ostatni z blend_mm=0)."""
         moves, warnings, total, position = [], [], 0., start_deg
+        self.leading = []   # punkty synchronizacji (czekanie, operator) przed ruchami tego ciągu — obsługuje wykonawca
         while True:
             event = self.peek()
             if event is None:
                 break
-            if not isinstance(event, Move):   # Sync: koniec ciągu (zdarzenie obsługuje wykonawca)
+            if not isinstance(event, Move):   # Sync: koniec ciągu
                 if not moves:
                     self.take()
-                    warnings.append({'block_id': event.block_id, 'code': 'sync', 'text': event.reason})
+                    self.leading.append(event)
+                    if event.kind == 'sync':
+                        warnings.append({'block_id': event.block_id, 'code': 'sync', 'text': event.reason})
                     continue
                 break
             if len(moves) >= MAX_CHAIN_SEGMENTS or (moves and total >= CHAIN_ESTIMATE_S):
@@ -116,7 +154,7 @@ class ChainBuilder:
             self.take()
             moves.append(Move(**vars(event)))
             total += self.limits.estimate(position, event)
-            position = event.joints_deg
+            position = event.joints_deg or position
         if moves and moves[-1].blend_mm > 0:
             nxt = self.peek()
             if nxt is None:
@@ -124,7 +162,9 @@ class ChainBuilder:
             elif isinstance(nxt, Move):
                 code, text = 'chain_split', 'Podział programu na ciągi (limit czasu/liczby ruchów) — postój w punkcie'
             else:
-                code, text = 'blend_not_possible', 'Następny ruch nieznany (punkt synchronizacji) — postój w punkcie'
+                code, text = 'blend_not_possible', {'wait': 'Czekanie po ruchu — postój w punkcie',
+                                                    'operator': 'Czekanie na operatora po ruchu — postój w punkcie'}.get(
+                    nxt.kind, 'Następny ruch nieznany (punkt synchronizacji) — postój w punkcie')
             warnings.append({'block_id': moves[-1].block_id, 'code': code, 'text': text})
             moves[-1].blend_mm = 0.
         return moves, warnings

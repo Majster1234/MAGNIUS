@@ -4,6 +4,7 @@ import { ConfigurationPreview } from "./ConfigurationPreview";
 import { dispatchModeKey, criticalFaultPolicyKey, positionIntegralKey, minDitherKey, minDitherDefault, minDitherMax, f5AccelerationKey, systemConfigurationKeys, dirtyKeys, fieldErrors } from "./configurationData";
 import { useConfiguration } from "./useConfiguration";
 import { useSystemSettings } from "./planningContext";
+import { setAnimationsEnabled, useAnimationsEnabled } from "./animations";
 
 type Field = {
     key: string; label: string; unit?: string; placeholder?: string; min?: number;
@@ -119,6 +120,7 @@ function SystemSetting({id, label, description, status, pending = false, group =
 
 export function ConfigurationPage() {
     const system = useSystemSettings();
+    const animations = useAnimationsEnabled();
     const [section, setSection] = useState<"system" | "robot">("system");
     const [tableView, setTableView] = useState<"geometry" | "limits">("geometry");
     const [draft, setDraft] = useState(readDraft);
@@ -206,6 +208,15 @@ export function ConfigurationPage() {
                         onChange={event => void system.save(event.target.checked, "allow_missing_motion")}/>
                 </SystemSetting>
                 {system.error && <p className="system-settings-error" role="status">{system.error}</p>}
+            </section>
+            <section className="system-settings-group" aria-labelledby="system-interface-title">
+                <header><span className="eyebrow">WYGLĄD</span><h2 id="system-interface-title">Interfejs</h2></header>
+                <SystemSetting id="system-animations-off" label="Wyłącz animacje interfejsu"
+                    description="Wyłącza wszystkie animacje i przejścia interfejsu: lądowanie bloków i rozsuwanie programu w edytorze, migające wskaźniki, płynne przełączniki itp. Zmiany są wtedy natychmiastowe. Ustawienie tej przeglądarki (stanowiska) — zapisuje się od razu, nie wymaga zapisu do ROS i nie zmienia rewizji ustawień planowania. Nie dotyczy podglądu ruchu robota (odtwarzanie trajektorii, model 3D)."
+                    status={animations ? "Animacje włączone" : "Animacje wyłączone"}>
+                    <input id="system-animations-off" className="system-setting-switch" type="checkbox" role="switch"
+                        checked={!animations} onChange={event => setAnimationsEnabled(!event.target.checked)}/>
+                </SystemSetting>
             </section>
             <section className="system-settings-group" aria-labelledby="system-motion-title">
                 <header><span className="eyebrow">STEROWANIE ROBOTEM</span><h2 id="system-motion-title">Wykonanie i zabezpieczenia</h2></header>

@@ -145,6 +145,9 @@ Początkowe maksimum JOG wynosi 30 obr./min. Można je zmienić parametrem launc
    następnie załącza `F3` i potwierdza ENABLE przez `3A`.
    **Załącz wszystkie** przygotowuje osie po kolei, a potem załącza je co ≥ 200 ms. Przed `F3` danej osi
    wymaga świeżej pozycji odczytanej **po zakończeniu przygotowania** i stabilnej (±3 impulsy) przez 100 ms.
+   Wyjątek (11.11.2026): oś już z ENABLE=1 trzyma pozycję w pętli zamkniętej i MKS potrafi przy tym oscylować
+   (J4 ±55 impulsów, ok. ±2 RPM), co blokowało zbiorcze ENABLE i ENABLE=0. Dla takiej osi przy ENABLE/ENABLE=0
+   wystarcza prędkość z pozycji ≤ 3 RPM (`group_axis_still`); luźny wał (ENABLE=0) i zerowanie — nadal ±3 impulsy.
    Wał po `F3 00`/`F7` może osiąść (05.11: J1 o 6 impulsów, ok. 0,13° wału), więc sekwencja czeka do 1 s
    na stabilizację; dopiero potem zgłasza „Zmiana lub utrata pozycji przed ENABLE”. Ponowne
    **Załącz wszystkie** przy osiach już przygotowanych nie zgłasza fałszywego „Przekroczony czas operacji

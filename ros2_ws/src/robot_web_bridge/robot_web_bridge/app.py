@@ -426,6 +426,8 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
             emergency = cmd.get('emergency', False)
             if type(emergency) is not bool:
                 raise ValueError('Nieprawidłowy STOP TCP')
+            # Połączenie panelu przy każdej komendzie TCP (diagnostyka przerw KEEPALIVE: telefon czy PC).
+            trace('ws_tcp_command', connection=connection, action=action, sequence=sequence, emergency=emergency)
             values = dict(axis=0, direction=0, frame='base', impulse=False, emergency=emergency, velocity=0., step=0., model_id='', revision='')
             if action == 'start':
                 tcp_status = manual_store.snapshot().get('tcp_jog', {})
@@ -440,7 +442,8 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
                     raise ValueError('Nieprawidłowy profil TCP')
                 if any(not isinstance(cmd.get(key), str) or not 0 < len(cmd[key]) <= 64 for key in ('model_id', 'revision')):
                     raise ValueError('Nieprawidłowa rewizja TCP')
-                if active_axis or tcp_active:
+                # Dolot poprzedniego JOG TCP tej sesji może przejąć nowy START (decyduje kontroler TCP).
+                if active_axis or tcp_active and tcp_status.get('state') != 'settling':
                     reply({'type': 'tcp_ack', 'sequence': sequence, 'accepted': False, 'message': 'Poprzedni ruch nadal trwa'})
                     return
                 values.update(axis=('x', 'y', 'z', 'rx', 'ry', 'rz').index(axis), direction=direction, frame=frame,

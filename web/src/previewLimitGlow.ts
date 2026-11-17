@@ -1,10 +1,21 @@
 import * as THREE from "three";
 import type { URDFRobot } from "urdf-loader";
 import type { LimitIndicator } from "./previewLimits";
+import { animationsEnabled } from "./animations";
+
+// Przegub dla znaczników: człon nadrzędny, położenie i orientacja układu przegubu (przed obrotem) oraz oś obrotu.
+export type LimitJointFrame = { parent: THREE.Object3D; position: THREE.Vector3; quaternion: THREE.Quaternion; axis: THREE.Vector3 };
 
 // Dwa znaczniki na przegub. Zasoby powstają raz; poświata jest lokalnym
 // sprite'em i wycinkiem pierścienia, bez renderowania całej sceny do bloom.
 export function createLimitGlows(robot: URDFRobot, host: HTMLElement) {
+    return createLimitGlowsFor(Array.from({ length: 6 }, (_, i) => {
+        const joint = robot.joints[`joint_${i + 1}`];
+        return { parent: joint.parent!, position: joint.position, quaternion: joint.quaternion, axis: joint.axis };
+    }), host);
+}
+// To samo dla dowolnego modelu (np. podgląd programu z prymitywów).
+export function createLimitGlowsFor(frames: LimitJointFrame[], host: HTMLElement) {
     const canvas = document.createElement("canvas"); canvas.width = canvas.height = 64;
     const context = canvas.getContext("2d");
     if (!context) throw Error("Brak obsługi poświaty");
@@ -17,12 +28,11 @@ export function createLimitGlows(robot: URDFRobot, host: HTMLElement) {
     const texture = new THREE.CanvasTexture(canvas);
     const geometry = new THREE.RingGeometry(.04, .085, 32, 1, -Math.PI / 4, Math.PI / 2);
     const z = new THREE.Vector3(0, 0, 1);
-    const markers = Array.from({ length: 6 }, (_, i) => {
-        const joint = robot.joints[`joint_${i + 1}`];
+    const markers = frames.map((joint, i) => {
         // Układ sprzed obrotu tego przegubu: granice pozostają nieruchome
         // względem poprzedniego członu, uwzględniając origin/RPY z URDF.
         const origin = new THREE.Group(); origin.position.copy(joint.position); origin.quaternion.copy(joint.quaternion);
-        joint.parent!.add(origin);
+        joint.parent.add(origin);
         const plane = new THREE.Group(); plane.quaternion.setFromUnitVectors(z, joint.axis.clone().normalize()); origin.add(plane);
         return (["lower", "upper"] as const).map(side => {
             const pivot = new THREE.Group(); pivot.visible = false; plane.add(pivot);
@@ -60,7 +70,8 @@ export function createLimitGlows(robot: URDFRobot, host: HTMLElement) {
                     }
                 }
                 if (!indicator) continue;
-                const pulse = indicator.level === "exceeded" && indicator.fresh ? .55 + .45 * (.5 + .5 * Math.sin(now * Math.PI * 2 / 1000)) : 1;
+                // Pulsowanie przekroczenia — stałe przy wyłączonych animacjach interfejsu.
+                const pulse = indicator.level === "exceeded" && indicator.fresh && animationsEnabled() ? .55 + .45 * (.5 + .5 * Math.sin(now * Math.PI * 2 / 1000)) : 1;
                 const opacity = (indicator.fresh ? 1 : .4) * pulse;
                 const glowOpacity = opacity * (indicator.critical ? .95 : .7);
                 if (marker.glow.material.opacity !== glowOpacity) dirty = true;

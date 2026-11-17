@@ -45,6 +45,22 @@ def pose_values(values):
         'z': cr * cp * sy - sr * sp * cy, 'w': cr * cp * cy + sr * sp * sy}}
 
 
+def ik_failure_text(positions, lower, upper, start_degrees, position_error, orientation_error, message=''):
+    """Czytelna przyczyna braku IK ruchu względnego: osie zatrzymane na granicy zakresu (solver ogranicza krok do limitów)."""
+    blocked = []
+    for i, (q, lo, hi) in enumerate(zip(positions, lower, upper)):
+        if abs(q - hi) < 1e-7:
+            blocked.append(f'J{i + 1} na górnej granicy {math.degrees(hi):g}°')
+        elif abs(q - lo) < 1e-7:
+            blocked.append(f'J{i + 1} na dolnej granicy {math.degrees(lo):g}°')
+    start = ', '.join(f'{q:.4g}' for q in start_degrees)
+    rest = f'pozostały błąd {position_error * 1000:.2f} mm / {math.degrees(orientation_error):.3f}°; start J = [{start}]°'
+    if blocked:
+        return (f'cel poza zakresem osi — {", ".join(blocked)} (ruch wymaga wyjścia poza limit; {rest}). '
+                'Odsuń punkt startowy od granicy zakresu, zmniejsz przyrost albo zmień kierunek/układ')
+    return f'{message or "brak rozwiązania IK"} ({rest}). Możliwa osobliwość lub cel poza zasięgiem — zmniejsz przyrost'
+
+
 async def ros_result(future, timeout=3):
     loop = asyncio.get_running_loop()
     result = loop.create_future()
@@ -460,6 +476,10 @@ class PlanningClient:
         return {'model_id': identifier, 'configuration_revision': revision, 'snapshot': (code, snapshot),
                 'values': snapshot['active']['document']['values'], 'seeds': seeds, 'sources': sources}
 
+    def robot_state(self):
+        """Stan osi i napędów (sterowanie ręczne) do analizy przed startem programu."""
+        return self.manual.snapshot()
+
     async def chain_context(self, seeds_degrees, physical, start):
         data = {'model_id': start['model_id'], 'configuration_revision': start['configuration_revision'],
                 'seed_degrees': list(seeds_degrees), 'simulated_start': list(start.get('simulated_start') or [False] * 6),
@@ -471,6 +491,36 @@ class PlanningClient:
             context.simulated_start = [False] * 6
             context.locked = [False] * 6
         return context
+
+    async def relative_target(self, from_degrees, start, relative):
+        """Ruch względny programu: FK z ``from_degrees``, przesunięcie [mm] i obroty [°] (kolejno X, Y, Z, wokół początku TCP)
+        w układzie bazy lub narzędzia (jak JOG TCP), IK z ziarnem ``from_degrees`` → kąty przegubów [°]."""
+        from .tcp_jog import increment_pose
+        if not self.ik.service_is_ready():
+            raise RuntimeError('Solver IK jest niedostępny')
+        context = await self.chain_context(from_degrees, False, start)
+
+        async def compute(request):
+            future = self.ik.call_async(request)
+            try:
+                return await ros_result(future)
+            finally:
+                self.ik.remove_pending_request(future)
+        forward = await compute(self.ik_type.Request(context=context, forward_only=True))
+        if not forward.success:
+            raise ValueError(forward.message or 'brak FK punktu startowego')
+        pose = forward.tcp
+        for axis, value in zip(('x', 'y', 'z'), relative.get('translation_mm', [0, 0, 0])):
+            if value:
+                pose = increment_pose(pose, relative['frame'], axis, value / 1000)
+        for axis, value in zip(('rx', 'ry', 'rz'), relative.get('rotation_deg', [0, 0, 0])):
+            if value:
+                pose = increment_pose(pose, relative['frame'], axis, math.radians(value))
+        answer = await compute(self.ik_type.Request(context=context, target=pose, position_tolerance=1e-6, orientation_tolerance=1e-5))
+        if not answer.success:
+            raise ValueError(ik_failure_text(answer.positions, context.lower, context.upper, from_degrees,
+                                             answer.position_error, answer.orientation_error, answer.message))
+        return [math.degrees(q) for q in answer.positions]
 
     async def plan_chain(self, context, segments, max_duration, feedback=None):
         from robot_control_interfaces.msg import MotionSegment

@@ -100,3 +100,17 @@ TEST(EnableAll, RepeatedEnableAllWhenEverythingIsPreparedDoesNotReportStaleTimeo
   EXPECT_FALSE(rig.bus->manual().busy());
   for(unsigned axis=1;axis<=6;++axis) EXPECT_TRUE(rig.port->enabled[axis]);
 }
+TEST(EnableAll, HoldingAxisOscillationDoesNotBlockGroupEnableLooseShaftDoes) {
+  // J4 z ENABLE=1 drga ±50 imp. co 100 ms (oscylacja trzymania MKS, ok. 2 RPM): zbiorcze ENABLE/ENABLE=0 przyjęte.
+  // Ten sam ruch przy ENABLE=0 (luźny wał) nadal blokuje.
+  for(bool holding:{true,false}) {
+    Rig rig;rig.port->enabled[4]=holding;rig.ready();
+    for(unsigned i=0;i<10;++i) {rig.port->positions[4]+=i%2 ? -50 : 50;rig.run(100);}
+    const bool accepted=rig.bus->manual().set_enable_all(false,rig.now);
+    EXPECT_EQ(accepted,holding) << (holding ? "oś trzymająca" : "luźny wał");
+    if(!accepted) continue;
+    for(unsigned i=0;i<25;++i) {rig.port->positions[4]+=i%2 ? -50 : 50;rig.run(100);}
+    ASSERT_FALSE(rig.bus->snapshot().fault)<<rig.bus->snapshot().message;
+    for(unsigned axis=1;axis<=6;++axis) EXPECT_FALSE(rig.port->enabled[axis]) << axis;
+  }
+}

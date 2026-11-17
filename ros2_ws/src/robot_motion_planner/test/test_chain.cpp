@@ -3,6 +3,9 @@
 #include <iterator>
 #include <algorithm>
 #include "robot_motion_planner/planner.hpp"
+#include "../src/planner_detail.hpp"
+#include "mks_servo_can/bus_manager.hpp"
+#include "mks_servo_can/streaming_motion.hpp"
 using namespace robot_motion_planner;
 namespace {
 using Joints=robot_kinematics::Joints;
@@ -174,4 +177,52 @@ TEST(Chain, PhysicalRequiresProfilesAndCompilesMks) {
   const auto r=compute_chain(c,{ptp(q1,0)},90,acc);
   EXPECT_TRUE(r.plan.mks_compatible) << r.plan.mks_message; EXPECT_FALSE(r.plan.simulation_only);
   int calls=0; EXPECT_THROW(compute_chain(c,{ptp(q1,0)},90,acc,[&]{ return ++calls>20; }),std::runtime_error);
+}
+
+// Regresja 10.11.2026: PTP ≥ ~50% odrzucany przez wykonawcę („Trajektoria streaming przekracza limity osi”) — otoczka
+// Bernsteina na skoku przyspieszenia TOTG. Po podziale odcinków tego samego wielomianu wykonawca przyjmuje plan.
+TEST(Chain,RefineForStreamingSatisfiesExecutorEnvelope) {
+  Context c=context(); const double vmax=80*M_PI/180,amax=500*M_PI/180;
+  for(unsigned j=0;j<6;++j) { auto &p=c.profiles[j]; p.axis=j+1; p.configured=true; p.gear_ratio=10; p.direction=1; p.lower_rad=-3; p.upper_rad=3;
+    p.velocity_rad_s=vmax; p.acceleration_rad_s2=amax; }
+  // Rozpędzanie i hamowanie (bang-bang, 60% przyspieszenia; rzeczywiste maksimum wielomianu ≈ 82% limitu) co h; w węzłach postoju i przełączenia a=0 — jak w wyniku TOTG.
+  detail::Trajectory t; double h=.0123,a=.6*amax;
+  auto add=[&](double time,double q,double v,double acc) { trajectory_msgs::msg::JointTrajectoryPoint p; p.positions.assign(6,0); p.velocities.assign(6,0);
+    p.accelerations.assign(6,0); p.positions[4]=q; p.velocities[4]=v; p.accelerations[4]=acc; p.time_from_start=detail::duration(time); t.points.push_back(p); };
+  add(0,0,0,0); add(h,a*h*h/2,a*h,a); add(2*h,2*a*h*h,2*a*h,0); add(3*h,3.5*a*h*h,a*h,-a); add(4*h,4*a*h*h,0,0);
+  std::array<mks_servo_can::AxisConfig,6> axes; std::array<std::uint16_t,6> micro; micro.fill(128);
+  for(unsigned j=0;j<6;++j) { axes[j]={static_cast<std::uint16_t>(j+1),10,1,0,-3,3,vmax,amax,0,250,{}}; axes[j].streaming.acceleration=250; }
+  auto executor=[&](const detail::Trajectory &tr) {
+    mks_servo_can::PreparedMotionProgram p; p.participating.fill(true);
+    for(const auto &point:tr.points) { mks_servo_can::ProgramPoint q; q.seconds=time_of(point);
+      for(unsigned j=0;j<6;++j) { q.positions[j]=point.positions[j]; q.velocities[j]=point.velocities[j]; q.accelerations[j]=point.accelerations[j]; } p.points.push_back(q); }
+    return mks_servo_can::compile_streaming_program(p,axes,micro);
+  };
+  EXPECT_THROW(executor(t),std::invalid_argument);
+  const auto before=t; const auto added=detail::refine_for_streaming(t,c);
+  EXPECT_GT(added,0u); EXPECT_LE(added,60u);
+  EXPECT_NO_THROW(executor(t));
+  // Węzły pierwotne zostają, punkty pośrednie leżą na tym samym wielomianie (sample()).
+  size_t cursor=0; for(const auto &point:t.points) { const auto s=detail::sample(before,time_of(point),cursor);
+    EXPECT_NEAR(point.positions[4],s.q[4],1e-12); EXPECT_NEAR(point.velocities[4],s.v[4],1e-9); }
+  // Wielomian bez zmian: punkty pośrednie leżą na pierwotnej krzywej.
+  EXPECT_NEAR(time_of(t.points.back()),4*h,1e-9);
+  // Trajektoria naprawdę za szybka (rzeczywiste maksimum ≈ 124% limitu) — podział nie ukrywa przekroczenia.
+  t.points.clear(); a=.9*amax;
+  add(0,0,0,0); add(h,a*h*h/2,a*h,a); add(2*h,2*a*h*h,2*a*h,0); add(3*h,3.5*a*h*h,a*h,-a); add(4*h,4*a*h*h,0,0);
+  detail::refine_for_streaming(t,c); EXPECT_THROW(executor(t),std::invalid_argument);
+  // Bez pełnych profili — bez zmian.
+  Context bare=context(); auto copy=t; EXPECT_EQ(detail::refine_for_streaming(copy,bare),0u); EXPECT_EQ(copy.points.size(),t.points.size());
+}
+
+TEST(Chain, PtpSegmentIgnoresWristSingularityLinStillSlows) {
+  // J5=0 (osobliwość nadgarstka): PTP w ciągu z pełną prędkością J4, LIN (tor TCP) — J4/J6 ≤ 5°/s w strefie.
+  auto c=context(); c.seed[4]=0; auto q1=c.seed; q1[3]+=.4;
+  const auto r=compute_chain(c,{ptp(q1,0)},90,codes);
+  double fast=0; for(const auto &p:r.plan.trajectory.points) fast=std::max(fast,std::abs(p.velocities[3]));
+  EXPECT_GT(fast,10*3.141592653589793/180);
+  auto q2=c.seed; q2[4]=.05; q2[5]+=.3; c.seed[4]=.05;   // obrót narzędzia przy J5≈2,9°
+  const auto l=compute_chain(c,{lin(q2,0)},90,codes);
+  double wrist=0; for(const auto &p:l.plan.trajectory.points) wrist=std::max(wrist,std::abs(p.velocities[5]));
+  EXPECT_LE(wrist,5*3.141592653589793/180+1e-6);
 }

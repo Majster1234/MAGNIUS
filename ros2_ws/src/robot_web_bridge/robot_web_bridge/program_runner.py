@@ -4,6 +4,7 @@
 - Kursor robota: blok wykonywany fizycznie (czas wykonawcy względem czasów ruchów planu ciągu).
 - Sprawdzenie (check): symulacja całego programu od bieżącej pozycji — oś czasu per blok, bez ruchu.
 - Wykonanie (execute): tylko zapisana rewizja zatwierdzona przez operatora w GUI; wykonawca nigdy nie zatwierdza.
+- Punkty synchronizacji między ciągami: czekanie (sen po dolocie) i czekanie na operatora (``resume`` z GUI).
 Zależności (planer, wykonawca ruchu, magazyn programów) są wstrzykiwane — testy używają atrap.
 """
 import asyncio
@@ -12,7 +13,7 @@ import time
 import uuid
 from copy import deepcopy
 
-from .motion_chain import CHAIN_MAX_DURATION_S, ChainBuilder, MotionLimits, robot_cursor
+from .motion_chain import CHAIN_MAX_DURATION_S, ChainBuilder, MotionLimits, joint_ranges, limit_violations, robot_cursor
 from .program_interpreter import Interpreter, ProgramFailure
 
 CHAIN_GAP_S = 2.0            # szacowana przerwa między ciągami (dolot, przywrócenie trybu, uzbrojenie)
@@ -28,6 +29,42 @@ class PlannerBusy(RuntimeError):
     pass
 
 
+def used_positions(document):
+    """Pozycje, do których program może pojechać: odwołania {"position"} w blokach włączonych i wartości POZYCJA zmiennych."""
+    out = {}
+
+    def walk(blocks):
+        for block in blocks:
+            if block.get('disabled'):
+                continue
+            for value in block.get('params', {}).values():
+                if isinstance(value, dict) and 'position' in value:
+                    out.setdefault(value['position'], block['id'])
+            for key, child in block.items():
+                if isinstance(child, list):
+                    walk(child)
+    walk(document.get('blocks', []))
+    for variable in document.get('variables', []):
+        if variable.get('type') == 'POZYCJA' and variable.get('init'):
+            out.setdefault(variable['init'], None)
+    return out
+
+
+def position_limit_report(document, values):
+    """Pozycje programu poza zakresem osi → [{name, used, block_id, violations: [{axis, value, lower, upper}]}]."""
+    ranges, used, report = joint_ranges(values), used_positions(document), []
+    for position in document.get('positions', []):
+        bad = limit_violations(position['joints_deg'], ranges)
+        if bad:
+            report.append({'name': position['name'], 'used': position['name'] in used, 'block_id': used.get(position['name']),
+                           'violations': [{'axis': a, 'value': q, 'lower': lo, 'upper': hi} for a, q, lo, hi in bad]})
+    return report
+
+
+def describe_violations(item):
+    return ', '.join(f"J{v['axis']} = {v['value']:g}° (zakres {v['lower']:g}…{v['upper']:g}°)" for v in item['violations'])
+
+
 def iso_now():
     return time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime())
 
@@ -36,6 +73,7 @@ class ProgramRunner:
     def __init__(self, store, planning, motion):
         self.store, self.planning, self.motion = store, planning, motion
         self.task = None
+        self.resume_event = None
         self.last_check = None
         self.status = self.idle()
 
@@ -44,7 +82,7 @@ class ProgramRunner:
         return {'run_id': None, 'mode': None, 'state': 'idle', 'program_id': None, 'revision': None, 'name': None,
                 'started_at': None, 'finished_at': None, 'message': '',
                 'program_cursor': {'block_id': None, 'state': 'done'}, 'robot_cursor': None,
-                'chain': None, 'next_chain': None, 'chains': 0, 'warnings': [], 'error': None,
+                'chain': None, 'next_chain': None, 'chains': 0, 'warnings': [], 'error': None, 'wait': None,
                 'timeline': [], 'total_s': None}
 
     def snapshot(self):
@@ -68,6 +106,11 @@ class ProgramRunner:
             raise RunConflict('Rewizja programu różni się od zapisanej; zapisz i odśwież program')
         if problems:
             raise ValueError('Program ma uwagi: ' + '; '.join(problems[:5]))
+        if mode == 'execute':
+            start = await self.planning.program_start()
+            blocking = [item for item in position_limit_report(document, start['values']) if item['used']]
+            if blocking:
+                raise ValueError('Pozycje poza zakresem osi: ' + '; '.join(f"{i['name']}: {describe_violations(i)}" for i in blocking))
         if mode == 'execute' and not self.store.approved(document):
             raise ValueError('Ta rewizja programu NIE jest zatwierdzona przez operatora (GUI → „✔ Zatwierdź do wykonania”)')
         if mode == 'execute':
@@ -77,6 +120,61 @@ class ProgramRunner:
         self.begin(mode, document)
         self.task = asyncio.create_task(self.guarded(self.execute(document) if mode == 'execute' else self.check(document)))
         return self.snapshot()
+
+    async def preflight(self, identifier):
+        """Analiza przed uruchomieniem (bez ruchu): program, zakresy osi pozycji, stan robota i napędów.
+
+        Kroki: {id, label, state: ok|warn|error|action, detail, items?}. ``action`` = do wykonania automatycznie przed
+        startem (np. załączenie napędów). ``ok`` = brak błędów. Symulację ruchów wykonuje osobno sprawdzenie (check).
+        """
+        reply = self.store.get(identifier)
+        document, problems = reply['program'], reply['problems']
+        steps = [{'id': 'program', 'label': 'Program zapisany, bez uwag', 'state': 'error' if problems else 'ok',
+                  'detail': '; '.join(problems[:5]) if problems else f"rewizja {document.get('revision')}"}]
+        start = await self.planning.program_start()
+        values, ranges = start['values'], joint_ranges(start['values'])
+        report = position_limit_report(document, values)
+        used = [item for item in report if item['used']]
+        steps.append({'id': 'limits', 'label': 'Pozycje w zakresie osi',
+                      'state': 'error' if used else 'warn' if report else 'ok',
+                      'detail': '; '.join(f"{i['name']}{'' if i['used'] else ' (nieużywana)'}: {describe_violations(i)}" for i in report)
+                      or f"{len(document.get('positions', []))} pozycji w zakresie" + ('' if all(ranges) else ' (część osi bez zakresu w konfiguracji)'),
+                      'items': report})
+        state = self.planning.robot_state()
+        axes, errors = state.get('axes', []), []
+        if self.active():
+            errors.append('trwa inny przebieg programu')
+        status = await self.motion.status()
+        if status.get('busy') or getattr(self.motion, 'owner', None):
+            errors.append('wykonawca ruchu jest zajęty')
+        if not state.get('fresh'):
+            errors.append('brak świeżego stanu osi')
+        if state.get('fault'):
+            errors.append(f"awaria: {state.get('message') or 'stan awaryjny'}")
+        if state.get('recovery_state', 'idle') not in ('idle', 'idle_disabled'):
+            errors.append(f"odzyskiwanie po awarii w toku: {state.get('recovery_message') or state.get('recovery_state')}")
+        if (state.get('tcp_jog') or {}).get('busy') or state.get('busy'):
+            errors.append('trwa ruch ręczny (JOG)')
+        for k in range(6):
+            axis = axes[k] if k < len(axes) else {}
+            label = f'J{k + 1}'
+            if not axis.get('available'):
+                errors.append(f'{label}: napęd niedostępny')
+            elif not axis.get('joint_configured') or not axis.get('calibration_valid'):
+                errors.append(f'{label}: brak kalibracji/profilu przegubu')
+            elif not axis.get('joint_position_known'):
+                errors.append(f'{label}: nieznana pozycja')
+            elif ranges[k] and not ranges[k][0] - 1e-6 <= axis['joint_position_degrees'] <= ranges[k][1] + 1e-6:
+                errors.append(f"{label}: bieżąca pozycja {axis['joint_position_degrees']:.2f}° poza zakresem {ranges[k][0]:g}…{ranges[k][1]:g}°")
+        steps.append({'id': 'robot', 'label': 'Stan robota', 'state': 'error' if errors else 'ok',
+                      'detail': '; '.join(errors) if errors else 'pozycje zmierzone, kalibracja, bez awarii, wykonawca wolny',
+                      'current_degrees': [a.get('joint_position_degrees') for a in axes[:6]]})
+        disabled = [k + 1 for k in range(6) if k < len(axes) and not (axes[k].get('enable_known') and axes[k].get('enabled'))]
+        steps.append({'id': 'drives', 'label': 'Napędy załączone (ENABLE)', 'state': 'action' if disabled else 'ok',
+                      'detail': f"do załączenia przed startem: {', '.join(f'J{a}' for a in disabled)}" if disabled else 'J1–J6 załączone',
+                      'disabled': disabled})
+        return {'program_id': identifier, 'revision': document.get('revision'), 'approved': self.store.approved(document),
+                'ok': not any(step['state'] == 'error' for step in steps), 'steps': steps}
 
     async def check_document(self, document):
         """Sprawdzenie niezapisanego programu (np. przygotowanego przez agenta) — bez wykonania."""
@@ -89,6 +187,13 @@ class ProgramRunner:
         document['revision'] = checked['revision']
         self.begin('check', document)
         self.task = asyncio.create_task(self.guarded(self.check(document, remember=False)))
+        return self.snapshot()
+
+    async def resume(self):
+        """Kontynuacja po bloku „czekaj na operatora” (przycisk operatora w GUI)."""
+        if not self.active() or self.status.get('state') != 'waiting_operator' or self.resume_event is None:
+            raise RunConflict('Program nie czeka na operatora')
+        self.resume_event.set()
         return self.snapshot()
 
     async def stop(self):
@@ -199,8 +304,19 @@ class ProgramRunner:
             moves, warnings = builder.next_chain(seeds)
             for item in warnings:
                 self.warn(item['block_id'], item['code'], item['text'])
+            for event in builder.leading:
+                duration = event.seconds if event.kind == 'wait' else 0.
+                timeline.append({'block_id': event.block_id, 'kind': event.kind, 'chain': index, 'start_s': round(offset, 3),
+                                 'end_s': round(offset + duration, 3), 'transition_end_s': round(offset + duration, 3), 'stop': True,
+                                 'blend_mm_requested': 0., 'blend_mm_applied': 0., 'text': event.reason})
+                offset += duration
+                if event.kind == 'operator':
+                    self.warn(event.block_id, 'operator', f'Czekanie na operatora: {event.reason} (czas nieznany)')
             if not moves:
                 continue
+            if index > 0:
+                offset += CHAIN_GAP_S
+            await self.resolve(moves, seeds, start)
             planned = await self.plan(builder, moves, seeds, start, False, limits)
             for timing in planned['timings']:
                 timeline.append({'block_id': timing['tag'], 'chain': index, 'start_s': round(offset + timing['start_time'], 3),
@@ -210,11 +326,9 @@ class ProgramRunner:
             offset += planned['duration']
             seeds = planned['target_degrees']
             index += 1
-            if builder.more():
-                offset += CHAIN_GAP_S
             self.status.update(timeline=list(timeline), chains=index, total_s=round(offset, 2))
         self.status.update(timeline=timeline, chains=index, total_s=round(offset, 2),
-                           message=f'Sprawdzenie OK: {len(timeline)} ruchów, {index} ciąg(i), ~{offset:.1f} s')
+                           message=f'Sprawdzenie OK: {sum(1 for e in timeline if "kind" not in e)} ruchów, {index} ciąg(i), ~{offset:.1f} s')
         if remember:
             self.last_check = {'key': (document.get('id'), document.get('revision'), start['configuration_revision']),
                                'seeds': list(start['seeds']), 'timeline': timeline, 'total_s': round(offset, 2), 'chains': index}
@@ -244,20 +358,34 @@ class ProgramRunner:
 
         async def compute(from_deg):
             self.cursor(interpreter.cursor, 'computing')
+            leading = []
             while builder.more():
                 moves, warnings = builder.next_chain(from_deg)
+                leading += builder.leading
                 for item in warnings:
                     self.warn(item['block_id'], item['code'], item['text'])
                 if moves:
+                    await self.resolve(moves, from_deg, start)
                     planned = await self.plan(builder, moves, from_deg, start, True, limits)
+                    planned['leading'] = leading
                     self.cursor(planned['moves'][-1].block_id, 'waiting_robot')
                     return planned
             self.cursor(None, 'done')
-            return None
+            return {'moves': [], 'leading': leading} if leading else None
 
         planned = await compute(seeds)
         index = 0
         while planned is not None:
+            if planned['leading']:
+                await self.hold(planned['leading'])
+                self.verify(document)
+            if not planned['moves']:
+                break
+            if index > 0:
+                measured = self.motion.measured_degrees()
+                if max(abs(a - b) for a, b in zip(measured, planned['seeds_deg'])) > START_TOLERANCE_DEG:
+                    self.warn(planned['moves'][0].block_id, 'replanned', 'Pozycja po ciągu różni się od planu — przeliczono od pomiaru')
+                    planned = await self.plan(builder, planned['moves'], measured, start, True, limits)
             self.status.update(state='preparing', chain={'index': index, 'duration_s': planned['duration'], 'elapsed_s': 0.,
                                'executor_state': 'preparing', 'segments': planned['timings']}, next_chain=None)
             self.status['robot_cursor'] = robot_cursor(planned['timings'], 0, 'preparing')
@@ -276,20 +404,53 @@ class ProgramRunner:
                     await asyncio.gather(follow, return_exceptions=True)
                 raise
             # Granica ciągu: program nie mógł się zmienić ani stracić zatwierdzenia w trakcie.
-            current = self.store.get(document['id'])['program']
-            if current.get('revision') != document.get('revision') or not self.store.approved(current):
-                raise ProgramFailure('Program zmieniony lub cofnięto zatwierdzenie — zatrzymano na granicy ciągu')
+            self.verify(document)
             if upcoming is not None:
-                measured = self.motion.measured_degrees()
-                if max(abs(a - b) for a, b in zip(measured, planned['target_degrees'])) > START_TOLERANCE_DEG:
-                    self.warn(upcoming['moves'][0].block_id, 'replanned', 'Pozycja po ciągu różni się od planu — przeliczono od pomiaru')
-                    upcoming = await self.plan(builder, upcoming['moves'], measured, start, True, limits)
+                upcoming['seeds_deg'] = planned['target_degrees']   # przewidziany start (kontrola po ewentualnym czekaniu)
                 self.status['next_chain'] = None
             planned = upcoming
             index += 1
             self.status['chains'] = max(self.status['chains'] or 0, index)
         self.status['robot_cursor'] = None
         self.status['message'] = f'Program wykonany ({index} ciąg(i))'
+
+    async def resolve(self, moves, start_deg, start):
+        """Cele ruchów względnych: FK celu poprzedniego ruchu (lub startu ciągu) → przyrost TCP → IK z ziarnem poprzedniego celu."""
+        previous = list(start_deg)
+        for move in moves:
+            if move.joints_deg is None:
+                try:
+                    move.joints_deg = list(await self.planning.relative_target(previous, start, move.relative))
+                except (ValueError, RuntimeError) as error:
+                    raise ProgramFailure(f'Ruch względny: {error}', move.block_id) from None
+            previous = list(move.joints_deg)
+
+    def verify(self, document):
+        current = self.store.get(document['id'])['program']
+        if current.get('revision') != document.get('revision') or not self.store.approved(current):
+            raise ProgramFailure('Program zmieniony lub cofnięto zatwierdzenie — zatrzymano na granicy ciągu')
+
+    async def hold(self, events):
+        """Punkty synchronizacji przed ciągiem: czekanie (robot stoi po dolocie) albo czekanie na „Kontynuuj” operatora."""
+        for event in events:
+            self.status.update(chain=None, next_chain=None)
+            self.cursor(event.block_id, 'waiting_sync')
+            if event.kind == 'wait':
+                self.status.update(state='waiting', message=event.reason,
+                                   wait={'block_id': event.block_id, 'kind': 'wait', 'seconds': event.seconds,
+                                         'until_monotonic_s': time.monotonic() + event.seconds, 'text': event.reason})
+                self.status['robot_cursor'] = {'block_id': event.block_id, 'phase': 'waiting', 'blend': None}
+                await asyncio.sleep(event.seconds)
+            elif event.kind == 'operator':
+                self.resume_event = asyncio.Event()
+                self.status.update(state='waiting_operator', message=event.reason,
+                                   wait={'block_id': event.block_id, 'kind': 'operator', 'text': event.reason})
+                self.status['robot_cursor'] = {'block_id': event.block_id, 'phase': 'operator', 'blend': None}
+                try:
+                    await self.resume_event.wait()
+                finally:
+                    self.resume_event = None
+            self.status.update(wait=None, message='')
 
     async def watch(self, program_id, planned):
         deadline = time.monotonic() + 2 * planned['duration'] + 30
@@ -352,6 +513,10 @@ def add_program_run_routes(app, runner):
         client = request.client.host if request.client else ''
         return await call(runner.start if runner else None, identifier, data.get('mode'), data.get('revision'), client, status=202)
 
+    @app.post('/api/v1/programs/{identifier}/preflight')
+    async def preflight(identifier: str):
+        return await call(runner.preflight if runner else None, identifier)
+
     @app.post('/api/v1/program-run/check-document')
     async def check_document(request: Request):
         data = await body(request)
@@ -362,6 +527,10 @@ def add_program_run_routes(app, runner):
         async def snapshot():
             return runner.snapshot()
         return await call(snapshot if runner else None)
+
+    @app.post('/api/v1/program-run/resume')
+    async def resume():
+        return await call(runner.resume if runner else None)
 
     @app.post('/api/v1/program-run/stop')
     async def stop():

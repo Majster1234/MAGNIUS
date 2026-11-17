@@ -53,7 +53,8 @@ treść pliku parametrów wykonania i `session.json`.
   `faults.rfs.tmp` i podmieniany atomowo. Niepełny rekord na końcu (zanik zasilania) jest pomijany i usuwany
   przy następnym zapisie.
 - **Wyzwalacze:** zdarzenia C++ `bus_fault`, `manual_fault`, `recovery_failed`, `socket_transport_lost`,
-  `critical_enable_off_failed`, `tcp_jog_failed`, a także narastające zbocze stanu awarii w moście. Wątek
+  `critical_enable_off_failed`, `tcp_jog_failed`, łagodne zatrzymania JOG TCP bez awarii (`tcp_soft_stop`,
+  `tcp_jog_soft_stop`, `tcp_final_incomplete`), a także narastające zbocze stanu awarii w moście. Wątek
   zapisu tworzy `faults/trigger-*.json` dopiero po zapisaniu zdarzenia na dysk; wątek CAN nie dotyka dysku.
   Wyzwalacze odległe o nie więcej niż 5 s od pierwszego trafiają do jednej migawki. Migawka powstaje ok. 6,5 s
   po awarii.
@@ -84,7 +85,7 @@ Opóźnienia na jednym komputerze wyliczamy z `CLOCK_MONOTONIC`, niezależnego o
 | `ros_publish`, `ros_axis` | Publikacja 20 Hz i wiek pomiarów; `request_ns` identyfikuje stan ROS, `ros_publish.duration_ns` to odstęp publikacji |
 | `ros_state_received` | Ten sam `state_monotonic_ns` i opóźnienie dotarcia do callbacku backendu |
 | `ros_service_request/result` | `issued_ns` odpowiada `manual_command.request_ns` |
-| `ws_state_sent`, `ws_command_received`, `ws_error/close` | Wysyłka stanu, odbiór poleceń, rozłączenia; `connection` odróżnia klientów |
+| `ws_state_sent`, `ws_command_received`, `ws_tcp_command`, `ws_error/close` | Wysyłka stanu, odbiór poleceń (JOG osi; JOG TCP z `action`, `emergency`), rozłączenia; `connection` odróżnia klientów (panel PC, pendant) |
 | `browser_state_received/gap`, `browser_client_stop` | Odbiór statusu i powód STOP w panelu, identyfikator stanu ROS |
 | `system_status`, `can_summary` | Istniejące pomiary CPU/RAM, interfejsu i statystyk; bez dodatkowego odpytywania sprzętu |
 

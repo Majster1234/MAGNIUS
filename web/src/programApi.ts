@@ -6,6 +6,11 @@ import type { RunStatus } from "./programRun";
 export class ProgramApiError extends Error { constructor(message: string, readonly status: number) { super(message); } }
 export type ProgramSummary = { id: string; name: string; approved?: boolean; description?: string; updated_at?: string; revision?: string; blocks: number; variables: number; positions: number; broken?: boolean };
 export type ProgramReply = { program: Program; problems: string[]; unchanged?: boolean };
+// Analiza przed uruchomieniem (program_runner.preflight): kroki program / limits / robot / drives.
+export type PreflightStep = { id: "program" | "limits" | "robot" | "drives"; label: string; state: "ok" | "warn" | "error" | "action"; detail: string;
+    items?: { name: string; used: boolean; block_id: string | null; violations: { axis: number; value: number; lower: number; upper: number }[] }[];
+    disabled?: number[] };
+export type Preflight = { program_id: string; revision: string; approved: boolean; ok: boolean; steps: PreflightStep[] };
 export type LibrarySnapshot = { directory: string; commands: CommandLibrary; warning: string | null;
     variables: { items: Variable[]; revision: string }; positions: { items: Position[]; revision: string } };
 
@@ -29,6 +34,11 @@ export const programApi = {
     checkDocument: (program: Program) => call<RunStatus>("program-run/check-document", "POST", { program }),
     runStatus: () => call<RunStatus>("program-run"),
     stopRun: () => call<RunStatus>("program-run/stop", "POST", {}),
+    resumeRun: () => call<RunStatus>("program-run/resume", "POST", {}),
+    preflight: (id: string) => call<Preflight>(`programs/${encodeURIComponent(id)}/preflight`, "POST", {}),
+    // Załączenie wszystkich napędów (ENABLE=1) — ten sam endpoint co „ENABLE wszystkich” w sterowaniu ręcznym.
+    enableAll: () => call<{ accepted: boolean; message: string }>("manual/enable-all", "POST", { enabled: true }),
+    drives: async () => ((await call<{ axes?: { axis: number; enable_known?: boolean; enabled?: boolean }[] }>("manual/status")).axes ?? []).slice(0, 6),
     setLibrary: <K extends "variables" | "positions">(name: K, items: K extends "variables" ? Variable[] : Position[], revision: string) =>
         call<{ items: unknown[]; revision: string }>(`program-library/${name}`, "PUT", { items, expected_revision: revision }),
 };

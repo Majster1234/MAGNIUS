@@ -57,9 +57,9 @@ Sample sample(const Trajectory &trajectory, double t, size_t &index) {
   return out;
 }
 std::array<double,6> local_velocity_limits(const robot_kinematics::Model &model, const Sample &s,
-                                         const std::array<double,6> &requested) {
+                                         const std::array<double,6> &requested, bool wrist) {
   auto limits=requested;
-  if(std::abs(s.v[3])<=wrist_slow_velocity && std::abs(s.v[5])<=wrist_slow_velocity) return limits;
+  if(!wrist || std::abs(s.v[3])<=wrist_slow_velocity && std::abs(s.v[5])<=wrist_slow_velocity) return limits;
   const auto blend=wrist_singularity_blend(model,s.q);
   for(unsigned j : {3u,5u}) if(requested[j]>wrist_slow_velocity)
     limits[j]=wrist_slow_velocity+(requested[j]-wrist_slow_velocity)*blend;
@@ -79,7 +79,7 @@ void limit_path_speed(Trajectory &trajectory, const robot_kinematics::Model &mod
   if(uniform) {
     // Stałe limity: bez TCP i bez zwalniania nadgarstka zegar zostaje (zachowanie sprzed ciągów ruchów).
     caps.reset(); const auto constant=caps.at(robot_kinematics::Joints{});
-    if(constant.tcp.velocity<=0 && constant.v[3]<=wrist_slow_velocity && constant.v[5]<=wrist_slow_velocity) return;
+    if(constant.tcp.velocity<=0 && (!constant.wrist || (constant.v[3]<=wrist_slow_velocity && constant.v[5]<=wrist_slow_velocity))) return;
   }
   // Parametrem drogi pozostaje czas starej trajektorii s. Nowy zegar ma szybkość
   // u=ds/dt <= 1. Pozycje drogi się nie zmieniają; q'=q_s*u,
@@ -92,7 +92,7 @@ void limit_path_speed(Trajectory &trajectory, const robot_kinematics::Model &mod
   for(size_t k=0;k<count;++k) {
     check(); samples.push_back(sample(trajectory,k*ds,cursor)); const auto &s=samples.back();
     const auto cap=caps.at(s.q); const auto &tcp=cap.tcp;
-    const auto limits=local_velocity_limits(model,s,cap.v);
+    const auto limits=local_velocity_limits(model,s,cap.v,cap.wrist);
     for(unsigned j=0;j<6;++j) {
       if(std::abs(s.v[j])>1e-10) {
         // Rezerwa na interpolację pomiędzy węzłami, tylko tam, gdzie limit zwalnia ruch.
@@ -139,7 +139,7 @@ void limit_path_speed(Trajectory &trajectory, const robot_kinematics::Model &mod
   // Interpolator JTC używa q/v/a, więc sprawdzamy cały wynik po zmianie zegara.
   double correction=1.; cursor=0; caps.reset();
   for(double t=0;t<=seconds(trajectory.points.back().time_from_start);t+=.001) {
-    check(); const auto s=sample(trajectory,t,cursor); const auto cap=caps.at(s.q); const auto limits=local_velocity_limits(model,s,cap.v);
+    check(); const auto s=sample(trajectory,t,cursor); const auto cap=caps.at(s.q); const auto limits=local_velocity_limits(model,s,cap.v,cap.wrist);
     for(unsigned j=0;j<6;++j) correction=std::max({correction,std::abs(s.v[j])/limits[j],std::sqrt(std::abs(s.a[j])/cap.a[j])});
     correction=std::max(correction,tcp_excess(model,s,cap.tcp));
   }
@@ -228,7 +228,70 @@ Trajectory totg(const std::shared_ptr<moveit::core::RobotModel> &model,const std
   stretch_time(output,stretch);
   return output;
 }
+namespace {
+struct Knot { double t; std::array<double,6> q,v,a; };
+Knot knot_of(const trajectory_msgs::msg::JointTrajectoryPoint &p) {
+  Knot k{seconds(p.time_from_start),{},{},{}};
+  for(unsigned j=0;j<6;++j) { k.q[j]=p.positions[j]; k.v[j]=p.velocities[j]; k.a[j]=p.accelerations[j]; }
+  return k;
+}
+// Ta sama otoczka co w compile_streaming_program (mks_servo_can/src/streaming_motion.cpp), z zapasem `margin`.
+bool envelope_ok(const Knot &l,const Knot &r,const std::array<double,6> &lower,const std::array<double,6> &upper,
+                 const std::array<double,6> &vmax,const std::array<double,6> &amax,double margin) {
+  const double h=r.t-l.t; if(!(h>0)) return false;
+  for(unsigned j=0;j<6;++j) {
+    const std::array<double,6> b{l.q[j],l.q[j]+l.v[j]*h/5,l.q[j]+2*l.v[j]*h/5+l.a[j]*h*h/20,
+      r.q[j]-2*r.v[j]*h/5+r.a[j]*h*h/20,r.q[j]-r.v[j]*h/5,r.q[j]};
+    for(unsigned i=0;i<6;++i) if(!std::isfinite(b[i]) || b[i]<lower[j]-1e-9 || b[i]>upper[j]+1e-9 ||
+        (i<5 && std::abs(5*(b[i+1]-b[i])/h)>margin*vmax[j]) || (i<4 && std::abs(20*(b[i+2]-2*b[i+1]+b[i])/(h*h))>margin*amax[j]))
+      return false;
+  }
+  return true;
+}
+// Punkt wewnątrz odcinka: ten sam wielomian Hermite'a 5. stopnia co sample() (x ∈ [0, 1]).
+Knot inside(const Knot &l,const Knot &r,double x) {
+  const double dt=r.t-l.t; Knot out{l.t+x*dt,{},{},{}};
+  for(unsigned j=0;j<6;++j) {
+    const double c0=l.q[j],c1=l.v[j]*dt,c2=l.a[j]*dt*dt/2,d=r.q[j]-c0,v=r.v[j]*dt,a=r.a[j]*dt*dt;
+    const double c3=10*d-6*c1-3*c2-4*v+a/2,c4=-15*d+8*c1+3*c2+7*v-a,c5=6*d-3*c1-c2-3*v+a/2;
+    out.q[j]=c0+x*(c1+x*(c2+x*(c3+x*(c4+x*c5))));
+    out.v[j]=(c1+x*(2*c2+x*(3*c3+x*(4*c4+x*5*c5))))/dt;
+    out.a[j]=(2*c2+x*(6*c3+x*(12*c4+x*20*c5)))/(dt*dt);
+  }
+  return out;
+}
+}
+size_t refine_for_streaming(Trajectory &trajectory,const Context &c) {
+  std::array<double,6> lower{},upper{},vmax{},amax{};
+  for(unsigned j=0;j<6;++j) {
+    const auto &p=c.profiles[j];
+    if(!p.configured || !(p.velocity_rad_s>0) || !(p.acceleration_rad_s2>0) || !(p.lower_rad<p.upper_rad)) return 0;   // brak pełnego profilu: bez zmian
+    lower[j]=p.lower_rad; upper[j]=p.upper_rad; vmax[j]=p.velocity_rad_s; amax[j]=p.acceleration_rad_s2;
+  }
+  auto &points=trajectory.points; if(points.size()<2) return 0;
+  std::vector<trajectory_msgs::msg::JointTrajectoryPoint> out; out.reserve(points.size()); out.push_back(points.front());
+  size_t added=0;
+  for(size_t k=1;k<points.size();++k) {
+    const auto l=knot_of(points[k-1]),r=knot_of(points[k]);
+    std::vector<Knot> best;
+    for(unsigned parts=1;parts<=16;parts*=2) {
+      std::vector<Knot> sub{l}; for(unsigned i=1;i<parts;++i) sub.push_back(inside(l,r,double(i)/parts)); sub.push_back(r);
+      bool ok=true; for(size_t i=1;i<sub.size() && ok;++i) ok=envelope_ok(sub[i-1],sub[i],lower,upper,vmax,amax,.98);
+      best=std::move(sub); if(ok) break;
+    }
+    if(points.size()+added+best.size()-2>max_points) best={l,r};   // limit punktów wykonawcy: bez podziału
+    for(size_t i=1;i+1<best.size();++i) {
+      trajectory_msgs::msg::JointTrajectoryPoint point; point.positions.resize(6); point.velocities.resize(6); point.accelerations.resize(6);
+      for(unsigned j=0;j<6;++j) { point.positions[j]=best[i].q[j]; point.velocities[j]=best[i].v[j]; point.accelerations[j]=best[i].a[j]; }
+      point.time_from_start=duration(best[i].t); out.push_back(std::move(point)); ++added;
+    }
+    out.push_back(points[k]);
+  }
+  points=std::move(out);
+  return added;
+}
 void compile_mks(Plan &plan,const Context &c,const std::array<int64_t,6> &codes,const std::function<void()> &check) {
+  refine_for_streaming(plan.trajectory,c);
   const auto &output=plan.trajectory; const auto total=seconds(output.points.back().time_from_start);
   try {
     std::array<mks_servo_can::AxisConfig,6> axes;
@@ -324,15 +387,15 @@ static Plan compute_impl(const Context &c,const std::vector<Pose> &targets,doubl
   for(unsigned j=0;j<6;++j) { vmax[j]=c.max_velocity[j]*v_scale; amax[j]=c.max_acceleration[j]*a_scale; }
   report(.5,"TOTG: płynne połączenia i czas");
   auto output=totg(model,positions,vmax,amax,joint_target ? 0. : std::min(.001,p_tol/.5),check);
-  const CapProvider constant{[]{},[&](const robot_kinematics::Joints&) { return SampleCaps{vmax,amax,tcp}; }};
-  report(.6,tcp.velocity>0 ? "Profil prędkości TCP i ograniczenia nadgarstka" : "Płynne zwalnianie J4/J6 przy osobliwości nadgarstka");
+  const CapProvider constant{[]{},[&](const robot_kinematics::Joints&) { return SampleCaps{vmax,amax,tcp,!ptp}; }};
+  report(.6,tcp.velocity>0 ? "Profil prędkości TCP i ograniczenia nadgarstka" : ptp ? "Profil PTP w przegubach (bez zależności od osobliwości)" : "Płynne zwalnianie J4/J6 przy osobliwości nadgarstka");
   limit_path_speed(output,kinematics,vmax,amax,constant,true,check);
   const auto total=seconds(output.points.back().time_from_start);
   if(total>200) throw std::runtime_error("Plan po ograniczeniu pochodnych przekracza 200 s");
   report(.65,"Sprawdzenie interpolacji JTC i tolerancji TCP"); size_t cursor=0;
   for(double t=0;t<=total+1e-9;t+=.005) {
     check(); const auto s=sample(output,std::min(t,total),cursor);
-    const auto limits=local_velocity_limits(kinematics,s,vmax);
+    const auto limits=local_velocity_limits(kinematics,s,vmax,!ptp);
     if(tcp_excess(kinematics,s,tcp)>1.+1e-5) throw std::runtime_error("Interpolacja przekracza prędkość lub przyspieszenie TCP");
     for(unsigned i=0;i<6;++i) if(!std::isfinite(s.q[i]) || s.q[i]<c.lower[i]-1e-9 || s.q[i]>c.upper[i]+1e-9 ||
         std::abs(s.v[i])>limits[i]+1e-6 || std::abs(s.a[i])>amax[i]+1e-5 ||

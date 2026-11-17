@@ -27,13 +27,14 @@ robot_kinematics::Joints position_at(const Plan &plan,double t) {
     dt*dt*((u2-3*u3+3*u4-u5)*a.accelerations[j]+(u3-2*u4+u5)*b.accelerations[j])/2;
   return q;
 }
-void check_interpolation(const Plan &plan,const Context &c,const robot_kinematics::Model &model) {
+// wrist: limit J4/J6 przy osobliwości nadgarstka (tylko LIN; PTP w przegubach bez tego ograniczenia).
+void check_interpolation(const Plan &plan,const Context &c,const robot_kinematics::Model &model,bool wrist=true) {
   const double h=1e-4, total=time_of(plan.trajectory.points.back());
   for(double t=.001;t<total-.001;t+=.005) {
     const auto q=position_at(plan,t),a=position_at(plan,t-h),b=position_at(plan,t+h);
     const double blend=wrist_singularity_blend(model,q);
     for(unsigned j=0;j<6;++j) {
-      const double limit=(j==3 || j==5) && c.max_velocity[j]>5*rad ? 5*rad+(c.max_velocity[j]-5*rad)*blend : c.max_velocity[j];
+      const double limit=wrist && (j==3 || j==5) && c.max_velocity[j]>5*rad ? 5*rad+(c.max_velocity[j]-5*rad)*blend : c.max_velocity[j];
       EXPECT_LE(std::abs((b[j]-a[j])/(2*h)),limit+1e-5) << "J" << j+1 << " t=" << t;
       EXPECT_LE(std::abs((b[j]-2*q[j]+a[j])/(h*h)),c.max_acceleration[j]+1e-3) << "J" << j+1 << " t=" << t;
       EXPECT_GE(q[j],c.lower[j]-1e-9); EXPECT_LE(q[j],c.upper[j]+1e-9);
@@ -142,34 +143,31 @@ TEST(WristSpeed, SmoothBandUsesActualAngularJacobian) {
     q[4]=-angle*rad; EXPECT_NEAR(wrist_singularity_blend(model,q),blend,1e-10);
   }
 }
-TEST(WristSpeed, BothAxesCappedAndFasterAwayWithExactPtpEndpoints) {
+TEST(WristSpeed, PtpIgnoresWristSingularityWithExactEndpoints) {
+  // PTP w przestrzeni przegubów nie zależy od osobliwości: ten sam czas przy J5=0 i J5=57°, pełna prędkość J4/J6.
   auto c=context(); c.simulation_only=true;c.seed[4]=0;
   auto target=c.seed;target[3]+=.4;target[5]-=.3;target[0]+=.02;
   std::array<int64_t,6> codes; codes.fill(-1);
   auto near=compute_preview(c,target,0,codes); robot_kinematics::Model model(c.urdf,c.lower,c.upper);
-  EXPECT_FALSE(near.execution_ready); EXPECT_GE(time_of(near.trajectory.points.back()),.4/(5*rad));
   for(unsigned j=0;j<6;++j) {
     EXPECT_NEAR(near.trajectory.points.front().positions[j],c.seed[j],1e-9);
     EXPECT_NEAR(near.trajectory.points.back().positions[j],target[j],1e-9);
   }
-  check_interpolation(near,c,model);
+  check_interpolation(near,c,model,false);
+  double fast=0; for(const auto &p:near.trajectory.points) fast=std::max(fast,std::abs(p.velocities[3]));
+  EXPECT_GT(fast,5*rad*2);
   c.seed[4]=target[4]=1.; const auto far=compute_preview(c,target,0,codes);
-  double fast=0; for(const auto &p:far.trajectory.points) fast=std::max(fast,std::abs(p.velocities[3]));
-  EXPECT_GT(fast,5*rad*2);EXPECT_LT(time_of(far.trajectory.points.back()),time_of(near.trajectory.points.back())*.7);
-  check_interpolation(far,c,model);
+  EXPECT_NEAR(time_of(far.trajectory.points.back()),time_of(near.trajectory.points.back()),1e-6);
 }
-TEST(WristSpeed, BrakesBeforeZoneAndAcceleratesAfterLeavingIt) {
+TEST(WristSpeed, PtpCrossesWristZoneWithoutBraking) {
   auto c=context();c.simulation_only=true;c.seed[4]=.65;
   auto target=c.seed;target[3]+=1.2;target[5]-=.9;target[4]=-.65;
   std::array<int64_t,6> codes;codes.fill(-1);
   const auto plan=compute_preview(c,target,0,codes);robot_kinematics::Model model(c.urdf,c.lower,c.upper);
-  check_interpolation(plan,c,model);
-  double near=0,far=0;
-  for(const auto &p:plan.trajectory.points) {
-    if(std::abs(p.positions[4])<5*rad) near=std::max(near,std::abs(p.velocities[3]));
-    if(std::abs(p.positions[4])>30*rad) far=std::max(far,std::abs(p.velocities[3]));
-  }
-  EXPECT_LE(near,5*rad+1e-6);EXPECT_GT(near,rad);EXPECT_GT(far,5*rad);
+  check_interpolation(plan,c,model,false);
+  double near=0;
+  for(const auto &p:plan.trajectory.points) if(std::abs(p.positions[4])<5*rad) near=std::max(near,std::abs(p.velocities[3]));
+  EXPECT_GT(near,5*rad);
 }
 TEST(WristSpeed, DoesNotRaiseLowerCommandsOrSlowAStationaryWrist) {
   auto c=context();c.simulation_only=true;c.seed[4]=0;
@@ -200,9 +198,10 @@ TEST(WristSpeed, LinKeepsFullTcpPoseAfterChangingTime) {
   for(unsigned j=0;j<6;++j) EXPECT_NEAR(plan.trajectory.points.back().positions[j],target[j],1e-9);
 }
 TEST(WristSpeed, CancellationInsideTimeProfileStopsComputation) {
-  auto c=context();c.simulation_only=true;c.seed[4]=0;auto target=c.seed;target[3]+=.4;
+  // LIN przy osobliwości (zwalnianie nadgarstka dotyczy tylko toru TCP).
+  auto c=context();c.simulation_only=true;c.seed[4]=.05;auto target=c.seed;target[5]+=.3;
   std::array<int64_t,6> codes;codes.fill(-1);bool profile=false;unsigned checks=0;
-  EXPECT_THROW(compute_preview(c,target,0,codes,[&](){return profile && ++checks>10;},
+  EXPECT_THROW(compute_preview(c,target,1,codes,[&](){return profile && ++checks>10;},
     [&](float,const std::string &phase){if(phase.find("Zwalnianie")!=std::string::npos || phase.find("zwalnianie")!=std::string::npos)profile=true;}),std::runtime_error);
   EXPECT_TRUE(profile);EXPECT_GT(checks,10u);
 }

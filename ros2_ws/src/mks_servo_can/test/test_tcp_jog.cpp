@@ -4,6 +4,7 @@
 #include "streaming_fixture.hpp"
 using namespace streaming_test;
 namespace {
+constexpr double kDeg=3.14159265358979323846/180;
 BusConfig tcp_config() {auto c=config();c.tcp_jog_enabled=true;return c;}
 std::uint64_t begin(Rig &rig,std::uint64_t sequence=1) {
   rig.bus->update_motion_model("model");return rig.bus->begin_tcp_jog("session","bench","model",sequence,rig.now,rig.now);
@@ -46,12 +47,17 @@ TEST(TcpJogOwner, DisabledMissingAxisCalibrationAndWrongModelRejectStart) {
   EXPECT_EQ(rig.bus->begin_tcp_jog("session","bench","other",1,rig.now,rig.now),0u);
   EXPECT_EQ(rig.bus->begin_tcp_jog("session","bench","model",1,rig.now-100ms,rig.now),0u);
 }
-TEST(TcpJogOwner, KeepaliveLossStopsOpenQueueEvenWhenGeneratorKeepsAppending) {
+TEST(TcpJogOwner, KeepaliveLossStopsOpenQueueSoftlyEvenWhenGeneratorKeepsAppending) {
+  // Utrata łączności z panelem = łagodne zatrzymanie (ucięcie kolejki i dolot), bez awarii, F7 i ENABLE=0.
   Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);Feeder feed;
   for(unsigned i=0;i<25 && !rig.bus->control_state().fault;++i) {feed.append(rig,generation);rig.run(10);}
-  EXPECT_TRUE(rig.bus->control_state().fault);EXPECT_GT(rig.port->counts[0xf7],0u);
-  EXPECT_NE(rig.bus->snapshot().message.find("KEEPALIVE"),std::string::npos) << rig.bus->snapshot().message;
+  EXPECT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+  EXPECT_EQ(rig.port->counts[0xf7],0u);EXPECT_EQ(rig.port->counts[0xf3],0u);
+  const auto state=rig.bus->tcp_trajectory(rig.now);
+  EXPECT_TRUE(state.cut);EXPECT_NE(state.reason.find("KEEPALIVE"),std::string::npos) << state.reason;
   EXPECT_FALSE(feed.append(rig,generation));
+  settle(rig,generation);
+  for(unsigned axis=1;axis<=6;++axis) EXPECT_TRUE(rig.port->enabled[axis]);
 }
 TEST(TcpJogOwner, QueueRejectsForeignSessionsAndInvalidPoints) {
   Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);
@@ -140,7 +146,14 @@ TEST(TcpJogOwner, CutEndsQueueAtLookaheadPointWithoutRampAndConfirmsLikeLin) {
   // Do końca kolejki referencja biegnie dalej z pełną prędkością; potem brak nowych celów poza dolotem.
   rig.run(100);const auto first=rig.port->events.size();
   settle(rig,generation);
-  for(auto i=first;i<rig.port->events.size();++i) EXPECT_NE(rig.port->events[i].data[0],0xf5) << "napęd stał w tolerancji: bez korekt";
+  // Strumień trzymania: cel F5 = cel końcowy (napęd stał w tolerancji, bez korekt).
+  const auto target_ticks=[&](unsigned axis) {return std::llround(shaft_ticks(rig.bus->config().axes[axis-1],target));};
+  for(auto i=first;i<rig.port->events.size();++i) {
+    const auto &e=rig.port->events[i];if(e.data[0]!=0xf5) continue;
+    const auto raw=(std::uint32_t(e.data[4])<<16)|(std::uint32_t(e.data[5])<<8)|e.data[6];
+    const auto ticks=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : static_cast<std::int32_t>(raw);
+    EXPECT_NEAR(ticks,target_ticks(e.axis),2) << "J" << e.axis;
+  }
   const auto config=rig.bus->config();
   for(unsigned j=0;j<6;++j) EXPECT_NEAR(static_cast<double>(rig.port->positions[j+1]),shaft_ticks(config.axes[j],target),2.) << "J" << j+1;
 }
@@ -172,6 +185,85 @@ TEST(TcpJogOwner, FinalApproachCorrectsDriveOffsetLikePtp) {
   settle(rig,generation);
   EXPECT_LE(std::abs(static_cast<double>(rig.port->positions[6]))*2*std::acos(-1.)/(10*16384),kProgramPositionTolerance);
   for(unsigned j=0;j<5;++j) EXPECT_EQ(rig.port->positions[j+1],0) << "J" << j+1;
+}
+TEST(TcpJogOwner, ModerateTrackingErrorStopsSoftlyLargeErrorFaults) {
+  for(bool large:{false,true}) {
+    Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);
+    Feeder feed;feed.velocity=.1;feed.run(rig,generation,10);ASSERT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+    // J3 zatrzymany: przy łagodnym progu ucięcie; „ucieczka” o 5° od referencji = awaria.
+    rig.port->frozen[3]=true;
+    if(large) rig.port->positions[3]-=static_cast<std::int64_t>(5*kDeg*10*16384/(2*std::acos(-1.)));
+    // Po ucięciu kolejka odrzuca punkty generatora — tu bez asercji przyjęcia.
+    for(unsigned i=0;i<70 && !rig.bus->control_state().fault;++i) {
+      feed.append(rig,generation);rig.bus->tcp_jog_control("session",generation,++feed.keepalive,rig.now,rig.now);rig.run(10);
+    }
+    if(large) {
+      EXPECT_TRUE(rig.bus->control_state().fault);
+      EXPECT_NE(rig.bus->snapshot().message.find("ucieczka osi"),std::string::npos) << rig.bus->snapshot().message;
+      continue;
+    }
+    EXPECT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+    const auto state=rig.bus->tcp_trajectory(rig.now);
+    ASSERT_TRUE(state.cut);EXPECT_NE(state.reason.find("J3 (CAN ID 3): uchyb śledzenia"),std::string::npos) << state.reason;
+    rig.port->frozen[3]=false;
+    settle(rig,generation);
+    for(unsigned axis=1;axis<=6;++axis) EXPECT_TRUE(rig.port->enabled[axis]);
+  }
+}
+TEST(TcpJogOwner, FinalApproachWaitsForDriveStandstill) {
+  // Napęd zgłasza ruch (F1=4) mimo pozycji w tolerancji: brak potwierdzenia końca (nadzór postoju nie kotwiczy w ruchu).
+  Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);
+  std::vector<ProgramPoint> hold(6);for(unsigned k=0;k<hold.size();++k) hold[k].seconds=k*.01;
+  ASSERT_TRUE(rig.bus->append_tcp_points("session",generation,hold,true,rig.now));
+  // Napęd zgłasza prędkość 5 RPM (jeszcze dojeżdża): brak końca mimo pozycji w tolerancji.
+  rig.port->speed_blips[4]=1000;rig.port->speed_blip_rpm=5;
+  for(unsigned i=0;i<20;++i) {rig.bus->tcp_jog_control("session",generation,i+10,rig.now,rig.now);rig.run(50);}
+  EXPECT_FALSE(rig.bus->tcp_trajectory(rig.now).done);EXPECT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+  // F1=4 przy stojącym wale (MKS): postój potwierdza stała pozycja ≥ 500 ms.
+  rig.port->speed_blips[4]=0;rig.port->motor_state_override[4]=4;
+  settle(rig,generation);
+}
+TEST(TcpJogOwner, FinalApproachWithoutStandstillFaultsAfterTimeoutStandingOffsetEndsWithWarning) {
+  for(bool standing:{true,false}) {
+    Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);
+    std::vector<ProgramPoint> hold(6);for(unsigned k=0;k<hold.size();++k) hold[k].seconds=k*.01;
+    ASSERT_TRUE(rig.bus->append_tcp_points("session",generation,hold,true,rig.now));
+    // J5 nie reaguje na korekty: 1° od celu (poza tolerancją, poniżej progu ucieczki, bez wzrostu uchybu).
+    rig.port->frozen[5]=true;rig.port->positions[5]=static_cast<std::int64_t>(1*kDeg*10*16384/(2*std::acos(-1.)));
+    // Bez postoju: wał J5 drga o 300 imp. (0,66° przegubu, ponad okno tolerancji) co 50 ms (pozycja zmienna).
+    for(unsigned i=0;i<120 && !rig.bus->tcp_trajectory(rig.now).done && !rig.bus->control_state().fault;++i) {
+      if(!standing) rig.port->positions[5]+=i%2 ? 300 : -300;
+      rig.run(50);
+    }
+    if(standing) {
+      EXPECT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+      const auto state=rig.bus->tcp_trajectory(rig.now);ASSERT_TRUE(state.done);
+      EXPECT_NE(state.reason.find("dolot niepełny"),std::string::npos) << state.reason;
+      EXPECT_TRUE(rig.bus->finish_tcp_jog("session",generation));
+    } else {
+      EXPECT_TRUE(rig.bus->control_state().fault);
+      EXPECT_NE(rig.bus->snapshot().message.find("brak postoju"),std::string::npos) << rig.bus->snapshot().message;
+    }
+  }
+}
+TEST(TcpJogOwner, NewStartOfSameSessionPreemptsFinalApproachOnly) {
+  Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);
+  Feeder feed;feed.run(rig,generation,20);ASSERT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
+  EXPECT_EQ(rig.bus->begin_tcp_jog("session","bench","model",200,rig.now,rig.now),0u) << "otwarta kolejka: brak przejęcia";
+  ASSERT_TRUE(rig.bus->cut_tcp_jog("session",generation,"STOP panelu",rig.now));
+  rig.port->speed_blips[3]=1000;rig.port->speed_blip_rpm=5;   // dolot trwa (napęd jeszcze się porusza)
+  for(unsigned i=0;i<40;++i) rig.run(10);
+  ASSERT_FALSE(rig.bus->tcp_trajectory(rig.now).done);
+  EXPECT_EQ(rig.bus->begin_tcp_jog("other","bench","model",201,rig.now,rig.now),0u) << "inna sesja";
+  EXPECT_TRUE(rig.bus->control_state().active) << "nieudane przejęcie nie przerywa dolotu";
+  const auto next=rig.bus->begin_tcp_jog("session","bench","model",202,rig.now,rig.now);
+  EXPECT_GT(next,generation);EXPECT_TRUE(rig.bus->control_state().active);
+  EXPECT_FALSE(rig.bus->tcp_trajectory(rig.now).cut);
+  rig.port->speed_blips[3]=0;
+  std::vector<ProgramPoint> hold(6);for(unsigned k=0;k<hold.size();++k) hold[k].seconds=k*.01;
+  for(unsigned j=0;j<6;++j) for(auto &p:hold) p.positions[j]=rig.bus->control_state().positions[j].value;
+  ASSERT_TRUE(rig.bus->append_tcp_points("session",next,hold,true,rig.now));
+  settle(rig,next);EXPECT_FALSE(rig.bus->control_state().fault) << rig.bus->snapshot().message;
 }
 TEST(TcpJogOwner, ShaftTraceRecordsPlannedReferenceInShaftTicks) {
   Rig rig(tcp_config());rig.ready();const auto generation=begin(rig);ASSERT_NE(generation,0u);

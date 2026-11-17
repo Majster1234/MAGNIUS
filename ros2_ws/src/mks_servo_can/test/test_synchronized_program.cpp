@@ -11,10 +11,12 @@ void wait_for(Rig &h,const std::string &state) {
 TEST(SynchronizedProgram, SixAxesStageThenStartTogetherOnFixedGridAndRestore) {
   Rig h;h.ready();h.synchronized();h.execute(h.program());wait_for(h,"waiting_ack");
   EXPECT_EQ(h.port->activated_sets,0u);EXPECT_EQ(h.port->positions[1],0);
-  EXPECT_TRUE(h.port->pending_targets_valid[1]);h.run(1500);
+  EXPECT_TRUE(h.port->pending_targets_valid[1]);h.run(2500);
   const auto s=h.bus->program_status();ASSERT_EQ(s.state,"succeeded")<<s.message;
   EXPECT_EQ(s.dispatch_mode,"synchronized");EXPECT_EQ(s.mode,"streamed");EXPECT_EQ(s.sync_state,"restored");
-  EXPECT_EQ(h.port->counts[0xf5],606u);EXPECT_EQ(h.port->counts[0x4b],101u);EXPECT_EQ(s.sync_cycle,100u);
+  // 101 zestawów trajektorii + strumień trzymania dolotu (cel końcowy co cykl do postoju w tolerancji, ≥ 150 ms).
+  EXPECT_GE(h.port->counts[0x4b],116u);EXPECT_LE(h.port->counts[0x4b],140u);
+  EXPECT_EQ(h.port->counts[0xf5],6*h.port->counts[0x4b]);EXPECT_EQ(s.sync_cycle,100u);
   std::vector<Time> times;for(const auto &e:h.port->events) if(e.data[0]==0x4b) times.push_back(e.stamp);
   for(unsigned i=1;i<times.size();++i) EXPECT_EQ(times[i]-times[i-1],10ms);
   for(unsigned j=1;j<=6;++j) {EXPECT_FALSE(h.port->sync[j]);EXPECT_FALSE(h.port->respond[j]);EXPECT_FALSE(h.port->pending_targets_valid[j]);}
@@ -37,9 +39,9 @@ TEST(SynchronizedProgram, RejectedAckStopsAtOnceAndPersistentMissingOrLateAckAft
 }
 TEST(SynchronizedProgram, OccasionalMissingAckKeepsMotionAndIsCounted) {
   Rig h;h.ready();h.synchronized();h.port->drop_ack[3]=2;
-  h.execute(h.program());h.run(1600);
+  h.execute(h.program());h.run(2500);
   const auto s=h.bus->program_status();EXPECT_EQ(s.state,"succeeded") << s.message << "; " << h.bus->snapshot().message;
-  EXPECT_EQ(h.port->activated_sets,101u);EXPECT_EQ(h.bus->snapshot().statistics.sync_missed_acks,2u);
+  EXPECT_GE(h.port->activated_sets,110u);EXPECT_LE(h.port->activated_sets,140u);EXPECT_EQ(h.bus->snapshot().statistics.sync_missed_acks,2u);
 }
 TEST(SynchronizedProgram, NoRequestToAxisWhileItsF5AckIsOutstanding) {
   Rig h;h.ready();h.synchronized();for(unsigned j=1;j<=6;++j) h.port->axis_ack_delay[j]=3ms;
@@ -78,9 +80,9 @@ TEST(SynchronizedProgram, LostTransmitConfirmationNeverStagesNextSet) {
 }
 TEST(SynchronizedProgram, LateTransmitConfirmationShiftsTimeBaseInsteadOfStopping) {
   Rig h;h.ready();h.synchronized();h.port->sync_echo_delay=3ms;
-  h.execute(h.program());h.run(2000);
+  h.execute(h.program());h.run(2500);
   EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message << "; " << h.bus->snapshot().message;
-  EXPECT_EQ(h.port->activated_sets,101u);EXPECT_GT(h.bus->snapshot().statistics.sync_shifts,0u);
+  EXPECT_GE(h.port->activated_sets,110u);EXPECT_LE(h.port->activated_sets,140u);EXPECT_GT(h.bus->snapshot().statistics.sync_shifts,0u);
 }
 TEST(SynchronizedProgram, SubmitDoesNotCommitUntilOwnTransmitConfirmation) {
   Rig h;h.ready();h.synchronized();h.port->sync_echo_delay=2ms;h.execute(h.program());wait_for(h,"waiting_tx_confirmation");
@@ -107,7 +109,7 @@ TEST(SynchronizedProgram, SlipWithinShiftLimitMovesTimeBaseWithoutCatchup) {
 TEST(SynchronizedProgram, SlipBeyondShiftLimitStopsWithoutSyncOrCatchup) {
   Rig h;h.ready();h.synchronized();h.execute(h.program());wait_for(h,"waiting_ack");h.run(3);
   const auto due=Time{std::chrono::nanoseconds(h.bus->program_status().sync_due_monotonic_ns)};
-  h.now=due+11ms;h.run(100);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);
+  h.now=due+31ms;h.run(100);EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.port->counts[0x4b],0u);   // limit przesunięcia 30 ms
 }
 TEST(SynchronizedProgram, StopAtPreparationAcceptedAndSubmittedPhasesBlocksFurtherSync) {
   for(unsigned phase=0;phase<3;++phase) {
@@ -161,8 +163,8 @@ TEST(SynchronizedProgram, DispatchChangePreservesCalibrationAndRollbackInvalidat
 }
 TEST(SynchronizedProgram, IndependentAxisAcknowledgementTimesKeepOneActivation) {
   Rig h;h.ready();h.synchronized();for(unsigned j=1;j<=6;++j) h.port->axis_ack_delay[j]=std::chrono::microseconds(j*500);
-  h.execute(h.program());h.run(1600);EXPECT_EQ(h.bus->program_status().state,"succeeded")<<h.bus->program_status().message;
-  EXPECT_EQ(h.port->activated_sets,101u);
+  h.execute(h.program());h.run(2500);EXPECT_EQ(h.bus->program_status().state,"succeeded")<<h.bus->program_status().message;
+  EXPECT_GE(h.port->activated_sets,110u);EXPECT_LE(h.port->activated_sets,140u);
 }
 TEST(SynchronizedProgram, CorruptOrDuplicateAcknowledgementLatchesFault) {
   for(bool duplicate:{false,true}) {
@@ -173,11 +175,11 @@ TEST(SynchronizedProgram, CorruptOrDuplicateAcknowledgementLatchesFault) {
   }
 }
 TEST(SynchronizedProgram, LatenessBoundariesShiftAboveToleranceAndStopAboveLimit) {
-  for(unsigned us:{2500,2501,10000,10001}) {
+  for(unsigned us:{2500,2501,30000,30001}) {   // tolerancja 2,5 ms, limit przesunięcia 30 ms (kSyncMaxShift)
     Rig h;h.ready();h.synchronized();h.execute(h.program());wait_for(h,"waiting_ack");h.run(4);
     h.now=Time{std::chrono::nanoseconds(h.bus->program_status().sync_due_monotonic_ns)}+std::chrono::microseconds(us);
-    h.run(3);EXPECT_EQ(h.port->counts[0x4b],us<=10000 ? 1u : 0u) << us;EXPECT_EQ(h.bus->snapshot().fault,us>10000) << us;
-    EXPECT_EQ(h.bus->snapshot().statistics.sync_shifts,us>2500 && us<=10000 ? 1u : 0u) << us;
+    h.run(3);EXPECT_EQ(h.port->counts[0x4b],us<=30000 ? 1u : 0u) << us;EXPECT_EQ(h.bus->snapshot().fault,us>30000) << us;
+    EXPECT_EQ(h.bus->snapshot().statistics.sync_shifts,us>2500 && us<=30000 ? 1u : 0u) << us;
   }
 }
 TEST(SynchronizedProgram, NextDeadlineIsPreparedSyncTerm) {
@@ -226,9 +228,9 @@ TEST(SynchronizedProgram, SharedHorizonUsesOnlyParticipatingAxes) {
   Rig h(c);h.port->absent=1;h.ready();h.synchronized();auto p=h.program(.2,1,true);p.duration=1;
   const auto expected=program_reference(p,.12).positions[1];h.execute(p);wait_for(h,"waiting_ack");
   EXPECT_EQ(h.port->pending_targets[2],std::llround(expected*10*16384/(2*std::acos(-1.))));
-  EXPECT_FALSE(h.port->pending_targets_valid[1]);h.run(1600);
+  EXPECT_FALSE(h.port->pending_targets_valid[1]);h.run(2500);
   EXPECT_EQ(h.bus->program_status().state,"succeeded")<<h.bus->program_status().message;
-  EXPECT_FALSE(h.bus->program_status().tcp_verified);EXPECT_EQ(h.port->counts[0xf5],505u);
+  EXPECT_FALSE(h.bus->program_status().tcp_verified);EXPECT_EQ(h.port->counts[0xf5],5*h.port->activated_sets) << "5 uczestników";
 }
 TEST(SynchronizedProgram, GlobalStopRecoversWithoutSyncAndKeepsFeedback) {
   auto c=config();c.program_staged_reset_verified=true;Rig h(c);h.ready();h.synchronized();
@@ -324,12 +326,15 @@ TEST(SynchronizedProgram, FinalApproachCorrectsDriveOffsetWithSyncSetsAndTimesOu
     EXPECT_LE(std::abs(static_cast<double>(h.port->positions[3]-std::llround(.2*10*16384/(2*std::acos(-1.))))),1.);
   }
   {
-    // Oś zablokowana po trajektorii: zamiast wiecznego oczekiwania awaria po limicie dolotu.
+    // Oś zablokowana (stoi) po trajektorii: po limicie dolotu program nieudany bez awarii — napędy trzymają pozycję.
     Rig h;h.ready();h.synchronized();h.port->drive_offset[2]=1000;h.port->frozen[2]=false;h.execute(h.program());
     for(unsigned i=0;i<3000 && h.bus->program_status().state!="waiting_position" && !h.bus->snapshot().fault;++i) h.run(1);
     ASSERT_EQ(h.bus->program_status().state,"waiting_position") << h.bus->program_status().message;
-    h.port->frozen[2]=true;h.run(7000);EXPECT_TRUE(h.bus->snapshot().fault);
-    EXPECT_NE(h.bus->program_status().message.find("SYNC: dolot końcowy nieudany"),std::string::npos) << h.bus->program_status().message;
+    h.port->frozen[2]=true;h.run(7000);EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+    EXPECT_EQ(h.bus->program_status().state,"failed");EXPECT_FALSE(h.bus->program_status().busy);
+    EXPECT_NE(h.bus->program_status().message.find("SYNC: dolot końcowy niepełny"),std::string::npos) << h.bus->program_status().message;
+    EXPECT_NE(h.bus->program_status().message.find("przywrócono tryb bez SYNC"),std::string::npos) << h.bus->program_status().message;
+    for(unsigned j=1;j<=6;++j) {EXPECT_TRUE(h.port->enabled[j]) << j;EXPECT_FALSE(h.port->sync[j]) << j;}
   }
 }
 namespace {
@@ -455,16 +460,16 @@ TEST(IsolatedProgram, SingleAxisMaskCommandsOnlyThatAxisWithOthersDisabled) {
   Rig g;g.port->absent=4;g.ready();auto q=g.program();q.participation_mask=1u<<3;
   EXPECT_THROW(g.bus->prepare_program(q,g.now),std::runtime_error) << "oś z maski niewykryta";
 }
-TEST(SettleTimeout, StuckMotorStateFailsProgramWithAxisDetail) {
+TEST(SettleTimeout, StuckMotorStateWithStandingShaftSucceedsWithWarning) {
   Rig h;h.ready();h.synchronized();
   h.execute(h.program(.2,1.));
   for(unsigned i=0;i<4000 && h.bus->program_status().state!="settling";++i) h.run(1);
   ASSERT_EQ(h.bus->program_status().state,"settling");
-  h.port->motor_state_override[2]=3;  // J2: F1=3 (hamowanie) bez końca, mimo postoju
+  h.port->motor_state_override[2]=3;  // J2: F1=3 (hamowanie) bez końca, mimo postoju wału
   h.run(5000);
-  ASSERT_TRUE(h.bus->snapshot().fault) << h.bus->program_status().state << " " << h.bus->program_status().message;
-  EXPECT_NE(h.bus->snapshot().message.find("Brak potwierdzenia postoju"),std::string::npos) << h.bus->snapshot().message;
-  EXPECT_NE(h.bus->snapshot().message.find("J2: RPM=0, F1=3"),std::string::npos) << h.bus->snapshot().message;
+  // MKS bywa w F1≠1 przy stojącym wale: postój potwierdza stała pozycja (≥ 500 ms), bez awarii i ENABLE=0.
+  ASSERT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+  EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
 }
 TEST(SynchronizedProgram, LongProgramKeepsBudgetForEverySyncBatch) {
   // Diagnostyka w tle nie może zająć miejsca zestawu SYNC (F5+ACK+zapytanie pozycji na oś + ramka SYNC).
@@ -527,4 +532,28 @@ TEST(RunawayGuard, NormalSynchronizedProgramsDoNotTrigger) {
     EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
     EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
   }
+}
+TEST(SynchronizedProgram, RestoreRetriesSyncWriteRejectedWhileDriveFinishesMove) {
+  // MKS odrzuca zapis 4A=0, dopóki kończy ruch (F1=4): ponowienie co 50 ms, program udany bez awarii.
+  Rig h;h.ready();h.synchronized();h.execute(h.program());
+  for(unsigned i=0;i<4000 && h.bus->program_status().state!="restoring";++i) h.run(1);
+  ASSERT_EQ(h.bus->program_status().state,"restoring") << h.bus->program_status().message;
+  h.port->reject_sync_writes=4;h.run(1500);
+  EXPECT_FALSE(h.bus->snapshot().fault) << h.bus->snapshot().message;
+  EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  for(unsigned j=1;j<=6;++j) EXPECT_FALSE(h.port->sync[j]) << j;
+}
+TEST(SynchronizedProgram, HoldSetsUseToleranceBandSpeedFloor) {
+  // Ramki strumienia trzymania: prędkość ≥ pasmo tolerancji w 100 ms (napęd nie pełznie minimalną jednostką F5).
+  Rig h;h.ready();h.synchronized();h.execute(h.program());h.run(2500);
+  ASSERT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  const double rpm=kProgramPositionTolerance*10/(2*std::acos(-1.))*60/.1;
+  unsigned checked=0;
+  for(unsigned j=1;j<=6;++j) {
+    const auto last=std::find_if(h.port->events.rbegin(),h.port->events.rend(),[j](const auto &e){return e.axis==j && e.data[0]==0xf5;});
+    ASSERT_NE(last,h.port->events.rend());
+    const unsigned units=((last->data[1]&0x0f)<<8)|last->data[2];
+    EXPECT_GE(units*speed_scale(h.port->microsteps[j]),rpm-1e-9) << "J" << j;++checked;
+  }
+  EXPECT_EQ(checked,6u);
 }

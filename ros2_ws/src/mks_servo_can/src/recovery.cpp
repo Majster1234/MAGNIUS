@@ -223,6 +223,18 @@ void CanBusManager::schedule_recovery(Time now) {
   }
   if(!r.required) {recovery_failed("brak skonfigurowanych ani wykrytych osi do potwierdzenia STOP");return;}
   if(r.phase==RecoveryPhase::verifying_disabled) {
+    // Zgubione F3 ENABLE=0 (np. przy przejściu magistrali w error-passive, 11.11.2026 J6): ponowienie co 300 ms dla osi,
+    // która w świeżym odczycie po STOP nadal ma ENABLE=1, zamiast czekać do terminu etapu i kończyć odzyskiwanie błędem.
+    if(r.force_disable) for(unsigned j=0;j<kAxes;++j) if(r.required&(1u<<j)) {
+      const auto address=r.addresses[j];const auto &enable=devices_[address].enable;
+      if(!enable.fresh(now,300ms) || !enable.value || enable.stamp<r.verify_after+200ms || now<r.disable_retry[j]) continue;
+      r.disable_retry[j]=now+300ms;
+      try {
+        if(!transport_->is_open()) throw std::runtime_error("transport CAN zamknięty");
+        transport_->send(address,enable_request(address,false));++stats_.tx;next_enable_[address]={};
+        trace_note("recovery_disable_retry",axis_diagnostic_label(j+1,address)+": ENABLE=1 po STOP — ponowione F3 ENABLE=0",address,0xf3);
+      } catch(const std::exception &e) {stats_.stop_failed|=1u<<j;}
+    }
     if(!recovery_standstill(now,true)) return;
     r.phase=RecoveryPhase::overwriting;r.message="ENABLE wyłączone; nadpisywanie bufora SYNC";
     r.axis=r.step=0;r.pending=r.required;r.deadline=now+kRecoveryTimeout;return;

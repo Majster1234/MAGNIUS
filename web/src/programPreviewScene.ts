@@ -1,9 +1,12 @@
 // Podgląd 3D pozycji programu: robot z prymitywów według geometrii aktywnej konfiguracji (jak configurationScene),
-// ustawiony w kątach wybranej pozycji; znaczniki TCP wszystkich pozycji programu z etykietami.
+// ustawiony w kątach wybranej pozycji; znaczniki TCP wszystkich pozycji programu z etykietami (poza zakresem osi —
+// czerwone); wskaźniki limitów osi na przegubach jak w sterowaniu ręcznym (previewLimitGlow).
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { demoTranslations, jointAxes } from "./configurationData";
 import type { Position } from "./programModel";
+import { createLimitGlowsFor } from "./previewLimitGlow";
+import type { LimitIndicator } from "./previewLimits";
 
 type Values = Record<string, unknown> | null;
 const num = (v: unknown, fb: number) => typeof v === "number" && Number.isFinite(v) ? v : fb;
@@ -29,7 +32,8 @@ export function tcpOf(values: Values, deg: number[]): THREE.Vector3 {
     return new THREE.Vector3().setFromMatrixPosition(m);
 }
 
-export function createProgramScene(host: HTMLElement) {
+// maxFps: limit renderowania (pendant na telefonie: mniej pracy głównego wątku obok pętli JOG); brak = każda klatka.
+export function createProgramScene(host: HTMLElement, options: { maxFps?: number } = {}) {
     const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(2, devicePixelRatio)); renderer.setClearColor(0x131b22);
     host.appendChild(renderer.domElement);
     const labels = document.createElement("div"); labels.className = "prg-scene-labels"; host.appendChild(labels);
@@ -39,6 +43,9 @@ export function createProgramScene(host: HTMLElement) {
     const grid = new THREE.GridHelper(2, 20, 0x40574f, 0x25313a); grid.rotation.x = Math.PI / 2; scene.add(grid);
     const linkMat = new THREE.MeshStandardMaterial({ color: 0x8096a3, metalness: .25, roughness: .55 }), jointMat = new THREE.MeshStandardMaterial({ color: 0x77c8a7, roughness: .5 });
     const markerMat = new THREE.MeshBasicMaterial({ color: 0x86a9c8 }), selMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const badMat = new THREE.MeshBasicMaterial({ color: 0xff4b5c });
+    let glows: ReturnType<typeof createLimitGlowsFor> | null = null, limits: LimitIndicator[][] = [];
+    const currentGlows = () => glows;
     const base = new THREE.Mesh(new THREE.CylinderGeometry(.09, .1, .1, 32), new THREE.MeshStandardMaterial({ color: 0x4b616c })); base.rotation.x = Math.PI / 2; base.position.z = .05; scene.add(base);
     let robot = new THREE.Group(), pivots: THREE.Group[] = [], axes: THREE.Vector3[] = [], values: Values = null;
     scene.add(robot);
@@ -58,14 +65,20 @@ export function createProgramScene(host: HTMLElement) {
             const next = i < 5 ? joints[i + 1].xyz : tool.xyz; pivot.add(cylinder(new THREE.Vector3(), new THREE.Vector3(...next), i < 3 ? .024 : .018, linkMat)); parent = pivot;
         });
         const t = new THREE.Group(); t.position.set(tool.xyz[0], tool.xyz[1], tool.xyz[2]); parent.add(t); t.add(new THREE.AxesHelper(.06));
+        // Znaczniki limitów w układzie przegubu sprzed obrotu (grupa nadrzędna pivotu).
+        glows?.dispose();
+        glows = createLimitGlowsFor(pivots.map((pivot, i) => ({ parent: pivot.parent!, position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), axis: axes[i] })), host);
+        glows.update(limits, performance.now());
     }
     let markers: { mesh: THREE.Mesh; label: HTMLSpanElement }[] = [];
-    function setPositions(list: Position[], selected: string | null) {
-        for (const m of markers) { scene.remove(m.mesh); m.label.remove(); } markers = [];
+    function setPositions(list: Position[], selected: string | null, outside: Set<string> = new Set()) {
+        for (const m of markers) { scene.remove(m.mesh); m.mesh.geometry.dispose(); m.label.remove(); } markers = [];
         for (const p of list) {
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.name === selected ? .012 : .008, 16, 12), p.name === selected ? selMat : markerMat);
+            const bad = outside.has(p.name);
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.name === selected ? .012 : .008, 16, 12), bad ? badMat : p.name === selected ? selMat : markerMat);
             mesh.position.copy(tcpOf(values, p.joints_deg)); scene.add(mesh);
-            const label = document.createElement("span"); label.className = `prg-scene-label${p.name === selected ? " selected" : ""}`; label.textContent = p.name; labels.appendChild(label);
+            const label = document.createElement("span"); label.className = `prg-scene-label${p.name === selected ? " selected" : ""}${bad ? " bad" : ""}`;
+            label.textContent = bad ? `⚠ ${p.name}` : p.name; if (bad) label.title = "Pozycja poza zakresem osi"; labels.appendChild(label);
             markers.push({ mesh, label });
         }
     }
@@ -73,13 +86,17 @@ export function createProgramScene(host: HTMLElement) {
     let frame = 0;
     const resize = () => { const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(host); resize();
-    (function loop() {
-        frame = requestAnimationFrame(loop); controls.update();
+    let rendered = -Infinity;
+    (function loop(now: number = performance.now()) {
+        frame = requestAnimationFrame(loop);
+        if (options.maxFps && now - rendered < 1000 / options.maxFps - 2) return;
+        rendered = now; controls.update();
         const w = host.clientWidth, h = host.clientHeight;
         for (const m of markers) { const p = m.mesh.position.clone().project(camera); m.label.style.transform = `translate(${(p.x * .5 + .5) * w}px,${(-p.y * .5 + .5) * h}px)`; m.label.style.display = p.z < 1 ? "" : "none"; }
+        const g = currentGlows(); if (g) { g.update(limits, performance.now()); g.project(camera, w, h); }
         renderer.render(scene, camera);
     })();
     build(null);
-    return { setGeometry: build, setPositions, setPose,
-        dispose() { cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); renderer.dispose(); disposables.forEach(d => d.dispose()); host.replaceChildren(); } };
+    return { setGeometry: build, setPositions, setPose, setLimits(next: LimitIndicator[][]) { limits = next; },
+        dispose() { cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); glows?.dispose(); renderer.dispose(); disposables.forEach(d => d.dispose()); host.replaceChildren(); } };
 }

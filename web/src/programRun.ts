@@ -2,11 +2,12 @@
 import type { Block, Program } from "./programModel";
 
 export type RunWarning = { block_id: string | null; code: string; text: string };
+// kind: brak = ruch; "wait" = czekanie (czas), "operator" = czekanie na operatora (czas nieznany, 0 na osi).
 export type TimelineEntry = { block_id: string; chain: number; start_s: number; end_s: number; transition_end_s: number;
-    stop: boolean; blend_mm_requested: number; blend_mm_applied: number };
+    stop: boolean; blend_mm_requested: number; blend_mm_applied: number; kind?: "wait" | "operator"; text?: string };
 export type ChainTiming = { segment: number; tag: string; start_time: number; end_time: number; transition_end: number; stop: boolean;
     requested_blend_radius: number; applied_blend_radius: number };
-export type RobotCursor = { block_id: string; phase: "moving" | "blending" | "stopped" | "arming" | "settling" | "done";
+export type RobotCursor = { block_id: string; phase: "moving" | "blending" | "stopped" | "arming" | "settling" | "done" | "waiting" | "operator";
     blend: { from: string; to: string; progress: number } | null };
 export type RunStatus = {
     run_id: string | null; mode: "check" | "execute" | null; active: boolean;
@@ -18,14 +19,17 @@ export type RunStatus = {
     next_chain: { index?: number; state?: string; progress?: number; phase?: string } | null;
     chains: number; warnings: RunWarning[]; error: { block_id: string | null; text: string } | null;
     timeline: TimelineEntry[]; total_s: number | null;
+    wait?: { block_id: string; kind: "wait" | "operator"; text: string; seconds?: number; until_monotonic_s?: number } | null;
+    server_monotonic_s?: number;
 };
 
 export const runStateLabels: Record<string, string> = {
     idle: "Bezczynny", checking: "Sprawdzanie", starting: "Start", planning: "Liczenie ciągu", preparing: "Przygotowanie ciągu",
     arming: "Uzbrajanie napędów", running: "W ruchu", settling: "Dolot końcowy", stopping: "Zatrzymywanie",
-    stopped: "Zatrzymany", succeeded: "Zakończony", failed: "Przerwany",
+    stopped: "Zatrzymany", succeeded: "Zakończony", failed: "Przerwany", waiting: "Czekanie", waiting_operator: "Czeka na operatora",
 };
-export const phaseLabels: Record<string, string> = { moving: "ruch", blending: "przejście", stopped: "postój", arming: "uzbrajanie", settling: "dolot", done: "koniec" };
+export const phaseLabels: Record<string, string> = { moving: "ruch", blending: "przejście", stopped: "postój", arming: "uzbrajanie", settling: "dolot", done: "koniec",
+    waiting: "czekanie", operator: "czeka na operatora" };
 
 // Dotyczy przebiegu tego programu (ten sam id; przy sprawdzeniu dokumentu bez id — dowolnego).
 export function runFor(status: RunStatus | null, program: Program | null): RunStatus | null {
@@ -65,7 +69,7 @@ export function ancestorIds(program: Program, id: string | null | undefined): st
 
 // Znacznik promienia pominięcia punktu na bloku ruchu (po sprawdzeniu: zastosowany promień).
 export function blendBadge(block: Block, entry: TimelineEntry | undefined): { text: string; tone: "" | "warn"; title: string } | null {
-    if (block.command !== "move_ptp" && block.command !== "move_lin") return null;
+    if (!("blend_mm" in block.params)) return null;   // ruchy PTP/LIN i względne
     const raw = block.params.blend_mm;
     if (typeof raw !== "number") return typeof raw === "object" && raw && "var" in raw ? { text: `⌀ ${raw.var}`, tone: "", title: "Promień ze zmiennej" } : null;
     if (!entry) return raw > 0 ? { text: `⌀ ${raw} mm`, tone: "", title: "Płynne przejście do następnego ruchu w tym promieniu" } : { text: "■ stop", tone: "", title: "Dojazd do punktu i postój" };
@@ -74,13 +78,15 @@ export function blendBadge(block: Block, entry: TimelineEntry | undefined): { te
     return raw > 0 ? { text: `⌀ ${raw} mm`, tone: "", title: "Płynne przejście (zastosowane)" } : { text: "■ stop", tone: "", title: "Dojazd do punktu i postój" };
 }
 
-// Odcinki osi czasu do paska: ruch, przejście, przerwa między ciągami.
-export type TimelineBar = { kind: "move" | "blend" | "stop" | "gap"; start: number; end: number; block?: string };
+// Odcinki osi czasu do paska: ruch, przejście, czekanie, operator, przerwa między ciągami.
+export type TimelineBar = { kind: "move" | "blend" | "stop" | "gap" | "wait" | "operator"; start: number; end: number; block?: string };
 export function timelineBars(timeline: TimelineEntry[]): TimelineBar[] {
     const bars: TimelineBar[] = [];
     let previous: TimelineEntry | null = null;
     for (const entry of timeline) {
-        if (previous && previous.chain !== entry.chain && entry.start_s > previous.transition_end_s) bars.push({ kind: "gap", start: previous.transition_end_s, end: entry.start_s });
+        if (previous && (previous.chain !== entry.chain || previous.kind || entry.kind) && entry.start_s > previous.transition_end_s + 1e-3)
+            bars.push({ kind: "gap", start: previous.transition_end_s, end: entry.start_s });
+        if (entry.kind) { bars.push({ kind: entry.kind, start: entry.start_s, end: entry.end_s, block: entry.block_id }); previous = entry; continue; }
         bars.push({ kind: "move", start: entry.start_s, end: entry.end_s, block: entry.block_id });
         if (entry.transition_end_s > entry.end_s) bars.push({ kind: entry.stop ? "stop" : "blend", start: entry.end_s, end: entry.transition_end_s, block: entry.block_id });
         previous = entry;

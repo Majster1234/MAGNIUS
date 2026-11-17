@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accepts, allIds, changeCommand, compatibleCommands, countBlocks, duplicateBlock, emptyProgram, findBlock, insertBlock, isDescendant, moveBlock, nameError, newBlock,
+import { accepts, addCase, allIds, canDrop, changeCommand, checkExpression, commandMap, compatibleCommands, countBlocks, duplicateBlock, emptyProgram, findBlock, insertBlock, isDescendant, moveBlock, nameError, newBlock,
     parseInit, problems, programText, removeBlock, renameRefs, setParam, usage, type CommandLibrary, type Program } from "./programModel";
 
 const library: CommandLibrary = { schema_version: 1, categories: [{ id: "ruch", label: "Ruch" }], io: { outputs: ["OUT1"], inputs: ["IN1"] }, commands: [
@@ -71,7 +71,7 @@ describe("zmienne, pozycje i podgląd", () => {
         expect(text).toContain("  MOVE PTP cel v=40%"); expect(text).toContain("END_FOR");
         expect(problems(p, library)).toEqual([]);
         const broken = setParam(renameRefs(p, "var", "cel", "zniknęła"), "a", "position", null);
-        expect(problems(broken, library).map(x => x.text)).toEqual(["jedź …: brak „pozycja”", "Brak zmiennej „zniknęła”"]);
+        expect(problems(broken, library).map(x => x.text)).toEqual(["jedź: brak „pozycja”", "Brak zmiennej „zniknęła”"]);
     });
 });
 
@@ -93,5 +93,80 @@ describe("zamiana rozkazu bloku", () => {
         toLin.program.blocks[0].params.speed = 250;
         const back = changeCommand(toLin.program, "m", ptp);
         expect(back.program.blocks[0].params).toEqual({ position: { position: "A" }, speed: 30, blend_mm: 5 }); expect(back.reset).toEqual(["prędkość"]);
+    });
+});
+
+describe("logika, wybór i schemat blokowy", () => {
+    const logic: CommandLibrary = { schema_version: 1, categories: [{ id: "logika", label: "Logiczne" }, { id: "petle", label: "Pętle i skoki" }], commands: [
+        { id: "switch", category: "logika", shape: "switch", label: "wybierz wg {value}", text: "CASE {value} OF", end: "END_CASE",
+          slots: [{ name: "body", accepts: ["case"] }, { name: "else", label: "inaczej", text: "ELSE" }],
+          initial: { body: [{ command: "case", params: { match: 1 } }, { command: "case", params: { match: 2 } }] }, params: [{ name: "value", kind: "expression", label: "wartość" }] },
+        { id: "case", category: "logika", shape: "case", parents: ["switch"], label: "= {match}", text: "{match}:", slots: [{ name: "body" }],
+          params: [{ name: "match", kind: "value", label: "wartość przypadku", default: 1 }] },
+        { id: "if", category: "logika", shape: "decision", label: "jeśli {condition}", text: "IF {condition} THEN", end: "END_IF",
+          slots: [{ name: "body", label: "TAK" }, { name: "else", label: "NIE", text: "ELSE" }], params: [{ name: "condition", kind: "condition", label: "warunek", default: "TRUE" }] },
+        { id: "repeat_until", category: "petle", shape: "loop", label: "powtarzaj aż {condition}", text: "REPEAT", end: "UNTIL {condition} END_REPEAT", slots: [{ name: "body" }],
+          params: [{ name: "condition", kind: "condition", label: "warunek", default: "TRUE" }] },
+        { id: "while", category: "petle", shape: "loop", label: "dopóki {condition}", text: "WHILE {condition} DO", end: "END_WHILE", slots: [{ name: "body" }],
+          params: [{ name: "condition", kind: "condition", label: "warunek", default: "TRUE" }] },
+        { id: "break", category: "petle", name: "Przerwij pętlę", shape: "jump", label: "przerwij pętlę" },
+        { id: "label", category: "petle", shape: "label", label: "etykieta {name}", params: [{ name: "name", kind: "label", label: "nazwa" }] },
+        { id: "goto", category: "petle", shape: "jump", label: "skocz do {target}", params: [{ name: "target", kind: "label", label: "etykieta" }] },
+        { id: "calc", category: "logika", label: "oblicz {target} := {a} {op} {b}", params: [{ name: "target", kind: "variable", label: "wynik", types: ["INT", "REAL"] },
+            { name: "a", kind: "number", label: "a", default: 0 }, { name: "op", kind: "choice", label: "działanie", default: "+", options: ["+", "-"] }, { name: "b", kind: "number", label: "b", default: 1 }] },
+    ] };
+    const cmap = commandMap(logic), get = (id: string) => cmap.get(id)!;
+
+    it("nowy „wybierz” ma dwa przypadki; przypadek tylko w „wybierz”, nic innego w jego gnieździe przypadków", () => {
+        let p = emptyProgram("T"); const sw = newBlock(get("switch"), allIds(p.blocks), cmap);
+        expect(sw.body!.map(b => [b.command, b.params.match])).toEqual([["case", 1], ["case", 2]]);
+        expect(new Set([sw.id, ...sw.body!.map(b => b.id)]).size).toBe(3);
+        p = insertBlock(p, { parent: null, slot: "blocks", index: 0 }, sw);
+        expect(canDrop(p, cmap, "case", { parent: null, slot: "blocks", index: 0 })).toBe(false);
+        expect(canDrop(p, cmap, "case", { parent: sw.id, slot: "body", index: 1 })).toBe(true);
+        expect(canDrop(p, cmap, "if", { parent: sw.id, slot: "body", index: 1 })).toBe(false);
+        expect(canDrop(p, cmap, "if", { parent: sw.id, slot: "else", index: 0 })).toBe(true);
+        expect(canDrop(p, cmap, "if", { parent: sw.body![0].id, slot: "body", index: 0 })).toBe(true);
+        const added = addCase(p, sw.id, cmap);
+        expect(findBlock(added.program, sw.id)!.block.body!.map(b => b.params.match)).toEqual([1, 2, 3]);
+        expect(compatibleCommands(logic, get("case"))).toEqual([]);
+        expect(compatibleCommands(logic, get("while")).map(c => c.id)).toEqual(["repeat_until"]);
+    });
+
+    it("tekst: CASE/ELSE/END_CASE i koniec pętli z warunkiem", () => {
+        const p = emptyProgram("T"); p.variables = [{ name: "n", type: "INT", init: 0 }];
+        p.blocks = [{ id: "s", command: "switch", params: { value: { var: "n" } }, body: [{ id: "c", command: "case", params: { match: 1 }, body: [] }], else: [] },
+            { id: "r", command: "repeat_until", params: { condition: "n > 2" }, body: [] }];
+        expect(programText(p, logic).filter(l => l.block).map(l => "    ".repeat(l.depth) + l.text))
+            .toEqual(["CASE n OF", "    1:", "ELSE", "END_CASE", "REPEAT", "UNTIL n > 2 END_REPEAT"]);
+    });
+
+    it("wyrażenia: składnia, nazwy, funkcje", () => {
+        const names = new Set(["x", "ok", "licznik"]);
+        for (const good of ["(2 + 3) * x >= 10 AND NOT FALSE", "x MOD 3 <> 0 XOR ok", "SQRT(16) + MAX(1, x, 3) ^ 2", "'a' = 'a'", "-x", "PI * 2", "licznik < LIMIT(0, x, 5)"])
+            expect(checkExpression(good, names)).toBeNull();
+        expect(checkExpression("y + 1", names)).toMatch(/Nieznana zmienna: y/);
+        expect(checkExpression("1 +", names)).toMatch(/koniec wyrażenia/);
+        expect(checkExpression("1 < x < 3", names)).toMatch(/AND/);
+        expect(checkExpression("SQRT(1, 2)", names)).toMatch(/argumenty/);
+        expect(checkExpression("FOO(1)", names)).toMatch(/Nieznana funkcja/);
+        expect(checkExpression("x.y", names)).toMatch(/Niedozwolony znak/);
+    });
+
+    it("uwagi przepływu: etykiety, skoki, przerwij poza pętlą, typy, lista wyboru, wyrażenia", () => {
+        const p = emptyProgram("T"); p.variables = [{ name: "ok", type: "BOOL", init: true }];
+        p.blocks = [{ id: "l1", command: "label", params: { name: "A" } }, { id: "l2", command: "label", params: { name: "A" } },
+            { id: "g", command: "goto", params: { target: "B" } },
+            { id: "w", command: "while", params: { condition: "ok" }, body: [{ id: "lb", command: "label", params: { name: "B" } }, { id: "bk", command: "break", params: {} }] },
+            { id: "b2", command: "break", params: {} },
+            { id: "i", command: "if", params: { condition: "nie_ma > 1" }, body: [], else: [] },
+            { id: "c", command: "calc", params: { target: { var: "ok" }, a: 1, op: "%", b: 2 } }];
+        const found = problems(p, logic).map(x => `${x.block}: ${x.text}`);
+        expect(found).toEqual(expect.arrayContaining([
+            "l1: Etykieta „A” występuje 2×", "l2: Etykieta „A” występuje 2×",
+            "g: Etykieta „B” niedostępna — skok tylko w tej samej lub nadrzędnej liście bloków",
+            "b2: „Przerwij pętlę” poza pętlą", "i: warunek: Nieznana zmienna: nie_ma",
+            "c: wynik: zmienna ok (BOOL), wymagany typ INT/REAL", "c: działanie: „%” spoza listy"]));
+        expect(found.some(t => t.startsWith("bk:"))).toBe(false);
     });
 });

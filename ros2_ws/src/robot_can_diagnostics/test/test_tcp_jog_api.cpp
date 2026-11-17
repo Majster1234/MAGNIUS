@@ -30,7 +30,7 @@ std::string xml() {
 namespace {
 // release=false: panel milknie bez STOP; oczekiwane hamowanie bez awarii całego robota.
 // drive_offset: uchyb układu celu F5 napędu J6 względem enkodera (impulsy wału), jak na sprzęcie.
-void physical_session(bool release,std::int64_t drive_offset=0) {
+void physical_session(bool release,std::int64_t drive_offset=0,bool emergency=false) {
   setenv("ROS_LOCALHOST_ONLY","1",1);setenv("ROS_DOMAIN_ID","194",1);
   rclcpp::init(0,nullptr);
   auto config=streaming_test::config();auto transport=std::make_unique<Port>();
@@ -92,11 +92,13 @@ void physical_session(bool release,std::int64_t drive_offset=0) {
     {std::lock_guard<std::mutex> lock(mutex);advanced=advanced || status.progress>0;}
   }
   bool stopped=started;
-  if(release) {request->action=Service::Request::STOP;request->sequence=5;stopped=started && send();}
+  if(release) {request->action=Service::Request::STOP;request->emergency=emergency;request->sequence=5;stopped=started && send();}
   if(started && !stopped) wait([](const auto &s){return !s.busy && s.generation>0;});
   const bool confirmed=stopped && wait([](const auto &s){return !s.busy && s.state=="stopped";});
   std::string execution_message;
   {std::lock_guard<std::mutex> lock(mutex);execution_message=status.message;}
+  // STOP „awaryjny” panelu (utrata łączności) = łagodne zatrzymanie z przyczyną w komunikacie, bez STOP/ENABLE=0.
+  if(emergency) EXPECT_NE(execution_message.find("przerwano: STOP panelu"),std::string::npos)<<execution_message;
   execution_message+="; CAN: "+runtime->snapshot().message;
   const bool faulted=runtime->snapshot().fault;
   cleanup();EXPECT_FALSE(faulted)<<execution_message;EXPECT_TRUE(started)<<response_message;EXPECT_TRUE(foreign_rejected);EXPECT_TRUE(advanced)<<execution_message;
@@ -119,6 +121,7 @@ void physical_session(bool release,std::int64_t drive_offset=0) {
 }
 TEST(TcpJogApi, PhysicalSessionStartsReleasesAndConfirmsStopOnFakeTransport) {physical_session(true);}
 TEST(TcpJogApi, MissingKeepaliveBrakesWithoutBusFault) {physical_session(false);}
+TEST(TcpJogApi, PanelEmergencyStopBrakesSoftlyWithoutBusFault) {physical_session(true,0,true);}
 TEST(TcpJogApi, DriveOffsetAfterBrakingIsCorrectedAndStopConfirmed) {physical_session(false,25);}
 TEST(TcpJogApi, ParametersEnableDisabledWorkerAndRejectInvalidLimits) {
   setenv("ROS_LOCALHOST_ONLY","1",1);setenv("ROS_DOMAIN_ID","194",1);rclcpp::init(0,nullptr);
@@ -172,7 +175,8 @@ TEST(TcpStop, MotorShaftToleranceUsesGearRatioAndStandstillIgnoresEncoderNoise) 
   EXPECT_THROW(validate_tcp_parameters(0,.3),std::invalid_argument);
   // Szum pochodnej enkodera magnetycznego (zmierzone ±0,026 RPM) to postój; 0,6 RPM już nie.
   EXPECT_TRUE(shaft_at_standstill(-.0257));
-  EXPECT_TRUE(shaft_at_standstill(.5));
-  EXPECT_FALSE(shaft_at_standstill(.6));
+  EXPECT_TRUE(shaft_at_standstill(2.1));   // oscylacja trzymania J4
+  EXPECT_TRUE(shaft_at_standstill(3.));
+  EXPECT_FALSE(shaft_at_standstill(3.1));
   EXPECT_FALSE(shaft_at_standstill(double(NAN)));
 }

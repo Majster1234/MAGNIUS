@@ -20,9 +20,17 @@ API: `http://192.168.1.69:8080` (bez proxy).
 - blok: `{"id": unikalny, "command": id rozkazu, "params": {...}, "body"?: [bloki], "else"?: [bloki], "disabled"?: true}`;
 - wartość parametru: literał albo `{"var": "nazwa"}` / `{"position": "nazwa"}`.
 
-**Rozkazy (biblioteka budowana od nowa, 09.11.2026):** obecnie tylko ruchy
-- `move_ptp`: `{"position": {"position": "P1"}, "speed": 1–100 [%], "blend_mm": 0–200}`;
-- `move_lin`: `{"position": …, "speed": mm/s ≤ tcp.max_linear_velocity, "blend_mm": 0–200}`.
+**Rozkazy (kategorie od 10.11.2026; pełna tabela i składnia wyrażeń: `docs/programming.md`):**
+- ruchowe: `move_ptp` `{"position": {"position": "P1"}, "speed": 1–100 [%], "blend_mm": 0–200}`,
+  `move_lin` `{"position": …, "speed": mm/s ≤ tcp.max_linear_velocity, "blend_mm": 0–200}`; względne (od celu
+  poprzedniego ruchu): `move_rel` `{"dx", "dy", "dz" [mm], "frame": "baza"|"narzędzie", "speed" [mm/s], "blend_mm"}`,
+  `rotate_rel` `{"rx", "ry", "rz" [°], "frame", "speed" [°/s], "blend_mm"}`;
+- czasowe: `wait_time` `{"seconds": 0–3600}`, `wait_operator` `{"message": "…"}` (oba kończą ciąg ruchów);
+- logiczne: `if` `{"condition": "x > 2 AND ok"}` + `body`/`else`; `switch` `{"value": …}` + `body` = bloki `case`
+  `{"match": 1}` (z własnym `body`) + `else`; `logic_set`, `logic_toggle`;
+- matematyczne: `assign` `{"target": {"var": "x"}, "expression": "…"}`, `increment`/`decrement`, `calc`, `math_func`, `limit`;
+- pętle i skoki: `for` `{"counter": {"var": "i"}, "from", "to", "step"}`, `repeat` `{"count"}`, `while`, `repeat_until`,
+  `break`, `continue`, `label` `{"name"}`, `goto` `{"target": "nazwa"}` (tylko ta sama/nadrzędna lista), `stop_program`.
 
 `blend_mm` = promień pominięcia punktu na torze TCP: **0 = dojazd i postój w punkcie**, > 0 = płynne przejście do
 następnego ruchu (planer może zmniejszyć promień lub zamienić go na postój — uwagi w wyniku sprawdzenia). Zawsze
@@ -122,4 +130,16 @@ colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 
 ## Bieżący kontekst
 
-- 10.11.2026 — Programowanie: zmiana rodzaju rozkazu istniejącego bloku (PTP ↔ LIN) z listy po kliknięciu nazwy ruchu, bez usuwania bloku (`ProgrammingPage.tsx` `CommandSwitch`, `programModel.ts` `compatibleCommands`/`changeCommand`: id i parametry o tej samej nazwie zostają, wartość spoza zakresu → domyślna). Test `programModel.test.ts` (8/8), `web/dist` przebudowany (Ctrl+F5, bez restartu usługi); `docs/programming.md` uzupełniony.
+- 11.11.2026 (wieczór) — PTP bez reakcji na osobliwość i strumień trzymania w programach. Planer: `SampleCaps::wrist`
+  — zwalnianie J4/J6 przy osobliwości tylko dla LIN/przejść z LIN, PTP (pojedynczy i w ciągach) bez niego
+  (`planner.cpp`, `chain.cpp`; testy planner 18, chain 10; `docs/cartesian_planning.md`). Wykonawca SYNC
+  (`synchronized_program.cpp`, `program_bus.cpp`, `bus_manager.cpp`, pola `motion_executor.hpp`/`bus_manager.hpp` = ABI):
+  dolot ze strumieniem trzymania na siatce 10 ms (okno zapytań/budżetu jak w ruchu), korekta osi stojącej, ucieczka
+  > 4°/rosnący uchyb = awaria, niepełny dolot przy stojących osiach = program `failed` bez ENABLE=0, postój F1=1 lub
+  pozycja stała ≥ 500 ms; `kSyncMaxShift` 10 → 30 ms; odzyskiwanie ponawia F3 ENABLE=0 co 300 ms
+  (`recovery.cpp`); przywracanie ponawia zapis 4A=0/8C odrzucony przy F1=4, ramki trzymania z prędkością ≥ pasmo tolerancji/100 ms (test SYNC 49). Opis:
+  `docs/synchronized_streaming.md` (dwie nowe sekcje). Próba: `scripts/motion_endurance.py`.
+  Przebieg bazowy (stary kod): 3 długie PTP OK, LIN 400 mm przerwany awarią SYNC 10 ms przy błędach CAN
+  (error-warn/pass 1 → 3), potem odzyskiwanie nieudane (J6 bez F3). Build overlay 4 pakietów, testy mks_servo_can
+  wszystkie (SYNC 47); **wymaga restartu `robot-web-status`** i próby. Wcześniej (ten sam dzień): niezawodność JOG TCP
+  z pendanta — `docs/tcp_jog.md` „Zatrzymania i nadzór”, sesja 21:09: 0 awarii, 138 przytrzymań.

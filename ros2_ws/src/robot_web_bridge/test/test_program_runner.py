@@ -101,6 +101,19 @@ class FakePlanning:
         return {'model_id': 'm', 'configuration_revision': 'r1', 'snapshot': (200, {}), 'values': VALUES,
                 'seeds': [0.] * 6, 'sources': ['measured'] * 6}
 
+    def robot_state(self):
+        return getattr(self, 'state', {'fresh': True, 'fault': False, 'recovery_state': 'idle', 'busy': False, 'tcp_jog': {'busy': False},
+                                       'axes': [{'available': True, 'joint_configured': True, 'calibration_valid': True, 'joint_position_known': True,
+                                                 'joint_position_degrees': 0., 'enable_known': True, 'enabled': True} for _ in range(6)]})
+
+    async def relative_target(self, from_degrees, start, relative):
+        # atrapa IK: przesunięcie 10 mm = 1° J1–J3, obrót = ° J4–J6
+        self.events.append(('relative', [round(q, 6) for q in from_degrees], relative['frame']))
+        t, r = relative['translation_mm'], relative['rotation_deg']
+        if relative['frame'] == 'tool' and abs(t[0]) > 1000:
+            raise ValueError('Cel poza zasięgiem')
+        return [q + d for q, d in zip(from_degrees, [t[0] / 10, t[1] / 10, t[2] / 10, *r])]
+
     async def chain_context(self, seeds, physical, start):
         return {'seeds': list(seeds), 'physical': physical}
 
@@ -191,10 +204,14 @@ def approved(store, document):
     return store.approve(created['id'], created['revision'])['program']
 
 
-def test_default_library_has_ptp_and_lin_with_blend_radius():
-    commands = {c['id']: c for c in json.loads(DEFAULT_COMMANDS.read_text())['commands']}
-    assert set(commands) == {'move_ptp', 'move_lin'}
-    for command in commands.values():
+def test_default_library_has_categories_handlers_and_blend_radius():
+    library = json.loads(DEFAULT_COMMANDS.read_text())
+    commands = {c['id']: c for c in library['commands']}
+    assert [c['id'] for c in library['categories']] == ['ruch', 'czas', 'logika', 'matematyka', 'petle']
+    assert {'move_ptp', 'move_lin', 'wait_time', 'if', 'switch', 'case', 'assign', 'for', 'goto'} <= set(commands)
+    assert set(commands) <= set(Interpreter.HANDLERS)   # każdy rozkaz biblioteki ma obsługę w wykonawcy
+    assert all(c['category'] in {k['id'] for k in library['categories']} for c in commands.values())
+    for command in (commands['move_ptp'], commands['move_lin']):
         blend = next(p for p in command['params'] if p['name'] == 'blend_mm')
         assert blend['min'] == 0 and blend['default'] == 0 and blend['unit'] == 'mm'
 

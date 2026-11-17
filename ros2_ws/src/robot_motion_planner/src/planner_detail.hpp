@@ -14,10 +14,12 @@ struct Sample { robot_kinematics::Joints q{},v{},a{}; };
 // Interpolacja Hermite'a 5. stopnia jak w JTC i kompilatorze MKS; `index` przesuwa się tylko do przodu.
 Sample sample(const Trajectory &trajectory,double t,size_t &index);
 double tcp_excess(const robot_kinematics::Model &model,const Sample &s,const TcpLimits &limits);
-std::array<double,6> local_velocity_limits(const robot_kinematics::Model &model,const Sample &s,const std::array<double,6> &requested);
+std::array<double,6> local_velocity_limits(const robot_kinematics::Model &model,const Sample &s,const std::array<double,6> &requested,bool wrist=true);
 void stretch_time(Trajectory &trajectory,double factor);
 // Limity w danej próbce drogi: osie (prędkość/przyspieszenie) i TCP (velocity=0 → bez limitu TCP).
-struct SampleCaps { std::array<double,6> v{},a{}; TcpLimits tcp; };
+// wrist: zwalnianie J4/J6 przy osobliwości nadgarstka — tylko ruch po torze TCP (LIN/przejście z LIN); PTP w przegubach
+// nie zależy od osobliwości (decyzja operatora 11.11.2026).
+struct SampleCaps { std::array<double,6> v{},a{}; TcpLimits tcp; bool wrist{true}; };
 // `reset` przed każdym przejściem po drodze (wywołania `at` idą wzdłuż drogi, monotonicznie).
 struct CapProvider { std::function<void()> reset; std::function<SampleCaps(const robot_kinematics::Joints&)> at; };
 // Zmiana zegara drogi pod limity per próbka. vmax/amax = limity, z którymi liczono TOTG (górne ograniczenie).
@@ -29,6 +31,11 @@ std::shared_ptr<moveit::core::RobotModel> make_moveit_model(const Context &c,con
 // zaokrąglony do wielokrotności cyklu 10 ms. Limity per oś w kolejności joint_1..6.
 Trajectory totg(const std::shared_ptr<moveit::core::RobotModel> &model,const std::vector<robot_kinematics::Joints> &positions,
                 const std::array<double,6> &vmax,const std::array<double,6> &amax,double deviation,const std::function<void()> &check);
-// Ramki F5 100 Hz do podglądu MKS (plan.mks_samples / mks_compatible / mks_message).
+// Wykonawca streaming (mks_servo_can::compile_streaming_program) sprawdza każdy odcinek otoczką Bernsteina wielomianu
+// 5. stopnia — warunek wystarczający, na skokach przyspieszenia TOTG zawyżony ~2×. Odcinki, których otoczka przekracza
+// limity osi z profilu (pozycja, 98% prędkości/przyspieszenia), dzielimy na 2/4/…/16 części tego samego wielomianu:
+// trajektoria i ramki 10 ms się nie zmieniają, a otoczka zbiega do wartości rzeczywistych. Zwraca liczbę dodanych punktów.
+size_t refine_for_streaming(Trajectory &trajectory,const Context &c);
+// Ramki F5 100 Hz do podglądu MKS (plan.mks_samples / mks_compatible / mks_message); najpierw refine_for_streaming.
 void compile_mks(Plan &plan,const Context &c,const std::array<int64_t,6> &codes,const std::function<void()> &check);
 }

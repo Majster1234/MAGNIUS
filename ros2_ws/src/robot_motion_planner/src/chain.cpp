@@ -231,13 +231,14 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
   auto model=make_moveit_model(c,kinematics);
   auto caps_of=[&](const Label &label) {
     const auto &a=input[index[label.segment]];
-    SampleCaps caps{a.max_velocity,a.max_acceleration,a.tcp};
+    SampleCaps caps{a.max_velocity,a.max_acceleration,a.tcp,a.motion_type==1};
     if(label.blend && static_cast<size_t>(label.segment)+1<n) {
       const auto &b=input[index[label.segment+1]];
       for(unsigned j=0;j<6;++j) { caps.v[j]=std::min(caps.v[j],b.max_velocity[j]); caps.a[j]=std::min(caps.a[j],b.max_acceleration[j]); }
       if(a.tcp.velocity>0 && b.tcp.velocity>0) caps.tcp={std::min(a.tcp.velocity,b.tcp.velocity),std::min(a.tcp.acceleration,b.tcp.acceleration),
                                                          std::min(a.tcp.angular_velocity,b.tcp.angular_velocity)};
       else if(b.tcp.velocity>0) caps.tcp=b.tcp;
+      caps.wrist=caps.wrist || b.motion_type==1;   // przejście z udziałem LIN: tor TCP
     }
     return caps;
   };
@@ -265,7 +266,7 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
       const double total=seconds(part.points.back().time_from_start); size_t cursor=0; projector.reset();
       for(double t=0;t<=total+1e-9;t+=.005) {
         check(); const auto s=sample(part,std::min(t,total),cursor); const auto label=projector.label(s.q); const auto cap=caps_of(label);
-        const auto limits=local_velocity_limits(kinematics,s,cap.v); const int seg=static_cast<int>(index[label.segment]);
+        const auto limits=local_velocity_limits(kinematics,s,cap.v,cap.wrist); const int seg=static_cast<int>(index[label.segment]);
         if(tcp_excess(kinematics,s,cap.tcp)>1.+1e-5) throw ChainError(seg,"Interpolacja przekracza prędkość lub przyspieszenie TCP");
         for(unsigned j=0;j<6;++j) if(!std::isfinite(s.q[j]) || s.q[j]<c.lower[j]-1e-9 || s.q[j]>c.upper[j]+1e-9 ||
             std::abs(s.v[j])>limits[j]+1e-6 || std::abs(s.a[j])>cap.a[j]+1e-5)

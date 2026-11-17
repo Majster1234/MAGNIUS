@@ -73,6 +73,8 @@ class ManualMotorController {
   bool stopped(unsigned axis, Time now, std::chrono::milliseconds window = std::chrono::milliseconds(60)) const;
   bool jog_stopped(unsigned axis, Time now) const;
   bool position_stable(unsigned axis, Time now, std::chrono::milliseconds window = std::chrono::milliseconds(100)) const;
+  // Zbiorcze ENABLE: oś bez ENABLE — position_stable (±3 imp.); oś trzymająca pozycję (ENABLE=1) — prędkość z pozycji ≤ 3 RPM.
+  bool group_axis_still(unsigned axis, Time now) const;
   void observe_positions(Time now);
   bool ready(unsigned axis, Time now) const;
   double brake_distance(unsigned axis, double rpm, Time now) const;

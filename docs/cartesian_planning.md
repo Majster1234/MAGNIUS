@@ -59,7 +59,9 @@ W **Prędkość podglądu** ustawienia zależą od wybranego ruchu:
 W LIN prędkości złączy wynikają z posuwu TCP oraz profili osi; panel nie narzuca
 im wspólnego limitu prędkości PTP. Prędkość TCP jest górnym ograniczeniem:
 rozpędzanie, hamowanie, profile osi i osobliwości mogą wymagać wolniejszego ruchu.
-W pobliżu osobliwości nadgarstka planner dodatkowo ogranicza **J4 i J6 do maks. 5°/s**.
+W pobliżu osobliwości nadgarstka planner dodatkowo ogranicza **J4 i J6 do maks. 5°/s** — tylko w ruchu po torze TCP
+(LIN i przejścia z udziałem LIN). **PTP** (też odcinki PTP w ciągach programu) jest ruchem w przegubach i od
+11.11.2026 nie zwalnia przy osobliwości (`SampleCaps::wrist`, decyzja operatora).
 Niższa prędkość zadana lub profil osi nadal obowiązują. To limit przegubów, a nie
 prędkości obrotowej ani liniowej TCP. Pozostałe osie zachowują swoje limity;
 synchronizacja może wymagać ich zwolnienia razem z nadgarstkiem.

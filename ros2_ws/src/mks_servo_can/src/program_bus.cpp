@@ -7,6 +7,11 @@
 #include <stdexcept>
 
 namespace mks_servo_can {
+namespace {
+// Postój potwierdzony pozycją: stała (±tolerancja) przez to okno (MKS w F1=4 przy stojącym wale).
+constexpr auto kSettledByPosition=std::chrono::milliseconds(500);
+constexpr auto kRestoreWriteRetry=std::chrono::milliseconds(50);
+}
 using namespace std::chrono_literals;
 void CanBusManager::configure_program_authorization(const BusConfig &a) {
   if(active_ || manual_->busy()) throw std::logic_error("Konfiguracja programu wymaga postoju");
@@ -176,6 +181,12 @@ void CanBusManager::program_setup_reply(const Frame &frame,Time now) {
     }
   }
   if(restoring) {
+    // MKS odrzuca zapis parametru (status 0), dopóki kończy ostatnie impulsy ruchu (F1=4, 11.11.2026): ponowienie co 50 ms
+    // do terminu przywracania zamiast awarii.
+    if(e.setup_step%2==0 && frame.data.size()>1 && frame.data[1]==0 && now+kRestoreWriteRetry<e.preparation_deadline) {
+      trace_note("restore_write_retry",e.setup_step==0 ? "SYNC=0 (0x4A) odrzucony — ponowienie" : "CanRSP (0x8C) odrzucony — ponowienie",frame.address,frame.data[0]);
+      e.waiting=false;e.setup_retry_at=now+kRestoreWriteRetry;return;
+    }
     good=e.setup_step%2==0 ? frame.data[1]==1 : frame.data[1]==0 && (e.setup_step==1 || frame.data[2]==0);
     if(good && e.setup_step==1) {devices_[frame.address].synchronization_known=true;devices_[frame.address].synchronization_disabled=true;}
     if(good && e.setup_step==3) {devices_[frame.address].responses_known=true;devices_[frame.address].responses_disabled=true;}
@@ -276,9 +287,11 @@ void CanBusManager::schedule_program(Time now) {
     while(e.setup_axis<kAxes && !s.participating[e.setup_axis]) ++e.setup_axis;
     if(e.setup_axis==kAxes) {
       if(restoring) {
-        sync_recovery_required_=false;e.sync_uncertain=false;s.busy=false;s.state="succeeded";s.progress=1;
-        s.sync_state="restored";s.message="Postój i koniec programu potwierdzone; przywrócono tryb bez SYNC";
-        active_=false;source_=Source::none;return;
+        sync_recovery_required_=false;e.sync_uncertain=false;s.busy=false;s.sync_state="restored";active_=false;source_=Source::none;
+        if(!e.soft_failure.empty()) {s.state="failed";s.message=e.soft_failure+"; przywrócono tryb bez SYNC";return;}
+        s.state="succeeded";s.progress=1;
+        s.message="Postój i koniec programu potwierdzone; przywrócono tryb bez SYNC"+(e.warning.empty() ? std::string() : "; "+e.warning);
+        return;
       }
       for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
         const auto &d=devices_[config_.axes[j].address];
@@ -328,28 +341,43 @@ void CanBusManager::schedule_program(Time now) {
     // Dolot i potwierdzenie: referencją jest cel; ciągła linia pokazuje odchylenie od pozycji docelowej.
     for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) record_shaft_reference(j,program.target[j],now);
     if(!synchronized) {final_approach(now);if(fault_) return;}
-    else {synchronized_final_approach(now);if(fault_ || e.staged || e.sync_waiting_confirmation) return;}
+    else {
+      synchronized_final_approach(now);if(fault_ || e.staged || e.sync_waiting_confirmation) return;
+      if(!e.soft_failure.empty()) {   // niepełny dolot przy stojących osiach: koniec bez awarii po przywróceniu 4A=0
+        s.state="restoring";s.sync_state="restoring";e.setup_axis=e.setup_step=0;e.waiting=false;e.preparation_deadline=now+3s;return;
+      }
+    }
     if(!e.checking_position && now>=e.next_check) begin_program_check(now);
     if(!e.checking_position || !check_program_positions(now)) return;
     if(synchronized) {
+      // Postój po ostatnim SYNC: |RPM| ≤ 1 i F1=1. MKS bywa w F1=4 przy stojącym wale, a 0x32 potrafi zamrozić ostatnią
+      // prędkość (11.11.2026): pozycja stała ≥ kSettledByPosition też potwierdza postój; po kSettleTimeout wystarczy
+      // stała pozycja (ostrzeżenie), awaria tylko przy zmiennej pozycji.
+      bool waiting=false,all_long=true;std::string axes;
       for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
         const auto &d=devices_[config_.axes[j].address];
-        if(!d.speed.fresh(now,150ms) || std::abs(d.speed.value)>kHoldingSpeedNoiseRpm || d.speed.stamp<e.last_sync ||
-            !d.motor_state.fresh(now,150ms) || d.motor_state.value!=1 || d.motor_state.stamp<e.last_sync) {
-          e.settled={};s.state="settling";s.message="Oczekiwanie na świeży postój (|RPM| ≤ 1, F1=1) wszystkich uczestników";
-          if(e.settling_since==Time{}) e.settling_since=now;
-          if(now-e.settling_since>=kSettleTimeout) {
-            std::string axes;
-            for(unsigned k=0;k<kAxes;++k) if(s.participating[k]) {
-              const auto &q=devices_[config_.axes[k].address];
-              axes+=" J"+std::to_string(k+1)+": RPM="+(q.speed.valid ? std::to_string(q.speed.value) : std::string("?"))+
-                  ", F1="+(q.motor_state.valid ? std::to_string(q.motor_state.value) : std::string("?"))+";";
-            }
-            fault("Brak potwierdzenia postoju po dolocie w "+std::to_string(kSettleTimeout.count())+" ms (wymagane |RPM| ≤ "+
-                std::to_string(kHoldingSpeedNoiseRpm)+" i F1=1):"+axes);
-          }
+        const bool long_stable=d.position.fresh(now,kProgramFeedbackTimeout) && final_stable_since_[j]!=Time{} &&
+            d.position.stamp-final_stable_since_[j]>=kSettledByPosition;
+        all_long=all_long && long_stable;
+        const bool speed=d.speed.fresh(now,150ms) && std::abs(d.speed.value)<=kHoldingSpeedNoiseRpm && d.speed.stamp>=e.last_sync;
+        const bool state=d.motor_state.fresh(now,150ms) && d.motor_state.value==1 && d.motor_state.stamp>=e.last_sync;
+        if(!((speed && state) || (long_stable && d.speed.stamp>=e.last_sync))) {
+          waiting=true;
+          axes+=" J"+std::to_string(j+1)+": RPM="+(d.speed.valid ? std::to_string(d.speed.value) : std::string("?"))+
+              ", F1="+(d.motor_state.valid ? std::to_string(d.motor_state.value) : std::string("?"))+(long_stable ? "" : ", pozycja zmienna")+";";
+        }
+      }
+      if(waiting) {
+        if(e.settling_since==Time{}) e.settling_since=now;
+        if(now-e.settling_since<kSettleTimeout) {
+          e.settled={};s.state="settling";s.message="Oczekiwanie na świeży postój (|RPM| ≤ 1 i F1=1 albo stała pozycja) wszystkich uczestników";
           return;
         }
+        if(!all_long) {
+          fault("Brak postoju po dolocie w "+std::to_string(kSettleTimeout.count())+" ms (wymagane |RPM| ≤ "+
+              std::to_string(kHoldingSpeedNoiseRpm)+" i F1=1 albo stała pozycja):"+axes);return;
+        }
+        if(e.warning.empty()) {e.warning="postój potwierdzony stałą pozycją (napęd:"+axes+")";trace_note("sync_settled_by_position",axes);}
       }
     }
     if(synchronized && e.settled!=Time{}) {

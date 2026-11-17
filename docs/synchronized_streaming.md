@@ -246,3 +246,42 @@ lub 40 ms zgłasza awarię krytyczną z jego wartością w komunikacie, np. „J
 referencji (…); błąd kąta napędu (39h): X° wału = Y° przegubu”. Zdarzenia trace: `runaway_detected`, `runaway_fault`.
 Duży błąd kąta potwierdzi hipotezę przesunięcia wewnętrznego układu F5 napędu względem enkodera `31`.
 Nadzór dotyczy programów PTP/LIN w trybie `synchronized`; tryb streamed i JOG TCP bez zmian.
+
+## Dolot końcowy ze strumieniem trzymania (11.11.2026)
+
+Po ostatnim zestawie trajektorii MKS, gdy na CAN zapadała cisza (pierwsza korekta po 300 ms), potrafił po dojechaniu
+do celu ruszyć w stronę wcześniejszych celów trasy (J3 18:57: −3,6° w 300 ms, potem rozbujanie korektami i
+„ucieczka osi”). Ten sam mechanizm usunięto wcześniej w JOG TCP (`docs/tcp_jog.md` „Zatrzymania i nadzór”).
+`CanBusManager::synchronized_final_approach`:
+- **strumień trzymania** — zestaw z celem końcowym (z korektami) przygotowywany zaraz po aktywacji poprzedniego
+  i wyzwalany na siatce trajektorii (`phase_origin + k·10 ms`, to samo okno zapytań i budżetu co w ruchu), dopóki
+  wszystkie osie nie są w tolerancji i stabilne (pomiary w ±tolerancji przez 150 ms); potem cisza i potwierdzenie
+  postoju (`hold_done`);
+- **korekta** `F5 += cel − pomiar` co ≥ 200 ms tylko dla osi stojącej albo nieustalonej po 600 ms;
+- **ucieczka** (awaria krytyczna z odczytem 39h): |cel − pomiar| > 4° albo uchyb rosnący w dwóch kolejnych korektach;
+- **niepełny dolot** po 5 s przy stojących osiach: program `failed` bez awarii — przywrócenie 4A=0/8C, napędy trzymają
+  pozycję (`soft_failure`); oś w ruchu po 5 s → awaria;
+- **postój**: |RPM| ≤ 1 i F1=1 po ostatnim SYNC albo pozycja stała ≥ 500 ms (MKS bywa w F1≠1 przy stojącym wale,
+  0x32 potrafi zamrozić prędkość); po `kSettleTimeout` stała pozycja wystarcza (ostrzeżenie w komunikacie),
+  awaria tylko przy zmiennej pozycji.
+
+Planer: PTP (także odcinki PTP ciągów programu) nie zwalnia J4/J6 przy osobliwości nadgarstka — to ruch w przegubach;
+zwalnianie zostaje dla LIN i przejść z udziałem LIN (`docs/cartesian_planning.md`). Próba długich ruchów:
+`python3 scripts/motion_endurance.py --minutes 10` (PTP do ±150°, przez J5=0, 50/100%; LIN 400 mm 20/50 mm/s).
+
+Odporność na chwilowe błędy magistrali (11.11.2026, przebieg bazowy `motion_endurance.py`: LIN 400 mm przerwany
+w cyklu 296 „brak potwierdzenia nadania w terminie 10 ms”; brak ruchu na CAN przez 10 ms, liczniki `error-warn` /
+`error-pass` interfejsu 1 → 3; odzyskiwanie nieudane, bo J6 nie dostał F3 ENABLE=0 i zgłaszał ENABLE=1):
+- `kSyncMaxShift` 10 → **30 ms** (3 cykle): termin potwierdzenia nadania SYNC i maks. przesunięcie podstawy czasu;
+  krócej niż cisza, po której MKS wykonywał zaległe cele. Wartość do potwierdzenia w kolejnych próbach;
+- odzyskiwanie (`verifying_disabled`): oś, która w świeżym odczycie po STOP nadal ma ENABLE=1, dostaje ponowione
+  F3 ENABLE=0 co 300 ms (`recovery_disable_retry` w nagraniu) zamiast końca etapu błędem po 5 s.
+Przyczyna błędów magistrali (okablowanie, terminacja, zakłócenia od silników) — do sprawdzenia sprzętowo.
+- przywracanie trybu bez SYNC: MKS odrzuca zapis 4A=0/8C (status 0), dopóki kończy ostatnie impulsy ruchu (F1=4,
+  pozycja zmienia się o pojedyncze impulsy); zapis jest ponawiany co 50 ms do terminu przywracania (3 s,
+  `restore_write_retry` w nagraniu) — wcześniej co drugi długi ruch kończył się awarią „potwierdzenie zapisu SYNC=0”.
+- ramki strumienia trzymania mają dolną granicę prędkości = pasmo tolerancji pozycji w 100 ms (0,5° × 10 ≈ 8,3 RPM
+  wału): przy minimalnej jednostce F5 (0,125 RPM, mikrokrok 128) napęd po strumieniu pełzł sekundami w F1=4 do celu we
+  własnym układzie, odrzucał 4A=0 i kolejne uzbrojenie (próba 22:52: 24 awarie na 60 ruchów).
+- J6 przy PTP 100% (≈ 62°/s przegubu, ≈ 100 RPM wału) dwukrotnie: skok pomiaru +2,9° w 11 ms i dalej połowa zadanej
+  prędkości → uchyb > 4° → „ucieczka osi” (zasadna awaria; zachowanie napędu, nie próg).

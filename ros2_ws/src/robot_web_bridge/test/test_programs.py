@@ -42,10 +42,10 @@ def test_store_creates_library_folders_and_default_motion_commands(tmp_path):
     assert (tmp_path / 'library/commands.json').exists() and (tmp_path / 'library/variables.json').exists()
     assert (tmp_path / 'library/positions.json').exists() and (tmp_path / 'programs').is_dir()
     snapshot = store.library_snapshot()
-    assert [c['id'] for c in snapshot['commands']['commands']] == ['move_ptp', 'move_lin'] and snapshot['warning'] is None
+    assert [c['id'] for c in snapshot['commands']['commands']][:2] == ['move_ptp', 'move_lin'] and snapshot['warning'] is None
     assert store.create({'name': 'Pusty'})['program']['blocks'] == []
     with pytest.raises(ProgramError):
-        store.create({'name': 'Z blokiem', 'blocks': [{'id': 'a', 'command': 'for'}]})
+        store.create({'name': 'Z blokiem', 'blocks': [{'id': 'a', 'command': 'nieznany'}]})
     custom = ProgramStore(tmp_path / 'custom')
     assert {c['id'] for c in custom.library_snapshot()['commands']['commands']} >= {'move_ptp', 'for'}
 

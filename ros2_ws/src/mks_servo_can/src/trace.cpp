@@ -43,7 +43,9 @@ std::int64_t trace_ns(std::chrono::steady_clock::time_point time) {
 }
 bool is_fault_trace_event(const char *event) noexcept {
   static constexpr const char *kFaultEvents[] = {"bus_fault", "manual_fault", "recovery_failed", "socket_transport_lost",
-                                                 "critical_enable_off_failed", "tcp_jog_failed"};
+                                                 "critical_enable_off_failed", "tcp_jog_failed",
+                                                 // Łagodne zatrzymania JOG TCP (bez awarii) — migawka do diagnostyki przerwań.
+                                                 "tcp_soft_stop", "tcp_jog_soft_stop", "tcp_final_incomplete"};
   if (!event) return false;
   for (const auto *name : kFaultEvents) if (std::strcmp(event, name) == 0) return true;
   return false;

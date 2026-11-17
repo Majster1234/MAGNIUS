@@ -432,6 +432,8 @@ class CanBusManager {
     Time started{}, deadline{}, verify_after{}, stop_next{};
     std::array<Sample<std::int64_t>,kAxes> anchors{};
     std::array<Time,kAxes> watchdog_pause_until{};
+    // Ponowienie ENABLE=0 dla osi, która po STOP nadal zgłasza ENABLE=1 (zgubiona ramka F3 przy błędach CAN).
+    std::array<Time,kAxes> disable_retry{};
   } recovery_;
   std::array<Time,kAxes> fault_probe_after_{};
   Time next_reconnect_{};
@@ -452,6 +454,9 @@ class CanBusManager {
   // Dolot końcowy jak PTP: rozkaz F5 += cel − pomiar co kFinalApproachPeriod; dwa pomiary w tolerancji ≥ 100 ms.
   std::array<double,kAxes> tcp_target_{}, tcp_final_command_{};
   Time tcp_final_started_{}, tcp_final_next_{}, tcp_within_since_{}, tcp_check_started_{};
+  // Dolot (JOG TCP i program SYNC): stabilność osi — pozycja w oknie ±tolerancji od kotwicy od chwili since, ostatni pomiar.
+  std::array<std::int64_t,kAxes> final_stable_anchor_{};
+  std::array<Time,kAxes> final_stable_since_{}, final_stable_seen_{};
   // Siatka F5 JOG TCP: następny slot do wysłania.
   std::uint64_t tcp_slot_{};
   bool tcp_streaming() const { return active_ && source_==Source::tcp_jog; }

@@ -1,15 +1,27 @@
 // Tryb „Programowanie” (wariant v2b): edytor blokowy z przeciąganiem, zmienne i pozycje programu, biblioteka,
 // zapis programów w backendzie. Sprawdzenie i wykonanie: wykonawca w moście (kursor robota i kursor programu, ciągi ruchów
 // z promieniem pominięcia punktu) — panel „Wykonanie”, logika w programRun.ts.
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
-import { accepts, allIds, changeCommand, commandMap, compatibleCommands, countBlocks, defaultInit, dropValue, duplicateBlock, emptyProgram, formatValue, insertBlock, isRef,
-    labelParts, moveBlock, nameError, newBlock, parseInit, problems as findProblems, programText, removeBlock, renameRefs, setParam, slotList,
-    slotsOf, toggleDisabled, usage, VAR_TYPES, type Block, type Command, type CommandLibrary, type DragPayload, type DropTarget, type ParamDef,
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { accepts, addCase, allIds, canDrop, changeCommand, checkExpression, commandMap, commandName, compatibleCommands, countBlocks, defaultInit, dropValue, duplicateBlock,
+    emptyProgram, EXPRESSION_FUNCTIONS, findBlock, formatValue, insertBlock, isRef, labelNames, labelParts, moveBlock, nameError, newBlock, parseInit, problems as findProblems,
+    programText, removeBlock, renameRefs, setParam, shapeOf, slotList, slotsOf, toggleDisabled, usage, VAR_TYPES, type Block, type Command, type CommandLibrary, type DragPayload, type DropTarget, type ParamDef,
     type Position, type Program, type Value, type Variable, type VarType } from "./programModel";
-import { activeConfigurationValues, currentJoints, programApi, ProgramApiError, useProgramRun, type LibrarySnapshot, type ProgramSummary } from "./programApi";
+import { animationsEnabled } from "./animations";
+import { activeConfigurationValues, currentJoints, programApi, ProgramApiError, useProgramRun, type LibrarySnapshot, type PreflightStep, type ProgramSummary } from "./programApi";
+import { describe as describeViolations, jointRanges, limitProblems, poseLimits, violations, type JointRange } from "./programLimits";
 import { ancestorIds, blendBadge, cursorClasses, phaseLabels, runFor, runStateLabels, timelineBars, type RunStatus, type TimelineEntry } from "./programRun";
 
 const LAST_KEY = "robot.programming.last";
+type LaunchState = "pending" | "running" | "ok" | "warn" | "error" | "action" | "skipped";
+type LaunchStep = { id: "save" | PreflightStep["id"] | "check" | "approve" | "start"; label: string; state: LaunchState; detail: string; items?: PreflightStep["items"] };
+const LAUNCH_STEPS: Omit<LaunchStep, "state" | "detail">[] = [
+    { id: "save", label: "Zapis programu" }, { id: "program", label: "Program bez uwag" }, { id: "limits", label: "Pozycje w zakresie osi" },
+    { id: "robot", label: "Stan robota" }, { id: "check", label: "Symulacja programu" }, { id: "approve", label: "Potwierdzenie i zatwierdzenie" },
+    { id: "drives", label: "Napędy załączone (ENABLE)" }, { id: "start", label: "Start programu" }];
+const LAUNCH_ICON: Record<LaunchState, string> = { pending: "○", running: "◌", ok: "✓", warn: "⚠", error: "✕", action: "↻", skipped: "–" };
+const ZOOM_KEY = "robot.programming.zoom";
+const ZOOMS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25];
+const readZoom = () => { try { const z = Number(localStorage.getItem(ZOOM_KEY)); return z >= 0.4 && z <= 1.5 ? z : 1; } catch { return 1; } };
 const TYPE_HINT: Record<VarType, string> = { INT: "całkowita", REAL: "liczba", BOOL: "tak / nie", POZYCJA: "📍 punkt", TEKST: "napis" };
 const fmtTime = (iso?: string) => iso ? new Date(iso).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" }) : "";
 const initText = (v: Variable) => typeof v.init === "boolean" ? (v.init ? "TRUE" : "FALSE") : v.init === "" ? "—" : `${v.init}${v.unit ? " " + v.unit : ""}`;
@@ -30,6 +42,17 @@ export function ProgrammingPage() {
     const [varModal, setVarModal] = useState<{ edit: Variable | null } | null>(null);
     const [newDialog, setNewDialog] = useState<"new" | "duplicate" | null>(null);
     const [dragging, setDragging] = useState<DragPayload | null>(null);
+    // Aktywna konfiguracja robota (zakresy osi, geometria podglądu 3D).
+    const [configValues, setConfigValues] = useState<Record<string, unknown> | null>(null);
+    useEffect(() => { let closed = false; void activeConfigurationValues().then(v => { if (!closed) setConfigValues(v); }); return () => { closed = true; }; }, []);
+    const ranges = useMemo(() => jointRanges(configValues), [configValues]);
+    // Proces „▶ Uruchom”: kroki doprowadzenia programu i robota do stanu startu.
+    const [launch, setLaunch] = useState<{ steps: LaunchStep[]; active: boolean } | null>(null);
+    const launchAbort = useRef(false);
+    // Blok właśnie upuszczony: rozsunięcie programu i „lądowanie” (CSS; pomijane przy wyłączonych animacjach).
+    const [landing, setLanding] = useState<string | null>(null);
+    useEffect(() => { if (!landing) return; const t = setTimeout(() => setLanding(null), 1100); return () => clearTimeout(t); }, [landing]);
+    const land = (id: string) => { if (animationsEnabled()) setLanding(id); };
     const drag = useRef<DragPayload | null>(null);
     const commands = library?.commands ?? null;
     const cmap = useMemo(() => commandMap(commands), [commands]);
@@ -63,6 +86,13 @@ export function ProgrammingPage() {
     }, []);
     const undo = () => setHistory(h => { if (!h.past.length || !program) return h; const prev = h.past[h.past.length - 1]; setProgram(prev); return { past: h.past.slice(0, -1), future: [program, ...h.future] }; });
     const redo = () => setHistory(h => { if (!h.future.length || !program) return h; const [next, ...rest] = h.future; setProgram(next); return { past: [...h.past, program], future: rest }; });
+
+    const screen = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = screen.current; if (!el) return;
+        const wheel = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
+        el.addEventListener("wheel", wheel, { passive: false }); return () => el.removeEventListener("wheel", wheel);
+    }, []);
 
     async function save() {
         if (!program?.id || busy) return; setBusy(true);
@@ -131,12 +161,27 @@ export function ProgrammingPage() {
     const endDrag = () => { drag.current = null; setDragging(null); };
     const dropBlock = (target: DropTarget) => {
         const payload = drag.current; endDrag(); if (!payload || !program) return;
-        if (payload.kind === "command") { const c = cmap.get(payload.command); if (!c) return; const block = newBlock(c, allIds(program.blocks)); update(p => insertBlock(p, target, block)); setSelected(block.id); }
-        else if (payload.kind === "block") update(p => moveBlock(p, payload.id, target));
+        if (payload.kind === "command") {
+            const c = cmap.get(payload.command); if (!c || !canDrop(program, cmap, c.id, target)) return;
+            const block = newBlock(c, allIds(program.blocks), cmap);
+            if (c.id === "label") block.params.name = uniqueName("Etykieta", labelNames(program));
+            update(p => insertBlock(p, target, block)); setSelected(block.id); land(block.id);
+        }
+        else if (payload.kind === "block") {
+            const found = findBlock(program, payload.id); if (!found || !canDrop(program, cmap, found.block.command, target)) return;
+            const next = moveBlock(program, payload.id, target); if (next !== program) { update(() => next); land(payload.id); }
+        }
     };
     const dropParam = (block: string, param: ParamDef) => { const payload = drag.current; endDrag(); if (payload && program && accepts(param, payload, program.variables)) update(p => setParam(p, block, param.name, dropValue(param, payload))); };
 
-    const issues = useMemo(() => program ? findProblems(program, commands) : [], [program, commands]);
+    const issues = useMemo(() => program ? [...findProblems(program, commands), ...limitProblems(program, ranges)] : [], [program, commands, ranges]);
+    // Zaznaczony blok ruchu → jego pozycja w podglądzie 3D (z limitami osi).
+    useEffect(() => {
+        if (!program || !selected) return;
+        const value = findBlock(program, selected)?.block.params.position;
+        const name = value !== undefined && isRef(value) ? ("position" in value ? value.position : program.variables.find(v => v.name === value.var && v.type === "POZYCJA")?.init) : undefined;
+        if (typeof name === "string" && program.positions.some(p => p.name === name)) setSelectedPos(name);
+    }, [selected]);   // eslint-disable-line react-hooks/exhaustive-deps
     const text = useMemo(() => program ? programText(program, commands) : [], [program, commands]);
     const runStatus = useProgramRun();
     const run = runFor(runStatus, program);
@@ -144,8 +189,73 @@ export function ProgrammingPage() {
     const ancestors = useMemo(() => new Set(program && run?.active ? [...ancestorIds(program, run.robot_cursor?.block_id), ...ancestorIds(program, run.program_cursor.block_id)] : []),
         [program, run?.active, run?.robot_cursor?.block_id, run?.program_cursor.block_id]);
     const timeline = useMemo(() => new Map((run && run.revision === program?.revision ? run.timeline : []).map(e => [e.block_id, e])), [run, program?.revision]);
+    const dragCommand = useMemo(() => dragging?.kind === "command" ? dragging.command : dragging?.kind === "block" && program ? findBlock(program, dragging.id)?.block.command : undefined,
+        [dragging, program]);
+    // Skok ↔ etykieta: zaznaczenie jednego podświetla drugie.
+    const linked = useMemo(() => { const b = program && selected ? findBlock(program, selected)?.block : undefined;
+        const v = b?.command === "goto" ? b.params.target : b?.command === "label" ? b.params.name : null; return typeof v === "string" && v ? v : null; }, [program, selected]);
     const ctx: CanvasContext = { program: program!, cmap, library: commands, selected, setSelected, dragging, startDrag, endDrag, dropBlock, dropParam, update, issues,
-        run, ancestors, timeline, locked: executing };
+        run, ancestors, timeline, locked: executing, dragCommand, linked, landing, land };
+    // ▶ Uruchom: zapis → analiza (program, zakresy osi, stan robota, napędy) → symulacja → potwierdzenie operatora →
+    // zatwierdzenie rewizji → załączenie napędów → start. Każdy krok widoczny w panelu Wykonanie; błąd zatrzymuje proces.
+    async function launchProgram() {
+        if (!program?.id || launch?.active) return;
+        const id = program.id;
+        launchAbort.current = false;
+        setLaunch({ steps: LAUNCH_STEPS.map(s => ({ ...s, state: "pending", detail: "" })), active: true });
+        const mark = (step: LaunchStep["id"], state: LaunchState, detail = "") =>
+            setLaunch(l => l && { ...l, steps: l.steps.map(s => s.id === step ? { ...s, state, detail: detail || s.detail } : s) });
+        const finish = (text: string, tone: "ok" | "warn" | "error") => { setLaunch(l => l && { ...l, active: false }); notify(text, tone); };
+        const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+        let step: LaunchStep["id"] = "save";
+        try {
+            let current = program;
+            if (dirty) { mark("save", "running"); const reply = await programApi.save(id, program, saved?.revision); current = reply.program; setProgram(reply.program); setSaved(reply.program); await refreshList(); mark("save", "ok", "zapisano"); }
+            else mark("save", "ok", "bez zmian");
+            step = "program";
+            if (issues.length) { mark("program", "error", issues.slice(0, 4).map(i => i.text).join("; ")); finish("Uruchomienie wstrzymane: program ma uwagi (panel Sprawdzenie)", "error"); return; }
+            mark("program", "running");
+            const pre = await programApi.preflight(id);
+            for (const item of pre.steps) mark(item.id, item.state === "action" ? "action" : item.state, item.detail);
+            setLaunch(l => l && { ...l, steps: l.steps.map(s => ({ ...s, items: pre.steps.find(p => p.id === s.id)?.items ?? s.items })) });
+            if (!pre.ok) { finish("Uruchomienie wstrzymane: analiza wykazała błędy (panel Wykonanie)", "error"); return; }
+            step = "check"; mark("check", "running", "symulacja całego programu od bieżącej pozycji");
+            const started = await programApi.run(id, "check", current.revision);
+            let result = started;
+            while (!launchAbort.current) { await wait(250); result = await programApi.runStatus(); if (result.run_id === started.run_id && !result.active) break; }
+            if (launchAbort.current) { mark("check", "error", "przerwano"); finish("Uruchomienie przerwane", "warn"); return; }
+            if (result.state !== "succeeded") { mark("check", "error", result.message || "sprawdzenie nieudane"); finish(`Sprawdzenie nieudane: ${result.message}`, "error"); return; }
+            const moves = result.timeline.filter(e => !e.kind).length;
+            mark("check", result.warnings.length ? "warn" : "ok", `${moves} ruchów · ${result.chains} ciąg(i) · ~${(result.total_s ?? 0).toFixed(1)} s${result.warnings.length ? ` · ${result.warnings.length} uwag` : ""}`);
+            step = "approve";
+            const drives = pre.steps.find(s => s.id === "drives")?.disabled ?? [];
+            const approvedNow = current.approval?.revision === current.revision;
+            if (!window.confirm(`Uruchomić program „${current.name}” na robocie?\n\n`
+                + `• ${moves} ruchów, ${result.chains} ciąg(i), ok. ${(result.total_s ?? 0).toFixed(1)} s${result.warnings.length ? `, ${result.warnings.length} uwag sprawdzenia` : ""}\n`
+                + `${approvedNow ? "" : `• zatwierdzenie rewizji ${current.revision} do wykonania\n`}`
+                + `${drives.length ? `• załączenie napędów ${drives.map(a => `J${a}`).join(", ")} (ENABLE=1)\n` : ""}`
+                + "• pierwszy ruch prowadzi z bieżącej pozycji robota do pozycji z programu\n\n"
+                + "Upewnij się, że strefa pracy jest wolna. Zatrzymanie: ■ STOP w panelu lub wyłącznik bezpieczeństwa.")) {
+                mark("approve", "skipped", "anulowano przez operatora"); finish("Uruchomienie anulowane", "warn"); return;
+            }
+            if (!approvedNow) { mark("approve", "running"); const reply = await programApi.approve(id, current.revision!); current = reply.program; setProgram(reply.program); setSaved(reply.program); await refreshList(); }
+            mark("approve", "ok", `rewizja ${current.revision}`);
+            step = "drives";
+            if (drives.length) {
+                mark("drives", "running", `załączanie ${drives.map(a => `J${a}`).join(", ")}`);
+                await programApi.enableAll();
+                let enabled = false;
+                for (let k = 0; k < 20 && !enabled && !launchAbort.current; k++) { await wait(150); enabled = (await programApi.drives()).every(a => a.enable_known && a.enabled); }
+                if (!enabled) { mark("drives", "error", "napędy nie potwierdziły ENABLE=1 w 3 s"); finish("Napędy nie zostały załączone", "error"); return; }
+                mark("drives", "ok", "J1–J6 załączone");
+            }
+            step = "start"; mark("start", "running");
+            await programApi.run(id, "execute", current.revision);
+            mark("start", "ok", "program uruchomiony"); finish("Program uruchomiony", "ok");
+        } catch (error) {
+            mark(step, "error", (error as Error).message); finish(`Uruchomienie przerwane (${LAUNCH_STEPS.find(s => s.id === step)?.label}): ${(error as Error).message}`, "error");
+        }
+    }
     async function startRun(mode: "check" | "execute") {
         if (!program?.id) return;
         if (mode === "execute" && !window.confirm(`Uruchomić program „${program.name}” na robocie?\n\nRobot wykona ruchy fizycznie (ciągi PTP/LIN z promieniami z bloków). `
@@ -153,12 +263,17 @@ export function ProgrammingPage() {
         try { await programApi.run(program.id, mode, program.revision); notify(mode === "check" ? "Sprawdzanie programu…" : "Program uruchomiony"); }
         catch (error) { notify(`${mode === "check" ? "Sprawdzenie" : "Uruchomienie"} odrzucone: ${(error as Error).message}`, "error"); }
     }
+    async function resumeRun() {
+        try { await programApi.resumeRun(); notify("Kontynuacja programu"); }
+        catch (error) { notify(`Kontynuacja: ${(error as Error).message}`, "error"); }
+    }
     async function stopRun() {
+        launchAbort.current = true;
         try { await programApi.stopRun(); notify("Zatrzymano przebieg programu", "warn"); }
         catch (error) { notify(`STOP: ${(error as Error).message}`, "error"); }
     }
 
-    return <div className="prg-screen">
+    return <div ref={screen} className="prg-screen">
         <header className="prg-header">
             <h1>Programowanie</h1>
             <select aria-label="Program" value={program?.id ?? ""} onChange={e => void switchTo(e.target.value)} disabled={!list.length}>
@@ -196,10 +311,10 @@ export function ProgrammingPage() {
                 {tab === "variables" && <VariablesPanel program={program} library={library} update={update} setLibrary={setLibrary} notify={notify}
                     startDrag={startDrag} endDrag={endDrag} onCreate={() => setVarModal({ edit: null })} onEdit={v => setVarModal({ edit: v })} />}
                 {tab === "positions" && <PositionsPanel program={program} library={library} update={update} setLibrary={setLibrary} notify={notify}
-                    startDrag={startDrag} endDrag={endDrag} selected={selectedPos} setSelected={setSelectedPos} />}
+                    startDrag={startDrag} endDrag={endDrag} selected={selectedPos} setSelected={setSelectedPos} ranges={ranges} />}
             </section>
             <section className="prg-panel prg-center">
-                <div className="prg-panel-head">Program <small>{view === "blocks" ? "bloki · przeciągaj z palety, upuszczaj między blokami" : "tekst — podgląd tylko do odczytu"}</small><span className="spacer" />
+                <div className="prg-panel-head">Program <small>{view === "blocks" ? "schemat blokowy · przeciągaj z palety na łączniki (strzałki)" : "tekst — podgląd tylko do odczytu"}</small><span className="spacer" />
                     <span className="badge">{countBlocks(program.blocks)} bloków</span>{selected && <><button className="secondary-button sm" onClick={() => update(p => duplicateBlock(p, selected))}>⧉ Duplikuj</button>
                     <button className="secondary-button sm" onClick={() => update(p => toggleDisabled(p, selected))}>⊘ Wyłącz/włącz</button>
                     <button className="secondary-button sm" onClick={() => { update(p => removeBlock(p, selected).program); setSelected(null); }}>Usuń blok</button></>}</div>
@@ -207,9 +322,10 @@ export function ProgrammingPage() {
             </section>
             <section className="prg-right">
                 <RunPanel program={program} run={run} global={runStatus} approved={approved} dirty={dirty} issues={issues.length}
-                    onCheck={() => void startRun("check")} onExecute={() => void startRun("execute")} onStop={() => void stopRun()}
+                    onCheck={() => void startRun("check")} onExecute={() => void launchProgram()} onStop={() => void stopRun()} onResume={() => void resumeRun()}
+                    launch={launch} onCloseLaunch={() => setLaunch(null)} onPosition={name => setSelectedPos(name)}
                     onBlock={id => { setSelected(id); setView("blocks"); }} />
-                <Preview3D program={program} selected={selectedPos} />
+                <Preview3D program={program} selected={selectedPos} values={configValues} ranges={ranges} />
                 <WatchPanel program={program} issues={issues} directory={library?.directory} onIssue={id => { if (id) { setSelected(id); setView("blocks"); } }} />
             </section>
         </div>}
@@ -228,68 +344,161 @@ function Palette({ library, startDrag, endDrag }: { library: CommandLibrary | nu
     if (!library.commands.length) return <div className="prg-palette"><p className="prg-note">Biblioteka rozkazów jest pusta — logika programu jest definiowana od nowa.
         Rozkazy (bloki) dodaje się w <code>library/commands.json</code> (opis formatu: <code>docs/programming.md</code>).</p></div>;
     return <div className="prg-palette">{library.categories.map(cat => {
-        const items = library.commands.filter(c => c.category === cat.id); if (!items.length) return null;
-        return <div key={cat.id}><h4>{cat.label.toUpperCase()}</h4>{items.map(c => <div key={c.id} className={`prg-pblk cat-${c.category}`} draggable
-            onDragStart={startDrag({ kind: "command", command: c.id })} onDragEnd={endDrag} title="Przeciągnij na płótno">
+        const items = library.commands.filter(c => c.category === cat.id && !c.parents?.length); if (!items.length) return null;
+        return <div key={cat.id}><h4 className={`cat-${cat.id}`}>{cat.label.toUpperCase()}</h4>{items.map(c => <div key={c.id} className={`prg-pblk cat-${c.category}`} draggable
+            onDragStart={startDrag({ kind: "command", command: c.id })} onDragEnd={endDrag} title={`${c.help ? c.help + "\n" : ""}Przeciągnij na płótno`}>
             <span className="prg-icon">{c.icon}</span>{labelParts(c.label).map((p, k) => "text" in p ? <span key={k}>{p.text}</span> : <span key={k} className="prg-slot-hint">…</span>)}</div>)}</div>;
     })}<p className="prg-note">Biblioteka rozkazów: <code>library/commands.json</code></p></div>;
 }
 
-// ================================================================= płótno
+// ================================================================= płótno (schemat blokowy)
+// Bloki łączą się strzałkami (łączniki = miejsca upuszczania). „Jeśli” i „wybierz” rozgałęziają przepływ na kolumny
+// (TAK / NIE, przypadki / inaczej), które scalają się pod blokiem; pętle mają ramkę z linią powrotu.
 type CanvasContext = { program: Program; cmap: Map<string, Command>; library: CommandLibrary | null; selected: string | null; setSelected: (id: string | null) => void;
     dragging: DragPayload | null; startDrag: (p: DragPayload) => (e: DragEvent) => void; endDrag: () => void; dropBlock: (t: DropTarget) => void;
     dropParam: (block: string, param: ParamDef) => void; update: (f: (p: Program) => Program) => void; issues: { block?: string; text: string }[];
-    run: RunStatus | null; ancestors: Set<string>; timeline: Map<string, TimelineEntry>; locked: boolean };
+    run: RunStatus | null; ancestors: Set<string>; timeline: Map<string, TimelineEntry>; locked: boolean; dragCommand: string | undefined; linked: string | null;
+    landing: string | null; land: (id: string) => void };
 function Canvas({ ctx }: { ctx: CanvasContext }) {
     const [overTrash, setOverTrash] = useState(false);
+    const [zoom, setZoomState] = useState(readZoom);
+    const host = useRef<HTMLDivElement>(null), flow = useRef<HTMLDivElement>(null);
+    const setZoom = (z: number) => setZoomState(Math.round(Math.min(1.5, Math.max(0.4, z)) * 100) / 100);
+    useEffect(() => { try { localStorage.setItem(ZOOM_KEY, String(zoom)); } catch { /* bez pamięci przeglądarki */ } }, [zoom]);
+    // Ctrl+kółko (także szczypanie na touchpadzie) nad schematem: powiększenie schematu wokół punktu pod kursorem
+    // zamiast powiększania całej strony. Samo kółko przewija schemat.
+    const zoomRef = useRef(zoom); zoomRef.current = zoom;
+    const anchor = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+    useEffect(() => {
+        const el = host.current; if (!el) return;
+        const wheel = (e: WheelEvent) => {
+            if (!(e.ctrlKey || e.metaKey)) return;
+            e.preventDefault();
+            const old = zoomRef.current, next = Math.round(Math.min(1.5, Math.max(0.4, old * Math.exp(-e.deltaY * 0.002))) * 100) / 100;
+            if (next === old || !flow.current) return;
+            const r = flow.current.getBoundingClientRect();
+            anchor.current = { x: (e.clientX - r.left) / old, y: (e.clientY - r.top) / old, clientX: e.clientX, clientY: e.clientY };
+            setZoomState(next);
+        };
+        el.addEventListener("wheel", wheel, { passive: false });
+        return () => el.removeEventListener("wheel", wheel);
+    }, []);
+    const step = (dir: 1 | -1) => setZoom(dir > 0 ? ZOOMS.find(z => z > zoom + 1e-3) ?? zoom : [...ZOOMS].reverse().find(z => z < zoom - 1e-3) ?? zoom);
+    // Dopasowanie szerokości schematu do panelu (naturalna szerokość = zmierzona / bieżące powiększenie).
+    const fit = () => { if (!host.current || !flow.current) return; const natural = flow.current.getBoundingClientRect().width / zoom;
+        setZoom(Math.min(1, (host.current.clientWidth - 48) / Math.max(1, natural))); };
+    useLayoutEffect(() => {
+        const el = host.current, a = anchor.current; if (!el) return;
+        if (a && flow.current) {   // punkt schematu pod kursorem zostaje pod kursorem
+            const r = flow.current.getBoundingClientRect();
+            el.scrollLeft += r.left + a.x * zoom - a.clientX; el.scrollTop += r.top + a.y * zoom - a.clientY; anchor.current = null;
+        } else el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2);
+    }, [ctx.program.id, zoom]);
     const blockDrag = ctx.dragging?.kind === "block" || ctx.dragging?.kind === "command";
-    return <div className={`prg-canvas${blockDrag ? " dragging" : ""}${ctx.locked ? " locked" : ""}`} onClick={e => { if (e.target === e.currentTarget) ctx.setSelected(null); }}>
+    const deselect = (e: { target: EventTarget; currentTarget: EventTarget }) => { if (e.target === e.currentTarget) ctx.setSelected(null); };
+    return <div ref={host} className={`prg-canvas${blockDrag ? " dragging" : ""}${ctx.locked ? " locked" : ""}`} onClick={deselect}>
+        <div className="prg-zoom" role="group" aria-label="Powiększenie schematu">
+            <button title="Pomniejsz" onClick={() => step(-1)}>−</button><button title="100 %" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+            <button title="Powiększ" onClick={() => step(1)}>+</button><button title="Dopasuj szerokość schematu do panelu" onClick={fit}>⤢</button></div>
         <div className="prg-varsbar">Zmienne programu: {ctx.program.variables.length ? ctx.program.variables.map(v => <span key={v.name} className="prg-pill var" draggable
             onDragStart={ctx.startDrag({ kind: "variable", name: v.name })} onDragEnd={ctx.endDrag}>{v.name}</span>) : <span className="prg-note">brak — utwórz w zakładce „Zmienne”</span>}</div>
-        <div className="prg-hat">▶ Start · {ctx.program.name}</div>
-        <BlockList ctx={ctx} blocks={ctx.program.blocks} parent={null} slot="blocks" />
+        <div ref={flow} className="prg-flow" style={{ zoom }} onClick={deselect}>
+            <div className="prg-term start">▶ Start · {ctx.program.name}</div>
+            <FlowList ctx={ctx} blocks={ctx.program.blocks} parent={null} slot="blocks" />
+            <div className="prg-term end">■ Koniec</div>
+        </div>
         {ctx.dragging?.kind === "block" && <div className={`prg-trash${overTrash ? " over" : ""}`} onDragOver={e => { e.preventDefault(); setOverTrash(true); }} onDragLeave={() => setOverTrash(false)}
             onDrop={e => { e.preventDefault(); setOverTrash(false); const p = ctx.dragging; ctx.endDrag(); if (p?.kind === "block") { ctx.update(pr => removeBlock(pr, p.id).program); ctx.setSelected(null); } }}>🗑 upuść, aby usunąć</div>}
     </div>;
 }
-function DropZone({ ctx, target, empty }: { ctx: CanvasContext; target: DropTarget; empty?: string }) {
+// Łącznik ze strzałką; podczas przeciągania — miejsce upuszczenia (tylko tam, gdzie blok jest dozwolony): układ się nie
+// zmienia, a nad wybranym miejscem pojawia się zielona linia. Rozsunięcie programu następuje dopiero po upuszczeniu.
+function DropZone({ ctx, target, empty, tail }: { ctx: CanvasContext; target: DropTarget; empty?: string; tail?: boolean }) {
     const [over, setOver] = useState(false);
-    const active = ctx.dragging?.kind === "command" || ctx.dragging?.kind === "block";
-    return <div className={`prg-drop${over ? " over" : ""}${empty ? " empty" : ""}${active ? " active" : ""}`}
+    const active = (ctx.dragging?.kind === "command" || ctx.dragging?.kind === "block") && canDrop(ctx.program, ctx.cmap, ctx.dragCommand, target);
+    useEffect(() => { if (!active) setOver(false); }, [active]);
+    return <div className={`prg-drop${over && active ? " over" : ""}${active ? " active" : ""}${empty ? " empty" : ""}${tail ? " tail" : ""}`}
         onDragOver={e => { if (!active) return; e.preventDefault(); e.stopPropagation(); setOver(true); }} onDragLeave={() => setOver(false)}
-        onDrop={e => { e.preventDefault(); e.stopPropagation(); setOver(false); ctx.dropBlock(target); }}>{empty}</div>;
+        onDrop={e => { if (!active) return; e.preventDefault(); e.stopPropagation(); setOver(false); ctx.dropBlock(target); }}>
+        {empty && <span className="prg-dropbox">{empty}</span>}{over && active && <i className="prg-dropline" aria-hidden />}</div>;
 }
-function BlockList({ ctx, blocks, parent, slot }: { ctx: CanvasContext; blocks: Block[]; parent: string | null; slot: string }) {
-    return <div className="prg-list">
-        {blocks.length === 0 ? <DropZone ctx={ctx} target={{ parent, slot, index: 0 }} empty={parent === null ? "Przeciągnij tutaj pierwszy blok z palety" : "upuść blok tutaj"} /> :
-            <><DropZone ctx={ctx} target={{ parent, slot, index: 0 }} />
-            {blocks.map((b, i) => <div key={b.id}><BlockView ctx={ctx} block={b} /><DropZone ctx={ctx} target={{ parent, slot, index: i + 1 }} /></div>)}</>}
+function FlowList({ ctx, blocks, parent, slot, fill }: { ctx: CanvasContext; blocks: Block[]; parent: string | null; slot: string; fill?: boolean }) {
+    return <div className={`prg-flist${fill ? " fill" : ""}`}>
+        <DropZone ctx={ctx} target={{ parent, slot, index: 0 }} empty={!blocks.length && parent === null ? "Przeciągnij tutaj pierwszy blok z palety" : undefined} tail={fill && !blocks.length} />
+        {blocks.map((b, i) => <Fragment key={b.id}><div className={`prg-nodewrap${ctx.landing === b.id ? " landing" : ""}`}><div className="prg-landinner"><FlowNode ctx={ctx} block={b} /></div></div>
+            <DropZone ctx={ctx} target={{ parent, slot, index: i + 1 }} tail={fill && i === blocks.length - 1} /></Fragment>)}
+        {fill && <i className="prg-wire grow" />}
     </div>;
 }
-function BlockView({ ctx, block }: { ctx: CanvasContext; block: Block }) {
+function FlowNode({ ctx, block }: { ctx: CanvasContext; block: Block }) {
+    const command = ctx.cmap.get(block.command), shape = shapeOf(command), slots = slotsOf(command);
+    const scope = ctx.selected === block.id && slots.length > 0;
+    const cls = `prg-node shape-${shape} cat-${command?.category ?? "inne"}${block.disabled ? " disabled" : ""}${scope ? " scope" : ""}`;
+    const drag = { draggable: !ctx.locked, onDragStart: ctx.startDrag({ kind: "block", id: block.id }), onDragEnd: ctx.endDrag };
+    if (shape === "decision" || shape === "switch") {
+        const caseSlot = shape === "switch" ? slots.find(s => s.accepts?.length) : undefined;
+        const branches = slots.filter(s => s !== caseSlot);
+        const cases = caseSlot ? slotList(block, caseSlot.name) : [];
+        const addCaseButton = caseSlot && !ctx.locked && <button className="prg-addcase" title="Dodaj przypadek" onClick={e => { e.stopPropagation();
+            const { program, id } = addCase(ctx.program, block.id, ctx.cmap); if (id) { ctx.update(() => program); ctx.setSelected(id); ctx.land(id); } }}>＋ przypadek</button>;
+        return <div className={`${cls} branch`} {...drag}>
+            <BlockHead ctx={ctx} block={block} command={command} extra={addCaseButton} />
+            <div className="prg-branches">
+                {cases.map((c, k) => <CaseColumn key={c.id} ctx={ctx} parent={block} slot={caseSlot!.name} block={c} index={k} last={k === cases.length - 1} />)}
+                {branches.map((s, k) => <div key={s.name} className="prg-bcol"><i className="prg-wire s" />
+                    <span className={`prg-blabel${shape === "decision" ? (k === 0 ? " yes" : " no") : ""}`}>{s.label ?? s.name}</span>
+                    <FlowList ctx={ctx} blocks={slotList(block, s.name)} parent={block.id} slot={s.name} fill /></div>)}
+            </div>
+            <div className="prg-merge"><i /></div>
+        </div>;
+    }
+    if (slots.length) return <div className={`${cls} loop`} {...drag}>
+        <BlockHead ctx={ctx} block={block} command={command} />
+        {slots.map(s => <div key={s.name} className="prg-loop-body"><FlowList ctx={ctx} blocks={slotList(block, s.name)} parent={block.id} slot={s.name} /></div>)}
+        <div className="prg-loop-foot" title="Powrót na początek pętli">↺ {block.command === "repeat_until" ? "sprawdź warunek i powtórz" : "powrót"}</div>
+    </div>;
+    return <div className={cls} {...drag}><BlockHead ctx={ctx} block={block} command={command} /></div>;
+}
+// Kolumna przypadku „wybierz”: nagłówek = blok przypadku (przeciągany, edytowalny), pod nim jego bloki.
+function CaseColumn({ ctx, parent, slot, block, index, last }: { ctx: CanvasContext; parent: Block; slot: string; block: Block; index: number; last: boolean }) {
     const command = ctx.cmap.get(block.command);
+    return <div className={`prg-bcol case${block.disabled ? " disabled" : ""}${ctx.landing === block.id ? " landing" : ""}`}>
+        <CaseDrop ctx={ctx} target={{ parent: parent.id, slot, index }} side="left" />
+        {last && <CaseDrop ctx={ctx} target={{ parent: parent.id, slot, index: index + 1 }} side="right" />}
+        <i className="prg-wire s" />
+        <div className={`prg-node shape-case cat-${command?.category ?? "inne"}`} draggable={!ctx.locked} onDragStart={ctx.startDrag({ kind: "block", id: block.id })} onDragEnd={ctx.endDrag}>
+            <BlockHead ctx={ctx} block={block} command={command} /></div>
+        <FlowList ctx={ctx} blocks={slotList(block, "body")} parent={block.id} slot="body" fill />
+    </div>;
+}
+function CaseDrop({ ctx, target, side }: { ctx: CanvasContext; target: DropTarget; side: "left" | "right" }) {
+    const [over, setOver] = useState(false);
+    const active = (ctx.dragging?.kind === "command" || ctx.dragging?.kind === "block") && canDrop(ctx.program, ctx.cmap, ctx.dragCommand, target);
+    useEffect(() => { if (!active) setOver(false); }, [active]);
+    if (!active) return null;
+    return <div className={`prg-casedrop ${side}${over ? " over" : ""}`} onDragOver={e => { e.preventDefault(); e.stopPropagation(); setOver(true); }} onDragLeave={() => setOver(false)}
+        onDrop={e => { e.preventDefault(); e.stopPropagation(); setOver(false); ctx.dropBlock(target); }} />;
+}
+function BlockHead({ ctx, block, command, extra }: { ctx: CanvasContext; block: Block; command: Command | undefined; extra?: ReactNode }) {
     const flagged = ctx.issues.some(i => i.block === block.id);
     const runCls = cursorClasses(ctx.run, block.id, ctx.ancestors);
-    const cls = `prg-blk cat-${command?.category ?? "inne"}${ctx.selected === block.id ? " selected" : ""}${block.disabled ? " disabled" : ""}${flagged ? " flagged" : ""}${runCls ? " " + runCls : ""}`;
+    const linked = ctx.linked !== null && ctx.selected !== block.id && ((block.command === "label" && block.params.name === ctx.linked) || (block.command === "goto" && block.params.target === ctx.linked));
+    const cls = `prg-blk shape-${shapeOf(command)} cat-${command?.category ?? "inne"}${ctx.selected === block.id ? " selected" : ""}${flagged ? " flagged" : ""}${linked ? " linked" : ""}${runCls ? " " + runCls : ""}`;
     const badge = blendBadge(block, ctx.timeline.get(block.id));
     const blend = ctx.run?.active && ctx.run.robot_cursor?.blend && (ctx.run.robot_cursor.blend.from === block.id || ctx.run.robot_cursor.blend.to === block.id) ? ctx.run.robot_cursor.blend : null;
     const blendStyle = blend ? { ["--blend" as string]: `${Math.round((blend.from === block.id ? 1 - blend.progress : blend.progress) * 100)}%` } : undefined;
-    const head = <div className="prg-bh" onClick={e => { e.stopPropagation(); ctx.setSelected(block.id); }}>
+    const wait = ctx.timeline.get(block.id);
+    return <div className={cls} style={blendStyle} title={command?.help}><div className="prg-bh" onClick={e => { e.stopPropagation(); ctx.setSelected(block.id); }}>
         <span className="prg-icon">{command?.icon ?? "?"}</span>
         {command ? labelParts(command.label).map((p, k) => "text" in p ? (k === 0 ? <CommandSwitch key={k} ctx={ctx} block={block} command={command} text={p.text} /> : <span key={k}>{p.text}</span>) :
             <ParamPill key={k} ctx={ctx} block={block} def={command.params?.find(d => d.name === p.param)} />) : <span>nieznany rozkaz „{block.command}”</span>}
+        {extra}
         {badge && <span className={`prg-blend ${badge.tone}`} title={badge.title}>{badge.text}</span>}
+        {wait?.kind === "wait" && <span className="prg-blend" title="Czas czekania na osi czasu sprawdzenia">⏱ {(wait.end_s - wait.start_s).toFixed(1)} s</span>}
         {flagged && <span className="prg-flag" title={ctx.issues.filter(i => i.block === block.id).map(i => i.text).join("\n")}>!</span>}
         {runCls.includes("run-robot") || blend ? <span className="prg-cursor robot" title="Kursor robota">◆ robot{ctx.run?.robot_cursor ? ` · ${phaseLabels[ctx.run.robot_cursor.phase] ?? ""}` : ""}</span> : null}
         {runCls.includes("run-program") && <span className="prg-cursor program" title="Kursor programu (interpreter liczy z wyprzedzeniem)">▷ program</span>}
-    </div>;
-    const slots = slotsOf(command);
-    return <div className={cls} style={blendStyle} draggable={!ctx.locked} onDragStart={ctx.startDrag({ kind: "block", id: block.id })} onDragEnd={ctx.endDrag}>
-        {head}
-        {slots.map((s, k) => <div key={s.name}>{k > 0 && <div className="prg-bm">{s.label ?? s.name}</div>}
-            <div className="prg-slot"><BlockList ctx={ctx} blocks={slotList(block, s.name)} parent={block.id} slot={s.name} /></div></div>)}
-        {slots.length > 0 && <div className="prg-bf">koniec · {command?.label.split(" ")[0]}</div>}
-    </div>;
+    </div></div>;
 }
 // Nazwa rozkazu w bloku: kliknięcie → lista rozkazów zgodnych (np. PTP ↔ LIN) — zamiana bez usuwania bloku.
 function CommandSwitch({ ctx, block, command, text }: { ctx: CanvasContext; block: Block; command: Command; text: string }) {
@@ -303,15 +512,15 @@ function CommandSwitch({ ctx, block, command, text }: { ctx: CanvasContext; bloc
     const choose = (target: Command) => {
         const { program: next, reset } = changeCommand(ctx.program, block.id, target);
         ctx.update(() => next);
-        setNote(reset.length ? `Przywrócono domyślne: ${reset.join(", ")} (poza zakresem ${target.label.split(" ")[0]})` : ""); setOpen(false);
+        setNote(reset.length ? `Przywrócono domyślne: ${reset.join(", ")} (poza zakresem ${commandName(target)})` : ""); setOpen(false);
     };
-    return <><span ref={ref} className="prg-cmd" title="Kliknij, aby zmienić rodzaj ruchu (parametry zostają)" onClick={e => { e.stopPropagation(); ctx.setSelected(block.id); setOpen(o => !o); setNote(""); }}>
+    return <><span ref={ref} className="prg-cmd" title="Kliknij, aby zmienić rodzaj rozkazu (parametry o tej samej nazwie zostają)" onClick={e => { e.stopPropagation(); ctx.setSelected(block.id); setOpen(o => !o); setNote(""); }}>
         {word}<span className="prg-cmd-caret">▾</span>
         {open && <span className="prg-editor prg-cmd-menu" onClick={e => e.stopPropagation()}>
             <b>Zmień rozkaz</b>
             {[command, ...options].map(c => <button key={c.id} className={c.id === command.id ? "on" : ""} disabled={c.id === command.id} onClick={() => choose(c)}>
                 <span className="prg-icon">{c.icon}</span>{c.label.replace(/\{(\w+)\}/g, (_, name: string) => c.params?.find(d => d.name === name)?.unit ? `[${c.params.find(d => d.name === name)!.unit}]` : "…")}</button>)}
-            <span className="prg-note">Pozycja, prędkość i promień zostają; wartość spoza zakresu nowego rozkazu wraca do domyślnej.</span>
+            <span className="prg-note">Parametry o tej samej nazwie zostają; wartość spoza zakresu nowego rozkazu wraca do domyślnej.</span>
         </span>}
     </span><span>{rest}</span>{note && <span className="prg-blend warn" title={note}>⟲ {note}</span>}</>;
 }
@@ -341,21 +550,55 @@ function ParamEditor({ ctx, def, value, set, close }: { ctx: CanvasContext; def:
         <option value="">—</option>{vars.map(v => <option key={v.name} value={v.name}>{v.name} · {v.type}</option>)}</select></label>;
     return <span className="prg-editor" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") close(); }}>
         <b>{def.label}{def.unit ? ` [${def.unit}]` : ""}</b>
-        {def.kind === "number" && <label>wartość<input type="number" autoFocus value={literal} min={def.min} max={def.max} step={def.integer ? 1 : "any"}
-            onChange={e => { const v = Number(e.target.value); if (e.target.value !== "" && Number.isFinite(v)) set(def.integer ? Math.round(v) : v); }} /></label>}
-        {(def.kind === "condition" || def.kind === "text") && <label>{def.kind === "condition" ? "wyrażenie" : "tekst"}<input autoFocus value={literal} onChange={e => set(e.target.value)} /></label>}
-        {def.kind === "value" && <label>wartość<input autoFocus value={literal} onChange={e => { const raw = e.target.value, n = Number(raw.replace(",", "."));
-            set(raw.trim() !== "" && Number.isFinite(n) ? n : raw === "TRUE" ? true : raw === "FALSE" ? false : raw); }} /></label>}
+        {def.kind === "number" && <label>wartość<NumberInput value={value} integer={def.integer} onValue={set} /></label>}
+        {(def.kind === "condition" || def.kind === "text") && <label>{def.kind === "text" ? "tekst" : "wyrażenie"}<input autoFocus value={literal} onChange={e => set(e.target.value)} /></label>}
+        {def.kind === "expression" && <label>wyrażenie<ZeroWhenEmptyInput text={literal} onText={t => set(t === "" ? "0" : t)} /></label>}
+        {(def.kind === "condition" || def.kind === "expression") && <ExpressionHint text={literal} names={ctx.program.variables.map(v => v.name)} />}
+        {def.kind === "label" && <label>nazwa etykiety<input autoFocus list={`labels-${def.name}`} value={literal} onChange={e => set(e.target.value)} />
+            <datalist id={`labels-${def.name}`}>{labelNames(ctx.program).map(n => <option key={n} value={n} />)}</datalist></label>}
+        {def.kind === "choice" && <span className="prg-choices">{(def.options ?? []).map(o => <button key={o} className={value === o ? "on" : ""} onClick={() => set(o)}>{o}</button>)}</span>}
+        {def.kind === "value" && <label>wartość<ZeroWhenEmptyInput text={literal} onText={raw => { const n = Number(raw.replace(",", "."));
+            set(raw.trim() === "" ? 0 : Number.isFinite(n) ? n : raw === "TRUE" ? true : raw === "FALSE" ? false : raw); }} /></label>}
         {def.kind === "bool" && <span className="prg-seg">{[true, false].map(b => <button key={String(b)} className={value === b ? "on" : ""} onClick={() => set(b)}>{b ? "TRUE" : "FALSE"}</button>)}</span>}
         {(def.kind === "output" || def.kind === "input") && <label>{def.kind === "output" ? "wyjście" : "wejście"}<select value={literal} onChange={e => set(e.target.value)}>
             {io.map(n => <option key={n}>{n}</option>)}</select></label>}
-        {(def.kind === "position" || def.kind === "value") && <label>pozycja<select value={isRef(value) && "position" in value ? value.position : ""} onChange={e => e.target.value && set({ position: e.target.value })}>
+        {(def.kind === "position" || def.kind === "value" || def.kind === "expression") && <label>pozycja<select value={isRef(value) && "position" in value ? value.position : ""} onChange={e => e.target.value && set({ position: e.target.value })}>
             <option value="">—</option>{ctx.program.positions.map(p => <option key={p.name}>{p.name}</option>)}</select></label>}
         {varSelect}
         {def.kind === "variable" && !vars.length && <span className="prg-note">Brak pasujących zmiennych{def.types ? ` (${def.types.join("/")})` : ""} — utwórz w zakładce „Zmienne”.</span>}
         {def.kind !== "variable" && def.default !== undefined && <button className="secondary-button sm" onClick={() => set(structuredClone(def.default) as Value)}>domyślna</button>}
-        <span className="prg-note">Można też przeciągnąć {def.kind === "position" ? "pozycję lub zmienną POZYCJA" : "zmienną"} na to pole.</span>
+        {!["choice", "label", "variable"].includes(def.kind) && <span className="prg-note">Można też przeciągnąć {def.kind === "position" ? "pozycję lub zmienną POZYCJA" : "zmienną"} na to pole.</span>}
     </span>;
+}
+// Pole liczby w okienku bloku: własny tekst roboczy (można skasować, wpisać „0”, „-”, „0,5”); pusty → 0 (zaznaczone,
+// więc kolejna cyfra je zastępuje); poprawna liczba trafia od razu do bloku (INT — zaokrąglenie).
+const NUMBER_RE = /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i;
+function NumberInput({ value, integer, onValue }: { value: Value; integer?: boolean; onValue: (v: number) => void }) {
+    const shown = typeof value === "number" ? String(value) : "";
+    const [draft, setDraft] = useState(shown);
+    const ref = useRef<HTMLInputElement>(null);
+    useEffect(() => { if (Number(draft.replace(",", ".")) !== value) setDraft(shown); }, [value]);   // eslint-disable-line react-hooks/exhaustive-deps
+    const change = (raw: string) => {
+        const text = raw.replace(",", ".").trim();
+        if (text === "") { setDraft("0"); onValue(0); requestAnimationFrame(() => ref.current?.select()); return; }
+        setDraft(raw);
+        if (NUMBER_RE.test(text)) { const v = Number(text); if (Number.isFinite(v)) onValue(integer ? Math.round(v) : v); }
+    };
+    return <input ref={ref} type="text" inputMode="decimal" autoFocus value={draft} aria-invalid={draft.trim() !== "" && !NUMBER_RE.test(draft.replace(",", ".").trim())}
+        onFocus={e => e.target.select()} onChange={e => change(e.target.value)} onBlur={() => setDraft(shown)} />;
+}
+// Pole tekstowe, które po całkowitym skasowaniu przyjmuje „0” (zaznaczone).
+function ZeroWhenEmptyInput({ text, onText }: { text: string; onText: (t: string) => void }) {
+    const ref = useRef<HTMLInputElement>(null);
+    return <input ref={ref} autoFocus value={text} onFocus={e => e.target.select()}
+        onChange={e => { const raw = e.target.value; onText(raw); if (raw.trim() === "") requestAnimationFrame(() => ref.current?.select()); }} />;
+}
+// Podpowiedź składni i błąd wyrażenia na żywo (ta sama gramatyka co interpreter w moście).
+function ExpressionHint({ text, names }: { text: string; names: string[] }) {
+    const error = text.trim() ? checkExpression(text, new Set(names)) : null;
+    return <span className="prg-note">{error ? <span className="prg-error">⚠ {error}</span> : text.trim() ? "✓ wyrażenie poprawne" : null}
+        <br />Operatory: + − * / MOD ^ · = &lt;&gt; &lt; &lt;= &gt; &gt;= · AND OR XOR NOT · TRUE FALSE PI · 'tekst'
+        <br />Funkcje: {Object.keys(EXPRESSION_FUNCTIONS).join(", ")} (kąty w °)</span>;
 }
 function TextView({ lines, selected, onSelect }: { lines: ReturnType<typeof programText>; selected: string | null; onSelect: (id: string) => void }) {
     return <div className="prg-text">{lines.map((l, k) => <div key={l.key} className={`prg-cl${l.kind ? " " + l.kind : ""}${l.block && l.block === selected ? " selected" : ""}`}
@@ -424,7 +667,7 @@ function VariableModal({ program, edit, onClose, onSave }: { program: Program; e
 }
 
 // ================================================================= pozycje
-function PositionsPanel(props: PanelProps & { selected: string | null; setSelected: (n: string | null) => void }) {
+function PositionsPanel(props: PanelProps & { selected: string | null; setSelected: (n: string | null) => void; ranges: JointRange[] }) {
     const { program, update, notify } = props, lib = props.library?.positions.items ?? [];
     const [editing, setEditing] = useState<{ original: string; name: string; joints: string[]; note: string } | null>(null);
     const [busy, setBusy] = useState(false);
@@ -461,7 +704,9 @@ function PositionsPanel(props: PanelProps & { selected: string | null; setSelect
                 <button className="secondary-button sm" title="Zapisz w bibliotece" onClick={e => { e.stopPropagation(); void storeLibrary(props, "positions", [...lib.filter(x => x.name !== p.name), p]); }}>⇪</button>
                 <button className="secondary-button sm" title="Usuń" onClick={e => { e.stopPropagation(); const n = usage(program, "position", p.name);
                     if (n && !window.confirm(`Pozycja ${p.name} jest użyta w ${n} blokach. Usunąć?`)) return; update(pr => ({ ...pr, positions: pr.positions.filter(x => x.name !== p.name) })); }}>×</button></div>
-            <div className="prg-init">J {p.joints_deg.map(v => +v.toFixed(1)).join(" / ")}°</div>
+            <div className="prg-init">J {p.joints_deg.map((v, i) => { const out = violations([v], [props.ranges[i]]).length > 0;
+                return <Fragment key={i}>{i > 0 && " / "}<span className={out ? "prg-out" : undefined} title={out ? `J${i + 1} poza zakresem ${props.ranges[i]![0]}…${props.ranges[i]![1]}°` : undefined}>{+v.toFixed(1)}</span></Fragment>; })}°</div>
+            {violations(p.joints_deg, props.ranges).length > 0 && <div className="prg-out-note">⚠ poza zakresem osi: {describeViolations(violations(p.joints_deg, props.ranges))}</div>}
             <div className="prg-note">{p.source ?? ""}{p.note ? ` · ${p.note}` : ""} · użyta: {usage(program, "position", p.name)}×</div></div>)}
         {!program.positions.length && <p className="prg-note">Zapamiętaj pozycję z robota (wymaga skalibrowanych osi) albo dodaj ręcznie. Przeciągnij pozycję na pole „pozycja” bloku ruchu.</p>}
         <LibrarySection title="Biblioteka pozycji" count={lib.length}>{lib.map(p => <div key={p.name} className="prg-libitem"><span>📍 {p.name}</span>
@@ -473,8 +718,9 @@ function PositionsPanel(props: PanelProps & { selected: string | null; setSelect
 
 // ================================================================= podgląd 3D i zmiennych
 // ================================================================= wykonanie
-function RunPanel({ program, run, global, approved, dirty, issues, onCheck, onExecute, onStop, onBlock }: { program: Program; run: RunStatus | null; global: RunStatus | null;
-    approved: boolean; dirty: boolean; issues: number; onCheck: () => void; onExecute: () => void; onStop: () => void; onBlock: (id: string) => void }) {
+function RunPanel({ program, run, global, approved, dirty, issues, onCheck, onExecute, onStop, onResume, onBlock, launch, onCloseLaunch, onPosition }: { program: Program; run: RunStatus | null; global: RunStatus | null;
+    approved: boolean; dirty: boolean; issues: number; onCheck: () => void; onExecute: () => void; onStop: () => void; onResume: () => void; onBlock: (id: string) => void;
+    launch: { steps: LaunchStep[]; active: boolean } | null; onCloseLaunch: () => void; onPosition: (name: string) => void }) {
     const other = global?.active && !run ? global : null;
     const active = !!run?.active, busy = active || !!other;
     const timeline = run && run.revision === program.revision ? run.timeline : [];
@@ -483,17 +729,31 @@ function RunPanel({ program, run, global, approved, dirty, issues, onCheck, onEx
     const chainStart = run?.chain ? Math.min(...timeline.filter(e => e.chain === run.chain!.index).map(e => e.start_s), Infinity) : Infinity;
     const marker = active && run?.mode === "execute" && run.chain && Number.isFinite(chainStart) ? Math.min(total, chainStart + run.chain.elapsed_s) : null;
     const checkTitle = dirty ? "Najpierw zapisz program" : issues ? "Najpierw usuń uwagi" : "Symulacja programu od bieżącej pozycji robota — bez ruchu";
-    const runTitle = !approved ? "Wymaga zatwierdzenia tej rewizji (✔ Zatwierdź do wykonania)" : "Wykonanie na robocie (ruch fizyczny)";
+    const runTitle = "Doprowadza program i robota do stanu startu: zapis, analiza (uwagi, zakresy osi, stan robota), symulacja, potwierdzenie, "
+        + `${approved ? "" : "zatwierdzenie rewizji, "}załączenie napędów i start (ruch fizyczny)`;
     const tone = run?.state === "failed" ? "error" : run?.state === "succeeded" ? "ok" : run?.state === "stopped" ? "warn" : "";
     return <div className="prg-panel prg-run">
         <div className="prg-panel-head">Wykonanie <small>{run ? `${run.mode === "execute" ? "robot" : "sprawdzenie"} · ${runStateLabels[run.state] ?? run.state}` : "kursory: ◆ robot · ▷ program"}</small><span className="spacer" />
             {run?.state && run.state !== "idle" && <span className={`badge ${tone}`}><span className="dot" />{runStateLabels[run.state] ?? run.state}</span>}</div>
         <div className="prg-run-actions">
             <button className="secondary-button" disabled={busy || dirty || issues > 0 || !program.id || !program.blocks.length} title={checkTitle} onClick={onCheck}>⟲ Sprawdź</button>
-            <button className="primary-button" disabled={busy || dirty || issues > 0 || !approved} title={runTitle} onClick={onExecute}>▶ Uruchom</button>
+            <button className="primary-button" disabled={busy || !!launch?.active || !program.id || !program.blocks.length} title={runTitle} onClick={onExecute}>{launch?.active ? "◌ Przygotowanie…" : "▶ Uruchom"}</button>
             <button className="motion-stop" disabled={!busy} onClick={onStop} title="Zatrzymaj przebieg i ruch robota">■ STOP</button>
         </div>
+        {launch && <div className="prg-launch" aria-label="Przygotowanie do startu">
+            <div className="prg-launch-head">Przygotowanie do startu<span className="spacer" />{!launch.active && <button className="link" onClick={onCloseLaunch} title="Ukryj">×</button>}</div>
+            {launch.steps.map(s => <div key={s.id} data-step={s.id} className={`prg-launch-step ${s.state}`}>
+                <span className="prg-launch-icon">{LAUNCH_ICON[s.state]}</span><b>{s.label}</b>{s.detail && <span className="prg-note">{s.detail}</span>}
+                {s.items?.map(item => <button key={item.name} className={`prg-launch-item${item.used ? " used" : ""}`} onClick={() => { onPosition(item.name); if (item.block_id) onBlock(item.block_id); }}
+                    title="Pokaż pozycję w podglądzie 3D">📍 {item.name}{item.used ? "" : " (nieużywana)"}: {item.violations.map(v => `J${v.axis} ${+v.value.toFixed(2)}° ∉ [${v.lower}, ${v.upper}]`).join(", ")}</button>)}
+            </div>)}
+        </div>}
         {other && <p className="prg-note prg-pad">Trwa przebieg programu „{other.name ?? other.program_id}” ({runStateLabels[other.state] ?? other.state}).</p>}
+        {run?.active && run.state === "waiting_operator" && <div className="prg-run-pause">
+            <span>✋ {run.wait?.text || "Czekanie na operatora"}</span>
+            <button className="primary-button" onClick={onResume} title="Robot wykona dalszą część programu">⏵ Kontynuuj</button></div>}
+        {run?.active && run.state === "waiting" && run.wait && <div className="prg-run-pause wait"><span>⏱ {run.wait.text}</span>
+            {run.wait.until_monotonic_s !== undefined && run.server_monotonic_s !== undefined && <span className="prg-note">pozostało ~{Math.max(0, run.wait.until_monotonic_s - run.server_monotonic_s).toFixed(1)} s</span>}</div>}
         {run && <div className="prg-run-body">
             {run.mode === "execute" && active && <div className="prg-run-cursors">
                 <span className="prg-cursor robot">◆ robot</span><button className="link" disabled={!run.robot_cursor} onClick={() => run.robot_cursor && onBlock(run.robot_cursor.block_id)}>
@@ -504,30 +764,34 @@ function RunPanel({ program, run, global, approved, dirty, issues, onCheck, onEx
             </div>}
             {timeline.length > 0 && <div className="prg-timeline" aria-label="Oś czasu programu">
                 {bars.map((bar, k) => <div key={k} className={`prg-tl ${bar.kind}`} style={{ left: `${bar.start / total * 100}%`, width: `${Math.max(0.3, (bar.end - bar.start) / total * 100)}%` }}
-                    title={`${bar.block ?? "przerwa między ciągami"} · ${bar.start.toFixed(2)}–${bar.end.toFixed(2)} s`} onClick={() => bar.block && onBlock(bar.block)} />)}
+                    title={`${bar.block ?? "przerwa między ciągami"}${bar.kind === "wait" ? " · czekanie" : bar.kind === "operator" ? " · czeka na operatora" : ""} · ${bar.start.toFixed(2)}–${bar.end.toFixed(2)} s`} onClick={() => bar.block && onBlock(bar.block)} />)}
                 {marker !== null && <div className="prg-tl-marker" style={{ left: `${marker / total * 100}%` }} />}
             </div>}
-            {timeline.length > 0 && <div className="prg-note">{timeline.length} ruchów · {run.chains} ciąg(i) · ~{(run.total_s ?? total).toFixed(1)} s
-                <span className="prg-legend"><i className="move" />ruch <i className="blend" />przejście <i className="stop" />postój <i className="gap" />przerwa</span></div>}
+            {timeline.length > 0 && <div className="prg-note">{timeline.filter(e => !e.kind).length} ruchów · {run.chains} ciąg(i) · ~{(run.total_s ?? total).toFixed(1)} s
+                <span className="prg-legend"><i className="move" />ruch <i className="blend" />przejście <i className="stop" />postój <i className="wait" />czekanie <i className="gap" />przerwa</span></div>}
             {run.message && <div className={`prg-run-msg ${tone}`}>{run.message}</div>}
             {run.warnings.length > 0 && <div className="prg-issues">{run.warnings.slice(0, 20).map((w, k) =>
                 <button key={k} onClick={() => w.block_id && onBlock(w.block_id)}>⚠ {w.block_id ? `${w.block_id}: ` : ""}{w.text}</button>)}</div>}
         </div>}
     </div>;
 }
-function Preview3D({ program, selected }: { program: Program; selected: string | null }) {
+function Preview3D({ program, selected, values, ranges }: { program: Program; selected: string | null; values: Record<string, unknown> | null; ranges: JointRange[] }) {
     const host = useRef<HTMLDivElement>(null), scene = useRef<ReturnType<typeof import("./programPreviewScene").createProgramScene> | null>(null);
-    const [error, setError] = useState("");
+    const [error, setError] = useState(""), [ready, setReady] = useState(false);
     const pose = program.positions.find(p => p.name === selected)?.joints_deg ?? null;
+    const outside = useMemo(() => new Set(program.positions.filter(p => violations(p.joints_deg, ranges).length).map(p => p.name)), [program.positions, ranges]);
+    const bad = pose ? violations(pose, ranges) : [];
     useEffect(() => { let closed = false;
-        void Promise.all([import("./programPreviewScene"), activeConfigurationValues()]).then(([engine, values]) => {
+        void import("./programPreviewScene").then(engine => {
             if (closed || !host.current) return;
-            try { scene.current = engine.createProgramScene(host.current); scene.current.setGeometry(values); }
+            try { scene.current = engine.createProgramScene(host.current); setReady(true); }
             catch { setError("Podgląd 3D niedostępny — sprawdź obsługę WebGL"); }
         }).catch(() => !closed && setError("Nie udało się wczytać podglądu 3D"));
         return () => { closed = true; scene.current?.dispose(); scene.current = null; }; }, []);
-    useEffect(() => { scene.current?.setPositions(program.positions, selected); scene.current?.setPose(pose); });
-    return <div className="prg-panel"><div className="prg-panel-head">Podgląd 3D <small>{selected ? `pozycja ${selected}` : "poza zerowa"}</small></div>
+    useEffect(() => { if (ready) scene.current?.setGeometry(values); }, [ready, values]);
+    useEffect(() => { scene.current?.setPositions(program.positions, selected, outside); scene.current?.setPose(pose); scene.current?.setLimits(poseLimits(ranges, pose)); });
+    return <div className="prg-panel"><div className="prg-panel-head">Podgląd 3D <small>{selected ? `pozycja ${selected}` : "poza zerowa"}</small>
+        {bad.length > 0 && <span className="badge error" title={describeViolations(bad)}><span className="dot" />poza zakresem: {bad.map(v => `J${v.axis}`).join(", ")}</span>}</div>
         <div className="prg-viewport" ref={host}>{error && <p className="prg-overlay">{error}</p>}</div>
         <div className="prg-note prg-pad">Wybierz pozycję w zakładce „Pozycje”, aby ustawić model. Przebieg programu: panel „Wykonanie” (oś czasu, kursory na blokach).</div></div>;
 }

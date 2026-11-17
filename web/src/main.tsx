@@ -13,6 +13,8 @@ import { axisPresence, busStateLabel } from "./dashboardData";
 import { buildLabel } from "./buildInfo";
 import { driveCells, freshCan, pulseSections } from "./systemPulse";
 import "./style.css";
+import { PendantPage } from "./PendantPage";
+import { initAnimations } from "./animations";
 
 const labels: Record<State, string> = {
     ok: "Aktywny",
@@ -207,7 +209,8 @@ function App() {
         ticks: { SYS: c?.host.sampled_at ?? undefined, ROS: canStatus.snapshot?.updated_at ?? snapshot?.updated_at ?? undefined,
             API: receivedAt || undefined, WEB: receivedAt + canStatus.receivedAt || undefined } };
     return (
-        <AppShell view={pageId} manual={manualHeader} online={online} connecting={connection === "connecting"} pulse={pulse}>
+        <AppShell view={pageId} manual={manualHeader} online={online} connecting={connection === "connecting"} pulse={pulse}
+            serverUrl={snapshot?.network.url} subnet={snapshot?.network.subnet}>
                 {configurationView ? <ConfigurationPage /> : manualView ? <ManualPage onHeaderStatus={setManualHeader} /> : pageId === "programming" ? <ProgrammingPage /> : canView ? <CanPage /> : pageId === "diagnostics" ? null : pageId === "architecture" ? <ArchitecturePage status={snapshot} statusFresh={!stale} statusOnline={online} can={canStatus.snapshot} canFresh={canFresh} canOnline={canOnline} sections={sections} /> : <>
                 <div className="page-title">
                     <div>
@@ -449,4 +452,12 @@ function App() {
     );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+// #pendant: teach pendant na telefon — pełny ekran bez ramki aplikacji (bez zapytań panelu głównego).
+function Root() {
+    const [pendant, setPendant] = useState(location.hash === "#pendant");
+    useEffect(() => { const update = () => setPendant(location.hash === "#pendant"); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
+    return pendant ? <PendantPage /> : <App />;
+}
+
+initAnimations();
+createRoot(document.getElementById("root")!).render(<Root />);

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { StatusMonitor } from "./StatusMonitor";
+import { PendantLink } from "./PendantLink";
 
 export const pages = [
     { id: "overview", label: "Przegląd systemu", icon: "◫" },
@@ -18,9 +19,10 @@ export function pageFromHash(hash: string): PageId {
 export type ManualHeaderState = { connected: boolean; fresh: boolean; planning: boolean; recording: boolean };
 export const emptyManualHeader: ManualHeaderState = { connected: false, fresh: false, planning: false, recording: false };
 
-export function AppShell({ view, manual, online, connecting, pulse, children }: {
+export function AppShell({ view, manual, online, connecting, pulse, children, serverUrl, subnet }: {
     view: PageId; manual: ManualHeaderState; online: boolean; connecting: boolean; children: ReactNode;
     pulse?: React.ComponentProps<typeof StatusMonitor>;
+    serverUrl?: string; subnet?: string;   // adres panelu w LAN (/api/v1/status network) — kod QR teach pendanta
 }) {
     const wide = view === "manual" || view === "programming";
     const [collapsed, setCollapsed] = useState(wide);
@@ -56,6 +58,7 @@ export function AppShell({ view, manual, online, connecting, pulse, children }: 
                     {isManual && manual.planning && <span className="badge planning-badge"><span className="dot" />PLANOWANIE · bliźniak</span>}
                     {isManual && manual.recording && <span className="badge warn">Nagrywanie diagnostyki</span>}
                     <span className={`badge ${connected && fresh ? "ok" : "stale"}`}><span className="dot" />{connectionText}</span>
+                    <PendantLink baseUrl={serverUrl ?? location.origin} subnet={subnet} />
                     <span className="local-tag">SIEĆ LOKALNA</span>
                 </div>
             </header>

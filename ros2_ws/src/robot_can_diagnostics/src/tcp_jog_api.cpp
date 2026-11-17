@@ -177,12 +177,18 @@ void TcpJogApi::command(const Request &r,robot_control_interfaces::srv::JogTcp::
     response.accepted=generator_ && runtime_->tcp_jog_control(r.session,generation_,r.sequence,issued);
     if(response.accepted) keepalive_=issued;
     if(response.accepted && r.action==Request::STOP) {
-      if(r.emergency) fail("Awaryjne przerwanie JOG TCP przez panel/most");else stop_requested_=true;
+      // „Awaryjny” STOP panelu zgłaszają klienci przy problemach łączności (brak ACK/stanu): to samo łagodne
+      // zatrzymanie co puszczenie drążka; ENABLE=0 zostaje dla awarii napędów/CAN (decyzja operatora 11.11.2026).
+      stop_requested_=true;
+      if(r.emergency) {abort_message_="STOP panelu (utrata łączności lub danych panelu)";telemetry_event("panel_emergency",abort_message_);}
     }
     response.message=response.accepted ? "Komenda JOG TCP przyjęta" : "Brak pasującego wykonania JOG TCP";return;
   }
-  if(generator_) {response.message="Poprzedni JOG TCP nadal trwa";return;}
-  const auto reason=unavailable(now);
+  // Dolot poprzedniego ruchu tej samej sesji może przejąć nowy START (właściciel CAN robi to atomowo).
+  const auto previous=runtime_->tcp_trajectory();
+  const bool preempt=generator_ && cut_ && r.session==session_ && previous.cut && previous.elapsed>=previous.end && !previous.done;
+  if(generator_ && !preempt) {response.message="Poprzedni JOG TCP nadal trwa";return;}
+  const auto reason=preempt ? std::string() : unavailable(now);
   if(!reason.empty()) {response.message=reason;return;}
   if(r.axis>5 || (r.direction!=1 && r.direction!=-1) || (r.frame!="base" && r.frame!="tool") ||
       r.model_id!=model_ || r.revision!=revision_ || !std::isfinite(r.velocity) || r.velocity<=0 ||
@@ -202,14 +208,18 @@ void TcpJogApi::command(const Request &r,robot_control_interfaces::srv::JogTcp::
       robot_kinematics::TcpJogRequest{r.axis,r.direction,r.frame=="base" ? robot_kinematics::TcpFrame::base : robot_kinematics::TcpFrame::tool,
         r.velocity,r.axis<3 ? linear_acceleration_ : angular_acceleration_,r.step,0.,ik_position_tolerance_,ik_orientation_tolerance_,
         r.axis<3 ? max_jerk_ : angular_acceleration_*max_jerk_/linear_acceleration_});
-    generation_=runtime_->begin_tcp_jog(r.session,r.revision,r.model_id,r.sequence,issued);
-    if(!generation_) throw std::runtime_error("Właściciel CAN odrzucił start TCP: profil napędów, świeżość lub zajęte sterowanie");
+    const auto generation=runtime_->begin_tcp_jog(r.session,r.revision,r.model_id,r.sequence,issued);
+    if(!generation) throw std::runtime_error(preempt ? "Właściciel CAN odrzucił przejęcie dolotu nowym JOG TCP" :
+        "Właściciel CAN odrzucił start TCP: profil napędów, świeżość lub zajęte sterowanie");
+    if(preempt) telemetry_event("preempted","Dolot przejęty nowym JOG TCP");
+    generation_=generation;
     // Pierwszy punkt kolejki: zmierzony start w postoju (t=0).
     mks_servo_can::ProgramPoint origin;origin.positions=start;
     if(!runtime_->append_tcp_points(r.session,generation_,{origin},false)) {
       runtime_->stop("JOG TCP: właściciel CAN odrzucił punkt startowy");throw std::runtime_error("Właściciel CAN odrzucił punkt startowy JOG TCP");
     }
     configuration_generation_=state.configuration_generation;session_=r.session;sequence_=0;stop_requested_=false;keepalive_=issued;keepalive_lost_=false;
+    abort_message_.clear();
     generator_=std::move(generator);step_=0;cut_=closed_=false;last_sample_=generator_->current();
     last_feedback_=state.positions;measured_velocity_.fill(std::numeric_limits<double>::quiet_NaN());
     session_deadline_=r.impulse ? Clock::now()+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(std::max(10.,generator_->duration()+3.))) : Time{};
@@ -235,12 +245,19 @@ void TcpJogApi::apply_limits(const robot_control_interfaces::msg::RobotConfigura
 }
 void TcpJogApi::fail(const std::string &message) {
   telemetry_event("fault",message);
-  mks_servo_can::trace_note("tcp_jog_failed", message);  // wyzwalacz migawki awarii
   mks_servo_can::ControlState state;
   const bool have_state=runtime_->try_read(state);
-  if(generator_ && (!have_state || (!state.fault && state.active &&
-      state.source==mks_servo_can::Source::tcp_jog && state.control_generation==generation_)))
-    runtime_->stop(message);
+  const bool owned=generator_ && have_state && !state.fault && state.active &&
+      state.source==mks_servo_can::Source::tcp_jog && state.control_generation==generation_;
+  // Sesja nadal nasza: łagodne zatrzymanie (ucięcie kolejki, dolot i potwierdzenie postoju jak po puszczeniu drążka).
+  // STOP z ENABLE=0 tylko, gdy kolejki nie da się uciąć; awarie napędów/CAN zgłasza sam właściciel CAN.
+  if(owned && (cut_ || runtime_->cut_tcp_jog(session_,generation_,message))) {
+    mks_servo_can::trace_note("tcp_jog_soft_stop",message);
+    if(abort_message_.empty()) abort_message_=message;
+    cut_=stop_requested_=true;status_.state="braking";status_.message="Łagodne zatrzymanie TCP: "+message;return;
+  }
+  mks_servo_can::trace_note("tcp_jog_failed", message);  // wyzwalacz migawki awarii
+  if(generator_ && (!have_state || owned)) runtime_->stop(message);
   generator_.reset();status_.busy=false;status_.state="failed";status_.message=message;
 }
 void TcpJogApi::tick() {
@@ -249,7 +266,7 @@ void TcpJogApi::tick() {
   if(!runtime_->try_read(state)) return;
   const auto now=Clock::now();
   if(state.fault) throw std::runtime_error("JOG TCP: "+runtime_->manual_snapshot().message);
-  if(session_deadline_!=Time{} && now>=session_deadline_) {
+  if(!cut_ && session_deadline_!=Time{} && now>=session_deadline_) {
     const double factor=status_.axis<3 ? 1000. : 180/std::acos(-1.);
     const std::string unit=status_.axis<3 ? " mm" : "°";
     throw std::runtime_error("Przekroczony timeout impulsu TCP; postęp="+mks_servo_can::diagnostic_number(status_.progress*factor)+unit+", zadany krok="+mks_servo_can::diagnostic_number(status_.requested_step*factor)+unit);
@@ -258,11 +275,12 @@ void TcpJogApi::tick() {
     throw std::runtime_error("JOG TCP utracił właściciela sterowania; sterowanie aktywne="+std::to_string(state.active)+", źródło="+std::to_string(static_cast<int>(state.source)));
   if(state.control_generation!=generation_)
     throw std::runtime_error("JOG TCP: zmieniła się generacja sterowania; oczekiwana="+std::to_string(generation_)+", aktualna="+std::to_string(state.control_generation));
-  if(state.configuration_generation!=configuration_generation_)
+  if(!cut_ && state.configuration_generation!=configuration_generation_)
     throw std::runtime_error("JOG TCP: zmieniła się generacja konfiguracji; oczekiwana="+std::to_string(configuration_generation_)+", aktualna="+std::to_string(state.configuration_generation));
   for(unsigned j=0;j<state.positions.size();++j) {
     const auto &position=state.positions[j];
-    if(!position.fresh(now,60ms))
+    // Po ucięciu dolot nadzoruje właściciel CAN (świeżość pozycji, postój); API czeka na jego potwierdzenie.
+    if(!cut_ && !position.fresh(now,60ms))
       throw std::runtime_error(mks_servo_can::axis_diagnostic_label(j+1,runtime_->config_snapshot().axes[j].address)+": JOG TCP — "+mks_servo_can::sample_diagnostic(position,now,60ms,"pozycja przegubu"));
     if(position.stamp>last_feedback_[j].stamp) {
       measured_velocity_[j]=(position.value-last_feedback_[j].value)/std::chrono::duration<double>(position.stamp-last_feedback_[j].stamp).count();
@@ -272,6 +290,7 @@ void TcpJogApi::tick() {
   // Brak KEEPALIVE traktujemy jak puszczenie przycisku: kolejka ucięta przed limitem 200 ms właściciela CAN.
   if(!cut_ && !stop_requested_ && keepalive_!=Time{} && now-keepalive_>=kKeepaliveBrake) {
     stop_requested_=keepalive_lost_=true;
+    if(abort_message_.empty()) abort_message_="brak KEEPALIVE z panelu "+mks_servo_can::diagnostic_number(std::chrono::duration<double,std::milli>(now-keepalive_).count())+" ms";
     telemetry_event("keepalive_lost","Brak KEEPALIVE "+mks_servo_can::diagnostic_number(std::chrono::duration<double,std::milli>(now-keepalive_).count())+" ms — ucięcie kolejki TCP");
   }
   // Bez rampy hamowania: napęd kończy na celu, do którego już jedzie, i wyhamowuje własną dynamiką (acc F5).
@@ -309,6 +328,8 @@ void TcpJogApi::tick() {
   }
   if(trajectory.done && runtime_->finish_tcp_jog(session_,generation_)) {
     status_.message="Zatrzymanie TCP potwierdzone";
+    if(!abort_message_.empty()) status_.message+="; przerwano: "+abort_message_;
+    if(trajectory.reason.find("dolot niepełny")!=std::string::npos) status_.message+="; "+trajectory.reason.substr(trajectory.reason.find("dolot niepełny"));
     if(!stop_requested_ && status_.impulse && last_sample_.progress<status_.requested_step-1e-7)
       status_.message+="; impuls zakończony wcześniej: "+generator_->stop_reason();
     else if(!stop_requested_ && !status_.impulse) status_.message+="; "+(generator_->stop_reason().empty() ? trajectory.reason : generator_->stop_reason());

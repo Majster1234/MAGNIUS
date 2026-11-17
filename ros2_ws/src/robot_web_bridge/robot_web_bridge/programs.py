@@ -8,7 +8,7 @@ Struktura katalogu (domyślnie ``$XDG_STATE_HOME/robot/programs``, parametr ``pr
     programs/<id>.json      programy: zmienne, pozycje i drzewo bloków
     programs/.trash/        usunięte programy (kopia z sygnaturą czasu)
 
-Zapis atomowy (plik tymczasowy + fsync + rename), rewizja = skrót treści. Język programu i wykonanie: później.
+Zapis atomowy (plik tymczasowy + fsync + rename), rewizja = skrót treści. Wykonanie: program_interpreter.py / program_runner.py.
 """
 import hashlib
 import json
@@ -22,6 +22,8 @@ import unicodedata
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+
+from .program_interpreter import flow_problems
 
 SCHEMA = 1
 TYPES = ('INT', 'REAL', 'BOOL', 'POZYCJA', 'TEKST')
@@ -170,7 +172,8 @@ def check_commands(library):
     return {c['id']: c for c in library['commands']}
 
 
-def validate_blocks(blocks, commands, path='Program', depth=0, counter=None, ids=None):
+def validate_blocks(blocks, commands, path='Program', depth=0, counter=None, ids=None, accepts=None):
+    """Struktura drzewa. ``accepts`` = rozkazy dopuszczone w gnieździe (``accepts``; np. w „wybierz” tylko „przypadek”)."""
     counter = counter if counter is not None else [0]
     ids = ids if ids is not None else set()
     if not isinstance(blocks, list):
@@ -187,7 +190,12 @@ def validate_blocks(blocks, commands, path='Program', depth=0, counter=None, ids
         command = commands.get(block.get('command'))
         if command is None:
             raise ProgramError(f'{label}: nieznany rozkaz {block.get("command")!r}')
-        slots = [s['name'] for s in command.get('slots', [])]
+        if accepts is not None and command['id'] not in accepts:
+            raise ProgramError(f'{label}: w tym miejscu dozwolone tylko {", ".join(accepts)}')
+        if command.get('parents') and (accepts is None or command['id'] not in accepts):
+            raise ProgramError(f'{label}: rozkaz {command["id"]} tylko wewnątrz {", ".join(command["parents"])}')
+        slot_defs = command.get('slots', [])
+        slots = [s['name'] for s in slot_defs]
         if set(block) - {'id', 'command', 'params', 'disabled', *slots}:
             raise ProgramError(f'{label}: nieznane pola bloku')
         params = block.get('params', {})
@@ -199,8 +207,9 @@ def validate_blocks(blocks, commands, path='Program', depth=0, counter=None, ids
         counter[0] += 1
         if counter[0] > MAX_BLOCKS:
             raise ProgramError(f'Program: najwyżej {MAX_BLOCKS} bloków')
-        for slot in slots:
-            validate_blocks(block.get(slot, []), commands, f'{label} › {slot}', depth + 1, counter, ids)
+        for slot in slot_defs:
+            validate_blocks(block.get(slot['name'], []), commands, f'{label} › {slot["name"]}', depth + 1, counter, ids,
+                            slot.get('accepts'))
 
 
 def references(blocks, out=None):
@@ -326,7 +335,9 @@ class ProgramStore:
         out += [f'Brak pozycji „{n}”' for n in sorted(refs['position'] - positions)]
         commands, _ = self.commands()
         try:
-            out += param_problems(document.get('blocks', []), check_commands(commands))
+            table = check_commands(commands)
+            out += param_problems(document.get('blocks', []), table)
+            out += flow_problems(document, table)
         except ProgramError:
             pass
         return out

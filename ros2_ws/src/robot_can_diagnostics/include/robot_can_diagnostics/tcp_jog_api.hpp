@@ -51,6 +51,8 @@ class TcpJogApi {
   std::uint64_t step_{};
   robot_kinematics::TcpJogSample last_sample_{};
   bool cut_{},closed_{};
+  // Przyczyna łagodnego przerwania (błąd generatora/panelu): ucięcie kolejki i dolot zamiast STOP/ENABLE=0.
+  std::string abort_message_;
   // Limity TCP z /robot/configuration/active odrzucone (np. brak postoju) — ponawiane w timerze statusu.
   std::optional<robot_control_interfaces::msg::RobotConfiguration> pending_limits_;
   void apply_limits(const robot_control_interfaces::msg::RobotConfiguration &value);
