@@ -45,6 +45,22 @@ def test_interpreter_resolves_positions_variables_and_skips_disabled():
         evaluate('__import__("os")', {})
 
 
+def test_interpreter_circ_resolves_via_and_target():
+    moves = moves_of(program([{'id': 'c', 'command': 'move_circ', 'params': {'via': {'position': 'B'}, 'position': {'var': 'cel'},
+                                                                                 'speed': 25, 'blend_mm': 4}}]))
+    assert [(m.kind, m.via, m.position, m.speed, m.blend_mm) for m in moves] == [('CIRC', 'B', 'B', 25, 4)]
+    assert moves[0].via_joints_deg == [20, 10, 0, 0, 45, 0] and moves[0].circ_orientation == 0   # brak parametru = interpolowana
+    path = moves_of(program([{'id': 'c', 'command': 'move_circ', 'params': {'via': {'position': 'B'}, 'position': {'position': 'C'},
+                                                                              'orientation': 'względem środka', 'speed': 25}}]))
+    assert path[0].circ_orientation == 1 and LIMITS.segment(path[0])['circ_orientation'] == 1
+    with pytest.raises(ProgramFailure):
+        moves_of(program([{'id': 'c', 'command': 'move_circ', 'params': {'via': {'position': 'B'}, 'position': {'position': 'C'},
+                                                                           'orientation': 'do środka', 'speed': 25}}]))
+    with pytest.raises(ProgramFailure) as error:
+        moves_of(program([{'id': 'd', 'command': 'move_circ', 'params': {'via': None, 'position': {'position': 'C'}, 'speed': 10}}]))
+    assert error.value.block_id == 'd'
+
+
 # ----- limity i ciągi -----
 def test_segment_mapping_uses_configuration_limits():
     ptp = LIMITS.segment(Move('a', 'PTP', 'A', [0] * 6, 50, 0))
@@ -56,6 +72,23 @@ def test_segment_mapping_uses_configuration_limits():
         with pytest.raises(ProgramFailure) as error:
             LIMITS.segment(bad)
         assert error.value.block_id == bad.block_id
+
+
+def test_circ_segment_carries_via_and_tcp_limits():
+    circ = Move('c', 'CIRC', 'C', [10] * 6, 30, 5, via='B', via_joints_deg=[5] * 6)
+    segment = LIMITS.segment(circ)
+    assert segment['motion_type'] == 'CIRC' and segment['tcp_velocity'] == pytest.approx(.03)
+    assert segment['via_positions'] == pytest.approx([math.radians(5)] * 6) and segment['blend_radius'] == pytest.approx(.005)
+    assert segment['tcp_angular_acceleration'] == 0   # brak tcp.angular_acceleration w konfiguracji = bez limitu
+    assert MotionLimits.from_configuration({**VALUES, 'tcp.angular_acceleration': 100.}).segment(circ)['tcp_angular_acceleration'] == pytest.approx(math.radians(100))
+    assert 'tcp_angular_acceleration' not in LIMITS.segment(Move('p', 'PTP', 'A', [0] * 6, 50, 0))
+    assert LIMITS.estimate([0] * 6, Move('c', 'CIRC', 'C', [10] * 6, 30, 5, via='B', via_joints_deg=[20] * 6)) > LIMITS.estimate([0] * 6, Move('l', 'LIN', 'C', [10] * 6, 30, 5))
+    limited = MotionLimits.from_configuration({**VALUES, 'joint.2.lower': -10., 'joint.2.upper': 10.})
+    with pytest.raises(ProgramFailure) as error:
+        limited.segment(Move('c', 'CIRC', 'C', [0] * 6, 30, 0, via='B', via_joints_deg=[0, 20, 0, 0, 0, 0]))
+    assert 'pośrednia' in str(error.value) and error.value.block_id == 'c'
+    with pytest.raises(ProgramFailure):
+        LIMITS.segment(Move('c', 'CIRC', 'C', [0] * 6, 150, 0, via='B', via_joints_deg=[0] * 6))
 
 
 def test_chain_builder_breaks_on_end_sync_and_limits_with_stop():
@@ -211,7 +244,9 @@ def test_default_library_has_categories_handlers_and_blend_radius():
     assert {'move_ptp', 'move_lin', 'wait_time', 'if', 'switch', 'case', 'assign', 'for', 'goto'} <= set(commands)
     assert set(commands) <= set(Interpreter.HANDLERS)   # każdy rozkaz biblioteki ma obsługę w wykonawcy
     assert all(c['category'] in {k['id'] for k in library['categories']} for c in commands.values())
-    for command in (commands['move_ptp'], commands['move_lin']):
+    assert [p['name'] for p in commands['move_circ']['params']] == ['via', 'position', 'orientation', 'speed', 'blend_mm']
+    assert next(p for p in commands['move_circ']['params'] if p['name'] == 'orientation')['options'] == ['interpolowana', 'względem środka']
+    for command in (commands['move_ptp'], commands['move_lin'], commands['move_circ']):
         blend = next(p for p in command['params'] if p['name'] == 'blend_mm')
         assert blend['min'] == 0 and blend['default'] == 0 and blend['unit'] == 'mm'
 

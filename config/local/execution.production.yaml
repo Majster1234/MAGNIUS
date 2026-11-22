@@ -37,3 +37,10 @@
     - 0.008726646259971648
     - 0.008726646259971648
     execution_position_kp: 4.0
+    # Nastawy zależne od ruchu (18.11.2026): PTP o szczycie prędkości osi >= progu dostaje 50 ms i Kp 12; LIN i wolny PTP zostają przy nastawach powyżej.
+    execution_gain_schedule_enabled: true
+    execution_fast_ptp_velocity_deg_s: 21.0  # pomiary 18.11.2026: 17,5 °/s lepsze podstawowe, 22,5 °/s lepsze szybkie
+    execution_fast_ptp_lookahead_time_sec: 0.05
+    execution_fast_ptp_position_kp: 12.0
+    # Składnik a·t w prędkości F5 programów LIN (t = wyprzedzenie celu); 0 wyłącza. W PTP pogarszał nadążanie.
+    execution_acceleration_ff_scale: 1.0

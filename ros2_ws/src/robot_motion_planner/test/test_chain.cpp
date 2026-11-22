@@ -35,6 +35,9 @@ ChainSegment ptp(const Joints &target,double blend,double scale=1,const std::str
 ChainSegment lin(const Joints &target,double blend,const TcpLimits &tcp={.05,.5,1},const std::string &tag="") {
   ChainSegment s; s.motion_type=1; s.target=target; s.max_velocity.fill(1); s.max_acceleration.fill(2); s.tcp=tcp; s.blend_radius=blend; s.tag=tag; return s;
 }
+ChainSegment circ(const Joints &via,const Joints &target,double blend,const TcpLimits &tcp={.03,.3,1},const std::string &tag="") {
+  ChainSegment s=lin(target,blend,tcp,tag); s.motion_type=2; s.via=via; return s;
+}
 Joints solve(const robot_kinematics::Model &model,const Context &c,const Eigen::Vector3d &offset,const Joints &seed) {
   auto pose=model.fk(c.seed); pose.translation()+=offset;
   const auto answer=model.solve(pose,seed,c.locked,1e-7,1e-6); EXPECT_TRUE(answer.success) << answer.message; return answer.positions;
@@ -122,6 +125,83 @@ TEST(Chain, LinBlendKeepsLinesOutsideZoneAndTcpLimits) {
     EXPECT_LE((b-2*p+a).norm()/(h*h),tcp.acceleration+2e-3) << t;
   }
   check_limits(r.plan,c,1,2);
+}
+
+TEST(Chain, CircFollowsArcThroughViaWithTcpLimits) {
+  auto c=context(); robot_kinematics::Model model(c.urdf,c.lower,c.upper);
+  const auto via=solve(model,c,{.03,.03,0},c.seed),target=solve(model,c,{.06,0,0},c.seed);
+  const TcpLimits tcp{.03,.3,1};
+  const auto r=compute_chain(c,{circ(via,target,0,tcp,"c")},90,codes);
+  ASSERT_EQ(r.plan.chain_segments.size(),1u); EXPECT_EQ(r.plan.chain_segments[0].tag,"c");
+  const auto p0=model.fk(c.seed).translation().eval(),center=(p0+Eigen::Vector3d(.03,0,0)).eval();
+  const double total=time_of(r.plan.trajectory.points.back()),h=1e-4; double top=-1;
+  for(double t=0;t<=total;t+=.005) {
+    const auto p=model.fk(position_at(r.plan,t)).translation().eval();
+    EXPECT_NEAR((p-center).norm(),.03,1.2e-4) << t; EXPECT_NEAR(p.z(),p0.z(),1.2e-4) << t;
+    EXPECT_GE(p.y()-p0.y(),-1.2e-4) << t;   // półokrąg po stronie punktu pośredniego
+    top=std::max(top,p.y()-p0.y());
+    if(t>.001 && t<total-.001) {
+      const auto a=model.fk(position_at(r.plan,t-h)).translation().eval(),b=model.fk(position_at(r.plan,t+h)).translation().eval();
+      EXPECT_LE((b-a).norm()/(2*h),tcp.velocity+1e-5) << t;
+    }
+  }
+  EXPECT_NEAR(top,.03,2e-4);
+  EXPECT_GE(total,M_PI*.03/tcp.velocity);
+  for(unsigned j=0;j<6;++j) EXPECT_NEAR(r.plan.target_positions[j],target[j],1e-9);
+  check_limits(r.plan,c,1,2);
+}
+
+TEST(Chain, CircPathOrientationTurnsWithArcAroundCircleAxis) {
+  auto c=context(); robot_kinematics::Model model(c.urdf,c.lower,c.upper);
+  const auto start=model.fk(c.seed); const Eigen::Vector3d p0=start.translation(),center=p0+Eigen::Vector3d(.02,0,0);
+  auto pose_at=[&](double deg,double turn) { auto p=start; const double a=deg*M_PI/180;
+    p.translation()=center+.02*Eigen::Vector3d(std::cos(a),std::sin(a),0); p.linear()=Eigen::AngleAxisd(turn*M_PI/180,Eigen::Vector3d::UnitZ())*start.rotation(); return p; };
+  auto solve_pose=[&](const robot_kinematics::Pose &p) { const auto r=model.solve(p,c.seed,c.locked,1e-7,1e-6); EXPECT_TRUE(r.success) << r.message; return r.positions; };
+  // Łuk 45° od 180° do 225° (przeciwnie do wskazówek wokół +Z): cel obrócony o 45° wokół osi okręgu.
+  const auto via=solve_pose(pose_at(202.5,0)),target=solve_pose(pose_at(225,45));
+  auto segment=circ(via,target,0,{.02,.2,1},"p"); segment.circ_orientation=1;
+  const auto r=compute_chain(c,{segment},90,codes);
+  const double total=time_of(r.plan.trajectory.points.back());
+  for(double t=0;t<=total;t+=.01) {
+    const auto pose=model.fk(position_at(r.plan,t)); const Eigen::Vector3d d=pose.translation()-center;
+    EXPECT_NEAR(d.head<2>().norm(),.02,1.2e-4) << t;
+    double angle=std::atan2(d.y(),d.x())*180/M_PI; if(angle<0) angle+=360;   // 180…225°
+    const Eigen::AngleAxisd turn(pose.rotation()*start.rotation().transpose());
+    EXPECT_NEAR(std::abs(turn.angle()*turn.axis().z())*180/M_PI,angle-180,.2) << t;   // obrót wokół Z = kąt łuku
+  }
+  // Limit przyspieszenia kątowego TCP (tcp.angular_acceleration): ruch dłuższy, |dω/dt| w limicie.
+  auto limited=segment; limited.tcp.angular_acceleration=.5;
+  const auto slow=compute_chain(c,{limited},90,codes); const double slow_total=time_of(slow.plan.trajectory.points.back());
+  EXPECT_GT(slow_total,total*1.05);
+  auto omega=[&](double t) { const double h=1e-3;
+    const Eigen::AngleAxisd d(model.fk(position_at(slow.plan,t+h)).rotation()*model.fk(position_at(slow.plan,t-h)).rotation().transpose());
+    return (d.axis()*d.angle()/(2*h)).eval(); };
+  double peak=0;
+  for(double t=.01;t<slow_total-.01;t+=.005) peak=std::max(peak,((omega(t+.002)-omega(t-.002))/.004).norm());
+  EXPECT_LE(peak,.5*1.05) << "przyspieszenie kątowe TCP";
+  limited.tcp.angular_acceleration=-1; EXPECT_THROW(compute_chain(c,{limited},90,codes),ChainError);
+  segment.circ_orientation=2; EXPECT_THROW(compute_chain(c,{segment},90,codes),ChainError);
+}
+
+TEST(Chain, CircBlendsWithLin) {
+  auto c=context(); robot_kinematics::Model model(c.urdf,c.lower,c.upper);
+  const auto q1=solve(model,c,{.02,0,0},c.seed),via=solve(model,c,{.035,.015,0},q1),q2=solve(model,c,{.05,0,0},q1),q3=solve(model,c,{.05,-.03,0},q2);
+  const auto r=compute_chain(c,{lin(q1,.005,{.03,.3,1},"a"),circ(via,q2,.005,{.03,.3,1},"b"),lin(q3,0,{.03,.3,1},"c")},90,codes);
+  ASSERT_EQ(r.plan.chain_segments.size(),3u);
+  EXPECT_FALSE(r.plan.chain_segments[0].stop); EXPECT_FALSE(r.plan.chain_segments[1].stop);
+  EXPECT_NEAR(r.plan.chain_segments[0].applied_blend_radius,.005,1e-9); EXPECT_NEAR(r.plan.chain_segments[1].applied_blend_radius,.005,1e-9);
+  check_limits(r.plan,c,1,2);
+}
+
+TEST(Chain, CircRejectsDegenerateGeometry) {
+  auto c=context(); robot_kinematics::Model model(c.urdf,c.lower,c.upper);
+  const auto mid=solve(model,c,{.02,0,0},c.seed),end=solve(model,c,{.04,0,0},c.seed),off=solve(model,c,{.02,.02,0},c.seed);
+  try { compute_chain(c,{ptp(off,0),circ(mid,end,0)},90,codes); } catch(const ChainError &) { FAIL() << "ruch poprawny"; }
+  try { compute_chain(c,{circ(mid,end,0)},90,codes); FAIL(); } catch(const ChainError &e) { EXPECT_EQ(e.segment,0); EXPECT_NE(std::string(e.what()).find("prostej"),std::string::npos); }
+  try { compute_chain(c,{ptp(off,0),circ(mid,off,0)},90,codes); FAIL(); } catch(const ChainError &e) { EXPECT_EQ(e.segment,1); }
+  try { compute_chain(c,{circ(off,end,0,{0,0,0})},90,codes); FAIL(); } catch(const ChainError &e) { EXPECT_EQ(e.segment,0); }
+  auto outside=off; outside[0]=4;
+  try { compute_chain(c,{circ(outside,end,0)},90,codes); FAIL(); } catch(const ChainError &e) { EXPECT_NE(std::string(e.what()).find("pośredni"),std::string::npos); }
 }
 
 TEST(Chain, RadiusIsLimitedToHalfOfShorterSegment) {

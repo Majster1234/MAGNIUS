@@ -3,6 +3,7 @@
 // Parametr fs=1: po otwarciu strona pokazuje „▶ Uruchom” — jedno dotknięcie przełącza w pełny ekran poziomo
 // (przeglądarki pozwalają na pełny ekran tylko po geście użytkownika; po instalacji na ekranie głównym — od razu).
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "./Icon";
 import { encodeQr, qrSvgPath } from "./qrCode";
 
 export const pendantUrl = (base: string) => `${base.replace(/\/+$/, "")}/?fs=1#pendant`;
@@ -21,7 +22,7 @@ export function PendantLink({ baseUrl, subnet }: { baseUrl: string; subnet?: str
     }, [open]);
     return <div className="pendant-link" ref={box}>
         <button type="button" className={`pendant-button${open ? " on" : ""}`} aria-expanded={open} aria-haspopup="dialog" title="Kod QR — teach pendant na telefonie"
-            onClick={() => setOpen(o => !o)}><span aria-hidden="true">📱</span> Teach pendant</button>
+            onClick={() => setOpen(o => !o)}><Icon name="phone" /> Teach pendant</button>
         {open && <div className="pendant-popover" role="dialog" aria-label="Teach pendant na telefonie">
             <b>Teach pendant na telefonie</b>
             <svg className="pendant-qr" viewBox={`0 0 ${qr.size} ${qr.size}`} role="img" aria-label={`Kod QR: ${url}`} shapeRendering="crispEdges">

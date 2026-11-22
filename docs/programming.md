@@ -3,7 +3,7 @@
 Strona `#programming` („⌖ Programowanie”), wdrożona 09.11.2026 na podstawie szkicu
 `temp/programowanie_trajektorii/v2b_bloki_stal.html`. Zakres: tworzenie i zapis programów (bloki, zmienne, pozycje,
 biblioteka) oraz — od 09.11.2026 — **logika wykonania**: wykonawca programów w moście z dwoma kursorami i ciągami ruchów
-PTP/LIN z promieniem pominięcia punktu (sekcja „Logika wykonania”). Od 10.11.2026 biblioteka ma kategorie (ruchowe,
+PTP/LIN/CIRC z promieniem pominięcia punktu (sekcja „Logika wykonania”; CIRC od 19.11.2026). Od 10.11.2026 biblioteka ma kategorie (ruchowe,
 czasowe, logiczne, matematyczne, pętle i skoki), a płótno jest **schematem blokowym** (rozgałęzienia „jeśli”/„wybierz”).
 Widok tekstowy jest podglądem generowanym z bloków.
 
@@ -55,6 +55,7 @@ o kategorie i logikę (kopia poprzedniej: `library/commands.json.bak-20261110`).
 | --- | --- | --- | --- |
 | Ruchowe | `move_ptp` | `PTP do {position} v {speed} ⌀ {blend_mm}` | prędkość 1–100 % (najwolniejszej osi z konfiguracji); promień pominięcia 0–200 mm |
 | | `move_lin` | `LIN do {position} v {speed} ⌀ {blend_mm}` | prędkość TCP mm/s (≤ `tcp.max_linear_velocity`); promień 0–200 mm |
+| | `move_circ` | `CIRC przez {via} do {position} orientacja {orientation} v {speed} ⌀ {blend_mm}` | łuk okręgu TCP przez pozycję pośrednią do docelowej; orientacja `interpolowana` / `względem środka`; prędkość TCP mm/s (≤ `tcp.max_linear_velocity`); promień 0–200 mm |
 | | `move_rel` | `LIN o ΔX {dx} ΔY {dy} ΔZ {dz} układ {frame} v {speed} ⌀ {blend_mm}` | ruch względny pozycyjny: przesunięcie TCP po prostej (±2000 mm), orientacja bez zmian; mm/s |
 | | `rotate_rel` | `obrót o RX {rx} RY {ry} RZ {rz} układ {frame} v {speed} ⌀ {blend_mm}` | ruch względny rotacyjny: obrót narzędzia wokół początku TCP (±360°, kolejno X, Y, Z), położenie bez zmian; °/s ≤ `tcp.max_angular_velocity` (10–360) |
 | Czasowe | `wait_time` | `czekaj {seconds}` | postój 0–3600 s po dojeździe; kończy ciąg ruchów (dolot ±0,5°); 0 s = tylko dokładny postój |
@@ -75,6 +76,20 @@ o kategorie i logikę (kopia poprzedniej: `library/commands.json.bak-20261110`).
 | | `break`, `continue` | `przerwij pętlę`, `następny obieg pętli` | najbliższa pętla; poza pętlą → uwaga |
 | | `label`, `goto` | `etykieta {name}`, `skocz do {target}` | skok tylko do etykiety w tej samej lub nadrzędnej liście bloków (wyjście z pętli/gałęzi dozwolone, wejście do wnętrza nie) |
 | | `stop_program` | `zakończ program` | koniec programu (ostatni ruch się zatrzymuje) |
+
+**Ruch kołowy** (`move_circ`, 19.11.2026): TCP po łuku okręgu wyznaczonego przez położenie startu (cel poprzedniego
+ruchu, na początku — pozycja startowa), pozycji pośredniej `via` i pozycji docelowej `position`, w kierunku
+start → pośrednia → cel (łuk < 360°). Z pozycji pośredniej liczy się tylko położenie TCP. Orientacja (`orientation`,
+brak parametru = interpolowana): **interpolowana** — slerp od startu do celu proporcjonalnie do kąta łuku (przy tej samej
+orientacji startu i celu stała w przestrzeni); **względem środka** (od 19.11.2026, `MotionSegment.CIRC_PATH`) — orientacja
+obraca się z łukiem wokół osi okręgu, a różnica do orientacji celu jest rozkładana w obracającym się układzie (cel
+obrócony o kąt łuku = narzędzie zachowuje ustawienie względem środka). Pojedynczy CIRC poza programem:
+`POST /api/v1/planning/moves` z `motion_type: "CIRC"`, `via_degrees`, `circ_orientation` (`interpolated`/`path`) i limitami
+TCP jak LIN; `POST /api/v1/motion/prepare` przelicza go od pomiaru jako plan CHAIN. Wymagania: trzy punkty TCP co najmniej 1 mm od
+siebie, pośredni ≥ 0,1 mm od prostej start–cel (inaczej błąd przy bloku — użyj LIN); cel w tej samej gałęzi IK co
+droga (jak LIN). Planer (`MotionSegment.CIRC`, `via_positions`) próbkuje łuk co ≤ 1 mm / 3° / 0,57° obrotu, sprawdza
+gałąź IK i co 5 ms odchyłkę od łuku (0,1 mm / 0,1°). Promień pominięcia działa jak w LIN (przejście z/do CIRC po torze
+TCP, limity TCP i zwalnianie nadgarstka). Pełny okrąg (cel = start) nie jest obsługiwany — podziel na dwa CIRC.
 
 **Ruch względny** (`move_rel`, `rotate_rel`; układ `baza` albo `narzędzie`) liczy się od celu poprzedniego ruchu
 programu (na początku programu lub po czekaniu — od celu poprzedniego ciągu, w pierwszym ciągu od pozycji startowej).
@@ -188,8 +203,10 @@ podział na ciągi, kursor robota), `program_runner.py` (przebieg, API); planer:
   uzbrojenie).
 - **Geometria przejścia.** Punkt wyjścia/wejścia: przecięcie toru TCP ze sferą o promieniu r wokół punktu; krzywa
   przejścia: wielomian Hermite'a 5. stopnia w przestrzeni przegubów, styczny do obu ruchów (bez IK). Czas: TOTG
-  + profil prędkości per próbka (odcinek: limity swojego ruchu; przejście: minimum obu, limity TCP gdy któryś to LIN).
-  Walidacja co 5 ms: limity osi i TCP, LIN poza strefami na prostej, przejście w promieniu.
+  + profil prędkości per próbka (odcinek: limity swojego ruchu; przejście: minimum obu, limity TCP gdy któryś to LIN/CIRC).
+  Walidacja co 5 ms: limity osi i TCP, LIN poza strefami na prostej, CIRC na łuku, przejście w promieniu.
+  Limit prędkości z przyspieszenia TCP wynika ze składowej normalnej (krzywizna toru); przekroczenia interpolacji
+  zmniejszają zegar lokalnie na danym odcinku, nie spowalniają całego ciągu (19.11.2026).
 - **Uwaga sprzętowa:** postoje wewnątrz ciągu nie mają potwierdzenia dolotu (±0,5° tylko na końcu ciągu).
 - **Zgodność z wykonawcą streaming (10.11.2026).** Wykonawca (`compile_streaming_program`) sprawdza każdy odcinek
   otoczką Bernsteina wielomianu 5. stopnia względem limitów osi z konfiguracji. Na przełączeniach przyspieszenia TOTG
@@ -252,8 +269,9 @@ python3 scripts/run_program.py <id> --execute      # wykonanie — tylko rewizja
   i zatwierdzenia oraz pozycji (> 0,25° → przeliczenie). Na osi czasu sprawdzenia: wpis `kind: "wait"` (czas)
   / `"operator"` (0 s, uwaga `operator`); po czekaniu doliczana jest przerwa między ciągami (~2 s).
 - Parametry ruchu z konfiguracji robota: PTP `speed` % × najmniejsza `joint.N.velocity` i `joint.N.acceleration`
-  (nie więcej niż limit danej osi); LIN `speed` mm/s ≤ `tcp.max_linear_velocity`, przyspieszenie
-  `tcp.linear_acceleration` (≥ 100), prędkość kątowa `tcp.max_angular_velocity` (10–360).
+  (nie więcej niż limit danej osi); LIN/CIRC `speed` mm/s ≤ `tcp.max_linear_velocity`, przyspieszenie
+  `tcp.linear_acceleration` (≥ 100), prędkość kątowa `tcp.max_angular_velocity` (10–360), przyspieszenie kątowe
+  `tcp.angular_acceleration` (od 19.11.2026; ogranicza obrót orientacji w CIRC względem środka, przejściach i obrotach).
 - Wykonanie zawsze poprzedza sprawdzenie (ponownie, jeśli zmieniła się rewizja, konfiguracja lub pozycja > 0,5°);
   zmiana rewizji lub cofnięcie zatwierdzenia w trakcie → zatrzymanie na granicy ciągu. Dziennik
   w `log/programs/<czas>/events.jsonl`.

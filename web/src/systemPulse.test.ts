@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import type { CanSnapshot } from "./canStatus";
 import type { Snapshot } from "./status";
 import { architectureMeters, architectureRows, isProblem, type Overview } from "./architectureData";
-import { driveCells, nextColumn, pulseSections, PULSE_COLUMNS, worst } from "./systemPulse";
+import { driveCells, pulseSections, worst } from "./systemPulse";
 
 const component = (id: string, state = "ok", values: Record<string, unknown> = {}) =>
     ({ id, state, message: `Komunikat ${id}`, sampled_at: "2026-10-29T12:00:00Z", values }) as Snapshot["components"]["api"];
@@ -52,12 +52,6 @@ it("napędy: brak wykrycia i brak odpowiedzi rozróżnione, nieświeże dane wyg
     expect(driveCells(snapshot, true)[0].text).toBe("J1 · CAN ID 1: ENABLE 0 · 0 RPM");
     expect(driveCells(snapshot, false).every(cell => cell.state === "stale")).toBe(true);
     expect(worst(["ok", "warn", "stale"])).toBe("stale");
-});
-it("kanał przesuwa się o jedną kolumnę na takt i zachowuje szerokość", () => {
-    let columns = Array<boolean>(PULSE_COLUMNS).fill(false);
-    for (let seed = 1; seed <= 100; seed++) columns = nextColumn(columns, seed);
-    expect(columns).toHaveLength(PULSE_COLUMNS);
-    expect(columns.some(Boolean) && columns.some(value => !value)).toBe(true);
 });
 
 const overview: Overview = { schema_version: 1, age_seconds: 0.1, host: { os: "Ubuntu 22.04.5 LTS", kernel: "6.8.0", hostname: "robot" },

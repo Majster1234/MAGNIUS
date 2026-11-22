@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JogControl, type JogCommand } from "./manualControl";
+import { JogControl, jogSpeedAtPercent, type JogCommand } from "./manualControl";
 function rig() {
     let now = 1000;
     const commands: JogCommand[] = [];
@@ -61,5 +61,26 @@ describe("Podtrzymanie przy jitterze zegara panelu", () => {
         const r = rig(); r.control.start(2, 1, 30); r.control.ack(1, true);
         r.advance(30); r.control.pulse(); expect(r.commands).toHaveLength(1);
         r.advance(15); r.control.pulse(); expect(r.commands[1].action).toBe("keepalive");
+    });
+});
+
+describe("Wspólna prędkość JOG wszystkich osi", () => {
+    const joint = { joint_configured: true, jog_min_velocity_degrees_s: 0.4, jog_max_velocity_degrees_s: 7.199999999999999 };
+    it("przegub: procent limitu w krokach minimalnej prędkości osi", () => {
+        expect(jogSpeedAtPercent(50, joint, 30, false)).toBe(3.6);
+        expect(jogSpeedAtPercent(1, joint, 30, false)).toBe(0.4);
+        expect(jogSpeedAtPercent(100, joint, 30, false)).toBe(7.2);
+    });
+    it("przegub w planowaniu: bez kroku, w dół do 0,001 °/s", () => {
+        expect(jogSpeedAtPercent(33, joint, 30, true)).toBe(2.376);
+        expect(jogSpeedAtPercent(100, { joint_configured: true, jog_max_velocity_degrees_s: 7.199999999999999 }, 30, false)).toBe(7.199);
+    });
+    it("wał bez konfiguracji przegubu: całe obr./min w zakresie 1…max", () => {
+        expect(jogSpeedAtPercent(50, {}, 30, false)).toBe(15);
+        expect(jogSpeedAtPercent(1, {}, 30, false)).toBe(1);
+        expect(jogSpeedAtPercent(250, {}, 30, false)).toBe(30);
+    });
+    it("przegub bez limitu prędkości nie zmienia nastawy", () => {
+        expect(jogSpeedAtPercent(50, { joint_configured: true }, 30, false)).toBeNull();
     });
 });

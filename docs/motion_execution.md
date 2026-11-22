@@ -135,6 +135,11 @@ parametrami ROS węzła `robot_can_diagnostics` (lub `POST /api/v1/motion/execut
 z walidacją zakresów i unieważnieniem przygotowanego programu (`CanBusManager::set_execution_tuning`).
 Aktywne i bazowe (z pliku) nastawy publikuje temat `/robot/motion/execution_tuning`; GUI ostrzega o nastawach
 testowych. Restart usługi wraca do pliku. Służy testom jakości ruchu, nie jest konfiguracją robota.
+Zakres FF od 19.11.2026: 0,5–3 (poniżej 1 — test „prędkość F5 niższa niż plan”; brakującą prędkość dodaje korekta Kp).
+Minimalne wyprzedzenie celu F5 (`min_lead_shaft_deg`, parametr `execution_min_lead_shaft_deg`, 19.11.2026; tylko test, 0 = wyłączone,
+0–10° wału): w ruchu cel F5 leży co najmniej o ten kąt wału przed referencją, najwyżej do punktu zatrzymania planu przy hamowaniu
+(v²/2|a|) i do końca trajektorii (v·pozostały czas); bez wpływu na JOG TCP i dolot. Powód: przy < 8 RPM wału v·25 ms (0,2–0,6°)
+jest mniejsze niż wahanie napędu (±1–2°), napęd dochodzi do celu i staje (schodki położenia).
 
 Minimum dla PTP/LIN (Streaming i Synchroniczny) oraz JOG TCP ustawia opcja
 konfiguracji robota `motion.min_dither_rpm` (Konfiguracja → Ustawienia systemowe →
@@ -640,6 +645,9 @@ programu i sesji JOG TCP. Parametry ROS (wartości domyślne do strojenia na spr
 `execution_position_integral_gain` = 2,0 1/s (stała czasowa 0,5 s), `execution_position_integral_limit_rad`
 = 0,01745 (1° przegubu). Cel: usuwanie stałego uchybu napędów (np. przesunięcia układu F5 obserwowanego na J4/J6)
 i opóźnienia przy stałej prędkości; nie usuwa chwilowych zatrzymań napędu przy ~2–3 RPM.
+Anty-windup (19.11.2026): przy zmianie znaku prędkości planu człon o znaku poprzedniego kierunku jest zerowany — inaczej
+przesuwał cel F5 w starą stronę i napęd jechał dalej ~240 ms po zawrocie (CIRC: do 2,7 mm TCP przy każdym zawrocie osi;
+`docs/benchmark_results.md`). Człon przeciwny do ruchu (stałe przesunięcie napędu przed celem) zostaje.
 
 ## Nadzór postoju (07.11.2026)
 
@@ -715,3 +723,17 @@ Testy: `test_position_velocity` (MNK, jakość danych, drgania, skok, początek 
 `TcpJogOwner.FinalApproachWaitsForDriveStandstill` / `FrozenSpeedReadingDoesNotExtendFinalApproach`,
 `SynchronizedProgram.ArmingRereadsTransientMotionAndReportsPersistentOne` /
 `DispatchModeChangeWithEnabledAxesUsesPositionStandstill`.
+
+## Nastawy zależne od ruchu i składnik przyspieszenia F5 (18.11.2026)
+
+Przy przygotowaniu programu wykonawca wybiera nastawy (`execution_streaming`, `program_uses_fast_gains`):
+
+| Program | Wyprzedzenie celu | Kp |
+| --- | --- | --- |
+| PTP ze szczytem prędkości osi ≥ `execution_fast_ptp_velocity_deg_s` (domyślnie 21 °/s) | `execution_fast_ptp_lookahead_time_sec` (0,05 s) | `execution_fast_ptp_position_kp` (12) |
+| wolniejszy PTP, LIN, ciąg ruchów | `execution_lookahead_time_sec` | `execution_position_kp` |
+
+Wybór włącza `execution_gain_schedule_enabled`. Próg wynika z pomiarów: przy 17,5 °/s lepsze są nastawy podstawowe, przy 20 °/s wynik jest mieszany, przy 22,5 °/s lepsze są szybkie.
+`execution_acceleration_ff_scale` dodaje do pola prędkości F5 programów **LIN** składnik `skala·a·t`, gdzie `t` to wyprzedzenie celu (przy hamowaniu ograniczone do chwili v = 0). W PTP pogarszał nadążanie, więc nie jest tam stosowany.
+JOG TCP nie korzysta z żadnej z tych nastaw. Ręczna zmiana Kp lub wyprzedzenia przez `/api/v1/motion/execution-tuning` wyłącza wybór na czas testu.
+Testy: `tcp_speed_limits.py --kinds LIN --tune aff=0,1` albo `--kinds PTP --tune schedule=0,1`.

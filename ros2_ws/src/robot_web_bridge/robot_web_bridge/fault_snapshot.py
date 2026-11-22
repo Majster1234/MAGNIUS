@@ -6,6 +6,8 @@ jako rekord do `faults/faults.rfs` (bezstratne kodowanie + xz, opis formatu w `f
 
 - ramki i zdarzenia CAN (`can-*.jsonl`), zdarzenia mostka/panelu (`bridge-*.jsonl`),
 - komunikaty `/rosout` wszystkich węzłów ROS (bufor w pamięci tego procesu),
+- przebiegi wałów z ciągłego zapisu (`shaft-trace`: pomiar, cel planowany, cel F5, prędkość F5) — źródło `shaft`,
+  odczytywane bez blokady, bo ciągły zapis nadpisuje się po kilku godzinach, a migawka zostaje,
 - dziennik usługi systemd (stdout/stderr procesów, np. wyjątki Pythona) i jądra (gs_usb, USB),
 - w nagłówku: wyzwalacze, liczności źródeł, konfigurację robota i plik parametrów wykonania.
 
@@ -26,6 +28,7 @@ import threading
 import time
 
 from .fault_codec import FORMAT, RecordStore, decode_snapshot, encode_snapshot
+from .shaft_trace import default_directory, window_rows
 
 UTC_FIELD = re.compile(rb'"utc_ns":\s*(\d+)')
 SOURCE_FIELD = re.compile(rb'"source":\s*"([^"]*)"')
@@ -197,7 +200,7 @@ def read_text(path):
 
 class Collector:
     def __init__(self, directory, pre_s=10.0, post_s=5.0, keep_s=900.0, max_bytes=256 * 1024 * 1024,
-                 configuration_dir=None, execution_parameters=None, unit=None, rosout=None, run=subprocess.run):
+                 configuration_dir=None, execution_parameters=None, unit=None, rosout=None, run=subprocess.run, shaft_dir=None):
         self.directory = Path(directory)
         self.faults = self.directory / 'faults'
         self.faults.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -210,6 +213,7 @@ class Collector:
         self.unit = unit
         self.rosout = rosout
         self.run = run
+        self.shaft_dir = shaft_dir
 
     def poll(self, now=None, force=False):
         now = time.time_ns() if now is None else now
@@ -233,6 +237,11 @@ class Collector:
         rows += journal_rows(start, end, self.unit, self.run)
         if self.rosout is not None:
             rows += self.rosout.window(start, end)
+        try:
+            if self.shaft_dir:
+                rows += window_rows(self.shaft_dir, start, end)
+        except OSError as error:
+            print('Migawka bez przebiegów wałów:', error, flush=True)
         for _, line in rows:
             match = SOURCE_FIELD.search(line)
             source = match.group(1).decode('utf-8', 'replace') if match else 'unknown'
@@ -327,6 +336,8 @@ def main(argv=None):
     parser.add_argument('--output', help='plik wyjściowy dla --dump (domyślnie stdout)')
     parser.add_argument('--configuration-dir', default=None)
     parser.add_argument('--execution-parameters', default=None)
+    parser.add_argument('--shaft-trace-dir', default=os.environ.get('ROBOT_SHAFT_TRACE_DIR'),
+                        help='katalog ciągłego zapisu wałów (domyślnie $XDG_STATE_HOME/robot/shaft-trace)')
     args, _ = parser.parse_known_args(sys.argv[1:] if argv is None else argv)  # pomija --ros-args
     if args.list or args.dump:
         path = Path(args.directory or 'log/manual-can') / 'faults' / FAULTS_FILE
@@ -352,7 +363,7 @@ def main(argv=None):
         pass
     rosout = RosoutBuffer(int((args.pre + args.post + 60) * SECOND))
     collector = Collector(args.directory, args.pre, args.post, args.keep_seconds, int(args.max_mib * 1024 * 1024),
-                          args.configuration_dir, args.execution_parameters, journal_unit(), rosout)
+                          args.configuration_dir, args.execution_parameters, journal_unit(), rosout, shaft_dir=args.shaft_trace_dir or str(default_directory()))
     collector.import_plain()
     stop = threading.Event()
 

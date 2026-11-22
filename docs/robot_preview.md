@@ -2,7 +2,7 @@
 
 W ekranie **Sterowanie ręczne**, przy dostępnej szerokości strony od 1180 px, panel 3D zajmuje lewą
 kolumnę kokpitu, obok tabeli JOG i TCP. Ramka ma preferowaną proporcję 4:3;
-przy niższym oknie może się skrócić. Pod nią znajduje się Centrum komunikatów.
+przy niższym oknie może się skrócić. Pod nią jest linia stanu; komunikaty są w pasku nad stroną.
 Przy węższym obszarze, także po rozwinięciu menu, podgląd o wysokości 48dvh
 przechodzi nad sterowanie. Menu pozostaje dostępne jako pasek 68 px lub pełne 224 px.
 Scena 3D wykorzystuje całą szerokość swojego panelu;
@@ -162,8 +162,8 @@ Poświaty korzystają z obecnego WebSocketu i nie zmieniają blokad JOG ani limi
 Zasoby tworzymy raz dla sześciu osi i zwalniamy po opuszczeniu modułu;
 pulsowanie korzysta z istniejącego limitu 30 FPS i zatrzymania przy ukrytej stronie.
 
-Pod podglądem znajduje się [Centrum komunikatów](manual_control.md): aktualne
-problemy z opisem i rozwiązaniem oraz rozwijana historia do 100 zdarzeń.
+[Centrum komunikatów](manual_control.md) jest w pasku nad stroną: aktualne
+problemy z opisem i rozwiązaniem oraz archiwum do 100 zdarzeń.
 Historia pokazuje najnowsze wpisy na początku; wewnętrzne przewijanie nie przesuwa
 przycisku STOP. Czas HH:mm:ss.SSS jest czasem zaobserwowania zdarzenia przez
 przeglądarkę. Powtarzane snapshoty i procenty postępu nie tworzą wpisów. Aktywne

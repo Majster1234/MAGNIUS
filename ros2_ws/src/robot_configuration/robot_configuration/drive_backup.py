@@ -389,6 +389,10 @@ class DriveBackups:
             raise Conflict('Kopia podstawowa jest nietykalna i już istnieje; zmiana wymaga ręcznego usunięcia pliku przez operatora')
         if action == 'restore' and data.get('source') not in ('base', 'pre_test'):
             raise ValueError('Przywracanie z base albo pre_test')
+        return self.run_exclusive(action, actions[action])
+
+    def run_exclusive(self, action, task):
+        """Uruchamia zadanie w tle; na nastawach napędów działa najwyżej jedna operacja naraz."""
         with self.lock:
             if self.operation['phase'] == 'running':
                 raise Conflict('Inna operacja na nastawach napędów jeszcze trwa')
@@ -402,7 +406,7 @@ class DriveBackups:
 
         def run():
             try:
-                result = actions[action](progress)
+                result = task(progress)
                 ok = not (isinstance(result, dict) and (result.get('applied') is False or result.get('remaining_differences')
                                                         or any(r.get('error') for r in result.get('axes', {}).values()
                                                                if isinstance(r, dict))))

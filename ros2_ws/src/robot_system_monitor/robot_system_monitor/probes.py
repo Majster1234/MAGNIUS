@@ -11,6 +11,8 @@ def host_status():
     memory = psutil.virtual_memory()
     return {
         'cpu_percent': psutil.cpu_percent(interval=None),
+        # Osobny licznik psutil dla wątków; panel pokazuje słupek na każdy wątek procesora.
+        'cpu_per_core_percent': psutil.cpu_percent(interval=None, percpu=True),
         'memory_percent': memory.percent,
         'memory_used_bytes': memory.used,
         'memory_total_bytes': memory.total,

@@ -13,6 +13,7 @@ add_library(${PROJECT_NAME} SHARED
   src/motion_executor.cpp
   src/program_bus.cpp
   src/recovery.cpp
+  src/drive_startup.cpp
   src/synchronized_program.cpp
   src/motion_sample.cpp
   src/streaming_motion.cpp
@@ -74,6 +75,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_position_velocity ${PROJECT_NAME})
   ament_add_gtest(test_idle_enable test/test_idle_enable.cpp)
   target_link_libraries(test_idle_enable ${PROJECT_NAME})
+  ament_add_gtest(test_program_gains test/test_program_gains.cpp)
+  target_link_libraries(test_program_gains ${PROJECT_NAME})
+  ament_add_gtest(test_drive_startup test/test_drive_startup.cpp)
+  target_link_libraries(test_drive_startup ${PROJECT_NAME})
   ament_add_gtest(test_drive_parameters test/test_drive_parameters.cpp)
   target_link_libraries(test_drive_parameters ${PROJECT_NAME})
 endif()

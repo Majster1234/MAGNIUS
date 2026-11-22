@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "Biblioteka rozkazów edytora programów (bloki), 10.11.2026: ruchowe (PTP/LIN z promieniem pominięcia punktu), czasowe, logiczne, matematyczne, pętle i skoki. Wykonanie: robot_web_bridge/program_interpreter.py (HANDLERS). Format: docs/programming.md.",
+  "description": "Biblioteka rozkazów edytora programów (bloki), 10.11.2026: ruchowe (PTP/LIN/CIRC z promieniem pominięcia punktu), czasowe, logiczne, matematyczne, pętle i skoki. Wykonanie: robot_web_bridge/program_interpreter.py (HANDLERS). Format: docs/programming.md.",
   "categories": [
     {"id": "ruch", "label": "Ruchowe"},
     {"id": "czas", "label": "Czasowe"},
@@ -22,6 +22,16 @@
      "text": "MOVE_LIN({position}, v={speed} mm/s, r={blend_mm} mm)",
      "params": [
        {"name": "position", "kind": "position", "label": "pozycja"},
+       {"name": "speed", "kind": "number", "label": "prędkość", "unit": "mm/s", "default": 50, "min": 0.1, "max": 10000},
+       {"name": "blend_mm", "kind": "number", "label": "promień pominięcia", "unit": "mm", "default": 0, "min": 0, "max": 200}]},
+    {"id": "move_circ", "category": "ruch", "icon": "◠", "name": "CIRC",
+     "label": "CIRC przez {via} do {position} orientacja {orientation} v {speed} ⌀ {blend_mm}",
+     "text": "MOVE_CIRC({via}, {position}, {orientation}, v={speed} mm/s, r={blend_mm} mm)",
+     "help": "Ruch kołowy: TCP po łuku okręgu od celu poprzedniego ruchu (na początku programu — pozycji startowej) przez pozycję pośrednią do pozycji docelowej. Orientacja „interpolowana”: płynnie od startu do celu (przy tej samej orientacji — stała w przestrzeni); „względem środka”: obraca się z łukiem wokół osi okręgu (narzędzie zachowuje ustawienie względem środka), różnica do orientacji celu jest rozkładana wzdłuż łuku. Orientacja pozycji pośredniej nie jest używana. Start, pozycja pośrednia i cel: co najmniej 1 mm od siebie i nie na jednej prostej.",
+     "params": [
+       {"name": "via", "kind": "position", "label": "pozycja pośrednia"},
+       {"name": "position", "kind": "position", "label": "pozycja docelowa"},
+       {"name": "orientation", "kind": "choice", "label": "orientacja", "default": "interpolowana", "options": ["interpolowana", "względem środka"]},
        {"name": "speed", "kind": "number", "label": "prędkość", "unit": "mm/s", "default": 50, "min": 0.1, "max": 10000},
        {"name": "blend_mm", "kind": "number", "label": "promień pominięcia", "unit": "mm", "default": 0, "min": 0, "max": 200}]},
 

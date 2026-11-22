@@ -6,7 +6,10 @@ Przebieg jednego testu (dla każdej wartości --acc):
   2. ENABLE=1, zerowanie pozycji sterowników MKS (komenda 92, J1–J6), ENABLE=0 i potwierdzenie odniesienia → przeguby 0°.
   3. ENABLE=1, PTP przygotowawczy do pozy startowej (domyślnie 0/0/0/0/45/0°).
   4. 12 ruchów: dystans 20 i 400 mm × prędkość 5/15/40 mm/s; w każdej parze PTP start→cel i LIN cel→start.
-  5. ENABLE=0, analiza z nagrania CAN (`log/manual-can`, zdarzenia sync_feedback trybu SYNC).
+  5. Sekcja CIRC (24 ruchy): łuk 90° o promieniu 20 i 100 mm × 5/15/40 mm/s, tam i z powrotem, w dwóch trybach
+     orientacji: „stała” (orientacja stała w przestrzeni) i „względem środka” (orientacja obraca się z łukiem wokół
+     osi okręgu). Płaszczyzna: dla każdego promienia pierwsza wykonalna, najpierw ze środkiem przed narzędziem.
+  6. ENABLE=0, analiza z nagrania CAN (`log/manual-can`, zdarzenia sync_feedback trybu SYNC).
 
 Bez --execute wykonuje się tylko suchy przebieg: IK i planowanie podglądu wszystkich ruchów z pozy startowej,
 bez zerowania, ENABLE i ruchu. Ruch fizyczny wymaga zgody operatora (AGENTS.md); stała zgoda obowiązuje
@@ -32,6 +35,18 @@ TCP_ANGULAR_VELOCITY = 30.0         # °/s (orientacja stała)
 SETUP_VELOCITY, SETUP_ACCELERATION = 20.0, 100.0   # PTP do pozy startowej [°/s, °/s²]
 FINAL_APPROACH_SOFT_DEG = 5.0      # nieudany dolot do tego uchybu = ruch niezaliczony, powyżej = przerwanie serii
 SETTLE_OBS_S = 1.0                  # obserwacja po zakończeniu programu (wliczana do analizy)
+CIRC_RADII_MM = (20.0, 100.0)
+CIRC_SPEEDS_MM_S = SPEEDS_MM_S
+MAX_MOVE_S = None                   # --max-move-s: pomijane kombinacje dłuższe (droga/prędkość) od tego czasu
+CIRC_SWEEP_DEG = 90.0
+CIRC_MODES = (('stała', 'interpolated'), ('względem środka', 'path'))
+CIRC_WRIST_MIN_DEG = 15.0           # |J5| na całym łuku (próbki IK co 11,25°) — bez przejścia przez osobliwość nadgarstka
+CIRC_ANGULAR_VELOCITY = 100.0       # °/s dla „względem środka” (ograniczane przez tcp.max_angular_velocity z konfiguracji)
+# Płaszczyzny łuku (e1 = kierunek do środka od TCP startu, e2 = kierunek celu po 90°); pierwsza wykonalna.
+CIRC_PLANES = [((-1, 0, 0), (0, 1, 0)), ((-1, 0, 0), (0, -1, 0)), ((0, 1, 0), (-1, 0, 0)), ((0, -1, 0), (-1, 0, 0)),
+               ((1, 0, 0), (0, 1, 0)), ((1, 0, 0), (0, -1, 0)), ((0, 1, 0), (1, 0, 0)), ((0, -1, 0), (1, 0, 0)),
+               ((-1, 0, 0), (0, 0, -1)), ((-1, 0, 0), (0, 0, 1)), ((0, 1, 0), (0, 0, -1)), ((0, -1, 0), (0, 0, -1)),
+               ((0, 0, -1), (-1, 0, 0)), ((0, 0, -1), (0, 1, 0)), ((0, 0, -1), (0, -1, 0))]
 # Kierunki ruchu w układzie bazy; wybierany pierwszy wykonalny dla wszystkich ruchów.
 DIRECTIONS = [(1, 1, -1), (-1, 1, -1), (1, -1, -1), (-1, -1, -1), (1, 1, 1), (-1, 1, 1), (1, -1, 1), (-1, -1, 1),
               (1, 0, -1), (-1, 0, -1), (0, 1, -1), (0, -1, -1), (0, 2, -1), (0, -2, -1), (-1, 2, -1), (-1, -2, -1),
@@ -83,6 +98,12 @@ def rpy_matrix(roll, pitch, yaw):
     return np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
                      [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
                      [-sp, cp * sr, cp * cr]])
+
+
+def matrix_rpy(r):
+    """Odwrotność rpy_matrix (Rz·Ry·Rx) → (roll, pitch, yaw) [°]."""
+    pitch = math.asin(max(-1.0, min(1.0, -r[2, 0])))
+    return [math.degrees(math.atan2(r[2, 1], r[2, 2])), math.degrees(pitch), math.degrees(math.atan2(r[1, 0], r[0, 0]))]
 
 
 def axis_rotation(axis, q):
@@ -184,7 +205,12 @@ class Robot:
         return wait(finished, timeout, 'Zapis konfiguracji nie zakończył się')
 
     def ensure_ready(self):
-        """Uzgodnienie po przerwanym teście: nieudana operacja konfiguracji lub nieważna kalibracja po zerowaniu."""
+        """Uzgodnienie po przerwanym teście: nieudana operacja konfiguracji lub nieważna kalibracja po zerowaniu.
+        Test nie startuje, gdy działa przebieg programu (także czekanie na operatora) — zerowanie MKS zepsułoby jego odniesienie."""
+        run = api('/api/v1/program-run')
+        if run.get('active'):
+            raise Abort(f"Trwa przebieg programu „{run.get('name') or run.get('program_id')}” ({run.get('state')}); "
+                        'zakończ go lub zatrzymaj (STOP) przed testem jakości')
         status = self.configuration()
         invalid = [i + 1 for i, flag in enumerate(status['calibration_invalid']) if flag]
         if status['operation']['phase'] in ('failed', 'uncertain') or invalid:
@@ -317,7 +343,10 @@ def run_move(robot, motion_type, target, params, label):
     if not all(a['enabled'] for a in robot.manual()['axes'] if a['available']):
         robot.enable_all(True)
     ctx = robot.context()
-    plan = robot.plan(ctx, ctx['seed_degrees'], motion_type, target, params, False)
+    try:
+        plan = robot.plan(ctx, ctx['seed_degrees'], motion_type, target, params, False)
+    except Abort as error:   # bez ruchu: plan od zmierzonej pozycji nieudany → ruch niezaliczony
+        raise MoveFailed(str(error)) from None
     try:
         return robot.execute(plan, label)
     except Abort as error:
@@ -344,6 +373,10 @@ def ptp_params(dq_max_deg, distance, speed):
             'preview_acceleration_degrees_s2': max(0.01, min(500.0, dq_max_deg * TCP_ACCELERATION / distance))}
 
 
+def too_long(distance, speed):
+    return MAX_MOVE_S is not None and distance / speed > MAX_MOVE_S
+
+
 def lin_params(speed):
     return {'tcp_velocity_mm_s': speed, 'tcp_acceleration_mm_s2': TCP_ACCELERATION,
             'tcp_angular_velocity_degrees_s': TCP_ANGULAR_VELOCITY}
@@ -368,6 +401,8 @@ def build_procedure(robot, start, log, directions=None):
             for d in DISTANCES_MM:
                 dq = max(abs(a - b) for a, b in zip(targets[d], start))
                 for v in SPEEDS_MM_S:
+                    if too_long(d, v):
+                        continue
                     ptp = ptp_params(dq, d, v)
                     robot.plan(ctx, start, 'PTP', targets[d], ptp, True)
                     robot.plan(ctx, targets[d], 'LIN', start, lin_params(v), True)
@@ -381,6 +416,74 @@ def build_procedure(robot, start, log, directions=None):
         except Abort as error:
             problems.append(f'{direction}: {str(error)[:120]}')
     raise Abort('Brak wykonalnego kierunku ruchu: ' + ' | '.join(problems))
+
+
+def circ_params(speed, mode, angular):
+    return {'tcp_velocity_mm_s': speed, 'tcp_acceleration_mm_s2': TCP_ACCELERATION,
+            'tcp_angular_velocity_degrees_s': angular if mode == 'path' else TCP_ANGULAR_VELOCITY}
+
+
+def build_circ_procedure(robot, start, log, angular, planes=None):
+    """Łuki 90° w dwóch trybach orientacji. Dla każdego promienia pierwsza płaszczyzna, w której IK punktów i suchy plan
+    wszystkich ruchów (oba tryby, wszystkie prędkości, tam i z powrotem) się udają; najpierw płaszczyzny ze środkiem
+    przed narzędziem (oś X narzędzia = kierunek podejścia), żeby w trybie „względem środka” narzędzie patrzyło do środka."""
+    ctx = robot.context()
+    pose = robot.ik(ctx, start)['tcp']
+    p0, r0 = np.array(pose[:3]), rpy_matrix(*np.radians(pose[3:]))
+    tool = r0[:, 0]
+    ordered = sorted(planes or CIRC_PLANES, key=lambda plane: -float(np.dot(plane[0], tool)))
+    moves, geometry = [], {}
+    for radius in CIRC_RADII_MM:
+        problems = []
+        for e1, e2 in ordered:
+            e1, e2 = np.array(e1, float), np.array(e2, float)
+            try:
+                chosen, found = [], {}
+                center = p0 + radius * e1
+                point = lambda deg: center - radius * math.cos(math.radians(deg)) * e1 + radius * math.sin(math.radians(deg)) * e2
+                via, target = point(CIRC_SWEEP_DEG / 2), point(CIRC_SWEEP_DEG)
+                normal = np.cross(via - p0, target - p0); normal /= np.linalg.norm(normal)
+                arc = {'center_mm': center.tolist(), 'normal': normal.tolist(), 'radius_mm': radius,
+                       'tool_toward_center': bool(np.dot(tool, e1) > 1e-6)}
+                for name, mode in CIRC_MODES:
+                    turn = lambda deg: axis_rotation(tuple(normal), np.array([math.radians(deg)]))[0] @ r0 if mode == 'path' else r0
+                    # IK wzdłuż łuku z ziarnem poprzedniego punktu: J5 bez zmiany znaku i |J5| ≥ próg (osobliwość nadgarstka
+                    # daje niejednoznaczne J4/J6 — 19.11.2026: „względem środka” R20 przez J5 = 0 → odchyłka 6 mm, TOTG odrzucał drogę).
+                    seed, samples = list(start), {}
+                    for k in range(1, 9):
+                        deg = CIRC_SWEEP_DEG * k / 8
+                        answer = robot.ik(ctx, seed, [*point(deg).tolist(), *matrix_rpy(turn(deg))])
+                        # Tolerancja IK planera (0,1 mm); łuk planer wyznacza z FK tych kątów, więc resztka nie zmienia toru.
+                        if answer['position_error_mm'] > 0.1 or answer['orientation_error_degrees'] > 0.1:
+                            raise Abort(f'IK {deg:g}° {mode}: błąd {answer["position_error_mm"]:.3f} mm')
+                        seed = samples[k] = answer['positions_degrees']
+                    wrist = [start[4]] + [q[4] for q in samples.values()]
+                    if min(abs(w) for w in wrist) < CIRC_WRIST_MIN_DEG or min(wrist) * max(wrist) < 0:
+                        raise Abort(f'{mode}: J5 {min(wrist):.0f}…{max(wrist):.0f}° (osobliwość nadgarstka)')
+                    qv, qt = samples[4], samples[8]
+                    found[mode] = {'via': [round(x, 3) for x in qv], 'target': [round(x, 3) for x in qt]}
+                    for v in CIRC_SPEEDS_MM_S:
+                        if too_long(math.radians(CIRC_SWEEP_DEG) * radius, v):
+                            continue
+                        params = {'via_degrees': qv, 'circ_orientation': mode, **circ_params(v, mode, angular)}
+                        robot.plan(ctx, start, 'CIRC', qt, params, True)
+                        robot.plan(ctx, qt, 'CIRC', list(start), params, True)
+                        for direction, target_q in (('tam', qt), ('powrót', list(start))):
+                            chosen.append({'label': f'CIRC {name} R{radius:g} {v:g}mm/s {direction}', 'type': 'CIRC', 'section': 'circ',
+                                           'mode': mode, 'radius_mm': radius, 'speed_mm_s': v, 'target': target_q,
+                                           'params': params, 'arc': arc})
+                moves += chosen
+                geometry[f'R{radius:g}'] = {'e1': e1.tolist(), 'e2': e2.tolist(), **arc, **found}
+                break
+            except Abort as error:
+                problems.append(f'{tuple(e1)}/{tuple(e2)}: {str(error)[:120]}')
+        else:
+            raise Abort(f'Brak wykonalnej płaszczyzny łuków CIRC R{radius:g}: ' + ' | '.join(problems))
+    # Kolejność wykonania: tryb → promień → prędkość (jak w opisie procedury).
+    order = {mode: k for k, (_, mode) in enumerate(CIRC_MODES)}
+    moves.sort(key=lambda m: (order[m['mode']], m['radius_mm']))
+    log('circ_procedure', start_tcp=pose, geometry=geometry)
+    return {'geometry': geometry, 'moves': moves}
 
 
 # ---------- analiza z nagrania CAN ----------
@@ -435,7 +538,13 @@ def analyse(kin, move, result):
     final_err = float(np.linalg.norm(kin.positions(np.radians([rest]))[0] - target)) if rest else None
     planned = result.get('duration_s') or 0.0
     elapsed = (result['t_done_ns'] - result['t_exec_ns']) / 1e9
-    return {'valid': True, 'samples': len(grid), 'v_peak_ref_mm_s': round(peak, 2),
+    arc = {}
+    if move.get('arc'):   # odchyłka zmierzonego TCP od idealnego łuku (promień w płaszczyźnie i odsunięcie od płaszczyzny)
+        d = p_meas - np.array(move['arc']['center_mm']); n = np.array(move['arc']['normal'])
+        out = d @ n; radial = np.linalg.norm(d - np.outer(out, n), axis=1) - move['arc']['radius_mm']
+        dev = np.hypot(radial, out)[moving] if moving.any() else np.hypot(radial, out)
+        arc = {'arc_err_max_mm': round(float(np.max(dev)), 3), 'arc_err_rms_mm': round(float(np.sqrt(np.mean(dev ** 2))), 3)}
+    return {'valid': True, **arc, 'samples': len(grid), 'v_peak_ref_mm_s': round(peak, 2),
             'path_err_max_mm': round(float(np.max(path)), 3), 'path_err_rms_mm': round(float(np.sqrt(np.mean(path ** 2))), 3),
             'speed_ripple_rms_mm_s': round(ripple, 2), 'speed_ripple_pct': round(ripple / peak * 100, 1) if peak else None,
             'stall_pct': round(stall, 1), 'end_traj_err_mm': round(end_err, 3),
@@ -449,7 +558,7 @@ def summary_table(runs):
              'Odchyłka drogi max/RMS [mm] | Uchyb na końcu trajektorii [mm] | Błąd końcowy po dolocie [mm] | Korekty dolotu |',
              '|---|---|---|---|---|---|---|---|---|---|---|']
     for run in runs:
-        for m in run['moves']:
+        for m in [m for m in run['moves'] if m.get('section') != 'circ']:
             x = dict(m.get('metrics') or {})
             if x.get('valid') and 'end_traj_err_mm' not in x:   # wyniki sprzed 08.11 13:55: final_err = koniec trajektorii
                 x['end_traj_err_mm'], x['final_err_mm'] = x.get('final_err_mm'), None
@@ -459,7 +568,7 @@ def summary_table(runs):
             lines.append(f"| {run.get('label', run['acc'])} | {m['label']} | {x['planned_s']} | {x['elapsed_s']} | {x['speed_ripple_rms_mm_s']} | "
                          f"{x['speed_ripple_pct']} | {x['stall_pct']} | {x['path_err_max_mm']} / {x['path_err_rms_mm']} | "
                          f"{x.get('end_traj_err_mm')} | {'—' if x.get('final_err_mm') is None else x['final_err_mm']} | {x['final_approach_corrections']} |")
-        ok = [dict(m['metrics']) for m in run['moves'] if (m.get('metrics') or {}).get('valid')]
+        ok = [dict(m['metrics']) for m in run['moves'] if (m.get('metrics') or {}).get('valid') and m.get('section') != 'circ']
         for x in ok:
             if 'end_traj_err_mm' not in x:
                 x['end_traj_err_mm'], x['final_err_mm'] = x.get('final_err_mm'), None
@@ -470,6 +579,32 @@ def summary_table(runs):
                          f"{np.mean([x['path_err_rms_mm'] for x in ok]):.3f} | {np.mean([x['end_traj_err_mm'] for x in ok]):.3f} | "
                          f"{np.mean([x['final_err_mm'] for x in ok if x.get('final_err_mm') is not None] or [float('nan')]):.3f} | "
                          f"{sum(x['final_approach_corrections'] for x in ok)} |")
+    circ = [run for run in runs if any(m.get('section') == 'circ' for m in run['moves'])]
+    if circ:
+        lines += ['', '| Przebieg | Ruch CIRC | Plan [s] | Wykonanie [s] | Tętnienie v [mm/s] | Tętnienie [%] | Zatrzymania [%] | '
+                  'Odchyłka drogi max/RMS [mm] | Odchyłka od łuku max/RMS [mm] | Błąd końcowy po dolocie [mm] | Korekty dolotu |',
+                  '|---|---|---|---|---|---|---|---|---|---|---|']
+        for run in circ:
+            label = run.get('label', run['acc'])
+            for m in [m for m in run['moves'] if m.get('section') == 'circ']:
+                x = m.get('metrics') or {}
+                if not x.get('valid'):
+                    lines.append(f"| {label} | {m['label']} | — | — | {x.get('reason', m.get('error', 'brak danych'))} | | | | | | |"); continue
+                lines.append(f"| {label} | {m['label']} | {x['planned_s']} | {x['elapsed_s']} | {x['speed_ripple_rms_mm_s']} | "
+                             f"{x['speed_ripple_pct']} | {x['stall_pct']} | {x['path_err_max_mm']} / {x['path_err_rms_mm']} | "
+                             f"{x.get('arc_err_max_mm')} / {x.get('arc_err_rms_mm')} | "
+                             f"{'—' if x.get('final_err_mm') is None else x['final_err_mm']} | {x['final_approach_corrections']} |")
+            for name, mode in CIRC_MODES:
+                ok = [m['metrics'] for m in run['moves'] if m.get('section') == 'circ' and m.get('mode') == mode
+                      and (m.get('metrics') or {}).get('valid')]
+                if ok:
+                    lines.append(f"| {label} | **średnio CIRC {name} ({len(ok)} ruchów)** | | | "
+                                 f"{np.mean([x['speed_ripple_rms_mm_s'] for x in ok]):.2f} | {np.mean([x['speed_ripple_pct'] for x in ok]):.1f} | "
+                                 f"{np.mean([x['stall_pct'] for x in ok]):.1f} | {np.mean([x['path_err_max_mm'] for x in ok]):.3f} / "
+                                 f"{np.mean([x['path_err_rms_mm'] for x in ok]):.3f} | {np.mean([x['arc_err_max_mm'] for x in ok]):.3f} / "
+                                 f"{np.mean([x['arc_err_rms_mm'] for x in ok]):.3f} | "
+                                 f"{np.mean([x['final_err_mm'] for x in ok if x.get('final_err_mm') is not None] or [float('nan')]):.3f} | "
+                                 f"{sum(x['final_approach_corrections'] for x in ok)} |")
     timing = [run for run in runs if run.get('sync_timing')]
     if timing:
         lines += ['', '| Przebieg | Odstęp SYNC mediana/p99/max [ms] | Spóźnienie SYNC p99/max [ms] | F5→ACK mediana/p99/max [ms] |',
@@ -483,7 +618,14 @@ def summary_table(runs):
 
 TUNE_KEYS = {'kp': ('position_kp', 1.0), 'ff': ('velocity_ff_scale', 1.0), 'lookahead_ms': ('lookahead_time_sec', 1e-3),
              'ki': ('integral_gain', 1.0), 'ki_limit_deg': ('integral_limit_rad', math.pi / 180),
-             'acc': ('acceleration_code', None)}   # testowe nadpisanie acc F5, także 0 (bez rampy)
+             'acc': ('acceleration_code', None),   # testowe nadpisanie acc F5, także 0 (bez rampy)
+             'aff': ('acceleration_ff_scale', 1.0), 'schedule': ('gain_schedule', None),   # składnik a·t w F5; harmonogram 0/1
+             'hold_period': ('hold_period_cycles', None), 'hold_rpm': ('hold_rpm', 1.0),   # diagnostyka strumienia trzymania
+             'hold_acc': ('hold_acceleration', None), 'hold_tail': ('hold_tail_ms', None),   # acc końca ruchu
+             'hold_stop': ('hold_stop_mode', None), 'hold_stop_ticks': ('hold_stop_ticks', None),   # zatrzymanie przy celu
+             'hold_tail_end': ('hold_tail_end_ms', None), 'hold_mark': ('hold_mark_scale', 1.0),    # okno końcówki i jego oznaczenie
+             'hold_silent': ('hold_silent', None),                                                  # bez F5 i SYNC po ramce celu
+             'min_lead': ('min_lead_shaft_deg', 1.0)}                                               # min. wyprzedzenie celu F5 [° wału]
 
 
 def run_specs(args, values):
@@ -557,9 +699,33 @@ def main():
     parser.add_argument('--baseline', action='store_true', help='z --tune: dodatkowy przebieg z nastawami z pliku na początku')
     parser.add_argument('--direction', default=None, metavar='X,Y,Z',
                         help='kierunek ruchu w układzie bazy (np. -1,1,-1); domyślnie pierwszy wykonalny z listy')
+    parser.add_argument('--sections', default='ptp_lin,circ',
+                        help='sekcje ruchów: ptp_lin (12 ruchów), circ (24 łuki); domyślnie obie')
+    parser.add_argument('--speeds', default=None, metavar='V1,V2', help='prędkości PTP/LIN [mm/s] (domyślnie 5,15,40)')
+    parser.add_argument('--distances', default=None, metavar='D1,D2', help='dystanse PTP/LIN [mm] (domyślnie 20,400)')
+    parser.add_argument('--circ-speeds', default=None, metavar='V1,V2', help='prędkości CIRC [mm/s] (domyślnie jak --speeds)')
+    parser.add_argument('--circ-modes', default=None, metavar='M1,M2', help='tryby orientacji CIRC: interpolated, path (domyślnie oba)')
+    parser.add_argument('--radii', default=None, metavar='R1,R2', help='promienie łuków CIRC [mm] (domyślnie 20,100)')
+    parser.add_argument('--max-move-s', type=float, default=None, help='pomiń kombinacje, w których droga/prędkość przekracza ten czas [s]')
     parser.add_argument('--execute', action='store_true', help='wykonaj ruch fizyczny (inaczej suchy przebieg)')
     parser.add_argument('--output', default=None, help='katalog wyników (domyślnie log/tcp_quality/<czas>)')
     args = parser.parse_args()
+    global SPEEDS_MM_S, DISTANCES_MM, CIRC_SPEEDS_MM_S, CIRC_RADII_MM, MAX_MOVE_S, CIRC_MODES
+    if args.circ_modes:
+        wanted = {x.strip() for x in args.circ_modes.split(',')}
+        CIRC_MODES = tuple(m for m in CIRC_MODES if m[1] in wanted)
+        if not CIRC_MODES:
+            raise Abort('--circ-modes: interpolated, path')
+    floats = lambda text: tuple(float(x) for x in text.split(',') if x.strip())
+    if args.speeds:
+        SPEEDS_MM_S = CIRC_SPEEDS_MM_S = floats(args.speeds)
+    if args.circ_speeds:
+        CIRC_SPEEDS_MM_S = floats(args.circ_speeds)
+    if args.distances:
+        DISTANCES_MM = floats(args.distances)
+    if args.radii:
+        CIRC_RADII_MM = floats(args.radii)
+    MAX_MOVE_S = args.max_move_s
     out = Path(args.output) if args.output else ROOT / 'log/tcp_quality' / datetime.now().strftime('%Y%m%d-%H%M%S')
     log = Log(out); robot = Robot(log)
     status = robot.configuration(); values = status['active']['document']['values']
@@ -569,7 +735,15 @@ def main():
         robot.ensure_ready()
     kin = Kinematics(values)
     directions = [tuple(float(x) for x in args.direction.split(','))] if args.direction else None
-    procedure = build_procedure(robot, START_POSE, log, directions)
+    sections = {x.strip() for x in args.sections.split(',') if x.strip()}
+    if not sections or sections - {'ptp_lin', 'circ'}:
+        raise Abort('--sections: ptp_lin, circ')
+    procedure = build_procedure(robot, START_POSE, log, directions) if 'ptp_lin' in sections else {'moves': []}
+    if 'circ' in sections:
+        limit = values.get('tcp.max_angular_velocity')
+        angular = min(CIRC_ANGULAR_VELOCITY, float(limit)) if type(limit) in (int, float) else TCP_ANGULAR_VELOCITY
+        procedure['circ'] = build_circ_procedure(robot, START_POSE, log, angular)
+        procedure['moves'] = procedure['moves'] + procedure['circ']['moves']
     fk = robot.ik(robot.context(), START_POSE)['tcp']
     own = kin.positions(np.radians([START_POSE]))[0]
     fk_gap = float(np.linalg.norm(own - np.array(fk[:3])))
@@ -632,12 +806,16 @@ def main():
     finally:
         if any(spec['tuning'] for spec in specs):
             try:
+                # Po awarii najpierw koniec odzyskiwania (nastawy zmienia się tylko w postoju bez awarii).
+                wait(lambda: (lambda m: not m['fault'] and not m['busy'] and m.get('recovery_state') in ('idle', 'idle_disabled'))(
+                    robot.manual()), 90, 'Brak powrotu do gotowości przed przywróceniem nastaw')
                 robot.set_tuning(None); log('tuning_reset')
             except Abort as error:
                 log('tuning_reset_failed', reason=str(error)[:200])
                 print(f'!!! Nie przywrócono nastaw regulatora z pliku: {error}\n'
                       '    Ręcznie: curl -X POST $ROBOT_API/api/v1/motion/execution-tuning -d \'{"reset": true}\' albo restart usługi.')
-        (out / 'results.json').write_text(json.dumps({'procedure': {k: v for k, v in procedure.items() if k != 'moves'},
+        (out / 'results.json').write_text(json.dumps({'procedure': {k: ({kk: vv for kk, vv in v.items() if kk != 'moves'} if k == 'circ' else v)
+                                                                  for k, v in procedure.items() if k != 'moves'},
                                                      'runs': runs}, ensure_ascii=False, indent=1, default=str))
         (out / 'summary.md').write_text(summary_table(runs) + '\n')
         print('\n' + summary_table(runs) + f'\n\nWyniki: {out}')

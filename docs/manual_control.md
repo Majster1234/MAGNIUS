@@ -8,7 +8,7 @@ wszystkich stron; przycisk w stopce rozwija menu. Wspólny pasek górny 48 px
 pokazuje ścieżkę, połączenie 20 Hz, nagrywanie, planowanie i sieć lokalną.
 Rozwijanie menu wywołuje przeliczenie rozmiaru sceny, bez zmiany połączenia JOG.
 Przy co najmniej 1180 px dostępnej szerokości obszaru strony panel używa kokpitu:
-[podgląd URDF 3D](robot_preview.md) i Centrum komunikatów po lewej, tabela osi po prawej,
+[podgląd URDF 3D](robot_preview.md) i linia stanu po lewej, tabela osi po prawej,
 a pod tabelą TCP oraz wspólna karta „Ruch PTP / LIN”. Karta nie zasłania sceny.
 Informacja o planowaniu znajduje się w krótkim pasku pod kontrolkami.
 Ramka podglądu preferuje 4:3; węższy obszar (np. po rozwinięciu menu) układa
@@ -29,10 +29,45 @@ obrysu pola. Krzyżaki TCP X/Y oraz Rx/Ry mają klawisze 44×44 px;
 Z+/Z− i Rz+/Rz− tworzą oddzielne pionowe kolumny po prawej stronie krzyżaków,
 także w trybie impulsowym.
 
-**Centrum komunikatów** zastępuje konsolę i zbiera stan PTP/LIN, JOG, TCP,
-ENABLE, odniesienia osi, połączenia oraz modelu 3D. U góry pokazuje aktualne
-etapy, poniżej aktywne problemy, a w rozwijanej historii ostatnie 100 zdarzeń
-z czasem, poziomem, źródłem i kontekstem. Listy przewijają się wewnątrz karty.
+**Centrum komunikatów** to od 20.11.2026 wspólny **pasek komunikatów nad stroną** (każda strona aplikacji,
+`MessageBar.tsx`, magazyn `messageCenter.ts`). Zbiera stan PTP/LIN, JOG, TCP, ENABLE, odniesienia osi,
+połączenia i modelu 3D (ze Sterowania ręcznego), stan robota czytany co 1 s z `GET /api/v1/manual/status`
+i `/api/v1/motion/status` (gdy Sterowanie ręczne jest zamknięte: wszystkie warunki stanu robota — świeżość pomiarów,
+sprzężenie osi, awaria, odzyskiwanie, JOG TCP, brak napędów, ENABLE, kalibracja/profil, limity osi; wspólna funkcja
+`robotConditions` w `robotActivity.ts`, ta sama co w Sterowaniu ręcznym), problemy
+podzespołów z `/api/v1/ws` (ROS, komputer, CAN, kontrolery, brak backendu ≥ 5 s) oraz komunikaty innych modułów:
+Konfiguracja (zdarzenia ROS — dawna konsola zdarzeń, konflikt rewizji, błąd zapisu ustawień, model 3D), Programowanie
+(komunikaty zapisu i sprawdzenia), start napędów (niepotwierdzona inicjalizacja, nieudane sprawdzenie, wymagane
+wyłączenie zasilania), Diagnostyka (odczyt przebiegów, skanowanie CAN). Wszystkie komunikaty są widoczne niezależnie od otwartej strony:
+warunki zamkniętego modułu (np. osobliwość, wykonawca, model 3D, odczyt przebiegów) zostają w „Aktualnych” jako
+**nieobserwowane** (znacznik „stan z HH:MM:SS”) — odświeżają się, gdy moduł znów je sprawdzi, pokwitowanie je usuwa
+(`MessageCenter.suspend`). Dotyczy to też komunikatów formularzy Sterowania ręcznego (parametry i start symulacji,
+dostępność JOG TCP): zamknięcie strony ich nie rozwiązuje, rozwiązuje je tylko zmiana trybu w obrębie strony. Pasek: po lewej czynność
+robota (RUCH / OPERACJA / POSTÓJ „po JOG J2” / ZATRZYMANY / ODZYSKIWANIE), w środku przewijane bieżące
+komunikaty (co 4 s, NOWY = nieobejrzany i niepokwitowany; najechanie kursorem na kartę w panelu na ≥ 250 ms,
+fokus klawiatury albo rozwinięcie karty zdejmuje NOWY bez kwitowania — znacznik wyjeżdża w lewo, a reszta wiersza wjeżdża z prawej na jego miejsce, zmiana treści przywraca NOWY), po prawej „Kwituj n” i liczniki. Kliknięcie rozwija panel (jaśniejsza „szuflada” odróżniona od strony, akcent koloru najgorszego komunikatu na górnej
+krawędzi panelu i na pasku) spod
+nagłówka strony (nagłówek ze STOP zostaje dostępny): **Aktualne** (karty zwinięte: poziom, NOWY, nazwa
+i czego dotyczy — moduł · kontekst; kliknięcie rozwija kartę z animacją: czas, opis, „Co zrobić”, link, karta awarii i Kwituj;
+migawka awarii pobierana dopiero po rozwinięciu), **Czynności robota** (stan każdej osi: W RUCHU / CZEKA / WYŁĄCZONA, oś czasu czynności tej sesji)
+i **Archiwum** (historia 100 zdarzeń z filtrami poziomu, modułu i wyszukiwarką). Kwitowanie: wynik operacji
+znika z bieżących (zostaje w archiwum), warunek zostaje przygaszony, dopóki przyczyna nie ustąpi; kwitowanie
+nie kasuje awarii. Historia i kwitowanie żyją w pamięci karty przeglądarki (przeżywają zmianę strony,
+nie odświeżenie). Makieta i plan kolejnych etapów: `temp/komunikaty/`.
+
+**Karta awarii (etap 2, 20.11.2026).** Czerwony komunikat awarii robota dostaje sekcję „Awaria w skrócie”
+z migawki awarii (`fault_snapshot`, 10 s przed i 5 s po): automatyczny wzorzec z nagrania (np. przerwy w odpowiedziach
+osi przed awarią, skok licznika, ponowione ENABLE=0 → „typowy obraz restartu sterownika J1”), model robota
+z podświetloną osią (scena podglądu programu, geometria z konfiguracji w chwili awarii, poza z bieżącego odczytu),
+kilka próbek przed i po awarii (pomiar + plan: cel planowany, cel F5 albo pozycja trzymania; przerwy w odpowiedziach
+zaznaczone), wyciąg zdarzeń CAN, które wywołały błąd, „Szczegółowa analiza” (pełny przebieg okna, filtry, tabela
+zdarzeń) i pobranie `.jsonl`. Wykres pojawia się tylko, gdy błąd wskazuje oś i są jej próbki; migawka powstaje
+ok. 5–7 s po awarii (do tego czasu „migawka w przygotowaniu”). Dopasowanie komunikat ↔ migawka: wspólna treść
+albo awaria robota najbliższa w czasie. Archiwum: migawka w rozwiniętym wpisie błędu. API (`robot_web_bridge/fault_api.py`):
+`GET /api/v1/faults`, `/api/v1/faults/{id}`, `/{id}/events?kind=key|can|bridge|log|shaft|all&axis&q&offset&limit`,
+`/{id}/trace`, `/{id}/download`. Nowe migawki zawierają też okno ciągłego zapisu wałów (źródło `shaft`: pomiar,
+cel planowany, cel F5, prędkość F5), więc przebieg z planem zostaje tak długo jak migawka; starsze migawki pokazują
+przebieg z ramek CAN 31h (bez planu ruchu).
 Każdy problem ma opis znaczenia, zalecane działanie i rozwijane szczegóły
 techniczne. Linki prowadzą do istniejącej konfiguracji lub diagnostyki;
 samo otwarcie komunikatu i zalecenia nie wykonuje operacji sterujących.
@@ -133,8 +168,12 @@ potwierdzone anulowanie impulsu. Fizyczne TCP pozostaje zablokowane.
 Zbuduj frontend, następnie workspace według [instrukcji panelu](web_status.md).
 Uruchom `./scripts/start_web_status.sh` i otwórz `#manual` z menu. Start aplikacji
 wykonuje diagnostykę i SCAN; nie załącza napędów ani nie zmienia ich parametrów.
-Początkowe maksimum JOG wynosi 30 obr./min. Można je zmienić parametrem launch
-`manual_max_rpm`, w granicach protokołu; zwiększenie wymaga pomiarów na sprzęcie.
+Maksimum JOG osi **z konfiguracją przegubu** to prędkość osi z konfiguracji robota
+(`joint.N.velocity`, Konfiguracja → Parametry robota), ograniczona granicą obr./min wału ruchu PTP/LIN
+(`execution_max_rpm`) i zakresem pola prędkości F6 (≤ 3000 jednostek mikrokroku). JOG wału osi **bez**
+konfiguracji przegubu ogranicza parametr launch `manual_max_rpm` (domyślnie 30 obr./min). Panel ustawia na start
+10 % limitu osi; pole „Prędkość JOG” w nagłówku zmienia prędkość wszystkich osi jako % limitu każdej osi.
+Granice mechaniczne i hamowanie przed nimi obowiązują przy każdej prędkości.
 
 1. **Załącz** przygotowuje tylko wybrany silnik: potwierdza stabilną pozycję, włącza
    odpowiedzi `8C`, wyłącza synchronizację `4A`, ustawia `SR_vFOC` przez `82`,
@@ -200,7 +239,9 @@ cztery miejsca oczekujących zapytań i planowany budżet do 40% CAN (limit 50%)
 Tylko jedna oś może być w ruchu, także między kartami/przeglądarkami.
 Brakujące pozostałe osie nie blokują sterowania. Niepotwierdzony postój aktywnej
 osi blokuje dalszy ruch i zatrzaskuje błąd. Reset CAN jest wtedy świadomą
-operacją operatora; nie wznawia ruchu ani ENABLE. Zwykły SCAN/reset są blokowane
+operacją operatora; nie wznawia ruchu ani ENABLE. Po nieudanym odzyskiwaniu (`recovery_failed`, np. „przekroczono termin
+etapu verifying_disabled”) reset uruchamia odzyskiwanie od nowa (STOP, ENABLE=0, weryfikacja
+postoju i SYNC); błąd znika dopiero po jego powodzeniu, a bramy (np. odbiór sprzętowy) obowiązują nadal (19.11.2026). Zwykły SCAN/reset są blokowane
 podczas operacji ręcznej. Rozpoczęcie operacji ręcznej przerywa SCAN.
 
 Pozycje są odczytywane przy 25 Hz na oś, ENABLE/stall przy 10 Hz. Przygotowane

@@ -114,3 +114,10 @@ TEST(EnableAll, HoldingAxisOscillationDoesNotBlockGroupEnableLooseShaftDoes) {
     for(unsigned axis=1;axis<=6;++axis) EXPECT_FALSE(rig.port->enabled[axis]) << axis;
   }
 }
+TEST(EnableAll, EnableFrameNeverCollidesWithPendingReplyOfSameAxis) {
+  for(unsigned offset=0;offset<12;++offset) {
+    Rig rig;rig.port->delay=2ms;rig.ready();rig.run(offset);ASSERT_TRUE(rig.bus->manual().set_enable_all(true,rig.now));rig.run(2500);
+    EXPECT_EQ(rig.port->reply_collisions,0u)<<offset;EXPECT_FALSE(rig.bus->snapshot().fault)<<rig.bus->snapshot().message;
+  }
+}
+

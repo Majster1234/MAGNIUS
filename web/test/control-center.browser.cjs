@@ -55,12 +55,13 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms)),copy=x=>structuredClone(x);
  });
  try{
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto('http://robot.test/#manual');
-  const center=page.locator('.control-message-center'),physical=page.getByRole('region',{name:'Wykonanie fizycznego PTP/LIN',exact:true});
+  const center=page.locator('#message-panel'),physical=page.getByRole('region',{name:'Wykonanie fizycznego PTP/LIN',exact:true});
   const issue=source=>center.locator(`.control-issue[data-source="${source}"]`),stop=page.getByRole('button',{name:'STOP robota',exact:true});
   await center.waitFor({state:'attached'});await page.getByRole('button',{name:'Planowanie',exact:true}).waitFor();
   await wait(600);assert.equal(writes.length,0,'Otwarcie panelu i komunikatów nie uruchamia operacji');
   state.axes[0]={...state.axes[0],joint_configured:true,calibration_valid:false,joint_position_known:false,joint_position_degrees:0,joint_lower_degrees:-180,joint_upper_degrees:180,configuration_message:'Odniesienie niepotwierdzone'};
   await issue('profile-1').waitFor({state:'attached'});assert((await issue('profile-1').textContent()).includes('Co zrobić:'));
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('robot-messages:open',{detail:{tab:'now'}})));await page.locator('#message-panel.open').waitFor();
   await issue('profile-1').getByText('Szczegóły techniczne',{exact:true}).click();assert.equal(writes.length,0);await issue('profile-1').getByRole('link',{name:'Otwórz konfigurację →'}).click();await page.waitForURL('**/#config');assert.equal(writes.length,0,'Otwarcie zalecanej konfiguracji nie wysyła komend');await page.goto('http://robot.test/#manual');await issue('profile-1').waitFor({state:'attached'});
   state.axes[0].calibration_valid=state.axes[0].joint_position_known=true;state.axes[0].configuration_message='';await issue('profile-1').waitFor({state:'detached'});
   state.axes[1].position_age_seconds=1;await issue('axis-feedback').waitFor({state:'attached'});state.axes[1].position_age_seconds=0;await issue('axis-feedback').waitFor({state:'detached'});await page.getByRole('button',{name:'Planowanie',exact:true}).click();await page.getByRole('tab',{name:'PTP / LIN',exact:true}).click();

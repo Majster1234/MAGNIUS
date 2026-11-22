@@ -6,6 +6,7 @@ import time
 import pytest
 
 from robot_configuration.drive_backup import AXES, SPECS, Conflict, DriveBackups
+from robot_configuration.drive_startup import DriveStartup
 
 BY_CODE = {(s['code'], s['sub']): name for name, s in SPECS.items()}
 
@@ -171,3 +172,124 @@ def test_sequential_candidates_need_single_pre_test_but_other_changes_block(back
     drives.values[4]['work_current_ma'] = [0x06, 0x40]
     assert store.restore('pre_test', axes=[4])['remaining_differences'] == {}
     assert drives.values[4]['vfoc_kp_ki'] == [0, 4, 4, 4, 4]
+
+
+# --- inicjalizacja napędów: porównanie z base i decyzja operatora ---
+def wait_idle(store):
+    for _ in range(400):
+        if store.status()['operation']['phase'] != 'running':
+            return
+        time.sleep(.005)
+    raise AssertionError('operacja nie zakończyła się')
+
+
+@pytest.fixture
+def startup(backups):
+    store, drives = backups
+    store.capture('base')
+    return DriveStartup(store), store, drives
+
+
+def run_check(service, store, generation=6, ready=0x3f, busy=0, failed=0):
+    service.can_status(True, generation, busy, ready, failed)
+    wait_idle(store)
+
+
+def test_startup_matching_parameters_need_no_operator(startup):
+    service, store, drives = startup
+    run_check(service, store)
+    state = service.status()
+    assert state['phase'] == 'ok' and not state['attention'] and state['axes'] == [1, 2, 3, 4, 5, 6]
+    assert drives.writes == []
+
+
+def test_startup_waits_for_axes_still_initializing(startup):
+    service, store, drives = startup
+    drives.values[2]['work_current_ma'] = [0x07, 0xd0]
+    run_check(service, store, busy=4)
+    assert service.status()['phase'] == 'waiting'
+    run_check(service, store)
+    assert service.status()['phase'] == 'differences'
+
+
+def test_startup_writes_only_after_operator_and_only_differing_axes(startup):
+    service, store, drives = startup
+    original = list(drives.values[2]['work_current_ma'])
+    drives.values[2]['work_current_ma'] = [0x07, 0xd0]
+    run_check(service, store)
+    state = service.status()
+    assert state['attention'] and list(state['differences']) == ['2'] and drives.writes == []
+    assert state['differences']['2']['work_current_ma']['expected_value'] == 1600
+    assert not store.path('pre_test').exists()
+    service.apply(6); wait_idle(store)
+    state = service.status()
+    assert state['phase'] == 'applied' and state['attention']
+    assert drives.values[2]['work_current_ma'] == original
+    assert [w[:2] for w in drives.writes] == [(2, 'work_current_ma')]
+    # Kopia przed zapisem zawiera stan sprzed ingerencji.
+    assert store.load('pre_test')['axes']['2']['parameters']['work_current_ma'] == '07d0'
+    service.dismiss(6)
+    assert service.status()['phase'] == 'ok' and not service.status()['attention']
+
+
+def test_startup_reports_read_only_differences_without_writing(startup):
+    service, store, drives = startup
+    drives.values[3]['can_bitrate'] = [2]
+    run_check(service, store)
+    state = service.status()
+    assert state['differences'] == {} and list(state['manual_differences']['3']) == ['can_bitrate'] and state['attention']
+    with pytest.raises(Conflict, match='Brak różnic'):
+        service.apply(6)
+    assert drives.writes == []
+
+
+def test_startup_enabled_axis_blocks_write_and_keeps_dialog(startup):
+    service, store, drives = startup
+    drives.values[4]['work_current_ma'] = [0x07, 0xd0]
+    drives.enabled[4] = True
+    run_check(service, store)
+    service.apply(6); wait_idle(store)
+    state = service.status()
+    assert state['phase'] == 'differences' and 'ENABLE=0' in state['last_apply']['axes']['4']['error']
+    assert drives.writes == []
+
+
+def test_startup_microstep_write_asks_for_power_cycle(startup):
+    service, store, drives = startup
+    drives.values[1]['microstep'] = [16]
+    run_check(service, store)
+    service.apply(6); wait_idle(store)
+    assert service.status()['last_apply']['requires_power_cycle'] is True
+
+
+def test_startup_stale_decision_and_new_generation(startup):
+    service, store, drives = startup
+    drives.values[1]['work_current_ma'] = [0x07, 0xd0]
+    run_check(service, store)
+    with pytest.raises(Conflict, match='zmienił się'):
+        service.apply(5)
+    service.dismiss(6)
+    assert service.status()['phase'] == 'skipped' and not service.status()['attention']
+    run_check(service, store)                 # ta sama generacja: pominięcie obowiązuje
+    assert service.status()['phase'] == 'skipped'
+    run_check(service, store, generation=7)   # napęd wrócił: sprawdzenie od nowa
+    assert service.status()['phase'] == 'differences'
+
+
+def test_startup_check_failure_is_retried_then_shown(startup):
+    service, store, drives = startup
+    now = [0.0]; service.clock = lambda: now[0]
+    drives.read = lambda *args: (_ for _ in ()).throw(RuntimeError('Odrzucone: aktywne sterowanie ruchem'))
+    for _ in range(3):
+        run_check(service, store); now[0] += 6
+    state = service.status()
+    assert state['phase'] == 'check_failed' and state['attention'] and 'aktywne sterowanie' in state['message']
+
+
+def test_startup_failed_axis_needs_acknowledgement_once(startup):
+    service, store, drives = startup
+    run_check(service, store, ready=0x3d, failed=2)
+    assert service.status()['failed_axes'] == [2] and service.status()['attention']
+    service.dismiss(6)
+    run_check(service, store, ready=0x3d, failed=2)
+    assert not service.status()['attention']

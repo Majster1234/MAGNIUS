@@ -7,8 +7,9 @@ if [[ ${1:-} == --record ]]; then
     umask 077
     export ROBOT_TRACE_DIR=${ROBOT_TRACE_DIR:-"$project_dir/log/manual-can"}
     export ROBOT_TRACE_SESSION=$(date -u +%s%N)
-    # Pętla ciągła (bez zatrzymania po awarii): CAN 2048 MiB (128 × 16 MiB), most 1024 MiB (128 × 8 MiB).
-    export ROBOT_TRACE_CAN_MIB=${ROBOT_TRACE_CAN_MIB:-2048}
+    # Pętla ciągła (bez zatrzymania po awarii): CAN 6144 MiB (384 × 16 MiB; ruch SYNC ≈ 2,6 MB/s → ok. 40 min ciągłego
+    # ruchu, postój ≈ 0,45 MB/s → ok. 4 h), most 1024 MiB (128 × 8 MiB).
+    export ROBOT_TRACE_CAN_MIB=${ROBOT_TRACE_CAN_MIB:-6144}
     export ROBOT_TRACE_BRIDGE_MIB=${ROBOT_TRACE_BRIDGE_MIB:-1024}
     mkdir -p -- "$ROBOT_TRACE_DIR"
     # Poprzednia sesja zostaje w previous/ (migawka zaległej awarii nadal ją znajdzie); starsza jest usuwana.

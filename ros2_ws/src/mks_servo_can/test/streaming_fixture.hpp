@@ -29,6 +29,8 @@ class Port final : public Transport {
   std::array<std::uint8_t,7> motor_state_override{};  // 0 = F1 zgłasza 1 (postój); np. 3 = hamowanie bez końca
   static std::uint32_t param_key(unsigned axis,std::uint8_t code,int sub) {return (axis<<16)|(unsigned(code)<<8)|unsigned(sub+1);}
   std::array<unsigned,256> counts{};
+  // F3/F7 wysłane, gdy odpowiedź tej samej osi (ten sam identyfikator CAN) jest jeszcze w drodze: kolizja na magistrali.
+  unsigned reply_collisions{};
   struct Event {Time stamp;unsigned axis;std::vector<std::uint8_t> data;};
   std::vector<Event> events;
   std::deque<Frame> rx;
@@ -67,6 +69,7 @@ class Port final : public Transport {
   void send(std::uint16_t axis,const std::vector<std::uint8_t> &data) override {
     if(disconnected) throw std::runtime_error("USB odłączone");
     ++counts[data[0]];events.push_back({now,axis,data});
+    if((data[0]==0xf3 || data[0]==0xf7) && std::any_of(rx.begin(),rx.end(),[&](const Frame &f){return f.address==axis && f.received_at>now;})) ++reply_collisions;
     if(data[0]==0xf5 && fail_f5 && axis==3) throw std::runtime_error("Błąd wysyłki trzeciej osi");
     if(axis==0 && data[0]==0x4b) {
       for(unsigned j=1;j<=6;++j) if(pending_targets_valid[j]) {

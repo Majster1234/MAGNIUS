@@ -51,11 +51,14 @@ export function describeControlNotice(notice: Notice): Notice {
         remedy:notice.remedy ?? item?.remedy ?? (notice.severity==="info"?undefined:"Sprawdź aktualny stan właściwej operacji i szczegóły techniczne. Przed ponowieniem ruchu wyjaśnij przyczynę odrzucenia."),
         details:notice.details ?? (notice.severity!=="info"?notice.message:undefined),href:notice.href ?? item?.href};
 }
-export type CurrentMessage = Notice & {kind:"condition"|"result"};
+// unobservedSince: warunek zamkniętego modułu — zostaje na liście ze stanem z chwili zamknięcia, dopóki moduł nie wróci
+// (odświeży albo rozwiąże) lub operator go nie pokwituje.
+export type CurrentMessage = Notice & {kind:"condition"|"result"; unobservedSince?:number};
 export class ControlMessages {
     readonly log=new EventLog();
     private conditions=new Map<string,Notice>();
     private results=new Map<string,Notice>();
+    private suspended=new Map<string,number>();
     report(notice:Notice):boolean {
         const event=describeControlNotice(notice);
         const previous=this.results.get(event.source);
@@ -65,16 +68,26 @@ export class ControlMessages {
     }
     condition(key:string,notice:Notice|null,resolution?:string):boolean {
         const before=this.conditions.get(key);
+        const wasSuspended=this.suspended.delete(key);
         if(!notice) {
             if(!before)return false;
             this.conditions.delete(key);
             return this.log.append({source:key,severity:"info",message:resolution ?? `${before.title} — problem ustąpił.`,context:before.context,title:resolution ?? `${before.title} — problem ustąpił.`});
         }
         const event=describeControlNotice({...notice,source:key});this.conditions.set(key,event);
-        return this.log.append(event);
+        return this.log.append(event) || wasSuspended;
     }
+    // Usunięcie warunku bez wpisu „problem ustąpił” (źródło przestało być obserwowane, np. zamknięty moduł).
+    drop(key:string):boolean {this.suspended.delete(key);return this.conditions.delete(key);}
+    // Moduł zamknięty: warunek zostaje widoczny jako nieobserwowany (bez wpisu w historii).
+    suspend(key:string,at:number):boolean {
+        if(!this.conditions.has(key) || this.suspended.has(key))return false;
+        this.suspended.set(key,at);return true;
+    }
+    // Pokwitowany wynik operacji znika z bieżących; zostaje w historii.
+    dismiss(source:string):boolean {return this.results.delete(source);}
     get active():CurrentMessage[] {
-        return [...[...this.conditions.values()].map(n=>({...n,kind:"condition" as const})),
+        return [...[...this.conditions.values()].map(n=>({...n,kind:"condition" as const,...(this.suspended.has(n.source)?{unobservedSince:this.suspended.get(n.source)}:{})})),
             ...[...this.results.values()].filter(n=>n.severity!=="info").map(n=>({...n,kind:"result" as const}))]
             .sort((a,b)=>Number(b.severity==="error")-Number(a.severity==="error"));
     }

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wyróżnienie panelu komunikatów</title>
+<!-- Makieta: dane przykładowe, bez połączeń z API/ROS/CAN. Warianty: #a #b #c #d, dodatkowo ,closed / ,warn -->
+<style>
+:root {
+  --font: "Ubuntu Condensed", "Liberation Sans Narrow", "Arial Narrow", sans-serif;
+  --mono: "DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono", monospace;
+  --bg: #07090b; --panel: #0e1114; --raised: #161a1f; --line: #232930; --line-strong: #3a424b;
+  --text: #f2f5f7; --text-2: #aab4bd; --text-3: #6e7983; --info: #8f9ba6;
+  --ok: #21d07a; --ok-bg: #0b2618; --ok-text: #52f2a0; --ok-border: #1a6b43;
+  --plan: #2fa8ff; --plan-text: #70c6ff;
+  --warn: #ffb020; --warn-bg: #2a1e07; --warn-text: #ffc95c; --warn-border: #7a5410;
+  --danger: #ff3b4e; --danger-bg: #2f0c12; --danger-text: #ff7d8a; --danger-border: #a3202f;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --accent: var(--danger); --accent-text: var(--danger-text); --accent-bg: var(--danger-bg); --accent-border: var(--danger-border);
+}
+.sev-warn { --accent: var(--warn); --accent-text: var(--warn-text); --accent-bg: var(--warn-bg); --accent-border: var(--warn-border); }
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.35 var(--font); overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
+svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* ---------- strona (tło) ---------- */
+.app { display: grid; grid-template-columns: 236px 1fr; height: 100vh; }
+.side { border-right: 1px solid var(--line); background: #0a0c0e; padding: 14px 8px; }
+.brand { padding: 4px 12px 16px; border-bottom: 1px solid var(--line); margin-bottom: 10px; font-size: 17px; letter-spacing: .12em; font-weight: 700; }
+.brand small { display: block; font-size: 9px; color: var(--text-3); letter-spacing: .2em; font-weight: 400; }
+.nav { display: block; padding: 11px 14px; color: var(--text-2); letter-spacing: .08em; font-size: 12px; border-radius: 3px; }
+.nav.on { background: var(--raised); color: var(--text); box-shadow: inset 3px 0 var(--text); }
+.work { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.strip { position: relative; z-index: 45; display: flex; align-items: center; height: 38px; border-bottom: 1px solid var(--accent-border);
+  background: linear-gradient(90deg, var(--accent-bg), #0a0c0f 75%); cursor: pointer; transition: background .3s, box-shadow .3s; }
+.strip .act { display: flex; align-items: center; gap: 9px; width: 330px; height: 100%; padding: 0 14px; background: var(--danger); color: #fff; font-weight: 700; letter-spacing: .1em; font-size: 12px; }
+.sev-warn .strip .act { background: rgba(255, 176, 32, .1); color: var(--warn-text); }
+.strip .act i { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.strip .tick { flex: 1; display: flex; align-items: center; gap: 8px; padding: 0 14px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 2px; font-size: 10px; letter-spacing: .1em; font-weight: 700; color: var(--text-2); }
+.tag.e { color: var(--danger-text); background: var(--danger-bg); border-color: var(--danger-border); }
+.tag.w { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-border); }
+.new { padding: 1px 5px; border-radius: 2px; background: var(--text); color: var(--bg); font: 700 9px var(--font); letter-spacing: .1em; font-style: normal; }
+.strip .right { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
+.cnt { height: 24px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 3px; font-size: 11px; letter-spacing: .08em; font-weight: 700; }
+.cnt.e { background: var(--danger); color: #fff; } .cnt.w { background: var(--warn); color: #1a1204; }
+.chev { display: grid; place-items: center; width: 28px; height: 28px; border: 0; background: none; color: var(--text-2); border-radius: 3px; transition: transform .35s var(--ease); }
+.strip-close { display: none; }
+header { display: flex; align-items: center; gap: 10px; height: 58px; padding: 0 14px; border-bottom: 1px solid var(--line); position: relative; z-index: 44; background: var(--bg); }
+header h1 { font-size: 22px; font-weight: 400; letter-spacing: .06em; margin-right: 10px; }
+.hb { height: 30px; padding: 0 12px; border: 1px solid var(--line-strong); background: none; border-radius: 3px; font-size: 11px; letter-spacing: .1em; color: var(--text-2); }
+.live { border-color: var(--ok-border); color: var(--ok-text); }
+.stop { margin-left: auto; height: 38px; padding: 0 26px; border: 0; border-radius: 2px; color: #fff; font-weight: 700; letter-spacing: .14em;
+  background: repeating-linear-gradient(-45deg, #ffcc00 0 8px, #111 8px 16px); position: relative; }
+.stop span { position: relative; display: block; margin: 0 -14px; padding: 9px 14px; background: var(--danger); }
+.content { flex: 1; display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; padding: 12px 14px; min-height: 0; }
+.card { border: 1px solid var(--line); border-radius: 3px; background: var(--panel); padding: 12px; min-height: 0; }
+.card h4 { font-size: 11px; letter-spacing: .12em; color: var(--text-3); font-weight: 700; margin-bottom: 10px; }
+.scene { background: radial-gradient(ellipse at 50% 80%, #121820, #0b0e11 70%); position: relative; overflow: hidden; }
+.scene::before { content: ""; position: absolute; inset: 40% -20% -20%; background-image: linear-gradient(#1c232b 1px, transparent 1px), linear-gradient(90deg, #1c232b 1px, transparent 1px);
+  background-size: 40px 40px; transform: perspective(500px) rotateX(60deg); }
+.robot { position: absolute; left: 44%; bottom: 22%; width: 12px; height: 160px; background: #6e7983; border-radius: 6px; transform: rotate(-12deg); transform-origin: bottom; }
+.robot::after { content: ""; position: absolute; top: -4px; left: 2px; width: 120px; height: 10px; background: #8f9ba6; border-radius: 5px; transform: rotate(30deg); transform-origin: left; }
+table { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
+td, th { padding: 7px 6px; border-bottom: 1px solid var(--line); text-align: left; color: var(--text-2); }
+th { color: var(--text-3); font: 700 10px var(--font); letter-spacing: .1em; }
+td b { color: var(--text); font-weight: 400; }
+.jog { display: flex; gap: 6px; margin-top: 12px; } .jog button { flex: 1; height: 34px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--raised); }
+
+/* ---------- panel komunikatów: wspólna część (stan dzisiejszy) ---------- */
+.backdrop { position: absolute; left: 0; right: 0; bottom: 0; z-index: 39; background: rgba(3, 5, 7, .55); opacity: 0; pointer-events: none; transition: opacity .3s, backdrop-filter .3s; }
+.drop { position: absolute; left: 14px; right: 14px; z-index: 40; display: flex; flex-direction: column; height: min(560px, calc(100% - 140px));
+  background: #0b0e11; border: 1px solid var(--line-strong); border-radius: 0 0 6px 6px; box-shadow: 0 24px 60px rgba(0, 0, 0, .7);
+  transform-origin: top; transform: translateY(-12px) scaleY(.96); opacity: 0; visibility: hidden; transition: transform .35s var(--ease), opacity .25s, visibility 0s .35s; }
+.open .backdrop { opacity: 1; pointer-events: auto; }
+.open .drop { transform: none; opacity: 1; visibility: visible; transition: transform .35s var(--ease), opacity .2s; }
+.open .chev { transform: rotate(180deg); }
+.dhead { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border-bottom: 1px solid var(--line); background: #0a0c0f; }
+.dtitle { display: none; }
+.tab { height: 44px; padding: 0 14px; border: 0; background: none; color: var(--text-3); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; box-shadow: inset 0 -2px transparent; }
+.tab.on { color: var(--text); box-shadow: inset 0 -2px var(--text); }
+.tab em { font-style: normal; margin-left: 5px; opacity: .7; }
+.sp { flex: 1; }
+.ackall { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 1px solid var(--text); border-radius: 3px; background: var(--text); color: var(--bg);
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.icon { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 3px; background: none; color: var(--text-2); }
+.close-lab { display: none; }
+.dbody { flex: 1; overflow: auto; padding: 4px 12px 12px; }
+.grp { margin: 10px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--danger-text); display: flex; gap: 8px; align-items: center; }
+.grp::after { content: ""; flex: 1; height: 1px; background: var(--line); } .grp.w { color: var(--warn-text); }
+.msg { position: relative; display: flex; align-items: center; gap: 8px; min-height: 40px; margin-bottom: 8px; padding: 6px 12px 6px 16px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+.msg::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 3px 0 0 3px; background: var(--warn); }
+.msg.e { border-color: var(--danger-border); background: linear-gradient(90deg, rgba(47, 12, 18, .75), var(--panel) 65%); } .msg.e::before { background: var(--danger); }
+.msg b { font-size: 14px; } .msg small { color: var(--text-3); font-size: 12px; } .msg svg { margin-left: auto; color: var(--text-2); }
+.msg.x { flex-wrap: wrap; } .msg.x p { flex-basis: 100%; padding: 8px 0 4px; border-top: 1px solid var(--line); margin-top: 6px; color: var(--text); }
+.msg.x .remedy { flex-basis: 100%; margin: 4px 0 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--raised); }
+.remedy strong { color: var(--ok-text); font-weight: 400; }
+.dfoot { display: flex; align-items: center; gap: 14px; min-height: 30px; padding: 0 12px; border-top: 1px solid var(--line); background: #0a0c0f; font-size: 11px; color: var(--text-3); }
+.dfoot .hint { margin-left: auto; } kbd { padding: 1px 5px; border: 1px solid var(--line-strong); border-radius: 2px; font: 10px var(--mono); color: var(--text-2); }
+
+/* ---------- A: szuflada z paska — jaśniejsza powierzchnia, akcent poziomu, pasek „przechodzi” w panel ---------- */
+.v-a .drop, .v-d .drop { background: #141920; border: 1px solid #4a545f; border-top: 0; border-radius: 0 0 8px 8px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .6), 0 30px 80px rgba(0, 0, 0, .85), inset 0 3px 0 var(--accent); }
+.v-a .dhead, .v-d .dhead { background: #1a2028; border-bottom-color: #2e3640; padding-top: 3px; min-height: 47px; }
+.v-a .dfoot, .v-d .dfoot { background: #10141a; border-top-color: #2e3640; }
+.v-a .msg, .v-d .msg { background: #1b2129; border-color: #2c343e; }
+.v-a .msg.e, .v-d .msg.e { background: linear-gradient(90deg, rgba(80, 18, 28, .8), #1b2129 65%); border-color: var(--danger-border); }
+.v-a .grp, .v-d .grp { } .v-a .dbody, .v-d .dbody { scrollbar-color: #3a424b transparent; }
+.v-a.open .strip, .v-d.open .strip { background: #1a2028; box-shadow: inset 0 -3px 0 var(--accent); border-bottom-color: transparent; }
+.v-a.open .drop, .v-d.open .drop { left: 8px; right: 8px; }
+/* klapka łącząca pasek z panelem (tylko A/D): panel wyrasta z paska, a nie ze strony */
+.v-a .drop::before, .v-d .drop::before { content: ""; position: absolute; left: -1px; right: -1px; top: -1px; height: 3px; background: var(--accent); border-radius: 0; }
+
+/* ---------- B: strona w tle — mocne przyciemnienie, rozmycie i odbarwienie ---------- */
+.v-b .backdrop, .v-d .backdrop { background: rgba(3, 5, 7, .72); }
+.v-b.open .backdrop, .v-d.open .backdrop { backdrop-filter: blur(3px) grayscale(.7); -webkit-backdrop-filter: blur(3px) grayscale(.7); }
+.v-b.open header, .v-d.open header { box-shadow: 0 1px 0 var(--line); }
+.v-b .backdrop-hint, .v-d .backdrop-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 14px;
+  background: rgba(14, 17, 20, .9); color: var(--text-2); font-size: 12px; letter-spacing: .04em; white-space: nowrap; }
+.backdrop-hint { display: none; }
+.v-b .backdrop-hint, .v-d .backdrop-hint { display: block; }
+
+/* ---------- C: okno z belką tytułową i podpisanym „Zamknij” ---------- */
+.v-c .dtitle, .v-d .dtitle { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px 0 14px; background: var(--accent-bg); border-bottom: 1px solid var(--accent-border);
+  font-size: 13px; font-weight: 700; letter-spacing: .16em; color: var(--text); }
+.dtitle .sum { font-weight: 400; letter-spacing: .04em; color: var(--accent-text); font-size: 12px; }
+.dtitle .x { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px; border: 1px solid var(--text-2); border-radius: 3px;
+  background: rgba(255, 255, 255, .06); font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+.dtitle .x:hover { background: var(--text); color: var(--bg); }
+.dtitle .x kbd { border-color: currentColor; color: inherit; opacity: .7; }
+.v-c .dhead .icon.cl, .v-d .dhead .icon.cl { display: none; }
+.v-c.open .strip .tick, .v-d.open .strip .tick { display: none; }
+.v-c.open .strip-close, .v-d.open .strip-close { flex: 1; display: flex; align-items: center; gap: 10px; padding: 0 14px; color: var(--text); font-size: 12px; letter-spacing: .1em; font-weight: 700; }
+.strip-close span { color: var(--text-3); font-weight: 400; letter-spacing: .04em; }
+.v-c.open .chev, .v-d.open .chev { width: auto; padding: 0 10px; gap: 6px; display: inline-flex; align-items: center; border: 1px solid var(--text-2); font-size: 11px; font-weight: 700; letter-spacing: .1em; color: var(--text); transform: none; }
+.v-c.open .chev .close-lab, .v-d.open .chev .close-lab { display: inline; }
+.v-c.open .chev svg, .v-d.open .chev svg { transform: rotate(180deg); }
+
+/* ---------- ramka makiety ---------- */
+.mock { position: fixed; right: 14px; bottom: 14px; z-index: 100; width: 330px; padding: 10px 12px; border: 1px dashed #5a646e; border-radius: 6px; background: rgba(5, 7, 9, .95); font-size: 12px; color: var(--text-2); }
+.mock b { display: block; margin-bottom: 6px; color: var(--text); letter-spacing: .1em; font-size: 11px; }
+.mock .row { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.mock button { height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 3px; background: none; font-size: 11px; }
+.mock button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.mock p { line-height: 1.45; min-height: 70px; }
+.mock .min { position: absolute; top: 6px; right: 8px; height: 20px; padding: 0 6px; }
+.mock.mini p, .mock.mini .row:nth-of-type(n+2) { display: none; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="app" id="root">
+  <nav class="side">
+    <div class="brand">ROBOT<small>6-DOF · STANOWISKO</small></div>
+    <a class="nav">PRZEGLĄD SYSTEMU</a><a class="nav">DIAGNOSTYKA</a><a class="nav on">STEROWANIE RĘCZNE</a><a class="nav">PROGRAMOWANIE</a><a class="nav">KONFIGURACJA</a>
+  </nav>
+  <main class="work">
+    <div class="strip" id="strip">
+      <span class="act"><i></i><span id="actLabel">ZATRZYMANY</span><span style="font-weight:400;letter-spacing:.02em;opacity:.85" id="actDetail">awaria sterowania</span></span>
+      <span class="tick"><i class="new">NOWY</i><span class="tag e" id="tickTag">BŁĄD</span><span class="tag">STEROWANIE</span><b id="tickText">Awaria sterowania</b><span style="color:var(--text-3)">— STOP wysłany</span></span>
+      <span class="strip-close">PANEL KOMUNIKATÓW OTWARTY <span>· kliknij pasek, obszar obok albo Esc, aby wrócić do strony</span></span>
+      <span class="right">
+        <span class="cnt e" id="cntE">2 BŁĘDY</span><span class="cnt w">3 UWAGI</span>
+        <button class="chev" id="chev" aria-label="Rozwiń / zwiń komunikaty"><span class="close-lab">ZAMKNIJ</span><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </span>
+    </div>
+    <header>
+      <h1>STEROWANIE RĘCZNE</h1><button class="hb">ZAŁĄCZ WSZYSTKIE</button><button class="hb">WYŁĄCZ WSZYSTKIE</button><button class="hb live">● LIVE · ROBOT FIZYCZNY</button>
+      <button class="stop"><span>STOP ROBOTA</span></button><button class="hb">RESET CAN</button>
+    </header>
+    <div class="content">
+      <div class="card scene"><h4>PODGLĄD 3D</h4><div class="robot"></div></div>
+      <div class="card"><h4>OSIE</h4>
+        <table><tr><th>OŚ</th><th>POZYCJA</th><th>PRĘDKOŚĆ</th><th>ENABLE</th></tr>
+          <tr><td>J1</td><td><b>12.00°</b></td><td>0.0 obr/min</td><td>0</td></tr><tr><td>J2</td><td><b>-35.40°</b></td><td>0.0 obr/min</td><td>0</td></tr>
+          <tr><td>J3</td><td><b>88.10°</b></td><td>0.0 obr/min</td><td>0</td></tr><tr><td>J4</td><td><b>0.25°</b></td><td>0.0 obr/min</td><td>0</td></tr>
+          <tr><td>J5</td><td><b>45.00°</b></td><td>0.0 obr/min</td><td>0</td></tr><tr><td>J6</td><td><b>-90.00°</b></td><td>0.0 obr/min</td><td>0</td></tr></table>
+        <div class="jog"><button>J1 −</button><button>J1 +</button><button>J2 −</button><button>J2 +</button></div>
+      </div>
+    </div>
+    <div class="backdrop" id="backdrop"><span class="backdrop-hint">Strona w tle · kliknij tutaj lub <kbd>Esc</kbd>, aby zamknąć komunikaty</span></div>
+    <section class="drop" id="drop" aria-label="Panel komunikatów">
+      <div class="dtitle">KOMUNIKATY <span class="sum" id="sum">2 błędy · 3 uwagi · 5 nowych</span>
+        <button class="x" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>ZAMKNIJ <kbd>Esc</kbd></button></div>
+      <div class="dhead">
+        <button class="tab on">Aktualne<em id="tabN">5</em></button><button class="tab">Czynności robota</button><button class="tab">Archiwum<em>11</em></button>
+        <span class="sp"></span><button class="ackall">✓ Kwituj wszystkie (5)</button>
+        <button class="icon" title="Przypnij"><svg viewBox="0 0 24 24"><path d="M9 3h6l-1 6 4 4H6l4-4z"/><path d="M12 13v8"/></svg></button>
+        <button class="icon cl" data-close title="Zwiń (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="dbody" id="dbody"></div>
+      <div class="dfoot"><span>■ Błąd</span><span>■ Uwaga</span><span>■ Info</span><span class="hint">Kliknij pasek albo <kbd>Esc</kbd>, aby zwinąć · nagłówek strony ze STOP pozostaje dostępny</span></div>
+    </section>
+  </main>
+</div>
+
+<div class="mock" id="mock">
+  <button class="min" id="min">_</button>
+  <b>MAKIETA — wyróżnienie panelu</b>
+  <div class="row" id="variants"></div>
+  <div class="row"><button id="toggle">Otwórz / zamknij</button><button id="sev">Najgorszy: błąd</button></div>
+  <p id="desc"></p>
+</div>
+
+<script>
+const V = {
+  now: ["Dziś", "Stan wdrożony: panel prawie w kolorze strony (#0b0e11 na #07090b), cienka szara ramka, przyciemnienie 55%."],
+  a: ["A · Szuflada", "Panel wyrasta z paska: jaśniejsza powierzchnia, akcent koloru najgorszego komunikatu na górnej krawędzi, pasek przy otwartym panelu przyjmuje ten sam kolor co nagłówek panelu. Strona bez zmian."],
+  b: ["B · Strona w tle", "Strona pod panelem mocno przyciemniona (72%), rozmyta i odbarwiona; podpowiedź „kliknij tutaj lub Esc”. Panel jak dziś. Nagłówek ze STOP pozostaje ostry i aktywny."],
+  c: ["C · Okno", "Panel dostaje belkę tytułową „KOMUNIKATY” w kolorze poziomu z dużym, podpisanym przyciskiem ZAMKNIJ (Esc). Pasek u góry przy otwartym panelu mówi „PANEL KOMUNIKATÓW OTWARTY”, strzałka zamienia się w przycisk ZAMKNIJ."],
+  d: ["D · Zalecane (A+B+C)", "Połączenie: jaśniejsza szuflada z akcentem (A), strona przyciemniona i rozmyta (B), belka z ZAMKNIJ i stan paska (C). Nagłówek ze STOP nietknięty. Koszt: tylko CSS + kilka elementów w MessageBar.tsx."],
+};
+const msgs = [
+  ["e", "Brak połączenia z backendem", "System · Panel"],
+  ["e", "Awaria sterowania", "Sterowanie · Robot fizyczny", true],
+  ["w", "Blisko osobliwości modelu", "Sterowanie · Robot"],
+  ["w", "Napędy nie są załączone", "Napędy · Robot fizyczny"],
+  ["w", "Brak aktualnego stanu wykonawcy", "Sterowanie · Robot fizyczny"],
+];
+const chev = '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
+const card = ([s, t, a, x]) => `<div class="msg ${s}${x ? " x" : ""}"><i class="new">NOWY</i><span class="tag ${s}">${s === "e" ? "BŁĄD" : "UWAGA"}</span><b>${t}</b><small>${a}</small>${x ? chev.replace('M6 9l6 6 6-6', 'M6 15l6-6 6 6') : chev}
+  ${x ? '<p>Właściciel sterowania zgłosił awarię: STOP wysłany.</p><div class="remedy"><strong>Co zrobić:</strong> Sprawdź stan robota oraz diagnostykę napędów i CAN. Usuń przyczynę przed ponownym przygotowaniem ruchu.</div>' : ""}</div>`;
+function render(warnOnly) {
+  const list = warnOnly ? msgs.filter(m => m[0] === "w") : msgs;
+  const e = list.filter(m => m[0] === "e"), w = list.filter(m => m[0] === "w");
+  document.getElementById("dbody").innerHTML = (e.length ? `<div class="grp">BŁĘDY ${e.length}</div>${e.map(card).join("")}` : "") + `<div class="grp w">UWAGI ${w.length}</div>${w.map(card).join("")}`;
+  document.getElementById("sum").textContent = `${e.length ? `${e.length} błędy · ` : ""}3 uwagi · ${list.length} nowych`;
+  document.getElementById("tabN").textContent = list.length;
+  document.getElementById("cntE").style.display = e.length ? "" : "none";
+  document.getElementById("tickTag").className = `tag ${warnOnly ? "w" : "e"}`; document.getElementById("tickTag").textContent = warnOnly ? "UWAGA" : "BŁĄD";
+  document.getElementById("tickText").textContent = warnOnly ? "Napędy nie są załączone" : "Awaria sterowania";
+  document.getElementById("actLabel").textContent = warnOnly ? "POSTÓJ" : "ZATRZYMANY";
+  document.getElementById("actDetail").textContent = warnOnly ? "po JOG J2" : "awaria sterowania";
+}
+const root = document.getElementById("root");
+const state = { v: "d", open: true, warn: false };
+function apply() {
+  root.className = `app v-${state.v}${state.open ? " open" : ""}${state.warn ? " sev-warn" : ""}`;
+  document.querySelectorAll("#variants button").forEach(b => b.classList.toggle("on", b.dataset.v === state.v));
+  document.getElementById("desc").textContent = V[state.v][1];
+  document.getElementById("sev").textContent = state.warn ? "Najgorszy: uwaga" : "Najgorszy: błąd";
+  render(state.warn);
+  history.replaceState(null, "", `#${state.v}${state.open ? "" : ",closed"}${state.warn ? ",warn" : ""}`);
+}
+const vr = document.getElementById("variants");
+for (const [k, [label]] of Object.entries(V)) { const b = document.createElement("button"); b.dataset.v = k; b.textContent = label; b.onclick = () => { state.v = k; state.open = true; apply(); }; vr.append(b); }
+const parts = location.hash.slice(1).split(",");
+if (V[parts[0]]) state.v = parts[0]; if (parts.includes("closed")) state.open = false; if (parts.includes("warn")) state.warn = true;
+const setOpen = o => { state.open = o; apply(); };
+document.getElementById("strip").onclick = () => setOpen(!state.open);
+document.getElementById("backdrop").onclick = () => setOpen(false);
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => setOpen(false));
+document.getElementById("toggle").onclick = () => setOpen(!state.open);
+document.getElementById("sev").onclick = () => { state.warn = !state.warn; apply(); };
+document.getElementById("min").onclick = () => document.getElementById("mock").classList.toggle("mini");
+addEventListener("keydown", e => { if (e.key === "Escape") setOpen(false); });
+function place() { // panel spod nagłówka strony, jak w aplikacji
+  const top = document.querySelector("header").getBoundingClientRect().bottom - document.querySelector(".work").getBoundingClientRect().top + 4;
+  document.getElementById("drop").style.top = top + "px"; document.getElementById("backdrop").style.top = top + "px";
+}
+addEventListener("resize", place); place(); apply();
+</script>
+</body>
+</html>

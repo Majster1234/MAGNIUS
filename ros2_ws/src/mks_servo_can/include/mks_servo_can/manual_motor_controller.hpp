@@ -52,6 +52,8 @@ class ManualMotorController {
   void invalidate_program_handover() { prepared_.fill(false); profile_verified_.fill(false); }
   // Po zmianie mikrokroku napędu: skala prędkości F6 wymaga ponownego odczytu 84h przy przygotowaniu osi.
   void forget_microstep(unsigned axis) { if(axis && axis<=kAxes) {microstep_[axis-1]=0;prepared_[axis-1]=profile_verified_[axis-1]=false;} }
+  // Napęd mógł się zrestartować: przed ruchem wymagane ponowne przygotowanie osi.
+  void forget_preparation(unsigned axis) { if(axis && axis<=kAxes) prepared_[axis-1]=false; }
   bool busy() const { return phase_ != Phase::idle || group_active_; }
   unsigned axis() const { return axis_; }
   bool fast_feedback(unsigned axis) const { return axis <= kAxes && axis && prepared_[axis - 1]; }

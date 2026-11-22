@@ -18,6 +18,11 @@ Przyciski ruchu niczego nie wysyłają, a STOP pokazuje tylko komunikat. Otwórz
   - usunięte powtórzenia: zasoby (CPU/RAM/CAN/RTT) zniknęły z mapy systemu w Diagnostyce (RTT jest teraz przy
     „Magistrala can0”), a CPU/RAM z kafelka „Komputer robota” w Przeglądzie (zamiast nich procesor i system).
 
+- 17.11.2026: **wdrożono w `web/src`** (osobne zadanie): `theme.css`, nowa rama z menu i panelem stanu, Diagnostyka
+  z mapą i zakładkami, Przegląd, układ Sterowania. Zmiana względem makiety: stan zwinięcia menu nie zależy od strony
+  (zmienia go tylko operator; pamiętany w przeglądarce). Przegląd ma kafelki i listę problemów (bez 3D i pozycji osi —
+  wymagałyby strumienia sterowania na stronie Przeglądu).
+
 ## Zawartość wariantu C2
 
 - **Menu bez Magistrali CAN i Architektury**: Przegląd, Diagnostyka, Sterowanie ręczne, Programowanie, Konfiguracja

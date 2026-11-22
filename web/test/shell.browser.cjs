@@ -3,7 +3,7 @@ const {chromium}=require('playwright');
 const fs=require('fs'),path=require('path'),assert=require('assert/strict');
 (async()=>{
   const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-  const context=await browser.newContext({viewport:{width:1366,height:768}}),dist=path.resolve(__dirname,'../dist');
+  const context=await browser.newContext({viewport:{width:1366,height:768}}),dist=process.env.ROBOT_WEB_TEST_DIST || path.resolve(__dirname,'../dist');
   const errors=[],writes=[],commands=[],sockets=new Set();let manualConnections=0;
   const component=(id,values={})=>({id,state:'ok',message:'Pomiar testowy',sampled_at:new Date().toISOString(),values});
   const status={schema_version:1,updated_at:new Date().toISOString(),age_seconds:0,fresh:true,
@@ -48,22 +48,22 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
     assert(await page.getByText('can0 · OK (ERROR-ACTIVE)',{exact:true}).isVisible());
     assert.equal(await page.locator('.manual-tile').count(),0);
     await page.evaluate(()=>{window.navigationSentinel='same-document';window.resizeEvents=0;window.addEventListener('resize',()=>window.resizeEvents++);});
-    for(const [id,label] of [['can','Magistrala CAN'],['diagnostics','Diagnostyka'],['manual','Sterowanie ręczne'],['config','Konfiguracja'],['architecture','Architektura'],['overview','Przegląd systemu']]){
+    for(const [id,label] of [['diagnostics','Diagnostyka'],['manual','Sterowanie ręczne'],['config','Konfiguracja'],['overview','Przegląd systemu']]){
       await nav.getByRole('link',{name:label,exact:true}).click();await page.getByRole('heading',{name:label,exact:true}).waitFor();
       await nav.locator(`a[href="#${id}"][aria-current="page"]`).waitFor();
       assert.equal(new URL(page.url()).hash,`#${id}`);
       assert.equal(await nav.locator('a.active').count(),1);assert.equal(await nav.getByRole('link',{name:label,exact:true}).getAttribute('aria-current'),'page');
-      assert.equal(await page.locator('.app-topbar').count(),1);assert(await sidebar.isVisible());
-      assert.equal(await page.locator('.app-topbar .pulse-monitor').count(),1,'Monitor pracy na każdym widoku');
-      assert.equal(await page.locator('.app-topbar .pulse-statuses .pulse-status').count(),4);
+      assert.equal(await page.locator('.app-statusbar').count(),1);assert(await sidebar.isVisible());
+      assert.equal(await sidebar.locator('.nav-status').count(),1,'Stan systemu w menu na każdym widoku');
+      assert.equal(await sidebar.locator('.ns-chip').count(),4);
       assert.equal(await page.evaluate(()=>window.navigationSentinel),'same-document');
       assert.equal(await page.locator('.breadcrumbs > span:last-child').textContent(),label);
-      if(id==='can'){
+      if(id==='diagnostics'){
+        await page.getByRole('tab',{name:'Magistrala CAN'}).click();
         can.scan.values.scanning=true;can.scan.values.checked=7;publish();
         await page.getByText('Adres 7 / 20',{exact:true}).waitFor();
         can.scan.values.scanning=false;publish();
-        const details=page.locator('.can-bus-details');const closed=await details.boundingBox();assert(closed.height<70,'Zwinięte szczegóły nie tworzą pustej karty');
-        await details.getByText('Szczegóły komunikacji',{exact:true}).click();assert((await details.boundingBox()).height>closed.height);
+        const details=page.locator('.can-metrics');
         assert(await page.getByText('ACK odebrane; kasowanie celu wymaga odbioru',{exact:true}).isVisible());
         assert((await details.locator('.metric').filter({has:page.getByText('Cykl komend',{exact:true})}).textContent()).includes('20'));
         assert((await details.locator('.metric').filter({has:page.getByText('Okres enkoderów',{exact:true})}).textContent()).includes('40'));
@@ -71,25 +71,27 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
         await details.getByText('Streaming bez ACK',{exact:true}).waitFor();
         assert((await details.locator('.metric').filter({has:page.getByText('Wyprzedzenie pozycji',{exact:true})}).textContent()).includes('25'));
         assert.equal(await details.getByText('Spóźnienie SYNC / maksimum',{exact:true}).count(),0);
-        assert(await page.getByRole('columnheader',{name:'Oś robota',exact:true}).isVisible());
+        assert(await page.getByRole('columnheader',{name:'Oś',exact:true}).isVisible());
         assert(await page.locator('.device-row').filter({hasText:'MKS SERVO42D'}).nth(2).getByRole('cell',{name:'J5',exact:true}).isVisible());
         await page.screenshot({path:'/tmp/robot-shell-can.png',fullPage:true});
       }
       if(id==='manual'){
         await page.locator('.preview-canvas canvas').waitFor();await page.getByText('Połączono · 20 Hz',{exact:true}).waitFor();
-        assert.equal(Math.round((await sidebar.boundingBox()).width),68);
+        assert.equal(Math.round((await sidebar.boundingBox()).width),236,'Wybór strony nie zmienia stanu menu');
         await page.locator('.preview-canvas canvas').evaluate(el=>el.dataset.identity='same-canvas');
         const before=await page.locator('.preview-canvas').boundingBox(),resizeBefore=await page.evaluate(()=>window.resizeEvents);
-        await page.getByRole('button',{name:'Rozwiń menu',exact:true}).click();
-        await page.waitForFunction(n=>window.resizeEvents>n,resizeBefore);
-        assert.equal(Math.round((await sidebar.boundingBox()).width),224);
-        assert.equal(await page.locator('.preview-canvas canvas').getAttribute('data-identity'),'same-canvas');
         await page.getByRole('button',{name:'Zwiń menu',exact:true}).click();
-        await page.waitForFunction(()=>document.querySelector('.sidebar').getBoundingClientRect().width===68);
+        await page.waitForFunction(n=>window.resizeEvents>n,resizeBefore);
+        await page.waitForFunction(()=>document.querySelector('.sidebar').getBoundingClientRect().width===100,null,{timeout:2000});
+        assert.equal(await sidebar.locator('.nav-status.compact .ns-item').count(),4,'Zwinięte menu: pionowy wskaźnik stanu');
+        assert.equal(await sidebar.locator('.nav-status.compact .ns-meter').count(),3,'Zwinięte menu: cienkie paski CPU, RAM i CAN');
+        assert.equal(await page.locator('.preview-canvas canvas').getAttribute('data-identity'),'same-canvas');
+        await page.getByRole('button',{name:'Rozwiń menu',exact:true}).click();
+        await page.waitForFunction(()=>document.querySelector('.sidebar').getBoundingClientRect().width===236);
         assert.equal(Math.round((await page.locator('.preview-canvas').boundingBox()).width),Math.round(before.width));
         assert.equal(manualConnections,1,'Zwijanie menu nie otwiera nowego strumienia sterowania');
         await page.getByRole('button',{name:'Planowanie',exact:true}).click();
-        await page.locator('.app-topbar').getByText('PLANOWANIE · bliźniak',{exact:true}).waitFor();
+        await page.locator('.app-statusbar').getByText('PLANOWANIE · bliźniak',{exact:true}).waitFor();
         assert.equal(await page.locator('.jog-controls .motion-indicator').count(),0);
         for(const group of await page.locator('.tcp-joystick-group').all()){
           const cross=await group.locator('.tcp-cross').boundingBox(),depth=await group.locator('.tcp-depth').boundingBox();
@@ -101,24 +103,36 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
         await page.screenshot({path:'/tmp/robot-shell-manual.png',fullPage:true});
       }
     }
+    // Stan zwinięcia zmienia tylko operator: zostaje po zmianie strony i po odświeżeniu.
+    await page.getByRole('button',{name:'Zwiń menu',exact:true}).click();
+    await nav.getByRole('link',{name:'Konfiguracja',exact:true}).click();await page.getByRole('heading',{name:'Konfiguracja',exact:true}).waitFor();
+    await page.waitForFunction(()=>document.querySelector('.sidebar').getBoundingClientRect().width===100,null,{timeout:2000});
+    await page.reload();await page.getByRole('heading',{name:'Konfiguracja',exact:true}).waitFor();
+    assert.equal(Math.round((await sidebar.boundingBox()).width),100);
+    await page.getByRole('button',{name:'Rozwiń menu',exact:true}).click();
+    await nav.getByRole('link',{name:'Przegląd systemu',exact:true}).click();await page.getByText('3/6 dostępnych',{exact:true}).waitFor();
     can.devices.find(device=>device.id===5).values.online=false;publish();await page.getByText('2/6 dostępnych',{exact:true}).waitFor();
     can.fresh=false;publish();await page.waitForFunction(()=>[...document.querySelectorAll('.joints > span')].every(el=>el.dataset.present==='unknown'));
-    await nav.getByRole('link',{name:'Architektura',exact:true}).click();await page.screenshot({path:'/tmp/robot-shell-architecture.png',fullPage:true});
-    const monitor=page.locator('.app-topbar .pulse-monitor'),width=(await monitor.boundingBox()).width;
-    // can.fresh=false: ROS ostrzega (brak świeżej diagnostyki CAN), napędy bez danych; szerokość monitora się nie zmienia.
-    await page.waitForFunction(()=>document.querySelector('.pulse-statuses .pulse-status:nth-child(2)').classList.contains('warn'));
-    assert.equal((await monitor.boundingBox()).width,width);
-    assert.equal(await monitor.locator('.pulse-drives i.stale').count(),6);
-    await monitor.locator('.pulse-status').nth(1).hover();
-    assert(await monitor.locator('.pulse-status').nth(1).locator('.pulse-tip').getByText('Diagnostyka CAN: brak świeżych danych',{exact:true}).isVisible());
-    await page.locator('.arch-table').getByText('planner',{exact:true}).waitFor();
-    assert(await page.locator('.arch-table').getByText('robot-web-status.service',{exact:true}).isVisible());
-    assert(await page.locator('.arch-table').getByText('status 1 · CAN 1 · ręczne 0',{exact:true}).isVisible());
-    await page.getByRole('tab',{name:'Tylko problemy'}).click();
-    assert.equal(await page.locator('.arch-table').getByText('planner',{exact:true}).count(),0);
-    assert(await page.locator('.arch-table').getByText('Diagnostyka CAN',{exact:true}).isVisible());
+    // Dawny adres #architecture otwiera zakładkę Procesy w Diagnostyce.
+    await page.evaluate(()=>{location.hash='architecture';});await page.getByRole('tab',{name:'Procesy',selected:true}).waitFor();
+    assert.equal(new URL(page.url()).hash,'#diagnostics');
+    await page.screenshot({path:'/tmp/robot-shell-architecture.png',fullPage:true});
+    const status=sidebar.locator('.nav-status');
+    // can.fresh=false: ROS ostrzega (brak świeżej diagnostyki CAN), napędy bez danych.
+    await page.waitForFunction(()=>document.querySelector('.nav-status .ns-chip:nth-child(2)').classList.contains('warn'));
+    assert.equal(await status.locator('.ns-drv .ns-drives i.stale').count(),6);
+    await status.locator('.ns-chip').nth(1).hover();
+    assert(await status.locator('.ns-chip').nth(1).locator('.ns-tip').getByText('Diagnostyka CAN: brak świeżych danych',{exact:true}).isVisible());
+    const table=page.locator('.process-panel table');
+    await table.getByText('planner',{exact:true}).waitFor();
+    assert(await table.getByText('robot-web-status.service',{exact:true}).isVisible());
+    assert(await table.getByText('status 1 · CAN 1 · ręczne 0',{exact:true}).isVisible());
+    await page.getByRole('tab',{name:/Problemy/}).click();
+    const problems=page.locator('.problem-list');
+    assert.equal(await problems.getByText('ROS 2 · planner',{exact:true}).count(),0);
+    assert(await problems.getByText('ROS 2 · Diagnostyka CAN',{exact:true}).isVisible());
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     assert.deepEqual(writes,[]);assert.deepEqual(commands,[]);assert.deepEqual(errors,[]);
-    console.log(JSON.stringify({result:'OK',checks:['5 tras bez przeładowania','aktywny link i wspólny topbar','mini-rail i resize bez restartu WebSocket/3D','3/6 osi z CAN i wygaszanie danych','ERROR-ACTIVE jako OK','szczegóły CAN bez pustej wysokości','CAN ID→J','Z/Rz osobno','symulacja poza sceną','monitor pracy na każdym widoku, stała szerokość i dymek','architektura: procesy, usługi, klienci WS, filtr problemów','brak komend sprzętowych']}));
+    console.log(JSON.stringify({result:'OK',checks:['4 trasy bez przeładowania','aktywny link, pasek stanu i stan systemu w menu','zwijanie menu niezależne od strony i pamiętane po odświeżeniu, resize bez restartu WebSocket/3D','3/6 osi z CAN i wygaszanie danych','ERROR-ACTIVE jako OK','szczegóły CAN bez pustej wysokości','CAN ID→J','Z/Rz osobno','symulacja poza sceną','stan systemu w menu z dymkiem','#architecture → Diagnostyka/Procesy: procesy, usługi, klienci WS, lista problemów','brak komend sprzętowych']}));
   }finally{clearInterval(timer);await context.close();await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

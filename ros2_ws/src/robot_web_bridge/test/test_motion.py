@@ -1,3 +1,4 @@
+import math
 import asyncio
 from concurrent.futures import Future
 from types import SimpleNamespace as NS
@@ -215,3 +216,67 @@ def test_execution_tuning_sets_ros_parameters_validates_and_resets():
     c.call = rejected
     with pytest.raises(MotionConflict, match='postoju'):
         asyncio.run(c.set_tuning({'position_kp': 3}))
+
+
+def test_execution_tuning_hold_diagnostics_use_integer_period_and_validate_range():
+    from rcl_interfaces.msg import ParameterType
+    from rcl_interfaces.srv import SetParameters
+    c = motion_client()
+    base = dict(hold_period_cycles=1, hold_rpm=0.0)
+    c.execution_tuning = dict(test=False, active=dict(base), baseline=dict(base))
+    c.parameter_type = SetParameters; c.parameter_client = object(); sent = []
+    async def call(client, request, timeout=3):
+        sent.extend(request.parameters)
+        c.execution_tuning['active'] = dict(hold_period_cycles=5, hold_rpm=10.0)
+        return NS(results=[NS(successful=True, reason='')] * len(request.parameters))
+    c.call = call
+    asyncio.run(c.set_tuning({'hold_period_cycles': 5, 'hold_rpm': 10}))
+    values = {p.name: p.value for p in sent}
+    assert values['execution_hold_period_cycles'].type == ParameterType.PARAMETER_INTEGER
+    assert values['execution_hold_period_cycles'].integer_value == 5 and values['execution_hold_rpm'].double_value == 10.0
+    with pytest.raises(ValueError):
+        asyncio.run(c.set_tuning({'hold_period_cycles': 0}))
+
+
+def test_prepare_circ_preview_recomputes_physical_chain_from_measurement():
+    async def scenario():
+        c = motion_client(True)
+        plan = await c.planning.get_plan('preview')
+        plan.update(motion_type='CHAIN', circ_request={'via_degrees': [1.]*6, 'target_degrees': [2.]*6, 'circ_orientation': 'path',
+                                                       'tcp_angular_acceleration_degrees_s2': 100.},
+                    execution_limits=dict(tcp_velocity_mm_s=20, tcp_acceleration_mm_s2=100, tcp_angular_velocity_degrees_s=30))
+        physical = NS(simulation_only=False, motion_type='CHAIN', model_id='model', configuration_revision='rev')
+        chains = []
+        async def plan_chain(context, segments, duration):
+            chains.append((context, segments, duration)); return {'success': True, 'plan': physical, 'message': ''}
+        async def context(payload, *args):
+            c.payload = payload
+            return NS(simulation_only=True, max_velocity=[.5]*6, max_acceleration=[1.]*6)
+        c.planning.plan_chain, c.planning.context = plan_chain, context
+        c.planning.reference = lambda *args: ([0.]*6, ['measured']*6)
+        async def call(client, req, timeout):
+            assert req.plan is physical
+            c.current_status.update(program_id='program', state='ready')
+            return NS(accepted=True, message='gotowy', status=NS(program_id='program'))
+        c.call = call
+        result = await c.prepare({'plan_id': 'preview'})
+        assert result['motion_type'] == 'CHAIN'
+        await c.task
+        assert c.preparation['state'] == 'ready', c.preparation
+        context, segments, duration = chains[0]
+        assert context.simulation_only is False and context.allow_missing_execution is False
+        assert c.payload['profile_limits'] is True and duration == 95
+        assert segments[0]['motion_type'] == 'CIRC' and segments[0]['circ_orientation'] == 1
+        assert segments[0]['tcp_velocity'] == pytest.approx(.02) and segments[0]['max_joint_velocity'] == [.5]*6
+        assert segments[0]['tcp_angular_acceleration'] == pytest.approx(math.radians(100))
+        # Niepełny pomiar (dopuszczony dla PTP w ustawieniach) nie wystarcza dla CIRC.
+        c3 = motion_client(True)
+        (await c3.planning.get_plan('preview')).update(motion_type='CHAIN', circ_request=plan['circ_request'], execution_limits=plan['execution_limits'])
+        with pytest.raises(ValueError, match='wszystkich sześciu'):
+            await c3.prepare({'plan_id': 'preview'})
+        # Plan CHAIN bez circ_request (ciąg programu) nie przechodzi przez ręczne przygotowanie.
+        c2 = motion_client(True)
+        (await c2.planning.get_plan('preview')).update(motion_type='CHAIN')
+        with pytest.raises(ValueError, match='CIRC'):
+            await c2.prepare({'plan_id': 'preview'})
+    asyncio.run(scenario())

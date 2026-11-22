@@ -13,6 +13,12 @@ namespace {
 double degrees(std::int64_t ticks) { return static_cast<double>(ticks) * 360.0 / 16384.0; }
 constexpr double kJogRestToleranceDegrees = 1.0;
 constexpr unsigned kManualRetries = 2;
+// Granica obr./min wału przy JOG przegubu: ta sama co ruch PTP/LIN (execution_max_rpm) i zakres pola prędkości F6
+// (≤ 3000 jednostek mikrokroku). Prędkość przegubu ogranicza dodatkowo limit osi z konfiguracji robota.
+// JOG wału bez konfiguracji przegubu pozostaje ograniczony przez manual_max_rpm.
+double joint_jog_rpm_cap(unsigned execution_max_rpm, std::uint16_t microstep) {
+  return std::min<double>(execution_max_rpm, 3000 * speed_scale(microstep));
+}
 }
 bool ManualMotorController::stopped(unsigned axis, Time now, std::chrono::milliseconds window) const {
   const auto &d = bus_.devices_[axis];
@@ -90,6 +96,7 @@ void ManualMotorController::add(std::vector<std::uint8_t> data, std::size_t leng
 }
 bool ManualMotorController::set_enable(unsigned axis, bool enabled, Time now) {
   if(group_active_ && !group_step_) return false;
+  if(enabled && bus_.drive_startup_pending(axis)) {message_="J"+std::to_string(axis)+": inicjalizacja napędu w toku — ENABLE zablokowane";return false;}
   // Podczas zatrzaśniętej awarii nie wolno wykonywać żadnej sekwencji
   // przygotowującej ruch. Operator może jednak jawnie odciąć ENABLE; wynik
   // potwierdzi niezależny odczyt 3A prowadzony przez maszynę odzyskiwania.
@@ -147,6 +154,7 @@ bool ManualMotorController::set_enable_all(bool enabled, Time now) {
   for(unsigned j=0;j<kAxes;++j) {
     const auto &device=bus_.devices_[j+1];
     if(!device.detected) continue;
+    if(enabled && bus_.drive_startup_pending(j+1)) {message_="J"+std::to_string(j+1)+": inicjalizacja napędu w toku — ENABLE zablokowane";return false;}
     if(!device.position.fresh(now,60ms) || !group_axis_still(j+1,now)) return false;
     targets[j]=true;
   }
@@ -176,6 +184,8 @@ void ManualMotorController::group_tick(Time now) {
              " (brak świeżej, stabilnej pozycji przez 1 s); sekwencja przerwana");return;
       }
       group_settle_deadline_={};
+      // Odpowiedź osi ma ten sam identyfikator CAN co komenda: F3 przy oczekującym odczycie zderzyłoby się z nią i przepadło.
+      if(!bus_.can_send(j+1,now)) return;
       const double cost=2*can_frame_bits(3);
       const double budget=bus_.config_.bitrate*std::chrono::duration<double>(bus_.config_.cycle).count()*std::min(kPlannedUtilization,bus_.config_.utilization_limit);
       if(bus_.spent_bits_+cost>budget) return;
@@ -268,7 +278,8 @@ bool ManualMotorController::jog_joint(JogAction action, unsigned axis, int direc
   if (!profile.configured || velocity > profile.velocity || !microstep_[axis - 1]) return false;
   const auto scale = speed_scale(microstep_[axis - 1]);
   const auto requested_rpm = velocity * profile.gear_ratio * 60 / (2 * std::acos(-1.0));
-  const auto raw = std::floor(std::min<double>(requested_rpm, bus_.config_.manual_max_rpm) / scale + 1e-10);
+  const auto cap = joint_jog_rpm_cap(bus_.config_.program_streaming[axis - 1].max_rpm, microstep_[axis - 1]);
+  const auto raw = std::floor(std::min<double>(requested_rpm, cap) / scale + 1e-10);
   if (raw < 1 || raw > 3000) return false;
   const double actual_rpm = raw * scale;
   if (actual_rpm > requested_rpm + 1e-9) return false;
@@ -290,7 +301,9 @@ bool ManualMotorController::jog_impl(JogAction action, unsigned axis, int direct
   }
   if (issued <= last_stop_ || busy() || bus_.active_ || bus_.fault_ || !ready(axis, now) || !jog_stopped(axis, now) ||
       bus_.profile_.axes[axis - 1].configured != joint ||
-      (direction != -1 && direction != 1) || !std::isfinite(rpm) || rpm <= 0 || rpm > bus_.config_.manual_max_rpm) return false;
+      (direction != -1 && direction != 1) || !std::isfinite(rpm) || rpm <= 0 ||
+      rpm > (joint ? joint_jog_rpm_cap(bus_.config_.program_streaming[axis - 1].max_rpm, microstep_[axis - 1]) + 1e-9
+                   : static_cast<double>(bus_.config_.manual_max_rpm))) return false;
   const auto raw = std::lround(rpm / speed_scale(microstep_[axis - 1]));
   if (raw < 1 || raw > 3000 || std::abs(raw * speed_scale(microstep_[axis - 1]) - rpm) > .001) {
     message_ = "Wybrana prędkość nie jest reprezentowalna dla mikrokroku napędu";
@@ -564,7 +577,8 @@ ManualState ManualMotorController::snapshot(Time now) const {
           a.position.stamp, a.position.valid && a.calibration_valid};
       const auto scale = microstep_[axis - 1] ? speed_scale(microstep_[axis - 1]) : 0;
       a.minimum_velocity = scale * 2 * std::acos(-1.0) / 60 / profile.gear_ratio;
-      a.maximum_velocity = std::min(profile.velocity, std::floor(bus_.config_.manual_max_rpm / (scale ? scale : 1)) * (scale ? scale : 1) * 2 * std::acos(-1.0) / 60 / profile.gear_ratio);
+      const auto cap = scale ? joint_jog_rpm_cap(bus_.config_.program_streaming[axis - 1].max_rpm, microstep_[axis - 1]) : 0.0;
+      a.maximum_velocity = std::min(profile.velocity, (scale ? std::floor(cap / scale + 1e-10) * scale : 0.0) * 2 * std::acos(-1.0) / 60 / profile.gear_ratio);
     }
     // Prędkość w układzie 31: pochodna pozycji, filtr 100 ms, stała pamięć.
     a.speed = velocity_[axis - 1]; a.speed.valid = a.speed.fresh(now, 250ms);

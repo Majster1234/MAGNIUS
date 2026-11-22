@@ -4,7 +4,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
 (async()=>{
  const pinningOnly=process.argv.includes('--pinning-only'),wheelOnly=process.argv.includes('--wheel-only');
  const browser=await chromium.launch({headless:true}),context=await browser.newContext({viewport:{width:1920,height:1080},acceptDownloads:true});
- const dist=path.resolve(__dirname,'../dist'),errors=[],writes=[],reads=[],sockets=new Set();
+ const dist=process.env.ROBOT_WEB_TEST_DIST || path.resolve(__dirname,'../dist'),errors=[],writes=[],reads=[],sockets=new Set();
  const now=Date.now(),base='/api/v1/diagnostics/trace';let sequence=500,broadcasting=true,serverTime=now,traceConnections=0;
  const make=(axis,n,gap=false)=>({axis,sequence:String(n),segment:n<480?'1':'2',monotonic_ns:String(n*40000000),utc_ns:String(BigInt(now-20000+n*40)*1000000n),
   time_ms:now-20000+n*40,position_cdeg:n===470?12345:n===471?-8765:axis*100,gap:gap||n===480});
@@ -33,13 +33,13 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
  });
  try {
   const page=await context.newPage();await page.goto('http://robot.test/');
-  await page.locator('.diagnostics-tile').click();await page.getByRole('heading',{name:'Diagnostyka',exact:true}).waitFor();
+  await page.locator('.sidebar a[href="#diagnostics"]').click();await page.getByRole('heading',{name:'Diagnostyka',exact:true}).waitFor();
   assert.equal(new URL(page.url()).hash,'#diagnostics');assert.equal(await page.locator('.shaft-chart').count(),6);
   const displayedEnd=async(axis=1)=>Number(new URL(await page.locator(`.shaft-chart[data-axis="${axis}"]`).getByRole('link',{name:'CSV zakresu',exact:true}).getAttribute('href'),'http://robot.test').searchParams.get('end_ms'));
   const panel=page.locator('.shaft-chart[data-axis="1"]');
   if(wheelOnly) {
    await page.setViewportSize({width:1440,height:900});
-   const module=page.locator('.app-content > .diagnostics-screen');
+   const module=page.locator('.hub-pane > .diagnostics-screen');
    await module.getByText('Zapis ciągły aktywny',{exact:true}).waitFor();
    const canvas=panel.locator('canvas');
    const waitEnd=async expected=>page.waitForFunction(value=>Math.abs(Number(new URL(document.querySelector('.shaft-chart[data-axis="1"] a').href).searchParams.get('end_ms'))-value)<2,expected);
@@ -82,7 +82,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
    for(let axis=2;axis<=6;axis++) assert.equal(await displayedEnd(axis),pinnedEnd,'Rolka w przypiętej osi przesuwa także osie modułu');
    assert.equal(await floating.locator('input[type=range]').count(),0,'Bez suwaka przewijania');
    assert(await floating.locator('.shaft-chart').evaluate(el=>el.scrollWidth<=el.clientWidth),'Bez poziomego paska przewijania wykresu');
-   await page.locator('.sidebar a[href="#architecture"]').click();await module.waitFor({state:'detached'});
+   await page.locator('.sidebar a[href="#config"]').click();await module.waitFor({state:'detached'});
    await nativeWheel(floating.locator('canvas'),-40);
    await floating.getByRole('button',{name:'Na żywo',exact:true}).click();await waitEnd(now);
    assert.equal(await floating.getByLabel('Okno czasu [s]',{exact:true}).inputValue(),'10');
@@ -148,7 +148,7 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
   await panel.getByText('1.00°',{exact:true}).waitFor();
   await page.screenshot({path:'/tmp/robot-shaft-trace.png',fullPage:true});
   }
-  const module=page.locator('.app-content > .diagnostics-screen');
+  const module=page.locator('.hub-pane > .diagnostics-screen');
   await module.getByText('Zapis ciągły aktywny',{exact:true}).waitFor();
   await module.locator('.shaft-chart[data-axis="1"]').getByRole('checkbox',{name:'Auto Y',exact:true}).uncheck();
   await module.getByLabel('J1 minimum Y',{exact:true}).fill('-20');await module.getByLabel('J1 maksimum Y',{exact:true}).fill('150');
@@ -172,12 +172,12 @@ const fs=require('fs'),path=require('path'),assert=require('assert/strict');
   await floating.getByRole('button',{name:'Wcześniej',exact:true}).click();
   assert.equal(await module.getByLabel('Koniec zakresu',{exact:true}).inputValue(),await floating.getByLabel('Koniec zakresu',{exact:true}).inputValue(),'Wspólny zakres obu podglądów');
   await floating.getByRole('button',{name:'Na żywo',exact:true}).click();
-  await page.locator('.sidebar a[href="#architecture"]').click();
+  await page.locator('.sidebar a[href="#config"]').click();
   await module.waitFor({state:'detached'});
-  assert.equal(new URL(page.url()).hash,'#architecture');assert(await floating.isVisible());
+  assert.equal(new URL(page.url()).hash,'#config');assert(await floating.isVisible());
   assert.equal(await module.count(),0,'Pozostałe osie nie są przenoszone do innych modułów');
   assert.equal(await page.locator('.shaft-chart').count(),1);
-  await page.locator('.sidebar a[href="#can"]').click();assert(await floating.isVisible());assert.equal(traceConnections,1);
+  await page.locator('.sidebar nav a[href="#overview"]').click();assert(await floating.isVisible());assert.equal(traceConnections,1);
   serverTime+=1000;publish();
   await page.waitForFunction(t=>Number(new URL(document.querySelector('.shaft-chart a').href).searchParams.get('end_ms'))===t,serverTime);
   const initial=await floating.boundingBox(),beforeMove=await displayedEnd();

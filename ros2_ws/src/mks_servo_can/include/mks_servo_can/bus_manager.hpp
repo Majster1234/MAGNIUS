@@ -99,6 +99,14 @@ struct TcpTrajectoryState {
   double elapsed{}, buffered_until{}, end{};
   std::string reason;
 };
+// Nastawy regulatora zależne od ruchu: szybki PTP dostaje dłuższe wyprzedzenie i większe Kp (pomiary 18.11.2026),
+// LIN, ciągi ruchów i wolny PTP zostają przy nastawach podstawowych.
+struct ProgramGainSchedule {
+  bool enabled{false};
+  double fast_ptp_velocity{21*3.14159265358979323846/180};  // szczyt prędkości osi [rad/s] od którego PTP jest szybki
+  double fast_lookahead_time_sec{.05}, fast_position_kp{12.};
+};
+bool program_uses_fast_gains(const PreparedMotionProgram &program,const ProgramGainSchedule &schedule);
 struct BusConfig {
   std::string interface{"can0"};
   unsigned bitrate{500000};
@@ -111,6 +119,9 @@ struct BusConfig {
   // Nadzór postoju (awaria krytyczna przy ruchu osi z ENABLE=1 bez komendy). Wyłączany tylko w testach,
   // które skokowo przestawiają pozycję emulowanego wału.
   bool hold_supervision{true};
+  // Inicjalizacja po starcie (drive_startup.cpp): ENABLE=0 i komendy startowe. Włącza ją właściciel CAN;
+  // domyślnie wyłączona, bo testy i narzędzia zakładają zastany stan emulowanych napędów.
+  bool drive_startup{false};
   bool motion_enabled{false};
   bool commissioning_verified{false};
   bool synchronization_verified{false};
@@ -127,7 +138,24 @@ struct BusConfig {
       kProgramPositionTolerance,kProgramPositionTolerance,kProgramPositionTolerance,
       kProgramPositionTolerance,kProgramPositionTolerance,kProgramPositionTolerance};
   std::array<StreamingParameters,kAxes> program_streaming{};
-
+  ProgramGainSchedule program_gain_schedule{};
+  double program_acceleration_ff{0.};  // tylko programy LIN; PTP, ciągi ruchów i JOG TCP bez zmian
+  // Diagnostyka strumienia trzymania SYNC (ucieczki przy dojeździe): co ile cykli powtarzać identyczną ramkę F5
+  // (SYNC i odczyty zostają co 10 ms) oraz dolna granica prędkości F5 [RPM wału]; 1 i 0 = działanie standardowe.
+  unsigned program_hold_period_cycles{1};
+  double program_hold_rpm{0.};
+  // Diagnostyka końca ruchu: kod acc ramek dolotu (-1 = bez zmiany) i końcówki trajektorii [s] oraz zatrzymanie osi,
+  // która podeszła do celu na program_hold_stop_ticks impulsów: 0 = brak, 1 = F7, 2 = F5 STOP (acc 0, przez SYNC).
+  int program_hold_acceleration{-1};
+  double program_hold_tail{0.};
+  unsigned program_hold_stop_mode{0};
+  double program_hold_stop_ticks{0.};
+  // Okno końcówki: program_hold_tail_end ≤ czas do końca ≤ program_hold_tail [s]. Koniec okna > 0 zdejmuje kod acc z ramek
+  // dolotu. program_hold_mark_scale mnoży prędkość ramek okna (oznaczenie, 1 = bez zmian). program_hold_silent: po pierwszej
+  // ramce celu bez F5 i SYNC; odczyty pozycji, nadzór i korekty osi poza tolerancją działają dalej.
+  double program_hold_tail_end{0.};
+  double program_hold_mark_scale{1.};
+  bool program_hold_silent{false};
 };
 struct BusStatistics {
   std::uint64_t tx{}, rx{}, invalid{}, late{}, timeouts{}, errors{}, deferred{}, missed_cycles{}, committed{}, dropped_commands{};
@@ -145,6 +173,10 @@ struct BusSnapshot {
   unsigned checked{};
   Source source{Source::none};
   std::string message;
+  // Inicjalizacja napędów: maski osi (bit 0 = J1); generacja rośnie po każdej ukończonej osi.
+  bool startup_enabled{};
+  unsigned startup_pending{}, startup_busy{}, startup_failed{}, startup_ready{};
+  std::uint64_t startup_generation{};
 };
 struct ControlState {
   std::array<Sample<double>, kAxes> positions{};
@@ -163,6 +195,18 @@ struct ExecutionTuning {
   double lookahead_time_sec{}, velocity_ff_scale{}, position_kp{}, integral_gain{}, integral_limit{};
   // Testowe nadpisanie kodu acc ramek F5 (0–255, 0 = bez rampy); -1 = bez nadpisania (konfiguracja / plik).
   int acceleration_code{-1};
+  double acceleration_ff_scale{};   // składnik a·t w prędkości F5 programów LIN: 0–2
+  bool gain_schedule{};             // nastawy zależne od ruchu (ProgramGainSchedule)
+  unsigned hold_period_cycles{1};   // diagnostyka trzymania: 1–100, 1 = F5 w każdym cyklu
+  double hold_rpm{};                // diagnostyka trzymania: 0 = wartość z tolerancji pozycji
+  int hold_acceleration{-1};        // kod acc ramek dolotu: -1 = bez zmiany, 0–255
+  unsigned hold_tail_ms{};          // ten sam kod także w końcówce trajektorii: 0–2000 ms
+  unsigned hold_stop_mode{};        // 0 = brak, 1 = F7, 2 = F5 STOP
+  unsigned hold_stop_ticks{};       // odległość od celu wyzwalająca zatrzymanie: 0–2000 impulsów
+  unsigned hold_tail_end_ms{};      // koniec okna końcówki przed końcem trajektorii: 0–2000 ms, 0 = do końca i w dolocie
+  double hold_mark_scale{1.};       // mnożnik prędkości ramek okna końcówki: 0,25–4, 1 = bez oznaczenia
+  unsigned hold_silent{};           // 1 = po pierwszej ramce celu bez F5 i SYNC
+  double min_lead_shaft_deg{};      // minimalne wyprzedzenie celu F5 w ruchu: 0–10° wału, 0 = wyłączone
 };
 // Zakresy zgodne z walidacją parametrów startowych (program_api.cpp) i streaming_setpoint.
 std::string validate_execution_tuning(const ExecutionTuning &tuning);
@@ -272,7 +316,7 @@ class CanBusManager {
   std::array<Time,6> shaft_command_stamps_{};
   enum class Kind { identity, mode, response_mode, sync_mode, microstep, position, enable, stall, motor, speed, watchdog,
     work_current, pid_kp_ki, pid_kd_kv, angle_error, microstep_write, manual, program_setup, recovery,
-    parameter_read, parameter_write };
+    parameter_read, parameter_write, hold_stop };
   struct Pending {
     bool used{false};
     std::uint16_t address{};
@@ -342,6 +386,24 @@ class CanBusManager {
   std::array<bool,kAxes> hold_valid_{};
   std::array<std::int64_t,kAxes> hold_ticks_{};
   void schedule_background(Time now);
+  struct DriveStartupAxis {
+    bool pending{}, failed{}, stop_sent{};
+    std::uint8_t expected{};  // potwierdzenia komend startowych bez wpisu w pending_
+    Time disable_sent{}, next_disable{}, next_probe{}, next_response_mode{}, deadline{};
+  };
+  std::array<DriveStartupAxis,kAxes> startup_{};
+  bool startup_armed_{};
+  unsigned startup_ready_{};
+  std::uint64_t startup_generation_{};
+  Time startup_grace_{};
+  void arm_drive_startup(unsigned joint,const char *reason);
+  void arm_drive_startup_all(Time now);
+  void note_drive_contact(std::uint16_t address,Time stamp);
+  bool send_startup_frame(std::uint16_t address,const std::vector<std::uint8_t> &data,Time now);
+  void schedule_drive_startup(Time now);
+  bool drive_startup_reply(const Frame &frame);
+  bool drive_startup_pending(unsigned axis) const;
+  void fill_startup_snapshot(BusSnapshot &snapshot) const;
   void schedule_motion(Time now);
   void schedule_tcp_trajectory(Time now);
   ProgramPoint tcp_reference(double seconds) const;
@@ -364,6 +426,13 @@ class CanBusManager {
     if(tuning_acceleration_>=0) s.acceleration=static_cast<std::uint8_t>(tuning_acceleration_);
     return s;
   }
+  // Nastawy wykonania programu: podstawowe, składnik przyspieszenia tylko dla LIN (w PTP pogarszał nadążanie, pomiary
+  // 18.11.2026) i wybrany przy przygotowaniu profil szybkiego PTP.
+  StreamingParameters execution_streaming(unsigned joint,const PreparedMotionProgram &program) const {
+    auto s=program_streaming(joint);if(program.motion_type=="LIN") s.acceleration_ff_scale=config_.program_acceleration_ff;
+    if(program.fast_gains) {s.lookahead_time_sec=config_.program_gain_schedule.fast_lookahead_time_sec;s.position_kp=config_.program_gain_schedule.fast_position_kp;}
+    return s;
+  }
   // Przesuwa oś czasu SYNC tak, by termin wypadł w `due` (≤ kSyncMaxShift); inaczej awaria.
   bool sync_shift(Time due,Time now,const char *reason);
   // Dolot końcowy SYNC: korekta celu jak w final_approach, wysyłana zestawem ACK → SYNC; awaria po kFinalApproachTimeout.
@@ -371,6 +440,7 @@ class CanBusManager {
   bool synchronized_reply(const Frame &frame,Time stamp);
   void synchronized_confirmation(const Frame &frame,Time now);
   bool synchronized_query_window(Time now) const;
+  bool synchronized_silent_hold() const;   // diagnostyka: cisza po pierwszej ramce celu
   // Faza wysyłania zestawów SYNC (okno budżetu wyrównane do przygotowania zestawu).
   bool sync_batch_window() const;
   int tuning_acceleration_{-1};
@@ -389,6 +459,9 @@ class CanBusManager {
   // true: trwa odczyt diagnostyczny po wykryciu — bez nowych zestawów F5.
   bool runaway_pending(Time now);
   bool sync_recovery_required_{};
+  // Reset CAN operatora po nieudanym odzyskiwaniu: po ponownym otwarciu magistrali odzyskiwanie startuje od nowa
+  // (STOP, ENABLE=0, weryfikacja postoju i SYNC) — jedyna droga wyjścia z recovery_failed poza STOP operatora.
+  bool recovery_retry_requested_{};
   bool unverified_sync_buffer_{};
   std::array<StreamingState,kAxes> staged_streaming_states_{};
   bool program_feedback_good(Time now) const;

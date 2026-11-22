@@ -160,7 +160,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
         const angles=JSON.parse(document.querySelector('.robot-preview canvas').dataset.plannedJointAngles);
         return Math.abs(angles[joint]-expected)<1e-12;
       },{joint,expected:before[joint]+amount*Math.PI/180},{timeout:3000});}
-      catch(error){console.error({axis,amount,before,after:await target(),request:stepRequests.at(-1),messages:await page.locator('.control-active').textContent()});throw error;}
+      catch(error){console.error({axis,amount,before,after:await target(),request:stepRequests.at(-1),messages:await page.locator('#message-panel .mb-now').textContent()});throw error;}
       const after=JSON.parse(await target());
       assert.equal(stepRequests.length,count+1);assert.equal(stepRequests.at(-1).step,amount);assert.equal(stepRequests.at(-1).axis,axis.toLowerCase());
       assert(Math.abs(after[joint]-before[joint]-amount*Math.PI/180)<1e-6,`Jeden klik dochodzi do celu po puszczeniu: ${axis}, ${amount}`);

@@ -62,6 +62,9 @@ def main(args=None):
         can_store = CanStatusStore(node.declare_parameter('can_interface', 'can0').value)
         manual_store = ManualStore()
         trace_directory = node.declare_parameter('shaft_trace_directory', '').value
+        from .fault_api import FaultSnapshotStore
+        # Migawki awarii z nagrywania diagnostyki (start_web_status.sh --record ustawia ROBOT_TRACE_DIR).
+        fault_snapshots = FaultSnapshotStore(os.environ.get('ROBOT_TRACE_DIR') or None)
         shaft_trace = ShaftTraceStore(trace_directory or None)
         from .programs import ProgramStore
         # Programy ruchowe i biblioteka rozkazów/zmiennych/pozycji (domyślnie $XDG_STATE_HOME/robot/programs).
@@ -130,7 +133,7 @@ def main(args=None):
         thread = threading.Thread(target=spin, name='ros-executor', daemon=True)
         thread.start()
         node.get_logger().info(f"Panel diagnostyczny: {store.network['url']} ({interface})")
-        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace, overview, program_store, program_runner, robot_model_store), host=address, port=port,
+        uvicorn.run(create_app(store, static_dir, can_store, can_action, manual_store, manual_action, description_store, configuration_action, planning_client, motion_client, shaft_trace, overview, program_store, program_runner, robot_model_store, fault_snapshots), host=address, port=port,
                     proxy_headers=False, access_log=False, ws='wsproto', lifespan='off')
     finally:
         executor.shutdown(timeout_sec=2.0)

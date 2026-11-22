@@ -65,7 +65,22 @@ class MotionClient:
     TUNING_PARAMETERS = {'lookahead_time_sec': 'execution_lookahead_time_sec', 'velocity_ff_scale': 'execution_velocity_ff_scale',
                          'position_kp': 'execution_position_kp', 'integral_gain': 'execution_position_integral_gain',
                          'integral_limit_rad': 'execution_position_integral_limit_rad',
-                         'acceleration_code': 'execution_acceleration_override'}   # test: 0–255, -1 = konfiguracja/plik
+                         'acceleration_code': 'execution_acceleration_override',   # test: 0–255, -1 = konfiguracja/plik
+                         'acceleration_ff_scale': 'execution_acceleration_ff_scale',
+                         'gain_schedule': 'execution_gain_schedule_enabled',
+                         'hold_period_cycles': 'execution_hold_period_cycles',   # test: 1–100 cykli
+                         'hold_rpm': 'execution_hold_rpm',   # test: 0 = wartość standardowa
+                         'hold_acceleration': 'execution_hold_acceleration',   # test: kod acc ramek dolotu, -1 = bez zmiany
+                         'hold_tail_ms': 'execution_hold_tail_ms',
+                         'hold_stop_mode': 'execution_hold_stop_mode',         # test: 0 = brak, 1 = F7, 2 = F5 STOP
+                         'hold_stop_ticks': 'execution_hold_stop_ticks',
+                         'hold_tail_end_ms': 'execution_hold_tail_end_ms',     # test: koniec okna końcówki, 0 = do końca
+                         'hold_mark_scale': 'execution_hold_mark_scale',       # test: mnożnik prędkości ramek okna
+                         'hold_silent': 'execution_hold_silent',               # test: 1 = bez F5 i SYNC po ramce celu
+                         'min_lead_shaft_deg': 'execution_min_lead_shaft_deg'}  # test: minimalne wyprzedzenie celu F5 [° wału]
+    INTEGER_TUNING = {'acceleration_code': (-1, 255), 'hold_period_cycles': (1, 100), 'hold_acceleration': (-1, 255),
+                      'hold_tail_ms': (0, 2000), 'hold_stop_mode': (0, 2), 'hold_stop_ticks': (0, 2000),
+                      'hold_tail_end_ms': (0, 2000), 'hold_silent': (0, 1)}
 
     async def tuning(self):
         if self.execution_tuning is None:
@@ -90,11 +105,18 @@ class MotionClient:
         for key, value in values.items():
             if key not in self.TUNING_PARAMETERS:
                 continue
-            if key == 'acceleration_code':
-                if type(value) not in (int, float) or value != int(value) or not -1 <= value <= 255:
-                    raise ValueError('acceleration_code: liczba całkowita 0–255 albo -1')
+            if key in self.INTEGER_TUNING:
+                low, high = self.INTEGER_TUNING[key]
+                if type(value) not in (int, float) or value != int(value) or not low <= value <= high:
+                    raise ValueError(f'{key}: liczba całkowita {low}–{high}')
                 request.parameters.append(Parameter(name=self.TUNING_PARAMETERS[key], value=ParameterValue(
                     type=ParameterType.PARAMETER_INTEGER, integer_value=int(value))))
+                continue
+            if key == 'gain_schedule':
+                if value not in (True, False, 0, 1):
+                    raise ValueError('gain_schedule: wymagane true/false')
+                request.parameters.append(Parameter(name=self.TUNING_PARAMETERS[key], value=ParameterValue(
+                    type=ParameterType.PARAMETER_BOOL, bool_value=bool(value))))
                 continue
             if type(value) not in (int, float) or not math.isfinite(value):
                 raise ValueError(f'{key}: wymagana liczba')
@@ -190,9 +212,10 @@ class MotionClient:
             if status['busy']:
                 raise MotionConflict('Trwa wykonanie programu')
             plan = await self.planning.get_plan(data.get('plan_id'))
-            if plan.get('motion_type') not in ('PTP', 'LIN') or not plan.get('simulation_only'):
-                raise ValueError('Wybierz zapisany podgląd PTP lub LIN')
-            if plan['motion_type'] == 'LIN':
+            circ = plan.get('circ_request') if plan.get('motion_type') == 'CHAIN' else None
+            if (plan.get('motion_type') not in ('PTP', 'LIN') and not circ) or not plan.get('simulation_only'):
+                raise ValueError('Wybierz zapisany podgląd PTP, LIN lub CIRC')
+            if plan['motion_type'] == 'LIN' or circ:
                 lin_limits(plan.get('execution_limits', {}), require_all=True)
             # Ruch izolowany jednej/kilku osi (np. strojenie): pozostałe osie nie są komendowane ani sprawdzane,
             # więc ich cel musi być równy pozycji startowej planu. Tylko PTP (LIN wymaga wszystkich osi TCP).
@@ -221,6 +244,8 @@ class MotionClient:
                     or snapshot['active']['revision'] != plan['configuration_revision']):
                 raise ValueError('Zmienił się model lub konfiguracja; przelicz podgląd')
             seeds, sources = self.planning.reference(model, plan['configuration_revision'], state)
+            if circ and any(source != 'measured' for source in sources):
+                raise ValueError('CIRC wymaga pozycji pomiarowych wszystkich sześciu osi')
             if not allow_missing and any(source != 'measured' for source in sources):
                 raise ValueError('Wymagane sześć pozycji pomiarowych albo jawny tryb niepełnego zestawu')
             for j, source in enumerate(sources):
@@ -253,29 +278,18 @@ class MotionClient:
                        'motion_type': plan['motion_type'],
                        'seed_degrees': seeds, 'simulated_start': [source != 'measured' for source in sources],
                        **plan.get('execution_limits', {})}
+            if plan.get('circ_request'):
+                payload['profile_limits'] = True   # jak ciągi programów: limity osi niesie odcinek CIRC
             # Limity z podglądu są zachowane: nie zwiększamy zatwierdzanego posuwu.
             context = await self.planning.context(payload, True, (200, snapshot))
             context.simulation_only = False
             context.allow_missing_execution = settings.get('allow_missing_motion') is True
             context.simulated_start = payload['simulated_start']
             context.locked = [False] * 6
-            if not self.physical.server_is_ready():
-                raise RuntimeError('Planner fizycznego PTP/LIN jest niedostępny')
-            goal = self.physical_type.Goal(context=context, motion_type=0 if plan['motion_type'] == 'PTP' else 1,
-                                          target_positions=plan['target_positions'])
-            if plan['motion_type'] == 'LIN':
-                limits = lin_limits(plan['execution_limits'], require_all=True)
-                goal.tcp_velocity = limits['tcp_velocity_mm_s'] / 1000
-                goal.tcp_acceleration = limits['tcp_acceleration_mm_s2'] / 1000
-                goal.tcp_angular_velocity = math.radians(limits['tcp_angular_velocity_degrees_s'])
-            handle = await ros_result(self.physical.send_goal_async(goal))
-            if not handle.accepted:
-                raise RuntimeError('Planner odrzucił fizyczny kontekst ruchu')
-            self.planner_handle = handle
-            result = (await ros_result(handle.get_result_async(), 60)).result
-            if not result.success:
-                raise ValueError(result.message)
-            physical = result.plan
+            if plan.get('circ_request'):
+                physical = await self.physical_circ(plan, context)
+            else:
+                physical = await self.physical_motion(plan, context)
             if physical.simulation_only or physical.motion_type != plan['motion_type'] or physical.model_id != plan['model_id'] or physical.configuration_revision != plan['configuration_revision']:
                 raise ValueError('Planner zwrócił niezgodny program')
             code, current = await self.configuration('system_get')
@@ -302,6 +316,43 @@ class MotionClient:
             if self.planner_handle is not None:
                 self.planner_handle.cancel_goal_async()
                 self.planner_handle = None
+
+    async def physical_circ(self, plan, context):
+        """CIRC z podglądu (planning.move_circ) przeliczony od pomiaru planerem ciągu jako fizyczny plan CHAIN."""
+        from robot_control_interfaces.msg import MotionSegment
+        circ, limits = plan['circ_request'], lin_limits(plan['execution_limits'], require_all=True)
+        context.allow_missing_execution = False   # fizyczny ciąg: zawsze pełny zestaw osi (jak wykonawca programów)
+        segment = {'tag': 'circ', 'motion_type': 'CIRC', 'target_positions': [math.radians(q) for q in circ['target_degrees']],
+                   'via_positions': [math.radians(q) for q in circ['via_degrees']],
+                   'circ_orientation': {'interpolated': MotionSegment.CIRC_INTERPOLATED, 'path': MotionSegment.CIRC_PATH}[circ['circ_orientation']],
+                   'max_joint_velocity': list(context.max_velocity), 'max_joint_acceleration': list(context.max_acceleration),
+                   'tcp_velocity': limits['tcp_velocity_mm_s'] / 1000, 'tcp_acceleration': limits['tcp_acceleration_mm_s2'] / 1000,
+                   'tcp_angular_velocity': math.radians(limits['tcp_angular_velocity_degrees_s']),
+                   'tcp_angular_acceleration': math.radians(float(circ.get('tcp_angular_acceleration_degrees_s2', 0.))), 'blend_radius': 0.}
+        reply = await self.planning.plan_chain(context, [segment], 95.)
+        if not reply['success']:
+            raise ValueError(reply['message'])
+        return reply['plan']
+
+    async def physical_motion(self, plan, context):
+        """Fizyczny PTP/LIN od pomiaru (ComputePhysicalMotion) z limitami zapisanymi w podglądzie."""
+        if not self.physical.server_is_ready():
+            raise RuntimeError('Planner fizycznego PTP/LIN jest niedostępny')
+        goal = self.physical_type.Goal(context=context, motion_type=0 if plan['motion_type'] == 'PTP' else 1,
+                                      target_positions=plan['target_positions'])
+        if plan['motion_type'] == 'LIN':
+            limits = lin_limits(plan['execution_limits'], require_all=True)
+            goal.tcp_velocity = limits['tcp_velocity_mm_s'] / 1000
+            goal.tcp_acceleration = limits['tcp_acceleration_mm_s2'] / 1000
+            goal.tcp_angular_velocity = math.radians(limits['tcp_angular_velocity_degrees_s'])
+        handle = await ros_result(self.physical.send_goal_async(goal))
+        if not handle.accepted:
+            raise RuntimeError('Planner odrzucił fizyczny kontekst ruchu')
+        self.planner_handle = handle
+        result = (await ros_result(handle.get_result_async(), 60)).result
+        if not result.success:
+            raise ValueError(result.message)
+        return result.plan
 
     async def prepared(self):
         from rosidl_runtime_py.convert import message_to_ordereddict

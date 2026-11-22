@@ -20,15 +20,16 @@ builtin_interfaces::msg::Duration duration(double t) {
   builtin_interfaces::msg::Duration result; const auto ns=static_cast<int64_t>(std::llround(t*1e9));
   result.sec=ns/1000000000; result.nanosec=ns%1000000000; return result;
 }
-struct TcpRates { Eigen::Vector3d v,a,w; };
+struct TcpRates { Eigen::Vector3d v,a,w,alpha; };   // alpha: przyspieszenie kątowe TCP
 TcpRates tcp_rates(const robot_kinematics::Model &model,const Sample &s) {
   const auto jac=model.jacobian(s.q);
   const Eigen::Map<const Eigen::Matrix<double,6,1>> v(s.v.data()),a(s.a.data());
-  TcpRates out{jac.topRows<3>()*v,jac.topRows<3>()*a,jac.bottomRows<3>()*v};
+  TcpRates out{jac.topRows<3>()*v,jac.topRows<3>()*a,jac.bottomRows<3>()*v,jac.bottomRows<3>()*a};
   if(v.squaredNorm()>1e-20) {
     constexpr double h=1e-4;auto plus=s.q,minus=s.q;
     for(unsigned j=0;j<6;++j) { plus[j]+=h*s.v[j];minus[j]-=h*s.v[j]; }
-    out.a+=(model.jacobian(plus).topRows<3>()-model.jacobian(minus).topRows<3>())*v/(2*h);
+    const auto dj=((model.jacobian(plus)-model.jacobian(minus))/(2*h)).eval();
+    out.a+=dj.topRows<3>()*v; out.alpha+=dj.bottomRows<3>()*v;
   }
   return out;
 }
@@ -36,7 +37,8 @@ double tcp_excess(const robot_kinematics::Model &model,const Sample &s,const Tcp
   if(limits.velocity<=0) return 1.;
   const auto rates=tcp_rates(model,s);
   return std::max({1.,rates.v.norm()/limits.velocity,rates.w.norm()/limits.angular_velocity,
-                   std::sqrt(rates.a.norm()/limits.acceleration)});
+                   std::sqrt(rates.a.norm()/limits.acceleration),
+                   limits.angular_acceleration>0 ? std::sqrt(rates.alpha.norm()/limits.angular_acceleration) : 1.});
 }
 Sample sample(const Trajectory &trajectory, double t, size_t &index) {
   const auto &points=trajectory.points;
@@ -107,42 +109,85 @@ void limit_path_speed(Trajectory &trajectory, const robot_kinematics::Model &mod
       const auto rates=tcp_rates(model,s);
       if(rates.v.norm()>1e-10) rate2[k]=std::min(rate2[k],std::pow(.995*tcp.velocity/rates.v.norm(),2));
       if(rates.w.norm()>1e-10) rate2[k]=std::min(rate2[k],std::pow(.995*tcp.angular_velocity/rates.w.norm(),2));
-      // Rezerwa dla przyspieszenia powodowanego zmianą zegara drogi.
-      if(rates.a.norm()>1e-10) rate2[k]=std::min(rate2[k],.9*tcp.acceleration/rates.a.norm());
-      if(rates.v.norm()>1e-10) budget[k]=std::min(budget[k],
-        std::max(0.,.999*tcp.acceleration-rates.a.norm()*rate2[k])/rates.v.norm());
+      // Przyspieszenie TCP starego zegara = normalne (krzywizna toru, skaluje się jak u²) + styczne (zmiany prędkości
+      // starego zegara TOTG — zastępuje je nowy zegar). Limit prędkości wynika tylko z normalnego: pełna norma
+      // ograniczała łuki CIRC i przejścia artefaktami TOTG (falująca prędkość na stałym promieniu, 19.11.2026).
+      const double vn=rates.v.norm(); double at=0.; Eigen::Vector3d normal=rates.a;
+      if(vn>1e-10) { at=rates.a.dot(rates.v)/vn; normal-=at*rates.v/vn; }
+      const double an=normal.norm();
+      // Postój (v=0, start/koniec drogi): całe przyspieszenie jest styczne i skaluje się jak u².
+      const double scaled=vn>1e-10 ? an : rates.a.norm();
+      if(scaled>1e-10) rate2[k]=std::min(rate2[k],.9*tcp.acceleration/scaled);
+      // Rezerwa dla przyspieszenia powodowanego zmianą zegara drogi: |a|² = (an·u²)² + (at·u² + |v|·du/dt)².
+      // Budżet symetryczny (|at|): liczony z górnego oszacowania u² sprzed przejść, więc zachowawczy w obu kierunkach.
+      if(vn>1e-10) budget[k]=std::min(budget[k],std::max(0.,
+        std::sqrt(std::max(0.,std::pow(.999*tcp.acceleration,2)-std::pow(an*rate2[k],2)))-std::abs(at)*rate2[k])/vn);
+      // Przyspieszenie kątowe (CIRC względem środka, przejścia, obroty): ta sama zasada — składowa prostopadła do ω
+      // (zmiana osi obrotu) skaluje się jak u², równoległa zależy od zegara (budżet). 19.11.2026: bez tego limitu J4
+      // nie nadążał przy obrocie narzędzia o 90° na łuku R20 (uchyb śledzenia 4°).
+      if(tcp.angular_acceleration>0) {
+        const double wn=rates.w.norm(); double par=0.; Eigen::Vector3d perp=rates.alpha;
+        if(wn>1e-10) { par=rates.alpha.dot(rates.w)/wn; perp-=par*rates.w/wn; }
+        const double scaled_alpha=wn>1e-10 ? perp.norm() : rates.alpha.norm();
+        if(scaled_alpha>1e-10) rate2[k]=std::min(rate2[k],.9*tcp.angular_acceleration/scaled_alpha);
+        if(wn>1e-10) budget[k]=std::min(budget[k],std::max(0.,
+          std::sqrt(std::max(0.,std::pow(.999*tcp.angular_acceleration,2)-std::pow(perp.norm()*rate2[k],2)))-std::abs(par)*rate2[k])/wn);
+      }
     }
     slowing=slowing || rate2[k]<1.-1e-10;
   }
   if(!slowing && !any_tcp) return;
   // Wyprzedzające hamowanie i ograniczenie przyspieszania po opuszczeniu strefy.
   // |d(u²)/ds| <= 2*budget; obie strony dostają wspólny budżet interwału.
-  for(size_t k=1;k<count;++k) rate2[k]=std::min(rate2[k],rate2[k-1]+2*std::min(budget[k-1],budget[k])*ds);
-  for(size_t k=count-1;k>0;--k) rate2[k-1]=std::min(rate2[k-1],rate2[k]+2*std::min(budget[k-1],budget[k])*ds);
-  std::vector<double> acceleration(count-1);
-  for(size_t k=0;k+1<count;++k) acceleration[k]=(rate2[k+1]-rate2[k])/(2*ds);
-  trajectory_msgs::msg::JointTrajectory output; output.joint_names=trajectory.joint_names; output.header=trajectory.header;
-  double t=0;
-  for(size_t k=0;k<count;++k) {
-    check(); const double u=std::sqrt(rate2[k]);
-    const double alpha=k==0 ? acceleration.front() : k+1==count ? acceleration.back() : (acceleration[k-1]+acceleration[k])/2;
-    trajectory_msgs::msg::JointTrajectoryPoint point; point.positions.resize(6);point.velocities.resize(6);point.accelerations.resize(6);
-    for(unsigned j=0;j<6;++j) {
-      point.positions[j]=samples[k].q[j]; point.velocities[j]=samples[k].v[j]*u;
-      point.accelerations[j]=samples[k].a[j]*rate2[k]+samples[k].v[j]*alpha;
+  auto propagate=[&]() {
+    for(size_t k=1;k<count;++k) rate2[k]=std::min(rate2[k],rate2[k-1]+2*std::min(budget[k-1],budget[k])*ds);
+    for(size_t k=count-1;k>0;--k) rate2[k-1]=std::min(rate2[k-1],rate2[k]+2*std::min(budget[k-1],budget[k])*ds);
+  };
+  auto build=[&]() {
+    std::vector<double> acceleration(count-1);
+    for(size_t k=0;k+1<count;++k) acceleration[k]=(rate2[k+1]-rate2[k])/(2*ds);
+    trajectory_msgs::msg::JointTrajectory output; output.joint_names=trajectory.joint_names; output.header=trajectory.header;
+    double t=0;
+    for(size_t k=0;k<count;++k) {
+      check(); const double u=std::sqrt(rate2[k]);
+      const double alpha=k==0 ? acceleration.front() : k+1==count ? acceleration.back() : (acceleration[k-1]+acceleration[k])/2;
+      trajectory_msgs::msg::JointTrajectoryPoint point; point.positions.resize(6);point.velocities.resize(6);point.accelerations.resize(6);
+      for(unsigned j=0;j<6;++j) {
+        point.positions[j]=samples[k].q[j]; point.velocities[j]=samples[k].v[j]*u;
+        point.accelerations[j]=samples[k].a[j]*rate2[k]+samples[k].v[j]*alpha;
+      }
+      if(k) t+=2*ds/(std::sqrt(rate2[k-1])+u);
+      if(t>200) throw std::runtime_error("Plan po ograniczeniu prędkości TCP/nadgarstka przekracza 200 s");
+      point.time_from_start=duration(t); output.points.push_back(std::move(point));
     }
-    if(k) t+=2*ds/(std::sqrt(rate2[k-1])+u);
-    if(t>200) throw std::runtime_error("Plan po ograniczeniu prędkości TCP/nadgarstka przekracza 200 s");
-    point.time_from_start=duration(t); output.points.push_back(std::move(point));
+    return output;
+  };
+  // Interpolator JTC używa q/v/a, więc sprawdzamy cały wynik po zmianie zegara (co 1 ms). Przekroczenie jest
+  // przypisane do odcinka między węzłami (interpolacja 5. stopnia, zwłaszcza pierwszy odcinek od postoju TOTG, gdzie
+  // q_s=0). Zamiast rozciągać całą trajektorię (dawniej: jeden odcinek startowy spowalniał cały łuk CIRC o ~20%),
+  // zmniejszamy zegar tylko na tych odcinkach i powtarzamy; globalne rozciągnięcie zostaje jako ostateczność.
+  auto validate=[&](const Trajectory &candidate,std::vector<double> &excess) {
+    double correction=1.; size_t index=0; caps.reset(); excess.assign(count,1.);
+    for(double t=0;t<=seconds(candidate.points.back().time_from_start);t+=.001) {
+      check(); const auto s=sample(candidate,t,index); const auto cap=caps.at(s.q); const auto limits=local_velocity_limits(model,s,cap.v,cap.wrist);
+      double local=1.;
+      for(unsigned j=0;j<6;++j) local=std::max({local,std::abs(s.v[j])/limits[j],std::sqrt(std::abs(s.a[j])/cap.a[j])});
+      local=std::max(local,tcp_excess(model,s,cap.tcp));
+      excess[std::min(index,count-1)]=std::max(excess[std::min(index,count-1)],local);
+      correction=std::max(correction,local);
+    }
+    return correction;
+  };
+  std::vector<double> excess;
+  propagate(); auto output=build(); double correction=validate(output,excess);
+  for(int pass=0;pass<8 && correction>1.+1e-8;++pass) {
+    for(size_t k=0;k+1<count;++k) if(excess[k]>1.+1e-8) {
+      const double factor=std::pow(excess[k]*1.01,2);
+      rate2[k]/=factor; rate2[k+1]=std::min(rate2[k+1],rate2[k+1]/factor);
+    }
+    propagate(); output=build(); correction=validate(output,excess);
   }
   trajectory=std::move(output);
-  // Interpolator JTC używa q/v/a, więc sprawdzamy cały wynik po zmianie zegara.
-  double correction=1.; cursor=0; caps.reset();
-  for(double t=0;t<=seconds(trajectory.points.back().time_from_start);t+=.001) {
-    check(); const auto s=sample(trajectory,t,cursor); const auto cap=caps.at(s.q); const auto limits=local_velocity_limits(model,s,cap.v,cap.wrist);
-    for(unsigned j=0;j<6;++j) correction=std::max({correction,std::abs(s.v[j])/limits[j],std::sqrt(std::abs(s.a[j])/cap.a[j])});
-    correction=std::max(correction,tcp_excess(model,s,cap.tcp));
-  }
   if(correction>1.+1e-8) stretch_time(trajectory,correction*1.005);
   const double finish=seconds(trajectory.points.back().time_from_start);
   stretch_time(trajectory,std::ceil(finish/cycle)*cycle/finish);

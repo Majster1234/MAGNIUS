@@ -1,7 +1,7 @@
 // Testuje wyłącznie atrapy HTTP/WS. Nie łączy się z ROS ani CAN.
 const {chromium}=require('playwright');
 const fs=require('fs'),path=require('path'),assert=require('assert/strict');
-const dist=path.resolve(__dirname,'../dist');
+const dist=process.env.ROBOT_WEB_TEST_DIST || path.resolve(__dirname,'../dist');
 (async()=>{
   const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   const context=await browser.newContext({viewport:{width:1600,height:1000}});
@@ -32,7 +32,7 @@ const dist=path.resolve(__dirname,'../dist');
   try {
     const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
     await page.goto('http://robot.test/#manual');
-    await page.locator('.manual-recovery').getByText(/oczekujące osie: J3/).waitFor();
+    await page.locator('.control-issue[data-source=recovery]').getByText(/oczekujące osie: J3/).first().waitFor({state:'attached'});
     assert(await page.getByRole('button',{name:'Załącz wszystkie',exact:true}).isDisabled());
     assert(await page.getByRole('button',{name:'Wyłącz wszystkie',exact:true}).isEnabled());
     assert(await page.getByRole('button',{name:'Reset CAN',exact:true}).isEnabled());
@@ -40,13 +40,13 @@ const dist=path.resolve(__dirname,'../dist');
     await page.getByRole('button',{name:'Wyłącz wszystkie',exact:true}).click();
     assert.deepEqual(writes.at(-1),{path:'/api/v1/manual/enable-all',body:{enabled:false}});
     state.recovery_state='recovery_failed';state.recovery_message='J3: odrzucony F5';update();
-    await page.locator('.manual-recovery').getByText('Odzyskiwanie nieudane',{exact:true}).waitFor();
+    await page.locator('.control-issue[data-source=recovery]').getByRole('heading',{name:'Odzyskiwanie nieudane',exact:true,includeHidden:true}).waitFor({state:'attached'});
     state.axes[0].position_degrees=42;update();await page.getByText('42.0°',{exact:true}).waitFor();
     for(const width of [1280,1366,1920]) {
       await page.setViewportSize({width,height:1000});
-      const header=await page.locator('.manual-header').boundingBox(),banner=await page.locator('.manual-recovery').boundingBox();
+      const header=await page.locator('.manual-header').boundingBox(),strip=await page.locator('.mb-strip').boundingBox();
       const workspace=await page.locator('.manual-workspace').boundingBox();
-      const messages=await page.locator('.manual-messages').boundingBox();assert(banner.y>=messages.y && banner.y+banner.height<=messages.y+messages.height,'Baner odzyskiwania jest w panelu komunikatów');assert(workspace.y<=header.y+header.height+12,'Baner nie przesuwa obszaru roboczego');
+      assert(strip.y+strip.height<=header.y+1,'Pasek komunikatów jest nad nagłówkiem Sterowania');assert(workspace.y<=header.y+header.height+12,'Baner nie przesuwa obszaru roboczego');
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     }
     state.busy=false;state.fault=false;state.recovery_state='idle_disabled';

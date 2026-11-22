@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pasek komunikatów 2d</title><meta name="description" content="Pasek komunikatów: czynności robota, kwitowanie pojedyncze i zbiorcze, karta awarii z podświetloną osią, krótkim przebiegiem i wyciągiem migawki CAN.">
+<style>
+:root{--font:"Ubuntu Condensed","Liberation Sans Narrow","Arial Narrow",sans-serif;--mono:"DejaVu Sans Mono","Noto Sans Mono","Liberation Mono",monospace;
+--bg:#07090b;--panel:#0e1114;--raised:#161a1f;--line:#232930;--line-strong:#3a424b;--text:#f2f5f7;--text-2:#aab4bd;--text-3:#6e7983;
+--ok:#21d07a;--ok-bg:#0b2618;--ok-text:#52f2a0;--ok-border:#1a6b43;--plan:#2fa8ff;--plan-bg:#0a2134;--plan-text:#70c6ff;--plan-border:#1c5c8a;
+--warn:#ffb020;--warn-bg:#2a1e07;--warn-text:#ffc95c;--warn-border:#7a5410;--danger:#ff3b4e;--danger-bg:#2f0c12;--danger-text:#ff7d8a;--danger-border:#a3202f;
+--j1:#19e3f0;--j2:#a493ff;--j3:#f07cf5;--j4:#ff6fa8;--j5:#c8f03a;--j6:#d6dde3;--pop-shadow:0 18px 50px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.4)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+*{scrollbar-width:thin;scrollbar-color:#3a424b transparent}
+body{font-family:var(--font);color:var(--text);background:var(--bg);font-size:14px;overflow:hidden}
+a{color:inherit;text-decoration:none}
+.ico{width:1.15em;height:1.15em;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.shell{display:flex;height:100vh}
+/* menu boczne (zwinięte, jak na Sterowaniu ręcznym) */
+.sidebar{position:relative;width:100px;flex:none;display:flex;flex-direction:column;gap:2px;padding:10px 8px;background:#0a0c0f;border-right:1px solid var(--line);color:var(--text-2);z-index:30}
+.brand{display:grid;place-items:center;min-height:52px;margin-bottom:4px;border-bottom:1px solid var(--line);color:var(--text)}
+.brand .ico{width:28px;height:28px}
+.nav a{position:relative;display:grid;place-items:center;height:48px;border-radius:3px;color:var(--text-2)}
+.nav a .ico{width:24px;height:24px}
+.nav a.active{color:#fff;background:var(--raised);box-shadow:inset 3px 0 0 var(--text)}
+.ns{margin-top:auto;padding:10px 4px 6px;border-top:1px solid var(--line);display:grid;gap:5px;font-size:10px;letter-spacing:.08em;color:var(--text-3)}
+.ns div{display:flex;align-items:center;gap:6px}.ns i{width:7px;height:7px;background:var(--ok);display:block}
+.ns .bars{display:flex;gap:3px;margin-top:4px}.ns .bars i{flex:1;height:10px;width:auto;background:var(--warn)}
+.toggle{height:34px;margin-top:6px;border:1px solid var(--line);border-radius:3px;display:grid;place-items:center;color:var(--text-2)}
+/* obszar roboczy */
+.workspace{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}
+.content{flex:1;min-height:0;padding:10px 14px;display:flex;flex-direction:column}
+.statusbar{flex:none;display:flex;align-items:center;gap:12px;height:36px;padding:0 14px;border-top:1px solid var(--line);background:#0a0c0f;font-size:11px;color:var(--text-3)}
+.statusbar .crumbs{text-transform:uppercase;letter-spacing:.08em}.statusbar .crumbs b{color:var(--text);font-weight:400}
+.statusbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+/* nagłówek strony */
+.ph{display:flex;align-items:center;gap:14px;min-height:40px;padding:0 0 8px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.ph-title{display:flex;align-items:center;gap:10px}.ph-title .ico{width:22px;height:22px}
+.ph-title h1{font-size:22px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;line-height:1.1;white-space:nowrap}
+.info-tip{display:inline-grid;place-items:center;width:18px;height:18px;border:1px solid var(--line-strong);border-radius:50%;font-size:11px;color:var(--text-3)}
+.ph-state{display:flex;gap:8px}.ph-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.badge{display:inline-flex;align-items:center;gap:6px;min-height:22px;padding:0 8px;border:1px solid var(--line-strong);border-radius:2px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.badge .dot{width:7px;height:7px;background:currentColor}
+.badge.ok{color:var(--ok-text);background:var(--ok-bg);border-color:var(--ok-border)}
+.badge.warn{color:var(--warn-text);background:var(--warn-bg);border-color:var(--warn-border)}
+.badge.error{color:var(--danger-text);background:var(--danger-bg);border-color:var(--danger-border)}
+.badge.stale{color:var(--text-2);background:var(--raised)}
+.btn{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border:1px solid var(--line-strong);border-radius:3px;background:var(--raised);color:var(--text);font:700 12px var(--font);letter-spacing:.06em;text-transform:uppercase}
+.btn.stop{background:var(--danger);border-color:var(--danger);color:#fff;padding:0 18px;font-size:14px}
+/* tło: Sterowanie ręczne (przygaszone, tylko kontekst) */
+.bgpage{flex:1;min-height:0;display:grid;grid-template-columns:1.25fr 1fr;gap:10px}
+.panel{display:flex;flex-direction:column;min-height:0;border:1px solid var(--line);border-radius:4px;background:var(--panel);overflow:hidden}
+.panel-head{display:flex;align-items:center;gap:10px;min-height:38px;padding:5px 12px;border-bottom:1px solid var(--line);background:#0a0c0f}
+.panel-head h2{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.panel-head .r{margin-left:auto}
+.scene{flex:1;position:relative;background:radial-gradient(ellipse at 50% 70%,#141a20 0,#0b0e11 70%)}
+.scene::before{content:"";position:absolute;inset:45% 6% 6%;background:repeating-linear-gradient(90deg,#1b2128 0 1px,transparent 1px 40px),repeating-linear-gradient(0deg,#1b2128 0 1px,transparent 1px 28px);transform:perspective(500px) rotateX(55deg);opacity:.8}
+.scene svg{position:absolute;left:50%;top:50%;width:300px;height:300px;transform:translate(-50%,-55%)}
+.right-col{display:grid;grid-template-rows:auto 1fr;gap:10px;min-height:0}
+.axes{display:grid}
+.axis{display:grid;grid-template-columns:54px 1fr 92px 70px;align-items:center;gap:10px;height:42px;padding:0 12px;border-bottom:1px solid var(--line);font-size:13px}
+.axis b{font-size:15px}.axis .val{text-align:center;font-family:var(--mono);font-size:13px}
+.axis .bar{height:3px;background:var(--line);position:relative;margin-top:5px}.axis .bar i{position:absolute;top:-3px;width:3px;height:9px;background:var(--text-2)}
+.tcp{display:grid;grid-template-columns:repeat(3,52px);gap:6px;padding:14px;justify-content:center}
+.tcp span{height:44px;border:1px solid var(--line-strong);border-radius:3px;display:grid;place-items:center;color:var(--text-3);font-weight:700}
+/* podpis makiety */
+.caption{position:absolute;left:14px;bottom:46px;z-index:5;max-width:430px;padding:8px 10px;border:1px dashed var(--line-strong);border-radius:3px;background:rgba(7,9,11,.9);font-size:12px;color:var(--text-2);line-height:1.35}
+.caption b{display:block;color:var(--text);letter-spacing:.06em;text-transform:uppercase;font-size:11px;margin-bottom:2px}
+/* wspólne: przycisk komunikatów */
+.msg-trigger{position:relative;display:inline-flex;align-items:center;height:32px;border:1px solid var(--line-strong);border-radius:3px;background:var(--raised);color:var(--text);overflow:hidden}
+.msg-trigger .ico{width:20px;height:20px;margin:0 9px}
+.msg-trigger .cnt{display:grid;place-items:center;min-width:26px;height:100%;padding:0 6px;font:700 13px var(--font)}
+.msg-trigger .cnt.e{background:var(--danger);color:#fff}.msg-trigger .cnt.w{background:var(--warn);color:#1a1204}
+.msg-trigger.hover{border-color:var(--text-2);box-shadow:0 0 0 2px rgba(242,245,247,.12)}
+/* wspólne: karta komunikatu */
+.msg{position:relative;padding:10px 12px 10px 15px;border:1px solid var(--line);border-radius:3px;background:var(--panel)}
+.msg::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:3px 0 0 3px;background:var(--warn)}
+.msg.sev-error{border-color:var(--danger-border);background:linear-gradient(90deg,rgba(47,12,18,.75),var(--panel) 65%)}
+.msg.sev-error::before{background:var(--danger)}
+.msg.sev-info::before{background:var(--line-strong)}
+.msg-top{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3)}
+.msg-top .badge{min-height:18px;padding:0 6px;font-size:10px}
+.msg-top time{margin-left:auto;font-family:var(--mono);font-size:11px}
+.mod{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:2px;background:var(--raised);color:var(--text-2);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.msg h3{margin:6px 0 4px;font-size:16px;font-weight:700;line-height:1.2}
+.msg .expl{font-size:13px;line-height:1.4;color:var(--text)}
+.msg .reason{margin-top:4px;font-size:12px;line-height:1.35;color:var(--text-3)}.msg .reason b{color:var(--text-2);font-weight:700}
+.msg .remedy{margin-top:8px;padding:7px 10px;border-radius:3px;background:var(--raised);border:1px solid var(--line)}
+.msg .remedy b{display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ok-text);margin-bottom:3px}
+.msg .remedy ol{padding-left:18px;font-size:13px;line-height:1.4}
+.msg-foot{display:flex;align-items:center;gap:14px;margin-top:8px;font-size:12px}
+.msg-foot .go{display:inline-flex;align-items:center;gap:5px;color:var(--plan-text);font-weight:700}
+.msg-foot .go .ico{width:14px;height:14px}
+.msg-foot .tech{color:var(--text-3);display:inline-flex;align-items:center;gap:3px}.msg-foot .tech .ico{width:12px;height:12px}
+pre.tech-box{margin-top:6px;padding:6px 8px;background:#06080a;border:1px solid var(--line);border-radius:3px;font:11px/1.4 var(--mono);color:var(--text-2);white-space:pre-wrap}
+/* wspólne: wiersz kompaktowy */
+.row{display:grid;grid-template-columns:8px 1fr auto;align-items:center;gap:9px;min-height:36px;padding:4px 10px;border-bottom:1px solid var(--line);font-size:13px}
+.row i{width:8px;height:8px;display:block;background:var(--warn)}.row.sev-error i{background:var(--danger)}.row.sev-info i{background:var(--line-strong)}
+.row small{display:block;font-size:11px;color:var(--text-3)}
+.row time,.row .t{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+.row.sel{background:var(--raised);box-shadow:inset 3px 0 0 var(--danger)}
+/* wspólne: okno */
+.pop{position:absolute;z-index:40;display:flex;flex-direction:column;background:#0b0e11;border:1px solid var(--line-strong);border-radius:4px;box-shadow:var(--pop-shadow)}
+.pop-head{display:flex;align-items:center;gap:8px;min-height:42px;padding:6px 12px;border-bottom:1px solid var(--line);background:#0a0c0f}
+.pop-head h2{font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.pop-head h2 .ico{width:18px;height:18px}
+.pop-head .sp{margin-left:auto}
+.icon-btn{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--line);border-radius:3px;color:var(--text-2)}
+.icon-btn .ico{width:15px;height:15px}
+.icon-btn.on{color:var(--text);border-color:var(--text-2)}
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--line);padding:0 12px;background:#0a0c0f}
+.tabs span{padding:8px 12px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);border-bottom:2px solid transparent}
+.tabs span.on{color:var(--text);border-color:var(--text)}
+.tabs em{font-style:normal;color:var(--text-3);font-weight:400;margin-left:4px}
+.pop-body{flex:1;min-height:0;overflow:auto;padding:10px;display:grid;gap:8px;align-content:start}
+.pop-foot{display:flex;align-items:center;gap:10px;min-height:36px;padding:0 12px;border-top:1px solid var(--line);background:#0a0c0f;font-size:12px;color:var(--text-3)}
+.pop-foot .go{margin-left:auto;color:var(--plan-text);font-weight:700;display:inline-flex;align-items:center;gap:5px}.pop-foot .go .ico{width:14px;height:14px}
+.grp{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);padding:4px 2px 0;display:flex;align-items:center;gap:8px}
+.grp em{font-style:normal;font-weight:400}.grp .go{margin-left:auto;color:var(--plan-text);letter-spacing:.04em}
+.statusline{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-3)}.statusline b{color:var(--text-2);font-weight:400}
+.statusline i{width:7px;height:7px;background:var(--ok);display:block}
+
+
+:root{--strip-h:38px;--drop-ease:cubic-bezier(.2,.8,.2,1);--info:#8f9ba6;--info-bg:#151a20;--info-border:#3a424b}
+.btn.stop{position:relative;z-index:50}
+/* ---------- pasek ---------- */
+.strip{position:relative;z-index:45;flex:none;display:flex;align-items:stretch;height:var(--strip-h);border-bottom:1px solid var(--line);background:#0a0c0f;cursor:pointer;user-select:none;
+  transition:background .5s,border-color .5s}
+.strip:focus-visible{outline:2px solid var(--text-2);outline-offset:-2px}
+.strip.sev-warning{background:linear-gradient(90deg,var(--warn-bg),#0a0c0f 75%);border-color:var(--warn-border)}
+.strip.sev-error{background:linear-gradient(90deg,var(--danger-bg),#0a0c0f 75%);border-color:var(--danger-border)}
+.strip.sev-ok{background:linear-gradient(90deg,#0b1a12,#0a0c0f 60%)}
+.strip:hover{filter:brightness(1.15)}
+.strip.flash{animation:flash 1.3s ease-out}
+@keyframes flash{0%{box-shadow:inset 0 0 0 999px rgba(255,59,78,.45)}100%{box-shadow:inset 0 0 0 999px rgba(255,59,78,0)}}
+/* strefa stanu robota */
+.rs{display:flex;align-items:center;gap:9px;min-width:400px;max-width:400px;padding:0 14px;border-right:1px solid rgba(255,255,255,.07);transition:background .5s,color .5s}
+.rs .rs-ico{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;flex:none}
+.rs .rs-ico svg{width:12px;height:12px;fill:currentColor;stroke:none}
+.rs .lab{font-weight:700;letter-spacing:.1em;font-size:12px}
+.rs .det{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs .pct{margin-left:auto;font:700 13px var(--mono);white-space:nowrap}
+.rs-run{background:rgba(33,208,122,.10);color:var(--ok-text)}.rs-run .rs-ico{background:var(--ok);color:#03140b;animation:breathe 1.6s ease-in-out infinite}
+.rs-plan{background:rgba(47,168,255,.10);color:var(--plan-text)}.rs-plan .rs-ico{background:var(--plan);color:#031322;animation:breathe 1.6s ease-in-out infinite}
+.rs-idle{color:var(--text-2)}.rs-idle .rs-ico{background:var(--raised);color:var(--text-2);border:1px solid var(--line-strong)}
+.rs-fault{background:var(--danger);color:#fff;animation:pulse 1.8s ease-in-out infinite}.rs-fault .det{color:#ffd7db}.rs-fault .rs-ico{background:#fff;color:var(--danger)}
+@keyframes pulse{0%,100%{background:var(--danger)}50%{background:#b51b2c}}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.35)}50%{box-shadow:0 0 0 5px rgba(255,255,255,0)}}
+/* karuzela komunikatów */
+.tk{position:relative;flex:1;min-width:0;overflow:hidden}
+.tk-item{position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 14px;font-size:13px;white-space:nowrap;transition:transform .45s var(--drop-ease),opacity .45s}
+.tk-item.below{transform:translateY(100%);opacity:0}.tk-item.above{transform:translateY(-100%);opacity:0}
+.tk-item b{font-weight:700}.tk-item .sh{color:var(--text-2);overflow:hidden;text-overflow:ellipsis}
+.tk-item .badge{min-height:18px;font-size:10px;padding:0 6px}
+.tk-item .mod{flex:none}
+.pager{display:flex;align-items:center;gap:4px;padding:0 10px}
+.pager i{width:6px;height:6px;border-radius:50%;background:var(--line-strong);transition:background .3s,transform .3s}
+.pager i.on{background:var(--text);transform:scale(1.25)}
+.strip-r{display:flex;align-items:center;gap:8px;padding:0 12px;border-left:1px solid rgba(255,255,255,.07)}
+.cnt{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:2px;font:700 11px var(--font);letter-spacing:.06em;border:1px solid var(--line-strong);color:var(--text-3)}
+.cnt.e.has{background:var(--danger);border-color:var(--danger);color:#fff}.cnt.w.has{background:var(--warn);border-color:var(--warn);color:#1a1204}
+.cnt.bump{animation:bump .6s ease-out}
+@keyframes bump{0%{transform:scale(1)}35%{transform:scale(1.4)}100%{transform:scale(1)}}
+.clock{font:11px var(--mono);color:var(--text-3)}
+.chev{display:grid;place-items:center;width:28px;height:28px;border-radius:3px;color:var(--text-2);transition:transform .35s var(--drop-ease),background .2s}
+.chev svg{width:16px;height:16px}
+.open .chev{transform:rotate(180deg);background:rgba(255,255,255,.06)}
+.progress-line{position:absolute;left:0;bottom:-1px;height:2px;background:var(--ok);transition:width .5s linear,opacity .4s;box-shadow:0 0 8px var(--ok)}
+.progress-line.plan{background:var(--plan);box-shadow:0 0 8px var(--plan)}
+.progress-line.off{opacity:0}
+/* ---------- panel z góry ---------- */
+.backdrop{position:absolute;inset:var(--strip-h) 0 36px 0;z-index:35;background:rgba(3,5,7,.55);opacity:0;pointer-events:none;transition:opacity .35s}
+.open .backdrop{opacity:1;pointer-events:auto}
+.drop-wrap{position:absolute;top:var(--strip-h);left:0;right:100px;height:min(600px,calc(100vh - 120px));z-index:40;overflow:hidden;pointer-events:none}
+.drop{height:100%;display:flex;flex-direction:column;background:#0b0e11;border:1px solid var(--line-strong);border-top:0;border-left:0;border-radius:0 0 6px 0;box-shadow:0 24px 60px rgba(0,0,0,.7);
+  transform:translateY(-102%);visibility:hidden;pointer-events:auto;transition:transform .45s var(--drop-ease),visibility 0s .45s}
+.open .drop{transform:none;visibility:visible;transition:transform .45s var(--drop-ease)}
+.drop-head{display:flex;align-items:center;gap:6px;min-height:46px;padding:0 12px;border-bottom:1px solid var(--line);background:#0a0c0f}
+.tab{position:relative;height:46px;padding:0 14px;border:0;background:none;color:var(--text-3);font:700 12px var(--font);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:color .2s}
+.tab:hover{color:var(--text-2)}.tab.on{color:var(--text)}
+.tab::after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;background:var(--text);transform:scaleX(0);transition:transform .3s var(--drop-ease)}
+.tab.on::after{transform:scaleX(1)}
+.tab em{font-style:normal;font-weight:400;margin-left:5px;color:var(--text-3)}
+.tab .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:6px;vertical-align:1px}
+.head-sp{flex:1}
+.ibtn{display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--line);border-radius:3px;background:none;color:var(--text-2);cursor:pointer}
+.ibtn:hover{color:var(--text);border-color:var(--line-strong)}.ibtn.on{color:var(--text);border-color:var(--text-2);background:var(--raised)}
+.ibtn svg{width:15px;height:15px}
+.drop-body{flex:1;min-height:0;position:relative}
+.pane{position:absolute;inset:0;display:none}.pane.on{display:flex;animation:fadein .3s ease}
+@keyframes fadein{from{opacity:0;transform:translateY(-6px)}}
+.drop-foot{display:flex;align-items:center;gap:14px;min-height:32px;padding:0 12px;border-top:1px solid var(--line);background:#0a0c0f;font-size:11px;color:var(--text-3)}
+.lg{display:inline-flex;align-items:center;gap:5px}.lg i{width:9px;height:9px;border-radius:2px;display:block}
+.drop-foot .r{margin-left:auto}
+kbd{font:10px var(--mono);padding:1px 5px;border:1px solid var(--line-strong);border-radius:2px;color:var(--text-2)}
+/* wspólne kolory poziomów */
+.c-error{--c:var(--danger);--cb:var(--danger-bg);--ct:var(--danger-text);--cl:var(--danger-border)}
+.c-warning{--c:var(--warn);--cb:var(--warn-bg);--ct:var(--warn-text);--cl:var(--warn-border)}
+.c-info{--c:var(--info);--cb:var(--info-bg);--ct:var(--text-2);--cl:var(--info-border)}
+.c-ok{--c:var(--ok);--cb:var(--ok-bg);--ct:var(--ok-text);--cl:var(--ok-border)}
+.c-plan{--c:var(--plan);--cb:var(--plan-bg);--ct:var(--plan-text);--cl:var(--plan-border)}
+.sev{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:2px;border:1px solid var(--cl);background:var(--cb);color:var(--ct);font:700 10px var(--font);letter-spacing:.06em}
+/* scroll */
+.scroll{overflow:auto;scroll-behavior:smooth}
+.scroll::-webkit-scrollbar{width:8px}.scroll::-webkit-scrollbar-thumb{background:#2a3038;border-radius:4px}
+/* ---- zakładka Aktualne ---- */
+.now{flex:1;display:grid;grid-template-columns:390px 1fr;min-height:0}
+.list{border-right:1px solid var(--line);padding-bottom:10px}
+.lgrp{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:9px 12px 6px;background:#0b0e11;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ct)}
+.lgrp::after{content:"";flex:1;height:1px;background:var(--line)}
+.it{position:relative;display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:calc(100% - 16px);margin:0 8px 6px;padding:8px 10px 8px 14px;border:1px solid var(--line);border-radius:3px;background:var(--panel);color:var(--text);text-align:left;font:inherit;cursor:pointer;
+  transition:background .2s,border-color .2s,transform .2s}
+.it::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:3px 0 0 3px;background:var(--c)}
+.it:hover{background:var(--raised);transform:translateX(2px)}
+.it.sel{border-color:var(--cl);background:linear-gradient(90deg,var(--cb),var(--panel) 80%)}
+.it b{font-size:14px;font-weight:700;line-height:1.2}
+.it small{grid-column:1;font-size:11px;color:var(--text-3)}
+.it time{font:11px var(--mono);color:var(--text-3);text-align:right}
+.it .dur{grid-column:2;font-size:10px;color:var(--text-3);text-align:right}
+.it.is-new{animation:newin .7s var(--drop-ease)}
+@keyframes newin{0%{opacity:0;transform:translateX(-24px);background:rgba(255,255,255,.18)}100%{opacity:1;transform:none}}
+.it.leaving{animation:leave .4s ease forwards}
+@keyframes leave{to{opacity:0;transform:translateX(40px);max-height:0;margin-bottom:0;padding-top:0;padding-bottom:0}}
+.detail{padding:16px 22px 20px;display:grid;gap:14px;align-content:start}
+.detail.swap{animation:fadein .28s ease}
+.d-top{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-3)}.d-top time{margin-left:auto;font:12px var(--mono)}
+.detail h3{font-size:24px;line-height:1.15;color:var(--text)}
+.kind{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--cl);border-radius:3px;background:var(--cb);font-size:13px;color:var(--ct)}
+.kind .btn{margin-left:auto;height:28px;cursor:pointer}
+.sec{display:grid;grid-template-columns:150px 1fr;gap:14px;padding-top:12px;border-top:1px solid var(--line)}
+.sec > b{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);padding-top:2px}
+.sec p{font-size:14px;line-height:1.45}.sec p small{display:block;color:var(--text-3);font-size:12px;margin-top:4px}
+.steps{display:grid;gap:7px;counter-reset:s;list-style:none}
+.steps li{counter-increment:s;display:grid;grid-template-columns:26px 1fr;gap:8px;font-size:14px;line-height:1.35;align-items:start}
+.steps li::before{content:counter(s);display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ok-bg);border:1px solid var(--ok-border);color:var(--ok-text);font-size:12px;font-weight:700}
+.acts{display:flex;gap:8px;flex-wrap:wrap}.acts .btn{cursor:pointer}
+details.tech summary{cursor:pointer;color:var(--text-3);font-size:12px;list-style:none;display:flex;align-items:center;gap:6px}
+details.tech summary::before{content:"▸";transition:transform .2s}details.tech[open] summary::before{transform:rotate(90deg)}
+details.tech pre{margin-top:6px;padding:8px 10px;background:#06080a;border:1px solid var(--line);border-radius:3px;font:11px/1.45 var(--mono);color:var(--text-2);white-space:pre-wrap}
+.empty{display:grid;place-items:center;align-content:center;gap:10px;height:100%;color:var(--text-3);text-align:center;font-size:13px}
+.empty .big{display:grid;place-items:center;width:64px;height:64px;border-radius:50%;background:var(--ok-bg);border:1px solid var(--ok-border);color:var(--ok-text);font-size:30px;animation:breathe 2.4s infinite}
+.empty h4{font-size:18px;color:var(--text)}
+/* ---- zakładka Stan robota ---- */
+.state{flex:1;display:grid;grid-template-columns:1.2fr 1fr;min-height:0}
+.op{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+.op-head{padding:16px 20px 12px;display:grid;gap:8px}
+.op-head .k{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ct)}
+.op-head h3{font-size:22px}
+.op-head .meta{display:flex;gap:18px;font-size:13px;color:var(--text-2)}.op-head .meta b{color:var(--text);font-family:var(--mono)}
+.bar{position:relative;height:8px;border-radius:4px;background:var(--raised);overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--c);border-radius:4px;transition:width .5s linear}
+.bar i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);animation:shimmer 1.6s linear infinite}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.stages{display:flex;gap:4px;padding:0 20px 12px}
+.stages span{flex:1;padding:5px 8px;border-radius:2px;background:var(--raised);font-size:11px;color:var(--text-3);letter-spacing:.04em}
+.stages span.done{background:var(--ok-bg);color:var(--ok-text)}.stages span.cur{background:var(--cb);color:var(--ct);box-shadow:inset 0 -2px 0 var(--c)}
+.blocks{flex:1;min-height:0;border-top:1px solid var(--line);padding:6px 0}
+.blk{display:grid;grid-template-columns:40px 110px 1fr 70px;gap:8px;align-items:center;height:30px;padding:0 20px;font-size:13px;color:var(--text-3);transition:background .3s,color .3s}
+.blk .n{font:11px var(--mono)}.blk .cmd{font:12px var(--mono)}
+.blk.done{color:var(--text-2)}.blk.done .st{color:var(--ok-text)}
+.blk.cur{background:var(--cb);color:var(--text);box-shadow:inset 3px 0 0 var(--c)}.blk.cur .st{color:var(--ct)}
+.blk .st{text-align:right;font-size:11px}
+.subs{padding:12px 16px;display:grid;gap:8px;align-content:start}
+.sub{display:grid;grid-template-columns:130px 1fr auto;gap:10px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:3px;background:var(--panel)}
+.sub > b{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3)}
+.sub span{font-size:13px}
+.drv{display:flex;gap:4px}.drv i{display:grid;place-items:center;width:30px;height:22px;border-radius:2px;font:700 10px var(--font);font-style:normal;background:var(--raised);color:var(--text-3);border:1px solid var(--line-strong)}
+.drv i.on{background:var(--ok-bg);color:var(--ok-text);border-color:var(--ok-border)}.drv i.f{background:var(--danger);color:#fff;border-color:var(--danger)}
+/* ---- zakładka Archiwum ---- */
+.arch{flex:1;display:flex;flex-direction:column;min-height:0}
+.arch-bar{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.chip{height:26px;padding:0 10px;border:1px solid var(--line-strong);border-radius:13px;background:none;color:var(--text-2);font:700 11px var(--font);letter-spacing:.05em;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background .2s,color .2s}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--c);display:block}
+.chip.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.search{margin-left:auto;height:28px;width:240px;padding:0 10px;border:1px solid var(--line-strong);border-radius:3px;background:#06080a;color:var(--text);font:13px var(--font)}
+.sel-mod{height:28px;padding:0 8px;border:1px solid var(--line-strong);border-radius:3px;background:#06080a;color:var(--text-2);font:12px var(--font)}
+.arch-count{font-size:11px;color:var(--text-3);margin-left:8px;white-space:nowrap}
+.alist{flex:1;min-height:0}
+.day{position:sticky;top:0;z-index:2;padding:7px 14px;background:#0d1013;border-bottom:1px solid var(--line);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-2)}
+.day em{font-style:normal;font-weight:400;color:var(--text-3);margin-left:6px}
+.ar{display:grid;grid-template-columns:80px 64px 110px 1fr 210px 60px 18px;gap:10px;align-items:center;min-height:34px;padding:0 14px;border-bottom:1px solid #181d22;font-size:13px;cursor:pointer;transition:background .15s}
+.ar:hover{background:var(--panel)}
+.ar time{font:11px var(--mono);color:var(--text-3)}
+.ar .m{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em}
+.ar .t{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ar .end{font-size:12px;color:var(--text-3);white-space:nowrap}.ar .end b{font-weight:400;color:var(--ok-text)}
+.ar .du{font:11px var(--mono);color:var(--text-3);text-align:right}
+.ar .sev{justify-self:start}
+.ar .ch{color:var(--text-3);transition:transform .25s}.ar.x .ch{transform:rotate(90deg)}
+.ar-x{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:10px 14px 12px 168px;border-bottom:1px solid var(--line);background:var(--panel);font-size:13px;line-height:1.4;animation:fadein .25s ease}
+.ar-x b{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);margin-bottom:4px}
+.ar-x div + div b{color:var(--ok-text)}
+.ar-x ol{padding-left:18px}
+.more{display:block;margin:10px auto 16px;height:30px;padding:0 16px;border:1px dashed var(--line-strong);border-radius:3px;background:none;color:var(--text-2);font:700 11px var(--font);letter-spacing:.06em;cursor:pointer}
+/* ---------- podpis makiety i scenariusze ---------- */
+.caption{z-index:60;max-width:520px}
+.scen{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.scen button{height:26px;padding:0 10px;border:1px solid var(--line-strong);border-radius:3px;background:var(--raised);color:var(--text-2);font:700 11px var(--font);letter-spacing:.05em;cursor:pointer}
+.scen button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.scen button.add{border-style:dashed}
+.no-anim *,.no-anim *::before,.no-anim *::after{animation:none!important;transition:none!important}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+
+/* ---- v2d: karta awarii ---- */
+.fc{display:grid;gap:12px;padding:12px 14px;border:1px solid var(--danger-border);border-radius:4px;background:linear-gradient(180deg,rgba(47,12,18,.45),var(--panel) 50%)}
+.fc-h{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--danger-text)}
+.fc-h .r{margin-left:auto;font-weight:400;letter-spacing:.02em;text-transform:none;color:var(--text-3)}
+.fc-grid{display:grid;grid-template-columns:250px 1fr;gap:12px}.fc-grid.one{grid-template-columns:250px}
+.fc-robot{position:relative;border:1px solid var(--line);border-radius:3px;background:radial-gradient(ellipse at 40% 75%,#151b21,#080a0c 75%)}
+.fc-robot svg{display:block;width:100%;height:auto}
+.fc-robot .glow{fill:none;stroke:#ff3b4e;stroke-width:3;filter:drop-shadow(0 0 6px #ff3b4e);animation:glow 1.6s ease-in-out infinite}
+@keyframes glow{0%,100%{opacity:1}50%{opacity:.45}}
+.fc-axis{position:absolute;left:8px;top:8px;height:20px;padding:0 7px;border-radius:2px;background:var(--danger);color:#fff;font:700 11px var(--font);letter-spacing:.06em;display:inline-flex;align-items:center}
+.fc-chart{border:1px solid var(--line);border-radius:3px;background:#06080a;padding:6px 8px 2px}
+.fc-chart svg{display:block;width:100%;height:auto}
+.fc-cap{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-3);margin-bottom:4px}
+.fc-cap span{margin-left:auto;display:flex;align-items:center;gap:5px}
+.fc-cap i{display:inline-block;width:14px;height:2px;margin-left:6px}
+.lg-m{background:#19e3f0}.lg-p{background:repeating-linear-gradient(90deg,#f2f5f7 0 4px,transparent 4px 7px)}.lg-e{background:#ff7d8a;height:6px!important;width:6px!important;border-radius:50%}
+.fc-can{border:1px solid var(--line);border-radius:3px;background:#06080a;padding:6px 0 4px}
+.fc-can .fc-cap{padding:0 10px}
+.cx{display:grid;grid-template-columns:86px 178px 44px 40px 1fr;gap:10px;align-items:center;min-height:24px;padding:0 10px;font-size:12px;border-top:1px solid #12161a}
+.cx .rel{font:11px var(--mono);color:var(--text-2);text-align:right}.cx .evn{font:12px var(--mono)}.cx .dat{font:11px var(--mono);color:var(--text-3)}
+.cx .det{color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cx.w .evn{color:var(--warn-text)}.cx.e{background:var(--danger-bg)}.cx.e .evn,.cx.e .det{color:var(--danger-text)}
+/* ---- v2d: kafelki osi ze stanem ---- */
+.axts{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.axt{display:grid;gap:4px}
+.axt-st{display:flex;align-items:center;gap:4px;height:20px;padding:0 6px;border-radius:2px;border:1px solid var(--cl);background:var(--cb);color:var(--ct);font:700 10px var(--font);letter-spacing:.05em;white-space:nowrap;overflow:hidden;transition:background .3s,color .3s,border-color .3s}
+.axt-st i{font-style:normal;width:10px;text-align:center}
+.axt.moving .axt-st i{animation:nudge 1s ease-in-out infinite}
+@keyframes nudge{0%,100%{transform:none}50%{transform:translateX(2px)}}
+.axt-b{padding:7px 8px;border:1px solid var(--line);border-radius:3px;background:var(--panel);display:grid;gap:1px;min-height:62px}
+.axt-b b{font-size:12px;color:var(--text-2)}.axt-b .p{font:14px var(--mono);color:var(--text)}.axt-b .v{font:11px var(--mono);color:var(--text-3)}
+.axt.bad .axt-b{border-color:var(--danger-border);background:var(--danger-bg)}.axt.bad .p,.axt.bad .v{color:var(--danger-text)}
+.axt-b .was{font-size:10px;color:var(--text-3);margin-top:3px;line-height:1.2}
+
+/* ---- v2c: kwitowanie, czynności, analiza awarii ---- */
+.rs-move{background:rgba(33,208,122,.10);color:var(--ok-text)}.rs-move .rs-ico{background:var(--ok);color:#03140b;animation:breathe 1.6s ease-in-out infinite}
+.rs-fault{animation:none}.rs-fault.unack{animation:pulse 1.8s ease-in-out infinite}
+.rs .since{flex:none;font:11px var(--mono);color:inherit;opacity:.75;margin-left:auto}
+.ack-strip{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border:1px solid var(--text-2);border-radius:3px;background:rgba(255,255,255,.06);color:var(--text);font:700 11px var(--font);letter-spacing:.08em;cursor:pointer}
+.ack-strip:hover{background:var(--text);color:var(--bg)}
+.ack-strip[hidden]{display:none}
+.cnt.unack{animation:ring 1.6s ease-in-out infinite}
+@keyframes ring{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.0)}50%{box-shadow:0 0 0 3px rgba(255,255,255,.28)}}
+.tk-item .newtag{flex:none;font:700 9px var(--font);letter-spacing:.1em;padding:2px 5px;border-radius:2px;background:var(--text);color:var(--bg)}
+.tk-item .acktag{flex:none;font-size:11px;color:var(--text-3)}
+.btn-ack{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border:1px solid var(--text);border-radius:3px;background:var(--text);color:var(--bg);font:700 12px var(--font);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.btn-ack:hover{background:#fff}.btn-ack:disabled{background:none;color:var(--text-3);border-color:var(--line-strong);cursor:default}
+.btn-ack svg{width:15px;height:15px}
+/* lista: nowe vs pokwitowane */
+.it .nw{display:inline-block;margin-right:6px;vertical-align:2px;font:700 9px var(--font);letter-spacing:.1em;padding:1px 5px;border-radius:2px;background:var(--text);color:var(--bg)}
+.it.acked{opacity:.62}.it.acked b{font-weight:400}.it.acked:hover,.it.acked.sel{opacity:1}
+.it .ackd{grid-column:1/-1;font-size:10px;color:var(--text-3)}
+/* analiza awarii */
+.fa{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--danger-border);border-radius:4px;background:linear-gradient(180deg,rgba(47,12,18,.55),var(--panel) 60%)}
+.fa-h{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--danger-text)}
+.fa-h .r{margin-left:auto;font-weight:400;letter-spacing:.02em;text-transform:none;color:var(--text-3)}
+.fa-ctx{font-size:13px;line-height:1.45}.fa-ctx b{color:var(--text)}
+.hint{display:grid;grid-template-columns:22px 1fr;gap:8px;padding:8px 10px;border-radius:3px;background:#1d1407;border:1px solid var(--warn-border);font-size:13px;line-height:1.4}
+.hint i{font-style:normal;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--warn);color:#1a1204;font-weight:700;font-size:12px}
+.hint small{display:block;color:var(--text-3);font-size:11px;margin-top:2px}
+.chart{position:relative;border:1px solid var(--line);border-radius:3px;background:#06080a}
+.chart svg{display:block;width:100%;height:auto}
+.chart .cap{position:absolute;left:10px;top:6px;font-size:11px;color:var(--text-3)}
+.skel{height:170px;border-radius:3px;background:linear-gradient(90deg,#0d1013 0,#161a1f 50%,#0d1013 100%);background-size:200% 100%;animation:skel 1.1s linear infinite;display:grid;place-items:center;color:var(--text-3);font-size:12px}
+@keyframes skel{from{background-position:200% 0}to{background-position:-200% 0}}
+.fa-links{display:flex;gap:8px;flex-wrap:wrap}
+.lnk{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:1px solid var(--line-strong);border-radius:3px;background:var(--raised);color:var(--text);font:700 12px var(--font);letter-spacing:.04em;cursor:pointer}
+.lnk:hover{border-color:var(--text-2)}.lnk small{font-weight:400;color:var(--text-3);letter-spacing:0}
+.lnk svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.lnk.can{border-color:var(--danger-border)}
+.avail{font-size:11px;color:var(--text-3);display:flex;gap:14px;flex-wrap:wrap}.avail b{font-weight:400;color:var(--ok-text)}.avail .w{color:var(--warn-text)}
+/* czynności robota */
+.act{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.act-now{padding:18px 20px;border-right:1px solid var(--line);display:grid;gap:14px;align-content:start;overflow:auto}
+.now-card{display:grid;gap:6px;padding:14px 16px;border:1px solid var(--cl);border-radius:4px;background:linear-gradient(90deg,var(--cb),var(--panel) 80%)}
+.now-card .k{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ct)}
+.now-card h3{font-size:22px;line-height:1.15}
+.now-card p{font-size:13px;color:var(--text-2)}
+.pos{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.pos div{padding:6px 8px;border:1px solid var(--line);border-radius:3px;background:var(--panel);font-size:11px;color:var(--text-3)}
+.pos div b{display:block;font:13px var(--mono);color:var(--text)}
+.pos div.bad{border-color:var(--danger-border);background:var(--danger-bg)}.pos div.bad b{color:var(--danger-text)}
+.pos-cap{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)}
+.tl{padding:12px 18px 18px;overflow:auto}
+.tl h4{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin-bottom:8px}
+.ev{position:relative;display:grid;grid-template-columns:66px 1fr auto;gap:10px;padding:7px 0 7px 18px;border-left:1px solid var(--line-strong);margin-left:5px;font-size:13px}
+.ev::before{content:"";position:absolute;left:-6px;top:11px;width:11px;height:11px;border-radius:50%;background:var(--c);border:2px solid #0b0e11}
+.ev time{font:11px var(--mono);color:var(--text-3);padding-top:2px}
+.ev small{display:block;font-size:11px;color:var(--text-3)}
+.ev .du{font:11px var(--mono);color:var(--text-3)}
+.ev.cur{background:linear-gradient(90deg,var(--cb),transparent)}
+/* archiwum: kolumna nagrań */
+.ar{grid-template-columns:80px 64px 110px 1fr 200px 56px 120px 14px}
+.rec{display:flex;gap:4px}
+.rec span{height:20px;padding:0 6px;border-radius:2px;border:1px solid var(--line-strong);font:700 10px var(--font);letter-spacing:.05em;display:inline-flex;align-items:center;color:var(--text-2)}
+.rec span.can{border-color:var(--danger-border);color:var(--danger-text)}
+.rec span.off{opacity:.4;text-decoration:line-through}
+/* migawka (okno modalne) */
+.modal-bg{position:fixed;inset:0;z-index:80;background:rgba(2,3,4,.72);display:none;place-items:center;animation:fadein .2s ease}
+.modal-bg.on{display:grid}
+.modal{width:min(1180px,calc(100vw - 60px));height:min(760px,calc(100vh - 60px));display:flex;flex-direction:column;background:#0b0e11;border:1px solid var(--line-strong);border-radius:6px;box-shadow:0 30px 80px rgba(0,0,0,.8);animation:pop .3s var(--drop-ease)}
+@keyframes pop{from{transform:translateY(-14px) scale(.985);opacity:0}}
+.m-head{display:flex;align-items:center;gap:10px;min-height:50px;padding:0 14px;border-bottom:1px solid var(--line);background:#0a0c0f}
+.m-head h2{font-size:15px;letter-spacing:.04em}.m-head h2 small{font-weight:400;color:var(--text-3);margin-left:8px;font-size:12px}
+.m-meta{display:flex;gap:6px;flex-wrap:wrap;padding:8px 14px;border-bottom:1px solid var(--line)}
+.m-meta span{height:22px;padding:0 8px;border-radius:2px;background:var(--raised);font-size:11px;color:var(--text-2);display:inline-flex;align-items:center;gap:5px}.m-meta b{color:var(--text);font-weight:700}
+.m-chart{padding:10px 14px;border-bottom:1px solid var(--line)}
+.m-bar{display:flex;align-items:center;gap:6px;padding:8px 14px;border-bottom:1px solid var(--line)}
+.m-table{flex:1;min-height:0}
+.er{display:grid;grid-template-columns:78px 106px 62px 150px 40px 52px 170px 1fr;gap:10px;align-items:center;min-height:28px;padding:0 14px;border-bottom:1px solid #161a1f;font-size:12px}
+.er.hd{position:sticky;top:0;z-index:1;background:#0d1013;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);min-height:30px}
+.er .rel{font:11px var(--mono);color:var(--text-2);text-align:right}.er .tm{font:11px var(--mono);color:var(--text-3)}
+.er .src{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.er .evn{font:12px var(--mono)}.er .dat{font:11px var(--mono);color:var(--text-3)}
+.er .det{color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.er.k-warn .evn{color:var(--warn-text)}.er.k-err{background:var(--danger-bg)}.er.k-err .evn,.er.k-err .det{color:var(--danger-text)}
+.er.zero{box-shadow:inset 3px 0 0 var(--danger)}
+.m-foot{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;border-top:1px solid var(--line);background:#0a0c0f;font-size:12px;color:var(--text-3)}
+.m-foot .r{margin-left:auto;display:flex;gap:8px}
+</style></head><body>
+<div class="shell"><aside class="sidebar"><div class="brand"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21h10"/><path d="M8 21v-4l6-6"/><path d="M14 11l4-5"/><circle cx="14" cy="11" r="1.6"/><path d="M18 6l2 1"/></svg></div><nav class="nav"><a class="" title="Przegląd systemu"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></a><a class="" title="Diagnostyka"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></a><a class="active" title="Sterowanie ręczne"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="3"/><path d="M12 10v6"/><path d="M6 20h12"/><path d="M8 16h8"/></svg></a><a class="" title="Programowanie"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6l-5 6 5 6"/><path d="M16 6l5 6-5 6"/><path d="M14 4l-4 16"/></svg></a><a class="" title="Konfiguracja"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></a></nav>
+<div class="ns"><div><i></i>SYS</div><div><i></i>ROS</div><div><i></i>API</div><div><i></i>WEB</div>
+<div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i></div><div style="justify-content:center">0/6 ENABLE</div></div>
+<div class="toggle"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></div></aside><main class="workspace"><div class="strip sev-error" id="strip" role="button" tabindex="0" aria-expanded="false" aria-controls="drop" title="Kliknij, aby rozwinąć komunikaty">
+<div class="rs" id="rs"></div><div class="tk" id="tk"></div><div class="pager" id="pager"></div>
+<div class="strip-r"><button class="ack-strip" id="ackStrip" title="Kwituj wszystkie nowe komunikaty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg><span>KWITUJ</span></button>
+<span class="cnt e" id="cntE"></span><span class="cnt w" id="cntW"></span><span class="clock" id="clock">20:52:10</span><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span></div></div><div class="content"><header class="ph"><div class="ph-title"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="3"/><path d="M12 10v6"/><path d="M6 20h12"/><path d="M8 16h8"/></svg><h1>Sterowanie ręczne</h1><span class="info-tip">i</span></div>
+<div class="ph-state"><span class="badge ok"><span class="dot"></span>LIVE</span><span class="badge stale">Postój</span></div>
+<div class="ph-actions"><span class="btn">Planowanie</span><span class="btn stop">STOP</span></div></header><div class="bgpage"><section class="panel"><div class="panel-head"><h2>Wizualizacja robota</h2><span class="badge stale r">Model URDF</span></div>
+<div class="scene"><svg viewBox="0 0 300 300" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<ellipse cx="150" cy="250" rx="60" ry="14" fill="#161a1f" stroke="#3a424b"/><rect x="128" y="200" width="44" height="50" rx="4" fill="#1b2128" stroke="#3a424b"/>
+<path d="M150 205 L110 120 L190 70 L232 92" stroke="#aab4bd" stroke-width="16"/><path d="M150 205 L110 120 L190 70 L232 92" stroke="#1b2128" stroke-width="10"/>
+<circle cx="110" cy="120" r="11" fill="#161a1f" stroke="#6e7983" stroke-width="2"/><circle cx="190" cy="70" r="9" fill="#161a1f" stroke="#6e7983" stroke-width="2"/>
+<path d="M232 92 l14 8" stroke="#19e3f0" stroke-width="3"/></svg></div></section>
+<div class="right-col"><section class="panel"><div class="panel-head"><h2>Osie</h2><span class="badge warn r">Odniesienie nieważne</span></div><div class="axes"><div class="axis"><span><b style="color:var(--j1)">J1</b><br><small style="color:var(--text-3);font-size:10px">CAN 1</small></span>
+<span><div class="val">-3,10°</div><div class="bar"><i style="left:48%"></i></div></span><span class="badge stale">ENABLE 0</span><span class="badge stale" style="justify-content:center">Zeruj</span></div><div class="axis"><span><b style="color:var(--j2)">J2</b><br><small style="color:var(--text-3);font-size:10px">CAN 2</small></span>
+<span><div class="val">1,66°</div><div class="bar"><i style="left:52%"></i></div></span><span class="badge stale">ENABLE 0</span><span class="badge stale" style="justify-content:center">Zeruj</span></div><div class="axis"><span><b style="color:var(--j3)">J3</b><br><small style="color:var(--text-3);font-size:10px">CAN 3</small></span>
+<span><div class="val">-5,87°</div><div class="bar"><i style="left:46%"></i></div></span><span class="badge stale">ENABLE 0</span><span class="badge stale" style="justify-content:center">Zeruj</span></div><div class="axis"><span><b style="color:var(--j4)">J4</b><br><small style="color:var(--text-3);font-size:10px">CAN 4</small></span>
+<span><div class="val">-9,12°</div><div class="bar"><i style="left:44%"></i></div></span><span class="badge stale">ENABLE 0</span><span class="badge stale" style="justify-content:center">Zeruj</span></div><div class="axis"><span><b style="color:var(--j5)">J5</b><br><small style="color:var(--text-3);font-size:10px">CAN 5</small></span>
+<span><div class="val">47,67°</div><div class="bar"><i style="left:70%"></i></div></span><span class="badge stale">ENABLE 0</span><span class="badge stale" style="justify-content:center">Zeruj</span></div><div class="axis"><span><b style="color:var(--j6)">J6</b><br><small style="color:var(--text-3);font-size:10px">CAN 6</small></span>
+<span><div class="val">-29,34°</div><div class="bar"><i style="left:38%"></i></div></span><span class="badge stale">ENABLE 0</span><span class="badge stale" style="justify-content:center">Zeruj</span></div></div></section>
+<section class="panel"><div class="panel-head"><h2>JOG TCP</h2><span class="badge stale r">Przesuw · baza</span></div><div class="tcp"><span>Z+</span><span>Y+</span><span></span><span>X−</span><span>TCP</span><span>X+</span><span>Z−</span><span>Y−</span><span></span></div></section></div></div></div>
+<div class="backdrop" id="backdrop"></div>
+<div class="drop-wrap"><section class="drop" id="drop" aria-label="Komunikaty i czynności robota">
+<div class="drop-head">
+<button class="tab on" data-tab="now">Aktualne<em id="tabNowCnt"></em><span class="dot" id="tabNowDot"></span></button>
+<button class="tab" data-tab="act">Czynności robota</button>
+<button class="tab" data-tab="arch">Archiwum<em id="tabArchCnt"></em></button>
+<span class="head-sp"></span>
+<button class="btn-ack" id="ackAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg><span id="ackAllTxt">Kwituj wszystkie</span></button>
+<button class="ibtn" id="pin" title="Przypnij: panel nie zamknie się po kliknięciu obok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6l-1 6 4 4H6l4-4z"/><path d="M12 13v8"/></svg></button>
+<button class="ibtn" id="close" title="Zwiń (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+<div class="drop-body" id="dropBody"></div>
+<div class="drop-foot"><span class="lg"><i style="background:var(--danger)"></i>Błąd</span><span class="lg"><i style="background:var(--warn)"></i>Uwaga</span><span class="lg"><i style="background:var(--info)"></i>Info</span><span class="lg"><i style="background:var(--ok)"></i>Ruch / zakończone</span><span class="lg"><i style="background:var(--plan)"></i>Planowanie</span>
+<span class="lg" style="margin-left:10px"><span class="newtag" style="font:700 9px var(--font);padding:1px 5px;border-radius:2px;background:var(--text);color:var(--bg)">NOWY</span>nie pokwitowany</span>
+<span class="r">Kliknij pasek albo <kbd>Esc</kbd>, aby zwinąć · STOP pozostaje dostępny</span></div>
+</section></div>
+<div class="modal-bg" id="modalBg"><div class="modal" role="dialog" aria-label="Migawka awarii" id="modal"></div></div><div class="caption"><b>Makieta · wariant 2d — kwitowanie i karta awarii</b>
+Pasek: po lewej <i>co robi robot</i> (albo co robił, gdy się zatrzymał), w środku komunikaty (NOWY = jeszcze nie pokwitowany), po prawej „Kwituj” i liczniki.
+Kliknij pasek, aby rozwinąć panel. Błąd J1 to prawdziwe zdarzenie z 19.11 20:49:23: opis, robot z podświetloną osią, krótki przebieg i wyciąg migawki CAN. „+ nowy komunikat” dodaje kolejno: uwagę CAN, błąd J4 w ruchu (z przebiegiem), błąd bez osi (bez wykresu). Scenariusz:
+<div class="scen" id="scen"><button data-s="move">Ruch</button><button data-s="plan">Planowanie</button><button data-s="warn">Postój i uwagi</button><button data-s="error" class="on">Awaria</button><button class="add" id="addMsg">+ nowy komunikat</button></div></div>
+<footer class="statusbar"><div class="crumbs">Stanowisko robota <span style="margin:0 8px">/</span><b>Sterowanie ręczne</b></div>
+<div class="right"><span class="badge ok"><span class="dot"></span>Połączono · 20 Hz</span><span class="badge stale">Teach pendant</span></div></footer></main></div>
+<script>
+(() => {
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const J1 = [[-9.985,0.0],[-9.945,-0.0202],[-9.905,-0.0439],[-9.866,-0.0396],[-9.826,-0.0316],[-9.785,0.0185],[-9.745,0.0167],[-9.705,0.0132],[-9.665,0.0105],[-9.625,0.007],[-9.586,0.0026],[-9.545,-0.0035],[-9.505,-0.0149],[-9.465,-0.0404],[-9.425,-0.0369],[-9.385,-0.029],[-9.346,0.0149],[-9.305,0.0132],[-9.265,0.0114],[-9.225,0.0088],[-9.185,0.0053],[-9.145,0.0018],[-9.106,-0.0018],[-9.065,-0.0062],[-9.025,-0.0079],[-8.985,-0.0079],[-8.945,-0.0079],[-8.905,-0.0079],[-8.866,-0.0079],[-8.825,-0.007],[-8.785,-0.007],[-8.745,-0.007],[-8.705,-0.007],[-8.665,-0.007],[-8.626,-0.007],[-8.584,-0.007],[-8.545,-0.007],[-8.505,-0.007],[-8.465,-0.007],[-8.425,-0.007],[-8.386,-0.007],[-8.345,-0.0062],[-8.305,-0.0062],[-8.265,-0.0062],[-8.225,-0.0062],[-8.185,-0.0062],[-8.146,-0.007],[-8.105,-0.0062],[-8.065,-0.0062],[-8.025,-0.0062],[-7.985,-0.0062],[-7.945,-0.0062],[-7.905,-0.0062],[-7.866,-0.0062],[-7.824,-0.0062],[-7.785,-0.0062],[-7.745,-0.0062],[-7.705,-0.0062],[-7.665,-0.0062],[-7.626,-0.0062],[-7.585,-0.0062],[-7.545,-0.0062],[-7.505,-0.0062],[-7.465,-0.0062],[-7.425,-0.0062],[-7.386,-0.0062],[-7.345,-0.0062],[-7.305,-0.0062],[-7.265,-0.0062],[-7.225,-0.0062],[-7.185,-0.0062],[-7.146,-0.0062],[-7.106,-0.0062],[-7.065,-0.0062],[-7.025,-0.0062],[-6.985,-0.0062],[-6.945,-0.0062],[-6.905,-0.0062],[-6.866,-0.0062],[-6.825,-0.0062],[-6.785,-0.0062],[-6.745,-0.0062],[-6.705,-0.0062],[-6.665,-0.0062],[-6.626,-0.0062],[-6.585,-0.0062],[-6.545,-0.0062],[-6.505,-0.0062],[-6.465,-0.0062],[-6.425,-0.0062],[-6.386,-0.0062],[-6.345,-0.0062],[-6.305,-0.0062],[-6.265,-0.0062],[-6.225,-0.0062],[-6.185,-0.0062],[-6.146,-0.0062],[-6.105,-0.0062],[-6.065,-0.0062],[-6.025,-0.0062],[-5.985,-0.0062],[-5.945,-0.0062],[-5.906,-0.0062],[-5.865,-0.0062],[-5.824,-0.0062],[-5.785,-0.0062],[-5.745,-0.0062],[-5.705,-0.0062],[-5.666,-0.0062],[-5.625,-0.0062],[-5.585,-0.0062],[-5.545,-0.0062],[-5.505,-0.0062],[-5.465,-0.0062],[-5.425,-0.0062],[-5.386,-0.0062],[-5.345,-0.0062],[-5.305,-0.0062],[-5.265,-0.0062],[-5.225,-0.007],[-5.185,-0.0062],[-5.146,-0.0062],[-5.105,-0.0062],[-5.065,-0.007],[-5.025,-0.0062],[-4.985,-0.0062],[-4.945,-0.0062],[-4.906,-0.0062],[-4.865,-0.0062],[-4.825,-0.0062],[-4.785,-0.0062],[-4.745,-0.0062],[-4.705,-0.0062],[-4.666,-0.0062],[-4.625,-0.0062],[-4.585,-0.0062],[-4.545,-0.0062],[-4.505,-0.0062],[-4.465,-0.0062],[-4.425,-0.0062],[-4.386,-0.0062],[-4.345,-0.0062],[-4.305,-0.0062],[-4.265,-0.0062],[-4.225,-0.0062],[-4.185,-0.0062],[-4.145,-0.0062],[-4.106,-0.0062],[-4.065,-0.0062],[-4.025,-0.0062],[-3.985,-0.0062],[-3.945,-0.0062],[-3.905,-0.007],[-3.866,-0.0062],[-3.825,-0.0062],[-3.785,-0.0062],[-3.745,-0.0062],[-3.705,-0.0062],[-3.665,-0.0062],[-3.625,-0.0062],[-3.586,-0.0062],[-3.545,-0.0062],[-3.505,-0.0062],[-3.465,-0.0062],[-3.425,-0.0062],[-3.385,-0.0062],[-3.346,-0.0062],[-3.305,-0.0062],[-3.265,-0.0062],[-3.225,-0.0062],[-3.185,-0.0062],[-3.145,-0.0062],[-3.105,-0.0062],[-3.066,-0.0062],[-3.025,-0.007],[-2.984,-0.0062],[-2.945,-0.0062],[-2.905,-0.0062],[-2.865,-0.0062],[-2.825,-0.0062],[-2.786,-0.0062],[-2.745,-0.0062],[-2.705,-0.0062],[-2.665,-0.0062],[-2.625,-0.007],[-2.585,-0.0062],[-2.546,-0.0062],[-2.504,-0.0062],[-2.465,-0.0062],[-2.425,-0.0062],[-2.385,-0.0062],[-2.345,-0.0062],[-2.306,-0.0062],[-2.265,-0.0062],[-2.225,-0.0062],[-2.185,-0.0062],[-2.145,-0.0062],[-2.105,-0.0062],[-2.066,-0.0062],[-2.026,-0.0062],[-1.985,-0.0062],[-1.945,-0.0062],[-1.905,-0.0062],[-1.865,-0.0062],[-1.825,-0.0062],[-1.786,-0.0062],[-1.745,-0.0062],[-1.705,-0.007],[-1.665,-0.0062],[-1.625,-0.0062],[-1.585,-0.0062],[-1.546,-0.0062],[-1.505,-0.0062],[-1.465,-0.0062],[-1.425,-0.0062],[-1.385,-0.0062],[-1.345,-0.0062],[-1.306,-0.0062],[-1.265,-0.0062],[-1.225,-0.0062],[-1.185,-0.0062],[-1.145,-0.0062],[-1.105,-0.0062],[-1.066,-0.0062],[-1.025,-0.0062],[-0.985,-0.0062],[-0.945,-0.0062],[-0.905,-0.0062],[-0.865,-0.0062],[-0.826,-0.0062],[-0.785,-0.0062],[-0.745,-0.0062],[-0.705,-0.0062],[-0.665,-0.0062],[-0.625,-0.0062],[-0.586,-0.007],[-0.545,-0.0062],[-0.505,-0.0062],[-0.465,-0.0062],[-0.425,-0.0062],[-0.385,-0.0062],[-0.346,-0.0062],[-0.305,-0.0062],[-0.265,-0.0062],[-0.225,-0.0062],[-0.185,-0.0062],[-0.145,-0.0062],[-0.106,-0.0062],[-0.001,0.6688],[1.265,7.839],[1.385,8.5131],[1.505,9.1846],[1.625,9.8657],[1.745,10.5425],[1.865,11.2245],[1.985,11.9039],[2.104,12.5842],[2.225,13.2609],[2.345,13.9368],[2.465,14.6083],[2.585,15.2358],[2.705,15.8818],[2.825,16.5138],[2.945,17.1554],[3.065,17.7987],[3.185,18.4474],[3.305,19.096],[3.425,19.7446],[3.545,20.3792],[3.665,21.0261],[3.785,21.6633],[3.905,22.2961],[4.025,22.9368],[4.145,23.5749],[4.265,24.2086],[4.384,24.8581],[4.505,25.5006],[4.625,26.1422],[4.745,26.7917],[4.865,27.4228],[4.985,28.0652]];
+const SEV = {error:'BŁĄD', warning:'UWAGA', info:'INFO', ok:'OK'}, ORDER = {error:0, warning:1, info:2, ok:3};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = t => [Math.floor(t/3600)%24, Math.floor(t/60)%60, t%60].map(n => String(n).padStart(2,'0')).join(':');
+const OK_ICO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l5 5L20 6"/></svg>';
+const IC = {wave:'<svg viewBox="0 0 24 24"><path d="M3 12h3l3-7 4 14 3-7h5"/></svg>', can:'<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h2M11 10h2M15 10h2M7 14h10"/></svg>', dl:'<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>'};
+
+// ---------- komunikaty (przykłady; błąd J1 = prawdziwe zdarzenie z 19.11.2026) ----------
+const MSG = {
+  fault:{sev:'error',module:'Sterowanie',ctx:'J1 · CAN ID 1',time:'20:49:23',since:3,kind:'condition',title:'Ruch bez komendy w postoju · J1',
+    short:'odchyłka 0,652° od pozycji trzymania; odzyskiwanie nieudane. Ruch zablokowany.',
+    expl:'Oś J1 przesunęła się w postoju bez komendy ruchu. System wysłał STOP, ale nie potwierdził wyłączenia napędu (ENABLE=0) w 5 s, więc ruch wszystkich osi jest zablokowany. Z nagrania CAN: tuż przed awarią J1 nie odpowiedział na dwa zapytania, a jego licznik położenia skoczył o 742 imp.; po STOP J1 zgłaszał ENABLE=1. To typowy obraz restartu sterownika J1.',
+    reason:'J1 (CAN ID 1): ruch bez komendy w postoju — odchyłka 0,652° przegubu (742 imp. wału) od pozycji trzymania, limit ±0,500°; recovery_failed: przekroczono termin etapu verifying_disabled',
+    remedy:['Sprawdź zasilanie i złącze napędu J1 (wzorzec z nagrania wskazuje restart sterownika).','W Diagnostyce użyj „Reset CAN” — odzyskiwanie uruchomi się od nowa.','Po potwierdzeniu ENABLE=0 wyzeruj J1 i potwierdź odniesienie.'],
+    links:['Diagnostyka → CAN','Konfiguracja → J1'],details:'bus_fault seq=270570 t=20:49:23.125598\nrecovery_failed seq=281237 t=20:49:28.126561 (verifying_disabled)',
+    axis:1, chart:'j1', can:'j1', snap:'20261119-204923-125'},
+  ref:{sev:'warning',module:'Konfiguracja',ctx:'Osie J1–J6',time:'20:41:20',since:11,kind:'condition',title:'Odniesienie osi niepotwierdzone · J1–J6',
+    short:'JOG przegubu i programy zablokowane do potwierdzenia odniesienia.',
+    expl:'Kąt przegubu nie ma ważnego odniesienia do licznika wału. JOG przegubu i programy są zablokowane; pozycja w tabeli dotyczy wału.',
+    reason:'kalibracja nieważna po restarcie napędów',remedy:['W postoju przy ENABLE=0 sprawdź fizyczną pozycję osi.','Wyzeruj wał i potwierdź odniesienie w Parametrach robota.'],
+    links:['Konfiguracja → Parametry robota'],details:'calibration_invalid=[1,1,1,1,1,1]'},
+  enable:{sev:'warning',module:'Napędy',ctx:'Sterowanie',time:'20:41:18',since:11,kind:'condition',title:'Napędy nie są załączone · J1–J6',
+    short:'ENABLE=0 na wszystkich osiach — fizyczny ruch niemożliwy.',expl:'Wyłączony ENABLE uniemożliwia fizyczny ruch tych osi. Podgląd i symulacja działają.',
+    reason:'ENABLE=0 na wszystkich osiach',remedy:['Sprawdź gotowość napędów w trybie LIVE.','Świadomie załącz wymagane osie przyciskiem ENABLE.'],links:['Sterowanie ręczne → Osie'],details:null},
+  blend:{sev:'warning',module:'Programowanie',ctx:'„Test LIN 3” · rew. 14',time:'20:38:02',since:14,kind:'result',title:'Planer zmniejszył promień przejścia',
+    short:'blok 7: blend 50 mm → 18 mm, tor TCP inny niż zapisany.',expl:'Robot przejdzie bliżej punktu P5, niż zapisano w programie, więc tor TCP będzie inny niż zamierzony.',
+    reason:'blok 7 (move_lin): blend 50 mm → 18 mm, odcinek za krótki',remedy:['Zaakceptuj mniejszy promień albo zmniejsz blend_mm w bloku 7.','Możesz też wydłużyć odcinek P4 → P5.'],
+    links:['Programowanie → „Test LIN 3”'],details:'chain=2 segment=7 requested=0.050 m applied=0.018 m'},
+  sim:{sev:'info',module:'Sterowanie',ctx:'Planowanie',time:'20:51:40',since:0,kind:'result',title:'Podgląd LIN obliczony',
+    short:'P3 → P5, 2,8 s; robot fizyczny stoi.',expl:'Planer obliczył podgląd ruchu LIN w bliźniaku. Robot fizyczny nie wykonuje ruchu.',reason:'tryb Planowanie',
+    remedy:['Sprawdź tor w wizualizacji, potem przygotuj ruch.'],links:['Sterowanie ręczne → PTP/LIN'],details:null},
+};
+const NEW_POOL = [
+  {sev:'warning',module:'CAN',ctx:'Magistrala can0',kind:'condition',title:'Wykonawca oczekuje na budżet CAN',short:'zestaw komend czeka na wolne pasmo magistrali.',
+   expl:'Bieżący zestaw komend czeka na dostępny budżet magistrali. Ruch może się opóźnić.',reason:'obciążenie can0 58 % (limit robota 40 %)',
+   remedy:['Sprawdź obciążenie i błędy CAN w Diagnostyce.','Jeżeli oczekiwanie się utrzymuje, przerwij ruch przyciskiem STOP.'],links:['Diagnostyka → CAN'],details:'bus_load=0.58 budget=0.40 waiting_ms=420'},
+  {sev:'error',module:'Napędy',ctx:'J4 · CAN ID 4',kind:'condition',title:'Brak odpowiedzi napędu · J4',short:'J4 nie odpowiada od 300 ms — ruch zatrzymany.',
+   expl:'Napęd J4 przestał odpowiadać na zapytania. Ruch został zatrzymany, a stan osi jest nieznany.',reason:'timeout odczytu pozycji J4 (24 ms × 12)',
+   remedy:['Sprawdź zasilanie i przewód CAN napędu J4.','Po powrocie odpowiedzi użyj „Reset CAN” i odczytaj pozycje.'],links:['Diagnostyka → J4'],details:'axis=4 timeouts=12 state=waiting_feedback', axis:4, chart:'j4', can:'j4', snap:'(przykład)'},
+  {sev:'error',module:'Napędy',ctx:'Operacja zbiorcza',kind:'condition',title:'Napęd nie potwierdził warunku operacji',short:'kod komendy 241: oczekiwano 1, otrzymano 3.',
+   expl:'Napęd odpowiedział innym kodem, niż wymaga operacja. Operacja została przerwana; błąd nie dotyczy ruchu konkretnej osi, więc nie ma przebiegu do pokazania.',reason:'manual_fault: Napęd nie potwierdził warunku operacji; kod komendy=241, oczekiwano=1, otrzymano=3',
+   remedy:['Sprawdź w Diagnostyce stan napędów i odpowiedzi na komendę F1.','Powtórz operację po potwierdzeniu postoju wszystkich osi.'],links:['Diagnostyka → CAN'],details:'manual_fault cmd=241 expected=1 got=3', can:'op', snap:'20261119-221754-248'},
+  {sev:'info',module:'System',ctx:'Konfiguracja',kind:'result',title:'Zapisano konfigurację',short:'rewizja 1c2e9a aktywna.',
+   expl:'Nowa rewizja konfiguracji została zapisana i zastosowana.',reason:'operator, Konfiguracja → Zapisz',remedy:['Nic nie trzeba robić.'],links:['Konfiguracja'],details:'revision=1c2e9a'},
+];
+// ---------- czynności robota: co robi teraz / co robił przed zatrzymaniem ----------
+const SCEN = {
+  move:{robot:{kind:'move',label:'RUCH',detail:'LIN P4 → P5 · 25 mm/s · Sterowanie ręczne',since:'od 20:52:04'}, active:[], acked:[],
+    now:{c:'ok',k:'Robot fizyczny · w ruchu',h:'Ruch LIN z P4 do P5',p:'25 mm/s, ENABLE J1–J6 · uruchomiony przyciskiem „Wykonaj” w Sterowaniu ręcznym o 20:52:04.'},
+    log:[['20:52:04','ok','Ruch LIN P4 → P5','Sterowanie ręczne · 25 mm/s','trwa',1],['20:51:58','info','Przygotowanie LIN P4 → P5','planer TOTG · 2,8 s','0:06'],['20:51:20','ok','Ruch PTP do P4','40 %','0:03'],['20:50:47','ok','JOG TCP Z− · baza','10 mm/s','0:04'],['20:50:12','info','ENABLE J1–J6','operator','—'],['20:49:55','info','Reset CAN','operator','—']]},
+  plan:{robot:{kind:'plan',label:'PLANOWANIE',detail:'podgląd LIN P3 → P5 w bliźniaku · robot stoi',since:'od 20:51:30'}, active:['sim','blend'], acked:['blend'],
+    now:{c:'plan',k:'Planowanie · robot fizyczny stoi',h:'Podgląd ruchu LIN P3 → P5',p:'Symulacja w bliźniaku. Robot fizyczny stoi w P3 od 20:50:02 (postój, ENABLE J1–J6).'},
+    log:[['20:51:30','plan','Podgląd LIN P3 → P5','bliźniak · 2,8 s','trwa',1],['20:51:28','plan','Włączenie Planowania','Sterowanie ręczne','—'],['20:50:02','ok','Ruch PTP do P3','40 %','0:04'],['20:49:40','ok','JOG J2 +','5 °/s','0:03']]},
+  warn:{robot:{kind:'idle',label:'POSTÓJ',detail:'po JOG J2 + · napędy ENABLE 0/6',since:'od 20:47:35'}, active:['ref','enable','blend'], acked:['ref'],
+    now:{c:'info',k:'Postój',h:'Robot stoi — tryb LIVE',p:'Ostatnia czynność: JOG J2 + (5 °/s, 3,2 s) zakończony o 20:47:35. Napędy wyłączone (ENABLE=0).'},
+    log:[['20:47:35','info','Postój','po JOG J2 +','trwa',1],['20:47:32','ok','JOG J2 +','5 °/s','0:03'],['20:47:18','info','ENABLE=0 J1–J6','operator','—'],['20:41:20','warning','Odniesienie nieważne','po restarcie napędów','—'],['20:40:58','info','Start usługi','robot-web-status','—']]},
+  error:{robot:{kind:'fault',label:'ZATRZYMANY',detail:'awaria J1 w postoju (po PTP do P3)',since:'20:49:23'}, active:['fault','ref','enable','blend'], acked:['ref','enable'],
+    now:{c:'error',k:'Zatrzymany · ruch zablokowany',h:'Awaria J1 w postoju',p:'Co robił przed zatrzymaniem: stał w postoju od 1 min 17 s po ruchu PTP do P3 (Sterowanie ręczne). STOP wysłany 20:49:23,153; ENABLE=0 J1 niepotwierdzone.'},
+    pos:[['J1','−2,45°','odch. +0,652°',1],['J2','1,66°'],['J3','−5,87°'],['J4','−9,12°'],['J5','47,67°'],['J6','−29,34°']],
+    log:[['20:49:28','error','Odzyskiwanie nieudane','ENABLE=0 J1 niepotwierdzone w 5 s','—',1],['20:49:24','warning','Ponowione ENABLE=0 J1','J1 zgłasza ENABLE=1 po STOP','—'],['20:49:23','error','Zatrzymanie awaryjne','ruch bez komendy w postoju · J1','—'],['20:48:06','info','Postój','po PTP do P3','1:17'],['20:48:02','ok','Ruch PTP do P3','40 % · Sterowanie ręczne','0:04'],['20:47:52','ok','JOG J2 +','5 °/s','0:03'],['20:47:45','info','ENABLE J1–J6','operator','—']]},
+};
+let uid = 0;
+const S = {scen:'error', active:[], open:false, pinned:false, tab:'now', sel:null, tick:0, archF:'all', archMod:'', archQ:'', archX:null, archPages:1, clock:20*3600+52*60+10, chartCache:{}, mFilter:'key'};
+
+// ---------- archiwum (doczytywane stronami po 40) ----------
+const TPL = [
+  ['error','Sterowanie','Ucieczka osi · J6','rozwiązany: Reset CAN','Uchyb śledzenia 4,063° > 4,000° w ruchu.',{can:1,wave:0}],
+  ['error','Sterowanie','Ucieczka osi · J1','rozwiązany: Reset CAN','Uchyb śledzenia −4,017° > 4,000° w ruchu.',{can:1,wave:1}],
+  ['error','Napędy','Niepotwierdzony warunek uzbrojenia · J4','pokwitowany przez operatora','Potwierdzenie postoju F1=1 nie przyszło.',{can:1,wave:1}],
+  ['warning','Sterowanie','Przerwano zbiorcze ENABLE · J1','pokwitowany przez operatora','Zbiorcze ENABLE przerwane na J1.',{can:1,wave:1}],
+  ['warning','Konfiguracja','Odniesienie osi niepotwierdzone · J2','rozwiązany: odniesienie potwierdzone','Kalibracja J2 nieważna po restarcie.',null],
+  ['warning','Napędy','Napędy nie są załączone · J1–J6','rozwiązany: ENABLE=1','ENABLE wyłączony na wszystkich osiach.',null],
+  ['warning','Programowanie','Planer zmniejszył promień przejścia','pokwitowany przez operatora','Blend ograniczony długością odcinka.',null],
+  ['warning','CAN','Wykonawca oczekuje na budżet CAN','rozwiązany samoczynnie','Chwilowe obciążenie powyżej limitu.',null],
+  ['info','Sterowanie','Reset CAN wykonany','—','Sesja CAN zrestartowana przez operatora.',null],
+  ['info','Konfiguracja','Zapisano konfigurację','—','Nowa rewizja konfiguracji.',null],
+  ['info','System','Usługa robot-web-status uruchomiona','—','Backend wystartował.',null],
+  ['ok','Sterowanie','Ruch PTP zakończony','zakończony','Dojazd w tolerancji ±0,5°.',null],
+  ['ok','Sterowanie','Test jakości TCP zakończony','zakończony','12 ruchów bez naruszeń.',null],
+  ['ok','Napędy','Zerowanie MKS J1–J6 zakończone','zakończony','Wszystkie osie wyzerowane.',null],
+];
+let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const ARCH = []; {
+  const days = [['Dziś','19.11.2026',20*3600+37*60],['Wczoraj','18.11.2026',22*3600+10*60],['Wtorek','17.11.2026',21*3600]];
+  days.forEach(([d, date, start], di) => { let t = start; const n = di === 0 ? 34 : 47;
+    for (let i = 0; i < n; i++) { const tp = TPL[Math.floor(rnd() * TPL.length)]; t -= Math.floor(60 + rnd() * 900);
+      const du = tp[0] === 'info' ? '' : `${Math.floor(rnd() * 9)}:${String(Math.floor(rnd() * 60)).padStart(2,'0')}`;
+      const rec = tp[5] ? {can:1, wave: di === 0 ? 1 : 0} : null;   // przebiegi osi tylko z ostatnich ~4 h (bufor ciągły)
+      ARCH.push({id:'a'+(uid++), day:d, date, time:fmt(t), sev:tp[0], module:tp[1], title:tp[2], end:tp[3], note:tp[4], du, rec}); } });
+}
+
+// ---------- pasek ----------
+const robotIcon = k => k === 'move' ? '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>' : k === 'plan' ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>' :
+  k === 'fault' ? '<svg viewBox="0 0 24 24"><path d="M10.5 4h3l-.5 10h-2zM10.5 16.5h3v3h-3z"/></svg>' : '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12"/><rect x="13.5" y="6" width="3.5" height="12"/></svg>';
+const sorted = () => [...S.active].sort((a, b) => (a.ack - b.ack) || ORDER[a.sev] - ORDER[b.sev] || b.since - a.since);
+const unack = () => S.active.filter(m => !m.ack);
+const worst = () => S.active.some(m => m.sev === 'error') ? 'error' : S.active.some(m => m.sev === 'warning') ? 'warning' : 'ok';
+function renderRobot() {
+  const r = SCEN[S.scen].robot, el = $('#rs');
+  el.className = 'rs rs-' + r.kind + (r.kind === 'fault' && unack().some(m => m.sev === 'error') ? ' unack' : '');
+  el.innerHTML = `<span class="rs-ico">${robotIcon(r.kind)}</span><span class="lab">${r.label}</span><span class="det">${esc(r.detail)}</span><span class="since">${r.since}</span>`;
+}
+function tickerHTML(m) {
+  if (!m) return `<span class="sev c-ok">OK</span><b>Brak aktywnych problemów</b><span class="sh">· ostatnie zdarzenie: ${esc(ARCH[0].title)} (${ARCH[0].time})</span>`;
+  return `${m.ack ? '<span class="acktag">✓</span>' : '<span class="newtag">NOWY</span>'}<span class="sev c-${m.sev}">${SEV[m.sev]}</span><span class="mod">${esc(m.module)}</span><b>${esc(m.title)}</b><span class="sh">— ${esc(m.short)}</span>`;
+}
+function renderTicker(animate) {
+  const list = sorted(), tk = $('#tk');
+  if (S.tick >= Math.max(1, list.length)) S.tick = 0;
+  const old = tk.querySelector('.tk-item:not(.above)');
+  const it = document.createElement('div'); it.className = 'tk-item' + (animate && old ? ' below' : ''); it.innerHTML = tickerHTML(list[S.tick]); tk.appendChild(it);
+  if (animate && old) { requestAnimationFrame(() => requestAnimationFrame(() => { it.classList.remove('below'); old.classList.add('above'); })); setTimeout(() => old.remove(), 500); }
+  else if (old) old.remove();
+  $('#pager').innerHTML = list.length > 1 ? list.map((m, i) => `<i class="${i === S.tick ? 'on' : ''}"></i>`).join('') + `<span class="clock" style="margin-left:6px">${S.tick + 1}/${list.length}</span>` : '';
+}
+function renderCounts(bump) {
+  const e = S.active.filter(m => m.sev === 'error'), w = S.active.filter(m => m.sev === 'warning'), u = unack().filter(m => m.sev !== 'info' || m.kind === 'result');
+  const E = $('#cntE'), W = $('#cntW');
+  E.textContent = e.length === 0 ? '0 BŁĘDÓW' : e.length === 1 ? '1 BŁĄD' : `${e.length} BŁĘDY`;
+  W.textContent = w.length === 0 ? '0 UWAG' : w.length === 1 ? '1 UWAGA' : `${w.length} UWAGI`;
+  E.classList.toggle('has', e.length > 0); W.classList.toggle('has', w.length > 0);
+  E.classList.toggle('unack', e.some(m => !m.ack)); W.classList.toggle('unack', w.some(m => !m.ack));
+  if (bump) { const t = bump === 'error' ? E : W; t.classList.remove('bump'); void t.offsetWidth; t.classList.add('bump'); }
+  const n = unack().length;
+  $('#ackStrip').hidden = n === 0; $('#ackStrip span').textContent = `KWITUJ ${n}`;
+  $('#ackAll').disabled = n === 0; $('#ackAllTxt').textContent = n ? `Kwituj wszystkie (${n})` : 'Wszystko pokwitowane';
+  $('#strip').className = 'strip sev-' + worst() + (S.open ? ' open' : '');
+  $('#tabNowCnt').textContent = S.active.length;
+  $('#tabNowDot').style.background = worst() === 'error' ? 'var(--danger)' : worst() === 'warning' ? 'var(--warn)' : 'var(--ok)';
+  $('#tabArchCnt').textContent = ARCH.length;
+  renderRobot();
+}
+
+// ---------- panel (treść budowana tylko, gdy panel jest otwarty) ----------
+function renderPanel() {
+  const b = $('#dropBody');
+  if (!S.open) { b.innerHTML = ''; return; }   // zamknięty panel nie trzyma DOM ani timerów
+  if (S.tab === 'now') { b.innerHTML = '<div class="pane on"><div class="now"><div class="list scroll" id="list"></div><div class="detail scroll" id="detail"></div></div></div>'; renderList(); }
+  if (S.tab === 'act') { b.innerHTML = '<div class="pane on"><div class="act" id="act"></div></div>'; renderAct(); }
+  if (S.tab === 'arch') { b.innerHTML = `<div class="pane on"><div class="arch"><div class="arch-bar" id="archBar">
+    ${[['all','Wszystkie',''],['error','Błędy','c-error'],['warning','Uwagi','c-warning'],['info','Info','c-info'],['ok','Zakończone','c-ok']].map(([f,l,c]) => `<button class="chip ${c}${S.archF === f ? ' on' : ''}" data-f="${f}">${c ? '<i></i>' : ''}${l}</button>`).join('')}
+    <button class="chip${S.archF === 'rec' ? ' on' : ''}" data-f="rec">Z nagraniem</button>
+    <select class="sel-mod" id="archMod"><option value="">Moduł: wszystkie</option>${['Sterowanie','Napędy','CAN','Konfiguracja','Programowanie','System'].map(m => `<option${S.archMod === m ? ' selected' : ''}>${m}</option>`).join('')}</select>
+    <input class="search" id="archQ" type="search" placeholder="Szukaj w archiwum…" value="${esc(S.archQ)}"><span class="arch-count" id="archCount"></span></div><div class="alist scroll" id="alist"></div></div></div>`; renderArch(); }
+}
+function renderList() {
+  const list = sorted();
+  if (!S.sel || !S.active.find(m => m.id === S.sel)) S.sel = list[0]?.id ?? null;
+  let h = '';
+  for (const [sev, name] of [['error','Błędy'],['warning','Uwagi'],['info','Informacje']]) { const g = list.filter(m => m.sev === sev); if (!g.length) continue;
+    h += `<div class="lgrp c-${sev}">${name} <em style="font-style:normal;font-weight:400">${g.length}</em></div>`;
+    h += g.map(m => `<button class="it c-${m.sev}${m.id === S.sel ? ' sel' : ''}${m.isNew ? ' is-new' : ''}${m.ack ? ' acked' : ''}" data-id="${m.id}"><b>${m.ack ? '' : '<span class="nw">NOWY</span>'}${esc(m.title)}</b><time>${m.time}</time>
+      <small>${esc(m.module)} · ${esc(m.ctx)}</small><span class="dur">${m.kind === 'condition' ? (m.since ? `trwa ${m.since} min` : 'teraz') : 'wynik'}</span>${m.ack ? `<span class="ackd">✓ pokwitowany ${m.ackTime}${m.kind === 'condition' ? ' · nadal aktywny' : ''}</span>` : ''}</button>`).join(''); }
+  $('#list').innerHTML = h || `<div class="empty" style="height:auto;padding:40px 0"><span class="big">✓</span><h4>Wszystko w porządku</h4>Brak aktywnych komunikatów.</div>`;
+  list.forEach(m => m.isNew = false);
+  renderDetail();
+}
+function renderDetail() {
+  const m = S.active.find(x => x.id === S.sel), d = $('#detail'); if (!d) return;
+  d.classList.remove('swap'); void d.offsetWidth; d.classList.add('swap');
+  if (!m) { d.innerHTML = `<div class="empty"><span class="big">✓</span><h4>Brak problemów do sprawdzenia</h4>Zakończone komunikaty są w Archiwum.</div>`; return; }
+  const ackBtn = m.ack ? `<span style="margin-left:auto;color:var(--text-3)">✓ pokwitowany ${m.ackTime}</span>` : `<button class="btn-ack" style="margin-left:auto;height:28px" data-ack="${m.id}">${OK_ICO}Kwituj</button>`;
+  const kind = m.kind === 'condition' ? `<div class="kind c-${m.sev}">● Warunek aktywny od ${m.time} — po pokwitowaniu zostaje na liście, dopóki przyczyna nie zniknie.${ackBtn}</div>`
+                                      : `<div class="kind c-${m.sev}">● Wynik operacji z ${m.time} — pokwitowanie przenosi go do archiwum.${ackBtn}</div>`;
+  d.innerHTML = `<div class="d-top"><span class="sev c-${m.sev}">${SEV[m.sev]}</span><span class="mod">${esc(m.module)}</span><span>${esc(m.ctx)}</span><time>dziś ${m.time}</time></div>
+    <h3>${esc(m.title)}</h3>${kind}
+    <div class="sec"><b>Co się stało</b><p>${esc(m.expl)}<small>Powód: ${esc(m.reason)}</small></p></div>
+    <div class="sec"><b>Co zrobić</b><ol class="steps">${m.remedy.map(r => `<li>${esc(r)}</li>`).join('')}</ol></div>
+    ${m.sev === 'error' ? '<div id="fa"></div>' : ''}
+    <div class="sec"><b>Przejdź do</b><div class="acts">${m.links.map(l => `<span class="btn">${esc(l)} →</span>`).join('')}</div></div>
+    ${m.details ? `<div class="sec"><b>Technicznie</b><details class="tech"><summary>Szczegóły techniczne</summary><pre>${esc(m.details)}</pre></details></div>` : ''}`;
+  if (m.sev === 'error') renderFault(m);
+}
+
+// ---------- karta awarii: robot z podświetloną osią, krótki przebieg (gdy da się go zbudować), wyciąg migawki CAN ----------
+const MARKS = [[-0.076,'brak odpowiedzi J1','w'],[-0.027,'','w'],[0,'AWARIA','e'],[1.296,'ponowione ENABLE=0','w'],[5.001,'odzyskiwanie nieudane','e']];
+const HOLD = -0.0062;   // pozycja trzymania J1 (plan w postoju) względem pierwszej próbki
+function chartSVG(W, H, big) {   // pełne okno −10…+5 s: tylko w szczegółowej analizie (okno migawki)
+  const x0 = 46, x1 = W - 12, y0 = 22, y1 = H - 26, tx = t => x0 + (t + 10) / 15 * (x1 - x0);
+  const maxV = Math.max(...J1.map(p => p[1])), ty = v => y1 - (v + 1.5) / (maxV + 3) * (y1 - y0);
+  let g = '';
+  for (let t = -10; t <= 5; t += big ? 1 : 2.5) g += `<line x1="${tx(t)}" x2="${tx(t)}" y1="${y0}" y2="${y1}" stroke="#161b20"/><text x="${tx(t)}" y="${H - 9}" fill="#6e7983" font-size="10" text-anchor="middle">${t > 0 ? '+' : ''}${t} s</text>`;
+  for (const v of [0, 10, 20]) g += `<line x1="${x0}" x2="${x1}" y1="${ty(v)}" y2="${ty(v)}" stroke="#161b20"/><text x="${x0 - 6}" y="${ty(v) + 3}" fill="#6e7983" font-size="10" text-anchor="end">${v}°</text>`;
+  const band = `<rect x="${x0}" y="${ty(0.5)}" width="${x1 - x0}" height="${Math.max(2, ty(-0.5) - ty(0.5))}" fill="rgba(33,208,122,.18)"/>`;
+  const plan = `<line x1="${x0}" x2="${x1}" y1="${ty(HOLD)}" y2="${ty(HOLD)}" stroke="#f2f5f7" stroke-width="1.2" stroke-dasharray="6 4" opacity=".8"/>`;
+  const pts = J1.map(p => `${tx(p[0]).toFixed(1)},${ty(p[1]).toFixed(1)}`);
+  const gapIdx = J1.findIndex((p, i) => i && p[0] - J1[i - 1][0] > 0.5);
+  const marks = MARKS.map(([t, l, k], i) => `<line x1="${tx(t)}" x2="${tx(t)}" y1="${y0 - 6}" y2="${y1}" stroke="${k === 'e' ? '#ff3b4e' : '#ffb020'}" stroke-width="${k === 'e' ? 1.6 : 1}" stroke-dasharray="${k === 'e' ? '' : '3 3'}"/>` +
+    (l ? `<text x="${tx(t) + (i === 0 || i === 4 ? -4 : 4)}" y="${y0 - 9 + (i === 3 ? 12 : 0)}" fill="${k === 'e' ? '#ff7d8a' : '#ffc95c'}" font-size="10" text-anchor="${i === 0 || i === 4 ? 'end' : 'start'}" font-weight="700">${l}</text>` : '')).join('');
+  const legend = `<g font-size="10"><line x1="${x0 + 8}" x2="${x0 + 30}" y1="${y0 + 8}" y2="${y0 + 8}" stroke="#19e3f0" stroke-width="2"/><text x="${x0 + 34}" y="${y0 + 11}" fill="#aab4bd">pomiar (31h)</text>
+    <line x1="${x0 + 110}" x2="${x0 + 132}" y1="${y0 + 8}" y2="${y0 + 8}" stroke="#f2f5f7" stroke-dasharray="6 4"/><text x="${x0 + 136}" y="${y0 + 11}" fill="#aab4bd">plan: pozycja trzymania</text>
+    <rect x="${x0 + 262}" y="${y0 + 3}" width="18" height="9" fill="rgba(33,208,122,.3)"/><text x="${x0 + 284}" y="${y0 + 11}" fill="#aab4bd">limit postoju ±0,5°</text></g>`;
+  return `<svg viewBox="0 0 ${W} ${H}" font-family="Ubuntu Condensed, Arial Narrow, sans-serif">${g}${band}${plan}${marks}
+    <path d="M${pts.slice(0, gapIdx).join('L')}" fill="none" stroke="#19e3f0" stroke-width="1.8"/><path d="M${pts[gapIdx - 1]}L${pts[gapIdx]}" fill="none" stroke="#19e3f0" stroke-width="1.2" stroke-dasharray="2 3" opacity=".7"/><path d="M${pts.slice(gapIdx).join('L')}" fill="none" stroke="#19e3f0" stroke-width="1.8"/>${legend}</svg>`;
+}
+// Krótki przebieg: kilka próbek przed i po awarii, pomiar + plan. J1: prawdziwe próbki; J4: przykład ruchu.
+const MINI = {
+  j1:{title:'J1 · pozycja względem trzymania [°]', unit:'°', plan:t => HOLD, gap:[-0.106, -0.001, 'brak odp. 105 ms'], gap2:[-0.001, 1.265, 'brak odpowiedzi 1,27 s'],
+      pts: J1.filter(p => p[0] >= -0.31 && p[0] <= 1.55), tmin:-0.35, tmax:1.6, band:0.5},
+  j4:{title:'J4 · pozycja [°] (przykład)', unit:'°', plan:t => 12 + 6 * t, gap:[0.02, 0.6, 'brak odpowiedzi J4'],
+      pts:[-0.4,-0.34,-0.28,-0.22,-0.16,-0.1,-0.04,0.02].map(t => [t, +(12 + 6 * t - 0.05 - (t + 0.4) * 0.12).toFixed(3)]), tmin:-0.45, tmax:0.62, band:null},
+};
+function miniSVG(key) {
+  const c = MINI[key], W = 440, Hh = 168, x0 = 40, x1 = W - 10, y0 = 14, y1 = Hh - 24;
+  const vals = [...c.pts.map(p => p[1]), c.plan(c.tmin), c.plan(c.tmax)], lo = Math.min(...vals) - 0.6, hi = Math.max(...vals) + 0.6;
+  const tx = t => x0 + (t - c.tmin) / (c.tmax - c.tmin) * (x1 - x0), ty = v => y1 - (v - lo) / (hi - lo) * (y1 - y0);
+  let g = '';
+  const step = (hi - lo) > 6 ? 5 : (hi - lo) > 2.5 ? 1 : 0.5;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) g += `<line x1="${x0}" x2="${x1}" y1="${ty(v)}" y2="${ty(v)}" stroke="#151a1f"/><text x="${x0 - 5}" y="${ty(v) + 3}" fill="#6e7983" font-size="9" text-anchor="end">${+v.toFixed(1)}°</text>`;
+  for (const t of [c.tmin + 0.05, 0, c.tmax - 0.05]) g += `<text x="${tx(t)}" y="${Hh - 8}" fill="#6e7983" font-size="9" text-anchor="middle">${t === 0 ? '0 (awaria)' : (t > 0 ? '+' : '') + t.toFixed(2).replace('.', ',') + ' s'}</text>`;
+  const gaps = [c.gap, c.gap2].filter(Boolean).map(([a, b, l]) => `<rect x="${tx(a)}" y="${y0}" width="${tx(b) - tx(a)}" height="${y1 - y0}" fill="rgba(255,176,32,.07)" stroke="rgba(255,176,32,.25)" stroke-dasharray="2 3"/>${tx(b) - tx(a) < 60 ? `<text x="${tx(a) - 4}" y="${y0 + 11}" fill="#ffc95c" font-size="9" text-anchor="end">${l}</text>` : `<text x="${(tx(a) + tx(b)) / 2}" y="${y0 + 11}" fill="#ffc95c" font-size="9" text-anchor="middle">${l}</text>`}`).join('');
+  const band = c.band ? `<rect x="${x0}" y="${ty(c.plan(0) + c.band)}" width="${x1 - x0}" height="${ty(c.plan(0) - c.band) - ty(c.plan(0) + c.band)}" fill="rgba(33,208,122,.13)"/>` : '';
+  const planPts = [c.tmin, c.tmax].map(t => `${tx(t)},${ty(c.plan(t))}`).join(' ');
+  const line = c.pts.map((p, i) => `${i && p[0] - c.pts[i - 1][0] < 0.3 ? 'L' : 'M'}${tx(p[0]).toFixed(1)},${ty(p[1]).toFixed(1)}`).join('');
+  const jumps = c.pts.map((p, i) => i && p[0] - c.pts[i - 1][0] >= 0.3 ? `<path d="M${tx(c.pts[i - 1][0])},${ty(c.pts[i - 1][1])}L${tx(p[0])},${ty(p[1])}" stroke="#19e3f0" stroke-width="1" stroke-dasharray="2 4" opacity=".45" fill="none"/>` : '').join('');
+  const dots = c.pts.map(p => `<circle cx="${tx(p[0]).toFixed(1)}" cy="${ty(p[1]).toFixed(1)}" r="2.6" fill="${p[0] >= 0 ? '#ff7d8a' : '#19e3f0'}"/>`).join('');
+  return `<svg viewBox="0 0 ${W} ${Hh}" font-family="Ubuntu Condensed, Arial Narrow, sans-serif">${g}${band}${gaps}
+    <polyline points="${planPts}" fill="none" stroke="#f2f5f7" stroke-width="1.2" stroke-dasharray="6 4" opacity=".8"/>
+    <line x1="${tx(0)}" x2="${tx(0)}" y1="${y0}" y2="${y1}" stroke="#ff3b4e" stroke-width="1.5"/>
+    <path d="${line}" fill="none" stroke="#19e3f0" stroke-width="1.4" opacity=".75"/>${jumps}${dots}</svg>`;
+}
+// Robot z podświetloną osią (w aplikacji: istniejąca scena 3D z poświatą przegubu jak previewLimitGlow, jedna klatka).
+function robotSVG(axis) {
+  const J = {1:[110,196,'ring-base'],2:[110,150],3:[176,96],4:[214,112,'ring-arm'],5:[252,128],6:[276,150,'ring-tool']};
+  const hl = J[axis];
+  const ring = !hl ? '' : hl[2] === 'ring-base' ? `<ellipse class="glow" cx="110" cy="200" rx="54" ry="13"/>` :
+    hl[2] === 'ring-arm' ? `<ellipse class="glow" cx="${hl[0]}" cy="${hl[1]}" rx="9" ry="19" transform="rotate(-35 ${hl[0]} ${hl[1]})"/>` :
+    hl[2] === 'ring-tool' ? `<ellipse class="glow" cx="${hl[0]}" cy="${hl[1]}" rx="14" ry="7"/>` : `<circle class="glow" cx="${hl[0]}" cy="${hl[1]}" r="17"/>`;
+  const joints = Object.entries(J).map(([k, [x, y]]) => `<circle cx="${x}" cy="${y}" r="${+k === axis ? 8 : 6}" fill="${+k === axis ? '#ff3b4e' : '#20262d'}" stroke="${+k === axis ? '#ffd7db' : '#6e7983'}" stroke-width="1.5"/>
+    <text x="${x + 12}" y="${y - 9}" font-size="10" fill="${+k === axis ? '#ff7d8a' : '#6e7983'}" font-weight="${+k === axis ? 700 : 400}">J${k}</text>`).join('');
+  return `<svg viewBox="0 0 320 240" font-family="Ubuntu Condensed, Arial Narrow, sans-serif">
+    <ellipse cx="110" cy="214" rx="78" ry="16" fill="#0f1316" stroke="#232930"/>
+    <path d="M78 214 L84 186 L136 186 L142 214Z" fill="#1b2128" stroke="#3a424b"/>
+    ${ring}
+    <path d="M110 192 L110 150 L176 96 L214 112 L252 128 L276 150" fill="none" stroke="#3a424b" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M110 192 L110 150 L176 96 L214 112 L252 128 L276 150" fill="none" stroke="#1d242b" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M276 150 l8 14 M276 150 l14 6" stroke="#19e3f0" stroke-width="3" stroke-linecap="round"/>${joints}</svg>`;
+}
+const CANX = {   // wyciąg migawki: zdarzenia, które wywołały błąd (J1: prawdziwe wiersze z migawki)
+  j1:[[-105.9,'can_rx','J1','31','ostatni odczyt licznika — w tolerancji',''],[-76.0,'request_timeout','J1','82','brak odpowiedzi w 24 ms','w'],[-27.0,'request_timeout','J1','3A','brak odpowiedzi w 24 ms','w'],
+      [-1.0,'can_rx','J1','31','licznik położenia skoczył o 742 imp.','w'],[0.0,'bus_fault','—','','ruch bez komendy w postoju — odchyłka 0,652°, limit ±0,500°','e'],[27.9,'fault_trigger','—','','STOP wysłany; potwierdzanie ENABLE i postoju',''],
+      [1296.0,'recovery_disable_retry','J1','F3','ENABLE=1 po STOP — ponowione ENABLE=0','w'],[5001.0,'recovery_failed','—','','przekroczono termin etapu verifying_disabled','e']],
+  j4:[[-60.0,'can_tx','J4','F5','cel F5 (ruch LIN)',''],[-34.0,'can_rx','J4','31','ostatni odczyt licznika',''],[-10.0,'request_timeout','J4','31','brak odpowiedzi w 24 ms','w'],[14.0,'request_timeout','J4','31','brak odpowiedzi w 24 ms','w'],[0.0,'bus_fault','—','','J4: brak odpowiedzi — zatrzymanie ruchu','e'],[2.1,'can_tx','J1–J6','F5','STOP (prędkość 0)','']],
+  op:[[-41.0,'can_tx','J1','F1','zapytanie o stan silnika',''],[-40.2,'can_rx','J1','F1','odpowiedź: 3 = hamowanie','w'],[0.0,'manual_fault','—','','kod komendy=241, oczekiwano=1, otrzymano=3','e']],
+};
+function renderFault(m) {
+  const box = $('#fa'); if (!box) return;
+  const rows = (CANX[m.can] || []).sort((a, b) => a[0] - b[0]);
+  const robot = m.axis ? `<div class="fc-robot">${robotSVG(m.axis)}<span class="fc-axis">J${m.axis} · CAN ID ${m.axis}</span></div>` : '';
+  const ready = S.chartCache[m.id] || document.documentElement.classList.contains('no-anim');
+  const chart = m.chart ? `<div class="fc-chart"><div class="fc-cap">${MINI[m.chart].title}<span><i class="lg-m"></i>pomiar <i class="lg-p"></i>plan <i class="lg-e"></i>po awarii</span></div>${ready ? miniSVG(m.chart) : '<div class="skel" style="height:150px">Wczytywanie próbek z bufora…</div>'}</div>` : '';
+  box.innerHTML = `<div class="fc"><div class="fc-h">Awaria w skrócie<span class="r">${m.chart ? '' : 'przebieg niedostępny: błąd nie dotyczy ruchu jednej osi · '}migawka ${m.snap}</span></div>
+    ${robot || chart ? `<div class="fc-grid${robot && chart ? '' : ' one'}">${robot}${chart}</div>` : ''}
+    <div class="fc-can"><div class="fc-cap">Migawka CAN — zdarzenia, które wywołały błąd</div>
+      ${rows.map(r => `<div class="cx${r[5] === 'e' ? ' e' : r[5] === 'w' ? ' w' : ''}"><span class="rel">${r[0] > 0 ? '+' : ''}${r[0].toFixed(1)} ms</span><span class="evn">${r[1]}</span><span>${r[2]}</span><span class="dat">${r[3] ? r[3] + 'h' : ''}</span><span class="det">${esc(r[4])}</span></div>`).join('')}</div>
+    <div class="fa-links"><button class="lnk can" data-go="can">${IC.can}Szczegółowa analiza <small>migawka · przebiegi · wszystkie zdarzenia</small></button><button class="lnk" data-go="dl">${IC.dl}Pobierz migawkę <small>.jsonl</small></button></div></div>`;
+  if (m.chart && !ready) setTimeout(() => { S.chartCache[m.id] = 1; if (S.sel === m.id && $('#fa')) renderFault(m); }, 350);
+}
+
+// ---------- okno migawki CAN ----------
+const KEY_EV = [
+  [-9996.0,'20:49:13.129601','CAN','can_tx','J2','31','3133','odczyt licznika położenia (rutyna, co 40 ms na oś)'],
+  [-76.0,'20:49:23.049554','CAN','request_timeout','J1','82','','brak odpowiedzi w 24 ms','w'],
+  [-27.0,'20:49:23.098584','CAN','request_timeout','J1','3A','','brak odpowiedzi w 24 ms','w'],
+  [-0.0,'20:49:23.125581','CAN','hold_violation','J1','','','J1 (CAN ID 1): odchyłka 742 imp. wału','e'],
+  [0.0,'20:49:23.125598','CAN','bus_fault','—','','','J1 (CAN ID 1): ruch bez komendy w postoju — odchyłka 0.652° przegubu (742 imp. wału) od pozycji trzymania, limit ±0.500°; zatrzymanie awaryjne','e',1],
+  [0.0,'20:49:23.125642','CAN','recovery_started','—','01','','start odzyskiwania po awarii'],
+  [27.9,'20:49:23.153497','Mostek','fault_trigger','—','','','… STOP wysłany; trwa potwierdzanie ENABLE i postoju'],
+  [46.0,'20:49:23.171582','CAN','request_timeout','J1','40','','brak odpowiedzi w 24 ms','w'],
+  [99.0,'20:49:23.224577','CAN','request_timeout','J1','3E','','brak odpowiedzi w 24 ms','w'],
+  [149.0,'20:49:23.274584','CAN','request_timeout','J1','40','','brak odpowiedzi w 24 ms','w'],
+  [199.0,'20:49:23.324577','CAN','request_timeout','J1','3A','','brak odpowiedzi w 24 ms','w'],
+  [259.0,'20:49:23.384577','CAN','request_timeout','J1','98','','brak odpowiedzi w 24 ms','w'],
+  [1296.0,'20:49:24.421602','CAN','recovery_disable_retry','J1','F3','','J1 (CAN ID 1): ENABLE=1 po STOP — ponowione F3 ENABLE=0','w'],
+  [5001.0,'20:49:28.126561','CAN','recovery_failed','—','','','przekroczono termin etapu verifying_disabled','e'],
+];
+function j1Rows() {   // ramki 31h J1 z prawdziwego przebiegu (wartość licznika z odchyłki; CRC pominięte)
+  const base = 40545, out = [];
+  for (const [t, v] of J1) { if (t < -1.2 || t > 1.6) continue; const c = Math.round(base + v * 16384 * 25 / 360);
+    const hex = c.toString(16).padStart(12, '0').toUpperCase().match(/../g).join(' ');
+    const ms = t * 1000, abs = 23.125598 + t, sec = Math.floor(abs), frac = Math.round((abs - sec) * 1e6);
+    out.push([ms - 1.2, `20:49:${String(sec).padStart(2,'0')}.${String(frac).padStart(6,'0')}`, 'CAN', 'can_rx', 'J1', '31', `31 ${hex} ··`, `licznik ${c} imp.`]); }
+  return out;
+}
+function renderModal() {
+  const f = S.mFilter;
+  let rows = f === 'key' ? KEY_EV : f === 'j1' ? [...KEY_EV.filter(r => r[4] === 'J1'), ...j1Rows()].sort((a, b) => a[0] - b[0]) :
+    f === 'bridge' ? KEY_EV.filter(r => r[2] === 'Mostek') : [...KEY_EV, ...j1Rows()].sort((a, b) => a[0] - b[0]);
+  const chip = (k, l, n) => `<button class="chip${f === k ? ' on' : ''}" data-mf="${k}">${l} <span style="opacity:.6">${n}</span></button>`;
+  $('#modal').innerHTML = `<div class="m-head"><span class="sev c-error">BŁĄD</span><h2>Migawka awarii · J1 ruch bez komendy w postoju<small>19.11.2026 20:49:23,125 · id 20261119-204923-125</small></h2>
+      <span class="head-sp"></span><button class="ibtn" id="mClose" title="Zamknij (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="m-meta"><span>Okno <b>−10 s … +5 s</b></span><span>Ramki i zdarzenia CAN <b>31 859</b></span><span>Mostek / panel <b>685</b></span><span>/rosout <b>w pamięci procesu</b></span><span>Dziennik usługi i jądra</span><span>Konfiguracja <b>rew. df381e</b></span><span>Plik parametrów wykonania</span></div>
+    <div class="m-chart"><div class="chart"><span class="cap">J1 · pomiar i plan [°] · pozostałe osie bez ruchu (odchyłka &lt; 0,05°)</span>${chartSVG(1150, 210, true)}</div></div>
+    <div class="m-bar">${chip('key','Zdarzenia kluczowe',KEY_EV.length)}${chip('j1','CAN · J1','5 942')}${chip('all','Cały CAN','31 859')}${chip('bridge','Mostek','685')}
+      <input class="search" placeholder="Szukaj: oś, komenda, tekst…"></div>
+    <div class="m-table scroll"><div class="er hd"><span style="text-align:right">t [ms]</span><span>czas</span><span>źródło</span><span>zdarzenie</span><span>oś</span><span>kom.</span><span>dane</span><span>opis</span></div>
+      ${rows.map(r => `<div class="er${r[8] === 'e' ? ' k-err' : r[8] === 'w' ? ' k-warn' : ''}${r[9] ? ' zero' : ''}"><span class="rel">${r[0] > 0 ? '+' : ''}${r[0].toFixed(1)}</span><span class="tm">${r[1].slice(0, 15)}</span><span class="src">${r[2]}</span><span class="evn">${r[3]}</span><span>${r[4]}</span><span class="dat">${r[5] ? r[5] + 'h' : ''}</span><span class="dat">${esc(r[6])}</span><span class="det" title="${esc(r[7])}">${esc(r[7])}</span></div>`).join('')}
+      ${f === 'all' ? '<div class="empty" style="height:60px">… pozostałe 31 7xx wierszy doczytywane przy przewijaniu (strony po 500)</div>' : ''}</div>
+    <div class="m-foot">Migawka powstaje automatycznie przy każdej awarii (10 s przed, 5 s po) i zostaje w faults.rfs.<span class="r"><span class="lnk">${IC.dl}Pobierz .jsonl (32 544 wierszy)</span><span class="lnk">Diagnostyka → Przebiegi w tym czasie →</span></span></div>`;
+}
+function openModal() { S.mFilter = 'key'; renderModal(); $('#modalBg').classList.add('on'); }
+function closeModal() { $('#modalBg').classList.remove('on'); $('#modal').innerHTML = ''; }
+
+// ---------- czynności robota: stan każdej osi nad kafelkiem (MKS F1: zatrzymany / przyspieszanie / hamowanie / pełna prędkość) ----------
+const ST = {wait:['CZEKA','info','—'], acc:['ROZPĘDZA SIĘ','ok','↗'], run:['W RUCHU','ok','→'], dec:['HAMUJE','warning','↘'], off:['WYŁĄCZONA','info','○'], fault:['BEZ KOMENDY','error','!'], plan:['CZEKA · bliźniak','plan','—']};
+const AXES = {
+  move:[['acc','-1,84°','+3,1 °/s'],['run','14,20°','+4,8 °/s'],['run','-22,05°','−4,2 °/s'],['wait','-9,12°','0'],['dec','51,30°','+1,2 °/s'],['wait','-29,34°','0']],
+  plan:[['plan','1,40°','0'],['plan','6,02°','0'],['plan','-12,48°','0'],['plan','-9,12°','0'],['plan','49,90°','0'],['plan','-29,34°','0']],
+  warn:[['off','-3,10°','0'],['off','1,66°','0'],['off','-5,87°','0'],['off','-9,12°','0'],['off','47,67°','0'],['off','-29,34°','0']],
+  error:[['fault','-2,45°','odch. +0,652°'],['wait','1,66°','0'],['wait','-5,87°','0'],['wait','-9,12°','0'],['wait','47,67°','0'],['wait','-29,34°','0']],
+};
+const CYCLE = ['acc','run','run','dec','wait'];
+let actTick = 0;
+function axisTiles() {
+  const a = AXES[S.scen];
+  return a.map(([st, pos, v], i) => { const [lab0, c, ar] = ST[st]; const lab = S.scen === 'error' && st === 'wait' ? 'CZEKAŁA' : lab0;
+    return `<div class="axt c-${c}${st === 'fault' ? ' bad' : ''}${st === 'acc' || st === 'run' || st === 'dec' ? ' moving' : ''}"><span class="axt-st"><i>${ar}</i>${lab}</span>
+      <div class="axt-b"><b>J${i + 1}</b><span class="p">${pos}</span><span class="v">${v}</span>${st === 'fault' ? '<span class="was">przed awarią: CZEKAŁA (trzymanie)</span>' : ''}</div></div>`; }).join('');
+}
+function renderAct() {
+  const sc = SCEN[S.scen], n = sc.now;
+  const cap = S.scen === 'error' ? 'Stan osi w chwili zatrzymania · 20:49:23,125' : S.scen === 'plan' ? 'Robot fizyczny · stan osi (ruch tylko w bliźniaku)' : 'Stan osi teraz · odczyt napędów co 50 ms w ruchu';
+  const fa = S.scen === 'error' ? `<div class="fa-links"><button class="lnk can" data-go="can">${IC.can}Szczegółowa analiza awarii <small>migawka 15 s</small></button></div>` : '';
+  $('#act').innerHTML = `<div class="act-now"><div class="now-card c-${n.c}"><span class="k">${n.k}</span><h3>${esc(n.h)}</h3><p>${esc(n.p)}</p></div>
+      <div class="pos-cap">${cap}</div><div class="axts" id="axts">${axisTiles()}</div>${fa}
+      <p style="font-size:12px;color:var(--text-3)">Stan programu i praca automatyczna: osobny ekran (Programowanie / przyszły dashboard). Tu tylko to, co robot fizycznie robi lub robił.</p></div>
+    <div class="tl"><h4>Ostatnie czynności</h4>${sc.log.map(e => `<div class="ev c-${e[1]}${e[5] ? ' cur' : ''}"><time>${e[0]}</time><span>${esc(e[2])}<small>${esc(e[3])}</small></span><span class="du">${e[4]}</span></div>`).join('')}</div>`;
+}
+// Symulacja zmian stanu osi w scenariuszu „Ruch” (tylko gdy zakładka jest otwarta).
+setInterval(() => { if (!S.open || S.tab !== 'act' || S.scen !== 'move' || document.hidden) return; actTick++;
+  AXES.move = AXES.move.map((a, i) => i === 3 || i === 5 ? a : [CYCLE[(actTick + i) % CYCLE.length], a[1], CYCLE[(actTick + i) % CYCLE.length] === 'wait' ? '0' : a[2]]);
+  const el = $('#axts'); if (el) el.innerHTML = axisTiles(); }, 1400);
+
+// ---------- archiwum ----------
+function renderArch() {
+  const q = S.archQ.trim().toLowerCase();
+  const rows = ARCH.filter(a => (S.archF === 'all' || (S.archF === 'rec' ? a.rec : a.sev === S.archF)) && (!S.archMod || a.module === S.archMod) && (!q || (a.title + ' ' + a.module + ' ' + a.note).toLowerCase().includes(q)));
+  const limit = S.archPages * 40;
+  $('#archCount').textContent = `${Math.min(rows.length, limit)} z ${rows.length}`;
+  let h = '', day = null;
+  rows.slice(0, limit).forEach(a => {
+    if (a.day !== day) { day = a.day; h += `<div class="day">${a.day}<em>${a.date}</em></div>`; }
+    const rec = a.rec ? `<span class="rec"><span class="can" title="Migawka CAN zapisana">CAN</span><span class="${a.rec.wave ? '' : 'off'}" title="${a.rec.wave ? 'Przebiegi osi w buforze' : 'Przebiegi nadpisane (bufor 4,3 h); dane osi zostają w migawce CAN'}">PRZEBIEG</span></span>` : '<span></span>';
+    h += `<div class="ar${S.archX === a.id ? ' x' : ''}" data-a="${a.id}"><time>${a.time}</time><span class="sev c-${a.sev}">${SEV[a.sev]}</span><span class="m">${esc(a.module)}</span><span class="t">${esc(a.title)}</span>
+      <span class="end">${/rozwiązany|zakończony/.test(a.end) ? `<b>✓</b> ${esc(a.end)}` : esc(a.end)}</span><span class="du">${a.du}</span>${rec}<span class="ch">›</span></div>`;
+    if (S.archX === a.id) h += `<div class="ar-x"><div><b>Co się stało</b>${esc(a.note)}</div><div><b>Jak się skończyło</b>${esc(a.end)}${a.du ? ` · trwało ${a.du}` : ''}${a.rec ? `<div class="fa-links" style="margin-top:8px"><button class="lnk can" data-go="can">${IC.can}Nagranie CAN</button>${a.rec.wave ? `<button class="lnk" data-go="wave">${IC.wave}Przebiegi osi</button>` : ''}</div>` : ''}</div></div>`;
+  });
+  if (rows.length > limit) h += `<button class="more" id="more">Doczytaj starsze (${rows.length - limit})</button>`;
+  $('#alist').innerHTML = h || '<div class="empty" style="height:200px">Brak wpisów dla tego filtra.</div>';
+}
+
+// ---------- akcje ----------
+function stamp() { return fmt(S.clock); }
+function ackOne(id, animate = true) {
+  const m = S.active.find(x => x.id === id); if (!m || m.ack) return;
+  m.ack = true; m.ackTime = stamp();
+  if (m.kind === 'result') {
+    ARCH.unshift({id:'a' + (uid++), day:'Dziś', date:'19.11.2026', time:m.time, sev:m.sev, module:m.module, title:m.title, end:'pokwitowany przez operatora', note:m.expl, du:'', rec:null});
+    const el = document.querySelector(`.it[data-id="${id}"]`);
+    const drop = () => { S.active = S.active.filter(x => x.id !== id); if (S.sel === id) S.sel = null; refresh(); };
+    if (el && animate) { el.classList.add('leaving'); setTimeout(drop, 380); } else drop();
+  }
+}
+function ackAll() {
+  const ids = unack().map(m => m.id);
+  const results = ids.filter(id => S.active.find(m => m.id === id).kind === 'result');
+  ids.forEach(id => { const m = S.active.find(x => x.id === id); m.ack = true; m.ackTime = stamp(); });
+  results.forEach(id => { const el = document.querySelector(`.it[data-id="${id}"]`); if (el) el.classList.add('leaving');
+    const m = S.active.find(x => x.id === id); ARCH.unshift({id:'a' + (uid++), day:'Dziś', date:'19.11.2026', time:m.time, sev:m.sev, module:m.module, title:m.title, end:'pokwitowany przez operatora', note:m.expl, du:'', rec:null}); });
+  refresh();   // warunki od razu wyglądają na pokwitowane
+  setTimeout(() => { S.active = S.active.filter(m => !results.includes(m.id)); if (results.includes(S.sel)) S.sel = null; refresh(); }, results.length ? 380 : 0);
+}
+function refresh() { renderCounts(); renderTicker(false); if (S.open && S.tab === 'now') renderList(); }
+function setScen(s) {
+  S.scen = s; S.tick = 0; S.sel = null;
+  S.active = SCEN[s].active.map(k => ({...MSG[k], id:'m' + (uid++), ack: SCEN[s].acked.includes(k), ackTime: SCEN[s].acked.includes(k) ? '20:42:05' : null}));
+  $$('#scen [data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === s));
+  const st = $('#strip'); st.classList.remove('flash'); if (s === 'error') { void st.offsetWidth; st.classList.add('flash'); }
+  renderCounts(); renderTicker(true); renderPanel();
+}
+let poolIdx = 0;
+function addMessage() {
+  const tpl = NEW_POOL[poolIdx++ % NEW_POOL.length];
+  const m = {...tpl, id:'m' + (uid++), time:stamp(), since:0, isNew:true, ack:false};
+  S.active.push(m); S.sel = m.id; S.tick = sorted().findIndex(x => x.id === m.id);
+  const st = $('#strip'); st.classList.remove('flash'); void st.offsetWidth; if (m.sev !== 'info') st.classList.add('flash');
+  renderCounts(m.sev === 'info' ? null : m.sev); renderTicker(true); if (S.open && S.tab === 'now') renderList();
+}
+function setOpen(o) { S.open = o; document.body.classList.toggle('open', o); $('#strip').setAttribute('aria-expanded', o); renderCounts(); if (o) renderPanel(); else setTimeout(() => { if (!S.open) renderPanel(); }, 460); }
+function setTab(t) { S.tab = t; $$('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t)); renderPanel(); }
+function go(kind) { if (kind === 'can') openModal(); else if (kind === 'wave') alert('W aplikacji: Diagnostyka → Przebiegi, J1 wybrana, zakres 20:49:13 – 20:49:28, znacznik awarii na osi czasu.'); else alert('W aplikacji: pobranie migawki 20261119-204923-125 jako .jsonl (32 544 wierszy).'); }
+
+$('#strip').addEventListener('click', () => setOpen(!S.open));
+$('#strip').addEventListener('keydown', e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setOpen(!S.open); } });
+$('#ackStrip').addEventListener('click', e => { e.stopPropagation(); ackAll(); });
+$('#ackAll').addEventListener('click', ackAll);
+$('#backdrop').addEventListener('click', () => { if (!S.pinned) setOpen(false); });
+$('#close').addEventListener('click', () => setOpen(false));
+$('#pin').addEventListener('click', e => { S.pinned = !S.pinned; e.currentTarget.classList.toggle('on', S.pinned); });
+document.addEventListener('keydown', e => { if (e.key !== 'Escape') return; if ($('#modalBg').classList.contains('on')) closeModal(); else if (S.open) setOpen(false); });
+$$('.tab').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
+$('#dropBody').addEventListener('click', e => {
+  const it = e.target.closest('.it'); if (it) { S.sel = it.dataset.id; $$('.it').forEach(x => x.classList.toggle('sel', x === it)); renderDetail(); return; }
+  const a = e.target.closest('[data-ack]'); if (a) { ackOne(a.dataset.ack); refresh(); return; }
+  const g = e.target.closest('[data-go]'); if (g) { e.stopPropagation(); go(g.dataset.go); return; }
+  const c = e.target.closest('#archBar .chip'); if (c) { S.archF = c.dataset.f; S.archPages = 1; $$('#archBar .chip').forEach(x => x.classList.toggle('on', x === c)); renderArch(); return; }
+  if (e.target.id === 'more') { S.archPages++; renderArch(); return; }
+  const r = e.target.closest('.ar'); if (r) { S.archX = S.archX === r.dataset.a ? null : r.dataset.a; renderArch(); }
+});
+$('#dropBody').addEventListener('change', e => { if (e.target.id === 'archMod') { S.archMod = e.target.value; renderArch(); } });
+$('#dropBody').addEventListener('input', e => { if (e.target.id === 'archQ') { S.archQ = e.target.value; renderArch(); } });
+$('#modalBg').addEventListener('click', e => { if (e.target.id === 'modalBg' || e.target.closest('#mClose')) return closeModal(); const c = e.target.closest('[data-mf]'); if (c) { S.mFilter = c.dataset.mf; renderModal(); } });
+$$('#scen [data-s]').forEach(b => b.addEventListener('click', () => setScen(b.dataset.s)));
+$('#addMsg').addEventListener('click', addMessage);
+
+// Jedyny stały timer przy zamkniętym panelu: karuzela co 4 s (wstrzymana, gdy karta jest w tle lub mysz jest na pasku).
+let hover = false; $('#strip').addEventListener('mouseenter', () => hover = true); $('#strip').addEventListener('mouseleave', () => hover = false);
+setInterval(() => { if (hover || S.open || document.hidden) return; const n = S.active.length; if (n > 1) { S.tick = (S.tick + 1) % n; renderTicker(true); } }, 4000);
+setInterval(() => { if (document.hidden) return; S.clock++; $('#clock').textContent = fmt(S.clock); }, 1000);
+
+const H = location.hash.slice(1).split(',');
+if (H.includes('shot')) document.documentElement.classList.add('no-anim');
+setScen(['move','plan','warn','error'].find(x => H.includes(x)) || 'error');
+const T = ['now','act','arch'].find(x => H.includes(x)); if (T) setTab(T);
+if (H.includes('open')) setOpen(true);
+if (H.includes('fa')) { const f = $('#fa'), d = $('#detail'); if (f && d) { d.style.scrollBehavior = 'auto'; f.scrollIntoView({block:'start'}); } }
+if (H.includes('can')) openModal();
+})();
+</script>
+</body></html>

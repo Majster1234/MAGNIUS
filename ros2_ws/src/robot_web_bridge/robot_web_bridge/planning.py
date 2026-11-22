@@ -374,9 +374,11 @@ class PlanningClient:
         code, settings = await self.configuration('system_get')
         if code != 200 or settings.get('revision') != data.get('settings_revision'):
             raise ValueError('Ustawienia symulacji zmieniły się; wybierz ruch ponownie')
+        if data.get('motion_type') == 'CIRC':
+            return await self.move_circ(data, settings)
         target = data.get('target_degrees')
         if not isinstance(target, list) or len(target) != 6 or data.get('motion_type') not in ('PTP','LIN'):
-            raise ValueError('Wymagany typ PTP/LIN i sześć pozycji docelowych')
+            raise ValueError('Wymagany typ PTP/LIN/CIRC i sześć pozycji docelowych')
         context = await self.context(data, True)
         goal = self.preview_type.Goal(context=context, motion_type=0 if data['motion_type']=='PTP' else 1,
                                       target_positions=[math.radians(number(q, 'Cel osi')) for q in target])
@@ -387,6 +389,45 @@ class PlanningClient:
             goal.tcp_acceleration = limits['tcp_acceleration_mm_s2'] / 1000
             goal.tcp_angular_velocity = math.radians(limits['tcp_angular_velocity_degrees_s'])
         return await self.submit(goal, self.preview, {'settings_revision': settings['revision'], 'execution_limits': limits})
+
+    CIRC_ORIENTATIONS = {'interpolated': 0, 'path': 1}
+
+    async def move_circ(self, data, settings):
+        """Pojedynczy CIRC (podgląd): planer ciągu z jednym odcinkiem; plan CHAIN z `circ_request` do motion/prepare.
+        `via_degrees` — pozycja pośrednia (liczy się położenie TCP), `circ_orientation`: interpolated (start→cel) albo
+        path (stała względem środka okręgu). Limity TCP jak LIN, nie większe niż konfiguracja robota."""
+        from robot_control_interfaces.msg import MotionSegment
+        if not self.chain.server_is_ready():
+            raise RuntimeError('Planner ciągu ruchów jest niedostępny')
+        target, via = data.get('target_degrees'), data.get('via_degrees')
+        if not (isinstance(target, list) and len(target) == 6 and isinstance(via, list) and len(via) == 6):
+            raise ValueError('CIRC: wymagane sześć pozycji docelowych i sześć pozycji pośrednich')
+        orientation = data.get('circ_orientation', 'interpolated')
+        if orientation not in self.CIRC_ORIENTATIONS:
+            raise ValueError('CIRC: orientacja interpolated albo path')
+        limits = lin_limits(data)
+        code, snapshot = await self.configuration('status')
+        values = snapshot.get('active', {}).get('document', {}).get('values', {}) if code == 200 else {}
+        for key, field in (('tcp.max_linear_velocity', 'tcp_velocity_mm_s'), ('tcp.max_angular_velocity', 'tcp_angular_velocity_degrees_s')):
+            if type(values.get(key)) in (int, float) and limits[field] > values[key]:
+                raise ValueError(f'CIRC: {field} = {limits[field]:g} przekracza {key} = {values[key]:g} z konfiguracji')
+        # Przyspieszenie kątowe TCP z konfiguracji (jak ciągi programów); brak danych = bez limitu.
+        angular_acceleration = values.get('tcp.angular_acceleration')
+        angular_acceleration = float(angular_acceleration) if type(angular_acceleration) in (int, float) and angular_acceleration > 0 else 0.
+        context = await self.context({**data, 'profile_limits': True}, True)
+        goal = self.chain_type.Goal(context=context, max_duration=95.)
+        goal.segments.append(MotionSegment(
+            motion_type=MotionSegment.CIRC, target_positions=[math.radians(number(q, 'Cel osi')) for q in target],
+            via_positions=[math.radians(number(q, 'Pozycja pośrednia')) for q in via],
+            circ_orientation=self.CIRC_ORIENTATIONS[orientation],
+            max_joint_velocity=list(context.max_velocity), max_joint_acceleration=list(context.max_acceleration),
+            tcp_velocity=limits['tcp_velocity_mm_s'] / 1000, tcp_acceleration=limits['tcp_acceleration_mm_s2'] / 1000,
+            tcp_angular_velocity=math.radians(limits['tcp_angular_velocity_degrees_s']),
+            tcp_angular_acceleration=math.radians(angular_acceleration), blend_radius=0., tag='circ'))
+        request = {'via_degrees': [float(q) for q in via], 'target_degrees': [float(q) for q in target], 'circ_orientation': orientation,
+                   'tcp_angular_acceleration_degrees_s2': angular_acceleration}
+        return await self.submit(goal, self.chain, {'settings_revision': settings['revision'], 'execution_limits': limits,
+                                                     'circ_request': request})
 
     async def submit(self, goal, action, metadata=None):
         if any(job['status'] == 'running' for job in self.jobs.values()):
@@ -439,6 +480,8 @@ class PlanningClient:
             if plan.get('simulation_only'):
                 plan['settings_revision'] = job['settings_revision']
                 plan['execution_limits'] = job.get('execution_limits', {})
+                if job.get('circ_request'):
+                    plan['circ_request'] = job['circ_request']
             # ~1 KiB na próbkę 10 ms (trajektoria + próbki MKS); 16 MiB obejmuje limit wykonawcy 10 000 punktów (100 s).
             if len(json.dumps(plan)) > 16 * 1024 * 1024:
                 raise ValueError('Plan przekracza limit podglądu 16 MiB')
@@ -528,12 +571,15 @@ class PlanningClient:
         if not self.chain.server_is_ready():
             raise RuntimeError('Planner ciągu ruchów jest niedostępny (zrestartuj planner po aktualizacji)')
         goal = self.chain_type.Goal(context=context, max_duration=float(max_duration))
+        types = {'PTP': MotionSegment.PTP, 'LIN': MotionSegment.LIN, 'CIRC': MotionSegment.CIRC}
         for item in segments:
             goal.segments.append(MotionSegment(
-                motion_type=0 if item['motion_type'] == 'PTP' else 1, target_positions=item['target_positions'],
+                motion_type=types[item['motion_type']], target_positions=item['target_positions'],
+                via_positions=item.get('via_positions', [0.] * 6), circ_orientation=int(item.get('circ_orientation', 0)),
                 max_joint_velocity=item['max_joint_velocity'], max_joint_acceleration=item['max_joint_acceleration'],
                 tcp_velocity=item['tcp_velocity'], tcp_acceleration=item['tcp_acceleration'],
-                tcp_angular_velocity=item['tcp_angular_velocity'], blend_radius=item['blend_radius'], tag=item['tag']))
+                tcp_angular_velocity=item['tcp_angular_velocity'], tcp_angular_acceleration=float(item.get('tcp_angular_acceleration', 0.)),
+                blend_radius=item['blend_radius'], tag=item['tag']))
         loop = asyncio.get_running_loop()
         def progress(message):
             if feedback and not loop.is_closed():

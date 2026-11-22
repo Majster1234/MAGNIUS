@@ -204,6 +204,7 @@ std::int32_t CanBusManager::joint_to_position(const AxisConfig &axis, double pos
   return static_cast<std::int32_t>(std::llround(ticks));
 }
 void CanBusManager::open(Time now) {
+  arm_drive_startup_all(now);
   try {
     transport_->open(config_.interface);
     if(transport_->bitrate() && transport_->bitrate()!=config_.bitrate) {
@@ -256,7 +257,11 @@ void CanBusManager::reset_session(ResetMode mode) {
   next_position_ = {}; next_enable_ = {}; next_stall_ = {}; next_motor_ = {}; next_mode_ = {}; next_speed_ = {};
   manual_ = std::make_unique<ManualMotorController>(*this);
   latest_.reset(); stats_ = {}; checked_ = 0; cursor_ = 1;
-  last_rx_ = {};last_tick_={};last_cycle_wake_={};cycle_number_=0; cycle_initialized_ = false; clear_fault();
+  last_rx_ = {};last_tick_={};last_cycle_wake_={};cycle_number_=0; cycle_initialized_ = false;
+  // Po nieudanym odzyskiwaniu sam clear_fault() nic nie zmieni (sync_recovery_required_ blokuje service_allowed):
+  // reset operatora uruchamia odzyskiwanie od nowa po ponownym otwarciu magistrali (tick, gałąź awarii).
+  recovery_retry_requested_=recovery_.phase==RecoveryPhase::failed;
+  clear_fault();
 }
 std::size_t CanBusManager::axis_index(std::uint16_t address) const {
   return address<=kMaximumAddress ? axis_lookup_[address] : kAxes;
@@ -459,7 +464,7 @@ bool CanBusManager::send_query(std::uint16_t address, Kind kind, Time now, bool 
     case Kind::pid_kp_ki: case Kind::pid_kd_kv:command=0x96;length=0;break;
     case Kind::angle_error:command=0x39;length=6;break;
     case Kind::microstep_write: case Kind::manual: case Kind::program_setup: case Kind::recovery:
-    case Kind::parameter_read: case Kind::parameter_write:return false;
+    case Kind::parameter_read: case Kind::parameter_write: case Kind::hold_stop:return false;
   }
   const bool parameter=kind==Kind::mode || kind==Kind::response_mode || kind==Kind::sync_mode || kind==Kind::microstep || kind==Kind::watchdog ||
       kind==Kind::work_current || kind==Kind::pid_kp_ki || kind==Kind::pid_kd_kv;
@@ -607,8 +612,10 @@ bool CanBusManager::decode(Pending &p, const Frame &frame, Time stamp) {
       break;
     case Kind::program_setup: program_setup_reply(frame, stamp); break;
     case Kind::recovery: recovery_reply(frame,stamp); break;
+    case Kind::hold_stop: if(frame.data.size()!=3) return false; break;
 
   }
+  note_drive_contact(p.address,stamp);
   const auto rtt = milliseconds(stamp, p.sent);
   d.last_rtt_ms = rtt; d.rtt.add(rtt); stats_.rtt.add(rtt); d.last_ok = stamp; d.consecutive_timeouts = 0;
   reconnect_attempt_=0;next_reconnect_={};
@@ -667,7 +674,7 @@ void CanBusManager::receive(Time now) {
       e.event = "reply_ok"; trace(e);
       p.used = false; break;
     }
-    if (!matched) { ++stats_.late; trace_note("reply_unmatched", "", frame->address, frame->data.empty() ? 0 : frame->data[0]); }
+    if (!matched && !drive_startup_reply(*frame)) { ++stats_.late; trace_note("reply_unmatched", "", frame->address, frame->data.empty() ? 0 : frame->data[0]); }
   }
 }
 void CanBusManager::expire(Time now) {
@@ -687,7 +694,7 @@ void CanBusManager::expire(Time now) {
       auto &d = devices_[p.address]; ++d.timeouts;
       // Brak odpowiedzi na odczyt diagnostyczny (parametr bez obsługi w firmware) nie oznacza utraty osi.
       const bool diagnostic=p.kind==Kind::work_current || p.kind==Kind::pid_kp_ki || p.kind==Kind::pid_kd_kv || p.kind==Kind::angle_error ||
-          p.kind==Kind::parameter_read || p.kind==Kind::parameter_write;
+          p.kind==Kind::parameter_read || p.kind==Kind::parameter_write || p.kind==Kind::hold_stop;
       if(parameter_job_ && parameter_job_->in_flight && parameter_job_->address==p.address &&
           (p.kind==Kind::parameter_read || p.kind==Kind::parameter_write)) {
         parameter_job_->in_flight=false;
@@ -740,6 +747,7 @@ bool CanBusManager::sync_batch_window() const {
   const auto &e=executor_;
   return active_ && source_==Source::program && e.status.dispatch_mode=="synchronized" && e.program &&
       (e.frame<e.program->frames.size() || (e.final_started!=Time{} && !e.hold_done)) &&   // także strumień trzymania dolotu
+      !synchronized_silent_hold() &&   // bez zestawów budżet liczy się zwykłymi cyklami
       e.status.state!="arming" && e.status.state!="restoring";
 }
 void CanBusManager::schedule_feedback(Time now) {
@@ -882,8 +890,15 @@ void CanBusManager::tick(Time now) {
       now=current_time(std::max(now,last_rx_));last_tick_=now;
       if(now>=next_cycle_) start_cycle(now);
       expire(now);
+      if(recovery_retry_requested_ && recovery_.phase==RecoveryPhase::failed) {
+        recovery_retry_requested_=false;
+        const auto previous=recovery_.message;
+        begin_recovery("Reset CAN operatora — ponowne odzyskiwanie (poprzednio: "+previous+")",true,now);
+        trace_note("recovery_retry",previous);
+      }
       manual_->tick(now);
       schedule_recovery(now);schedule_fault_diagnostics(now);
+      schedule_drive_startup(now);  // W awarii tylko F3=0: reszta inicjalizacji czeka na koniec odzyskiwania.
     } catch(const TransmitQueueFull &e) {
       transmit_queue_full(now,e.what());
     } catch(const std::exception &e) {
@@ -905,6 +920,7 @@ void CanBusManager::tick(Time now) {
     supervise_hold(now);
     if (fault_) return;
     schedule_parameter_job(now);
+    schedule_drive_startup(now);
     if (active_) {
       const bool program_iteration=source_==Source::program;
       if(program_iteration) schedule_program(now); else schedule_motion(now);
@@ -1058,7 +1074,9 @@ bool CanBusManager::decode_parameter(const Pending &p,const Frame &frame) {
   return true;
 }
 BusSnapshot CanBusManager::snapshot() const {
-  return {devices_, stats_, transport_->is_open(), scanning_, active_ || (!fault_ && manual_->busy()), fault_, checked_, source_, message_};
+  BusSnapshot snapshot{devices_, stats_, transport_->is_open(), scanning_, active_ || (!fault_ && manual_->busy()), fault_, checked_, source_, message_};
+  fill_startup_snapshot(snapshot);
+  return snapshot;
 }
 ControlState CanBusManager::control_state() const {
   ControlState state; state.active = active_; state.fault = fault_; state.source = source_;state.program_owned=program_owned_;

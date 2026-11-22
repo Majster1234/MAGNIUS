@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { JogControl, MANUAL_STATE_TIMEOUT_MS } from "./manualControl";
+import { JogControl, MANUAL_STATE_TIMEOUT_MS, jogSpeedAtPercent } from "./manualControl";
 import { RobotPreview } from "./RobotPreview";
 import { PlanningJog } from "./planningJog";
 import { MotionExecution } from "./MotionExecution";
@@ -13,8 +13,9 @@ import type { MotionHint } from "./previewMotionHint";
 import { PlanningTcpStep } from "./planningTcpStep";
 import { PhysicalTcpJog } from "./physicalTcpJog";
 import type { MotionTrace } from "./previewMotionTrail";
-import { ControlAnnouncements, ControlMessageCenter, useControlMessages } from "./ControlMessageCenter";
-import { previewLimits } from "./previewLimits";
+import { useControlMessages } from "./ControlMessageCenter";
+import { OPEN_MESSAGES_EVENT } from "./MessageBar";
+import { defaultActivityStore, robotConditions } from "./robotActivity";
 import type { Axis, ManualState } from "./manualTypes";
 import type { ManualHeaderState } from "./AppShell";
 import { motionStateLabels, type MotionObservation } from "./motionStatus";
@@ -63,6 +64,8 @@ function remarks(count: number) {
 
 type DockTab = "tcp" | "motion";
 
+// Domyślna prędkość JOG osi z konfiguracją przegubu: % limitu osi (ok. tyle co dawne 30 obr./min wału).
+const DEFAULT_JOG_PERCENT = 10;
 export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: ManualHeaderState) => void } = {}) {
     const [state, setState] = useState<ManualState | null>(null);
     const [connected, setConnected] = useState(false);
@@ -78,6 +81,9 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const [simulationPositions, setSimulationPositions] = useState<number[] | null>(null);
     const [motionTrace, setMotionTrace] = useState<MotionTrace | null>(null);
     const [execution, setExecution] = useState<MotionObservation | null>(null);
+    // Pasek komunikatów bierze stan PTP/LIN stąd (nie odpytuje /motion/status drugi raz, gdy Sterowanie jest otwarte).
+    useEffect(() => { defaultActivityStore.provideMotion(execution?.status ?? null); }, [execution]);
+    useEffect(() => () => defaultActivityStore.provideMotion(null), []);
     const [stopRobot,setStopRobot]=useState<(()=>void)|null>(null);
     const registerStop=useCallback((action:(()=>void)|null)=>setStopRobot(()=>action),[]);
     const context = usePlanningContext();
@@ -85,6 +91,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     const [plan, setPlan] = useState(() => new PlanningJog().snapshot(performance.now()));
     const [previewModel, setPreviewModel] = useState<{ ready: boolean; revision?: string }>({ ready: false });
     const [speeds, setSpeeds] = useState<number[]>(Array(6).fill(30));
+    // Wspólna prędkość JOG [% maksimum każdej osi]; "" = osie ustawione indywidualnie.
+    const [speedPercent, setSpeedPercent] = useState("");
     const control = useRef<JogControl | null>(null);
     const planningControl = useRef(new PlanningJog());
     const [tcpHeld, setTcpHeld] = useState<TcpHeld | null>(null);
@@ -144,11 +152,19 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         setPlan(planningControl.current.snapshot(performance.now()));
     }, [context]);
     const speedProfile = state?.axes.map(axis => `${axis.joint_configured}/${axis.jog_min_velocity_degrees_s}/${axis.jog_max_velocity_degrees_s}`).join(";");
+    // Osie z konfiguracją przegubu startują od DEFAULT_JOG_PERCENT limitu osi (limit = prędkość osi z konfiguracji,
+    // np. 80 °/s), a nie od pełnej prędkości — szybszy JOG wymaga świadomej nastawy operatora.
+    const jogSpeedInitialized = useRef<boolean[]>(Array(6).fill(false));
     useEffect(() => {
+        const initialize = (state?.axes ?? []).map((axis, i) => !!axis?.joint_configured && (axis.jog_max_velocity_degrees_s ?? 0) > 0 && !jogSpeedInitialized.current[i]);
+        initialize.forEach((value, i) => { if (value) jogSpeedInitialized.current[i] = true; });
+        if (initialize.some(Boolean) && state?.axes.length && state.axes.every(axis => axis.joint_configured)) setSpeedPercent(String(DEFAULT_JOG_PERCENT));
         setSpeeds(previous => previous.map((value, i) => {
             const axis = state?.axes[i], step = axis?.jog_min_velocity_degrees_s ?? 0, max = axis?.jog_max_velocity_degrees_s ?? 0;
             if (!axis?.joint_configured || max <= 0) return value;
-            if (step <= 0 || max < step) return Math.min(value, max);
+            if (initialize[i]) return jogSpeedAtPercent(DEFAULT_JOG_PERCENT, axis, state?.max_rpm ?? 30, false) ?? value;
+            // W dół do 0,001 °/s: pole pokazuje np. 7,199 zamiast 7,199999999999999 i nie przekracza limitu osi.
+            if (step <= 0 || max < step) return Math.floor(Math.min(value, max) * 1000) / 1000;
             return Number((Math.max(step, Math.floor(Math.min(value, max) / step + 1e-9) * step)).toPrecision(12));
         }));
     }, [speedProfile]);
@@ -161,28 +177,8 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
     }, [connected, notice,condition]);
     useEffect(() => {
         if (!connected) return;
-        condition("freshness",fresh?null:{source:"freshness",severity:"warning",code:"freshness",context:"Pomiary robota",message:"Dane sterowania nieaktualne — JOG zablokowany do powrotu pomiarów."});
-        if (!fresh || !state) return;
-        const withoutFeedback=state.axes.filter(a=>a.available && (!a.position_known || !Number.isFinite(a.position_age_seconds) || (a.position_age_seconds ?? Infinity)>=.25 || (a.position_age_seconds ?? 0)<0 || (a.joint_configured && a.calibration_valid && !a.joint_position_known))).map(a=>`J${a.axis}`);
-        condition("axis-feedback",withoutFeedback.length?{source:"axis-feedback",severity:"warning",code:"freshness",context:"Pomiary osi",description:`Brakuje aktualnej pozycji osi: ${withoutFeedback.join(", ")}. Stan połączenia panelu nie potwierdza świeżości tych pomiarów.`,message:`Brak świeżej pozycji: ${withoutFeedback.join(", ")}.`}:null,"Zaktualizowano ocenę pomiarów dostępnych osi.");
-        condition("controller",state.fault?{source:"controller",severity:"error",code:"fault",context:"Robot fizyczny",message:state.message || "Brak opisu awarii"}:null);
-        condition("tcp-live-fault",!state.fault && state.tcp_jog?.state==="failed"?{source:"tcp-live-fault",severity:"error",code:"fault",context:"JOG TCP LIVE",message:state.tcp_jog.message || "Przerwano JOG TCP bez szczegółowego opisu"}:null);
-        if(!state.fault && state.message)notice({source:"controller-state",severity:"info",context:"Robot fizyczny",message:state.message});
-        const available = state.axes.filter(axis => axis.available).map(axis => `J${axis.axis}`);
-        const missing = state.axes.filter(axis => !axis.available).map(axis => `J${axis.axis}`);
-        condition("axes",missing.length?{source:"axes",severity:"warning",code:"missing",context:"Robot fizyczny",description:`Nie dostarczają pozycji: ${missing.join(", ")}. Dostępne napędy: ${available.join(", ") || "brak"}.`,message:`Dostępne napędy: ${available.join(", ") || "brak"}. Niedostępne: ${missing.join(", ")}.`}:null);
-        const disabledAxes=state.axes.filter(a=>a.available && (!a.enable_known || !a.enabled)).map(a=>`J${a.axis}`);
-        condition("drive-enable",disabledAxes.length?{source:"drive-enable",severity:"warning",code:"enable",context:"Robot fizyczny",description:`Wyłączony lub nieznany ENABLE osi ${disabledAxes.join(", ")} uniemożliwia ich fizyczny ruch.`,message:`ENABLE wyłączony lub nieznany: ${disabledAxes.join(", ")}.`}:null);
-        for (const axis of state.axes) {
-            const invalid=axis.joint_configured && !axis.calibration_valid,unprepared=axis.joint_configured && axis.enabled && !axis.prepared;
-            condition(`profile-${axis.axis}`,invalid || unprepared?{source:`profile-${axis.axis}`,severity:"warning",code:invalid?"calibration":"profile",context:`Oś J${axis.axis}`,message:`J${axis.axis}: ${axis.configuration_message || (invalid?"Kalibracja nieważna":"Napęd nieprzygotowany")}`} :null);
-            const q=axis.joint_configured?axis.joint_position_known?axis.joint_position_degrees!:null:axis.position_known?axis.position_degrees:null;
-            const limits=previewLimits(axis,q,true);
-            for(const side of ["lower","upper"] as const) {
-                const limit=limits.find(l=>l.side===side);
-                condition(`limit-${axis.axis}-${side}`,limit?{source:`limit-${axis.axis}-${side}`,severity:limit.level==="exceeded"?"error":"warning",code:"limits",context:`Robot · J${axis.axis}`,title:limit.level==="exceeded"?"Przekroczony limit osi":"Blisko limitu osi",message:`J${axis.axis}: ${side==="lower"?"dolny":"górny"} limit ${limit.limitDegrees}° · ${limit.level==="exceeded"?"przekroczony":"zbliżenie"}.`}:null);
-            }
-        }
+        for (const [key, value, resolution] of robotConditions(state, fresh)) condition(key, value, resolution);
+        if (fresh && state && !state.fault && state.message) notice({source:"controller-state",severity:"info",context:"Robot fizyczny",message:state.message});
     }, [state, connected, fresh, condition,notice]);
     useEffect(()=>{condition("planner",planning && !context?.planner_available?{source:"planner",severity:"warning",code:"planner",context:"Planowanie",message:"Brak dostępnego kontekstu planowania."}:null,planning?undefined:"Zakończono lokalne planowanie.");},[planning,context?.planner_available,condition]);
     useEffect(() => {
@@ -390,6 +386,17 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             notice({source:"tcp",severity:"info",context:"Cel TCP",message:"Uruchomiono edycję celu TCP w symulacji."});
         }
     }
+    const jogSpeedLocked = (planning ? plan.activeAxis !== 0 : !!state?.busy) || pending;
+    function applySpeedPercent(percent: number) {
+        const value = Math.round(Math.max(1, Math.min(100, percent)));
+        setSpeedPercent(String(value));
+        setSpeeds(old => old.map((speed, i) => {
+            const axis = axes[i];
+            if (!axis) return speed;
+            const profile = planning ? planningControl.current.controlProfile(axis.axis) ?? axis : axis;
+            return jogSpeedAtPercent(value, profile, state?.max_rpm ?? 30, planning) ?? speed;
+        }));
+    }
     function jogSpeed(axis: Axis) {
         const profile = planning ? planningControl.current.controlProfile(axis.axis) ?? axis : axis;
         const maximum = profile.joint_configured ? profile.jog_max_velocity_degrees_s || undefined : state?.max_rpm ?? 30;
@@ -398,6 +405,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
             max={maximum} step={profile.joint_configured ? "any" : 1} value={speeds[axis.axis - 1]} disabled={(planning ? plan.activeAxis !== 0 : state?.busy) || pending}
             onChange={event => { const number = Number(event.target.value);
                 const next = profile.joint_configured ? Math.max(0, Math.min(maximum ?? 0, Number.isFinite(number) ? number : 0)) : Math.max(1, Math.min(maximum ?? 30, Math.round(number || 1)));
+                setSpeedPercent("");
                 setSpeeds(old => old.map((value, i) => i === axis.axis - 1 ? next : value)); }} />
             <span>{profile.joint_configured ? "°/s przeg." : "obr./min wału"}</span></label>;
     }
@@ -416,7 +424,9 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         setDockTab(next); document.getElementById(`manual-tab-${next}`)?.focus();
     }
     // Linia stanu pod wizualizacją: trwający ruch, potem najważniejszy problem, potem ostatni komunikat.
-    const heldAxis = held ? axes[held.axis - 1] : undefined, issue = active[0], latest = entries.at(-1);
+    // Problemy Sterowania (bez komunikatów systemowych z paska), niepokwitowane przed pokwitowanymi.
+    const ownActive = active.filter(n => !n.source.startsWith("system-"));
+    const heldAxis = held ? axes[held.axis - 1] : undefined, issue = ownActive[0], latest = entries.at(-1);
     const recoveryVisible = !!state?.recovery_state && state.recovery_state !== "idle";
     const statusLine = recoveryVisible ? { level: state!.recovery_state === "recovery_failed" ? "error" : "warn", title: state!.recovery_state === "idle_disabled" ? "Gotowy do ponownego załączenia" : state!.recovery_state === "recovery_failed" ? "Odzyskiwanie nieudane" : "Odzyskiwanie po STOP", detail: recoveryPending ? `oczekujące osie: ${recoveryPending}` : "" } :
         held ? { level: "ok", title: planning ? `JOG J${held.axis} · bliźniak` : `JOG J${held.axis} w ruchu`, detail: `${held.direction > 0 ? "kierunek +" : "kierunek −"} · ${speeds[held.axis - 1]} ${heldAxis?.joint_configured ? "°/s" : "obr./min"}` } :
@@ -433,6 +443,13 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                 <button className="secondary-button" disabled={!usable || pending || physicalTcpBusy || (!state?.fault && (!!state?.busy || recovering)) || !axes.some(axis=>axis.available)} onClick={()=>void allEnable(false)}>Wyłącz wszystkie</button>
             </div>
             <span className="manual-mode"><span aria-hidden="true" />{planning ? "PLANOWANIE · bliźniak" : "LIVE · robot fizyczny"}</span>
+            <div className="jog-override" role="group" aria-label="Prędkość JOG wszystkich osi" title="Ustawia prędkość JOG wszystkich osi jako procent maksymalnej prędkości każdej osi. Zmiana jednej osi w tabeli przełącza na ustawienia indywidualne.">
+                <span>Prędkość JOG</span>
+                <label className="jog-override-field"><input aria-label="Prędkość JOG wszystkich osi [%]" type="number" min={1} max={100} step={1} placeholder="różne" value={speedPercent} disabled={jogSpeedLocked}
+                    onChange={event => { const text = event.target.value; if (text === "") { setSpeedPercent(""); return; } const number = Number(text); if (Number.isFinite(number)) applySpeedPercent(number); }} /><em>%</em></label>
+                {[10, 25, 50, 100].map(value => <button key={value} type="button" className={`secondary-button${speedPercent === String(value) ? " on" : ""}`} disabled={jogSpeedLocked}
+                    aria-pressed={speedPercent === String(value)} onClick={() => applySpeedPercent(value)}>{value}</button>)}
+            </div>
             <button className="motion-stop" disabled={!stopRobot && !physicalTcpBusy && !state?.tcp_jog?.busy} onClick={()=>{if(stopRobot){physicalTcp.current?.stop();stopRobot();}else physicalTcp.current?.stop(true);}} title="Żądanie STOP robota; postój wymaga potwierdzenia pomiarami">STOP robota</button>
             <button className="secondary-button" disabled={canResetBlocked} onClick={() => void resetCan()} title="Reset CAN jest blokowany podczas aktywnego sterowania">{resettingCan ? "Resetowanie…" : "Reset CAN"}</button>
         </header>
@@ -440,7 +457,7 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
         <RobotPreview state={state} usable={usable} pending={pending} physicalJogActive={!planning && !!held} onNotice={notice} onCondition={condition} onModelStatus={setPreviewModel} planning={planning} plannedPositions={plan.positions} planningReady={plan.ready} onPlanningStart={beginPlanning} onPlanningSync={syncPlanning} onPlanningEnd={endPlanning}
             simulationPositions={simulationPositions} motionTrace={motionTrace} execution={execution} showMotionFrames={showMotionFrames} simulationAllowed={simulationAllowed} expectedRevision={expectedRevision} modelId={context?.model_id} motionHint={motionHint} />
         <div className={`manual-status-line level-${statusLine.level}`} aria-label="Stan sterowania"><span className="manual-status-dot" aria-hidden="true"/><strong>{statusLine.title}</strong>{statusLine.detail && <span>· {statusLine.detail}</span>}
-            <button type="button" className="manual-status-link" onClick={() => { const panel = document.getElementById("manual-messages"); panel?.scrollIntoView({ block: "nearest" }); panel?.focus({ preventScroll: true }); }}>{active.length ? remarks(active.length) : "Komunikaty"} →</button></div>
+            <button type="button" className="manual-status-link" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_MESSAGES_EVENT, { detail: { tab: "now" } }))}>{ownActive.length ? remarks(ownActive.length) : "Komunikaty"} →</button></div>
         </div><div className="manual-controls-row"><div className="manual-table"><table><colgroup>
             <col className="manual-col-axis"/><col/><col className="manual-col-motion"/>
             <col className="manual-col-drive"/><col className="manual-col-zero"/><col className="manual-col-speed"/>
@@ -480,15 +497,6 @@ export function ManualPage({ onHeaderStatus }: { onHeaderStatus?: (status: Manua
                         <p className="motion-locked">Cel i parametry PTP/LIN ustawia się w trybie Planowanie. Trwający program można obserwować i zatrzymać.</p>}</div>
                     <div className="motion-pane-status" aria-label="Stan podglądu i przygotowania">{simulationStatus.map(n => <div key={n.source}><span>{n.context}</span><strong>{n.title}</strong>{typeof n.progress === "number" && <span>{n.progress}%</span>}</div>)}</div>
                 </MotionExecution></div>
-        </section>
-        <section className="manual-messages" id="manual-messages" aria-label="Komunikaty" tabIndex={-1}>
-            <header><h2>Komunikaty</h2><span className={`badge ${active.some(n => n.severity === "error") ? "error" : active.length ? "warn" : "ok"}`}>{active.length ? remarks(active.length) : "Bez zgłoszonych problemów"}</span></header>
-            {recoveryVisible && <div className={`manual-recovery ${state!.recovery_state === "idle_disabled" ? "ready" : state!.recovery_state === "recovery_failed" ? "failed" : "active"}`} role="status">
-                <strong>{state!.recovery_state === "idle_disabled" ? "Gotowy do ponownego załączenia" : state!.recovery_state === "recovery_failed" ? "Odzyskiwanie nieudane" : "Odzyskiwanie po STOP"}</strong>
-                <span>{state!.recovery_message || state!.message}{recoveryPending ? ` · oczekujące osie: ${recoveryPending}` : ""}</span>
-            </div>}
-            <div className="manual-messages-body"><ControlMessageCenter entries={entries} active={active} statuses={statuses}/></div>
-            <ControlAnnouncements entries={entries} active={active}/>
         </section>
         </div></div>
     </section>;

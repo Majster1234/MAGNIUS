@@ -3,7 +3,7 @@ const {chromium}=require('playwright');
 const assert=require('assert/strict'),path=require('path');
 (async()=>{
  const pinned=process.argv.includes('--pinned'),baseline=process.argv.includes('--baseline'),browser=await chromium.launch({headless:true});
- const dist=path.resolve(__dirname,'../dist'),base='/api/v1/diagnostics/trace',now=1792776000000;
+ const dist=process.env.ROBOT_WEB_TEST_DIST || path.resolve(__dirname,'../dist'),base='/api/v1/diagnostics/trace',now=1792776000000;
  const samples=Array.from({length:6},(_,a)=>Array.from({length:3001},(_,i)=>({axis:a+1,sequence:String(i+1),segment:'1',
   monotonic_ns:String(BigInt(i+1)*40000000n),utc_ns:String(BigInt(now-120000+i*40)*1000000n),time_ms:now-120000+i*40,
   position_cdeg:a*100+Math.round(Math.sin(i/17)*25),gap:i===0})));

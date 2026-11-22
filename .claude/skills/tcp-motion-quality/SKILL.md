@@ -1,6 +1,6 @@
 ---
 name: tcp-motion-quality
-description: Standardowy test jakości ruchu robota w trybie planowanego ruchu TCP (12 ruchów PTP/LIN, 20/400 mm, 5/15/40 mm/s) — uruchomienie, warunki, odczyt wyników. Używaj, gdy operator prosi o test/porównanie jakości ruchu, dobór acc F5 lub innych nastaw wykonania, albo o weryfikację płynności PTP/LIN na sprzęcie.
+description: Standardowy test jakości ruchu robota w trybie planowanego ruchu TCP (12 ruchów PTP/LIN, 20/400 mm, 5/15/40 mm/s, oraz 24 łuki CIRC 90° R20/R100 w dwóch trybach orientacji) — uruchomienie, warunki, odczyt wyników. Używaj, gdy operator prosi o test/porównanie jakości ruchu, dobór acc F5 lub innych nastaw wykonania, albo o weryfikację płynności PTP/LIN na sprzęcie.
 ---
 
 # Test jakości ruchu TCP
@@ -19,7 +19,8 @@ Pełny opis: `docs/tcp_motion_quality_procedure.md`. Skrypt: `scripts/tcp_motion
 ```bash
 cd ~/Desktop/Projekty
 python3 scripts/tcp_motion_quality.py                                # suchy przebieg (IK + plan 12 ruchów), bez ruchu
-python3 scripts/tcp_motion_quality.py --execute                      # jeden test przy bieżącym acc
+python3 scripts/tcp_motion_quality.py --execute                      # jeden test przy bieżącym acc (~10 min: PTP/LIN + CIRC)
+python3 scripts/tcp_motion_quality.py --execute --sections ptp_lin  # tylko 12 ruchów PTP/LIN (~5 min)
 python3 scripts/tcp_motion_quality.py --execute --acc 241 100 50     # seria; każdy przebieg od zerowania MKS
 python3 scripts/tcp_motion_quality.py --execute --acc exec           # acc z parametrów wykonania (pole puste)
 ```
@@ -29,7 +30,7 @@ Serie nastaw regulatora wykonania (poza konfiguracją robota, przywracane po ser
 lookahead_ms, ki, ki_limit_deg). Ręcznie: `POST /api/v1/motion/execution-tuning` (`{"reset": true}` = plik).
 
 Długą serię uruchamiaj w tle (`run_in_background`) z przekierowaniem do pliku w scratchpadzie i śledź
-zdarzenia `run_start|zeroed|move|move_failed|aborted|PRZERWANO`. Jeden przebieg trwa ok. 5 min.
+zdarzenia `run_start|zeroed|move|move_failed|aborted|PRZERWANO`. Jeden przebieg trwa ok. 10 min (PTP/LIN ~5 min, CIRC ~5 min).
 Skrypt kończy z ENABLE=0. `--acc` zapisuje `motion.f5_acceleration_code` w konfiguracji ROS i ta wartość
 zostaje po teście — na koniec przywróć wartość wskazaną przez operatora.
 

@@ -117,7 +117,8 @@ export function createConfigurationScene(host: HTMLElement) {
         renderer.domElement.dataset.view=view;
         if(first){fit();first=false;}dirty=true;
     }
-    const resize=new ResizeObserver(()=>{width=Math.max(1,host.clientWidth);height=Math.max(1,host.clientHeight);renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();dirty=true;});resize.observe(host);
+    // Rysunek od razu po zmianie rozmiaru (kanwa jest wtedy czyszczona) — model nie znika podczas animacji menu.
+    const resize=new ResizeObserver(()=>{width=Math.max(1,host.clientWidth);height=Math.max(1,host.clientHeight);renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();dirty=true;if(!disposed){world.updateMatrixWorld(true);renderer.render(world,camera);}});resize.observe(host);
     controls.addEventListener('change',()=>{dirty=true;});
     function draw(now:number){
         if(disposed)return;request=requestAnimationFrame(draw);

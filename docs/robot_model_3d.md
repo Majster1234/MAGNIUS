@@ -58,6 +58,13 @@ z ostrymi kątami dwuściennymi, walce, kształt wklęsły, nakładające się b
   zgodny z dotychczasową osią („Odwróć zwrot osi”). Zmieniają się pola `origin_*` wskazanego przegubu i następnego
   (dla J6 — TCP); pozostałe układy i TCP zostają w świecie.
 - „TCP: punkt” / „TCP: środek walca” — położenie TCP względem kołnierza (orientacja bez zmian).
+- **Zero robota zawsze pod podstawą** (`frameEdit.rootUnderBase`): układ bazy leży na osi J1, w najniższym punkcie
+  siatek członu `base` wzdłuż osi J1 (bez siatki podstawy — na osi J1, wysokość bez zmian). Zatwierdzenie wskazania
+  osi J1 przenosi zero automatycznie; panel „Układ złożenia → baza robota” pokazuje stan i przycisk „Przenieś zero pod
+  podstawę”. Przeniesienie = przesunięcie układu bazy o wektor do tego punktu: przesunięcie złożenie → baza (model 3D)
+  i `joint.1.origin_xyz` (konfiguracja) zmieniają się o ten sam wektor; pozostałe przeguby i TCP są względne. Kąty osi
+  i programy (pozycje w kątach) bez zmian; zmieniają się współrzędne kartezjańskie TCP (układ bazy). Zapis: „Zapisz model
+  3D” oraz „Zapisz do ROS”.
 - Kontrola szkicu: odchyłka równoległości J2 ∥ J3, odległości osi J4–J6 (0 = nadgarstek sferyczny).
 - Wartości trafiają do szkicu; do sterowania przez „Zapisz do ROS” (zmiana kinematyki, jak każda zmiana geometrii).
 - Zmiana przekształcenia złożenia po wskazaniu osi wymaga ponownego wskazania.

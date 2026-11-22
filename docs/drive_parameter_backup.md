@@ -63,6 +63,36 @@ Operacje są asynchroniczne (202); wynik w `operation` z `GET`. Nastawy testowe:
 `stall_protection` (0/1), `vfoc_kp_ki`/`vfoc_kd_kv`/`close_kp_ki`/`close_kd_kv` ([a, b] 0–1024),
 `position_error_protection` ([enable, czas×15 ms, błędy]), `position_reached_threshold` ([enable, próg]).
 
+## Inicjalizacja napędów po starcie (18.11.2026)
+
+Napęd MKS po włączeniu zasilania wraca do ostatniego stanu ENABLE, dlatego właściciel CAN (`mks_servo_can/drive_startup.cpp`,
+parametr `drive_startup_init`, domyślnie włączony w `can_diagnostics`) wykonuje na każdej osi J1–J6:
+
+1. `F3=0` od razu po otwarciu CAN, także do osi jeszcze niewykrytych (ponawiane do potwierdzenia odczytem `3A`).
+2. `F7` (kasowanie poprzedniego ruchu), `8C=00/00` tylko przy innej wartości.
+3. Potwierdzenie odczytami: `8C`, `4A=0`, `84`, `82`. `4A` nie jest zapisywane: pozostawione SYNC=1 trafia do ścieżki awarii.
+
+Do końca inicjalizacji osi `ENABLE=1` jest odrzucane. Sekwencja startuje raz na proces oraz ponownie dla osi, która wróciła
+po co najmniej 2 s ciszy (możliwy restart zasilania napędu). Reset CAN i ponowne połączenie jej nie uruchamiają. Napędy
+niewykryte są odpytywane co 1 s. Oś bez potwierdzenia przez 5 s jest zgłaszana w `startup_failed_mask`.
+
+Uwaga: restart usługi panelu jest startem systemu, więc także wyłącza ENABLE wszystkich osi. Między włączeniem zasilania
+napędu a pierwszą ramką `F3=0` napęd ma stan zapamiętany (ograniczenie sterowania przez CAN).
+
+Po inicjalizacji `robot_configuration/drive_startup.py` porównuje nastawy gotowych osi z kopią `base`. Różnice pokazuje okno
+w panelu. „Wyślij właściwe nastawy” tworzy świeżą kopię `pre_test`, zapisuje różnice z `base` tylko w osiach, których dotyczą
+(przy ENABLE=0), i sprawdza wynik odczytem. Nastawy tylko do odczytu są wyłącznie raportowane. Pominięcie obowiązuje do
+kolejnej generacji inicjalizacji. Po celowej zmianie nastaw trzeba odtworzyć `base` (ręczne usunięcie pliku i `capture_base`),
+inaczej okno będzie je zgłaszać przy każdym starcie.
+
+```bash
+B=http://192.168.1.69:8080/api/v1/drive-startup
+curl -s $B                                                # stan: phase, generation, differences, manual_differences, failed_axes
+curl -s -X POST $B/apply   -d '{"generation":6}'          # zapis różnic z base
+curl -s -X POST $B/dismiss -d '{"generation":6}'          # pominięcie / zamknięcie
+curl -s -X POST $B/recheck                                # ponowne sprawdzenie
+```
+
 ## Strojenie i weryfikacja PID (`scripts/mks_pid_tuning.py`)
 
 Po zmianie mechaniki, jedna oś (adres CAN = numer osi), tryb SR_vFOC. Domyślnie tylko preflight i karta testu;

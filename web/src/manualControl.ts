@@ -45,3 +45,16 @@ export class JogControl {
         this.send("stop"); this.held = null; this.pending = 0;
     }
 }
+
+export type JogSpeedProfile = { joint_configured?: boolean; jog_min_velocity_degrees_s?: number; jog_max_velocity_degrees_s?: number };
+/** Wspólna prędkość JOG: procent maksymalnej prędkości osi. Przegub: °/s w krokach minimalnej prędkości osi (jak przy
+ *  ograniczaniu do limitu), w planowaniu bez kroku; wał: całe obr./min (1…maxRpm). Brak limitu przegubu → null (bez zmiany). */
+export function jogSpeedAtPercent(percent: number, profile: JogSpeedProfile, maxRpm: number, planning: boolean): number | null {
+    const share = Math.max(1, Math.min(100, percent)) / 100;
+    if (!profile.joint_configured) return Math.max(1, Math.min(maxRpm, Math.round(maxRpm * share)));
+    const max = profile.jog_max_velocity_degrees_s ?? 0;
+    if (max <= 0) return null;
+    const step = planning ? 0 : profile.jog_min_velocity_degrees_s ?? 0, raw = max * share;
+    if (step > 0 && max >= step) return Number(Math.max(step, Math.floor(raw / step + 1e-9) * step).toPrecision(12));
+    return Math.floor(raw * 1000) / 1000;
+}

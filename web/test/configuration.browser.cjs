@@ -2,7 +2,7 @@
 const {chromium}=require('playwright');
 const path=require('path');
 const assert=require('assert/strict');
-const dist=path.resolve(__dirname,'../dist');
+const dist=process.env.ROBOT_WEB_TEST_DIST || path.resolve(__dirname,'../dist');
 (async()=>{
  const browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const context=await browser.newContext({viewport:{width:1366,height:768}});

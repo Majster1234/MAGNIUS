@@ -22,7 +22,10 @@ API: `http://192.168.1.69:8080` (bez proxy).
 
 **Rozkazy (kategorie od 10.11.2026; pełna tabela i składnia wyrażeń: `docs/programming.md`):**
 - ruchowe: `move_ptp` `{"position": {"position": "P1"}, "speed": 1–100 [%], "blend_mm": 0–200}`,
-  `move_lin` `{"position": …, "speed": mm/s ≤ tcp.max_linear_velocity, "blend_mm": 0–200}`; względne (od celu
+  `move_lin` `{"position": …, "speed": mm/s ≤ tcp.max_linear_velocity, "blend_mm": 0–200}`,
+  `move_circ` `{"via": {"position": "P2"}, "position": …, "orientation": "interpolowana"|"względem środka", "speed": mm/s,
+  "blend_mm": 0–200}` (łuk TCP od celu poprzedniego ruchu przez `via` do `position`; punkty ≥ 1 mm od siebie, nie na
+  prostej); względne (od celu
   poprzedniego ruchu): `move_rel` `{"dx", "dy", "dz" [mm], "frame": "baza"|"narzędzie", "speed" [mm/s], "blend_mm"}`,
   `rotate_rel` `{"rx", "ry", "rz" [°], "frame", "speed" [°/s], "blend_mm"}`;
 - czasowe: `wait_time` `{"seconds": 0–3600}`, `wait_operator` `{"message": "…"}` (oba kończą ciąg ruchów);
@@ -131,15 +134,10 @@ colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 
 ## Bieżący kontekst
 
-- 17.11.2026 (popołudnie) — Import modelu 3D z CAD (Fusion 360: człony jako komponenty, pozycja zerowa, wspólne
-  złożenie) i konfiguracja układów przegubów przez wskazanie walców na siatkach. Opis: `docs/robot_model_3d.md`.
-  Backend `robot_web_bridge`: `robot_model.py` (magazyn `~/.local/state/robot/models`, API `/api/v1/robot/model…`,
-  kolejka), `robot_model_mesh.py` (osobny proces nice 10, RLIMIT_AS 2 GiB: STL/OBJ, siatka bezpieczeństwa 2 mm —
-  testy: min 1,99 / śr. 2,02 / max ≤ 2,5 mm), parametr `robot_model_directory`; testy `test_robot_model.py` 11/11.
-  Frontend: `robotModel.ts`, `axisFit.ts`, `frameEdit.ts`, `RobotModelPanel.tsx`, `configurationScene.ts`,
-  `ConfigurationPreview.tsx`, `ConfigurationPage.tsx`, `robotPreviewScene.ts` (`attachModel`), `RobotPreview.tsx`,
-  `style.css`; testy web 200/201 (porażka `controlMessages.test.ts` niezależna, pliki bez zmian wobec HEAD).
-  `web/dist` przebudowany. **Nowe moduły Pythona mostu wymagają restartu `robot-web-status`** (pakiet w overlay
-  jest dowiązaniem do źródeł — bez przebudowy). Kolizje: kolejny etap. Uwaga: test 17.11 ~15:47 przekroczył pamięć
-  (OOM zabił proces testu, usługa działała, swap zapełniony) — od tej pory proces importu ma limit 2 GiB.
-  Node: `build/node22/runtime/bin` (brak w PATH).
+- 22.11.2026 — **Stan przed zapisem na GitHub.** Poprawka osi czasu SYNC (`phase_origin_at`) cofnięta na życzenie operatora (źródła
+  `mks_servo_can` jak przed sesją, 313/313; binaria w `install/stop-recovery-ros` z kopii `install/deployment-backups/shift-origin-1795368966`;
+  wymaga restartu `robot-web-status.service`). Zostają: wyłączenie usypiania grafiki (udev, brak przestojów wątku I/O CAN), bufor nagrań
+  CAN 6144 MiB (`scripts/start_web_status.sh`), opcje zakresu w `scripts/tcp_motion_quality.py` (i czekanie na koniec odzyskiwania przed
+  przywróceniem nastaw), nowy `scripts/axis_diagnosis.py`, wyniki w `docs/benchmark_results.md` i `docs/motion_hardware_results.md`.
+  Harmonogram nastaw PTP (wcześniejsze zmiany z 18.11) bez zmian. Po restarcie (20:01) weryfikacja: test standardowy 36/36, TCP JOG 24/24
+  (`docs/benchmark_results.md`, „Weryfikacja przed zapisem na GitHub”). Robot: poza startowa, ENABLE=0.

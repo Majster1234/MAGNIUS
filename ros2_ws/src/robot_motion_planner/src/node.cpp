@@ -152,9 +152,9 @@ class PlannerNode : public rclcpp::Node {
     try {
       const auto goal=handle->get_goal(); std::vector<ChainSegment> segments;
       for(const auto &s:goal->segments) {
-        ChainSegment segment; segment.motion_type=s.motion_type; segment.target=s.target_positions;
+        ChainSegment segment; segment.motion_type=s.motion_type; segment.target=s.target_positions; segment.via=s.via_positions; segment.circ_orientation=s.circ_orientation;
         segment.max_velocity=s.max_joint_velocity; segment.max_acceleration=s.max_joint_acceleration;
-        segment.tcp={s.tcp_velocity,s.tcp_acceleration,s.tcp_angular_velocity}; segment.blend_radius=s.blend_radius; segment.tag=s.tag;
+        segment.tcp={s.tcp_velocity,s.tcp_acceleration,s.tcp_angular_velocity,s.tcp_angular_acceleration}; segment.blend_radius=s.blend_radius; segment.tag=s.tag;
         segments.push_back(segment);
       }
       auto chain=compute_chain(goal->context,segments,goal->max_duration,codes_,

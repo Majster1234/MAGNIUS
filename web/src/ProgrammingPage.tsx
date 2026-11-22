@@ -7,6 +7,7 @@ import { accepts, addCase, allIds, canDrop, changeCommand, checkExpression, comm
     programText, removeBlock, renameRefs, setParam, shapeOf, slotList, slotsOf, toggleDisabled, usage, VAR_TYPES, type Block, type Command, type CommandLibrary, type DragPayload, type DropTarget, type ParamDef,
     type Position, type Program, type Value, type Variable, type VarType } from "./programModel";
 import { animationsEnabled } from "./animations";
+import { moduleNotice, useReport } from "./messageCenter";
 import { activeConfigurationValues, currentJoints, programApi, ProgramApiError, useProgramRun, type LibrarySnapshot, type PreflightStep, type ProgramSummary } from "./programApi";
 import { describe as describeViolations, jointRanges, limitProblems, poseLimits, violations, type JointRange } from "./programLimits";
 import { ancestorIds, blendBadge, cursorClasses, phaseLabels, runFor, runStateLabels, timelineBars, type RunStatus, type TimelineEntry } from "./programRun";
@@ -57,7 +58,11 @@ export function ProgrammingPage() {
     const commands = library?.commands ?? null;
     const cmap = useMemo(() => commandMap(commands), [commands]);
     const dirty = !!program && JSON.stringify(program) !== JSON.stringify(saved);
-    const notify = (text: string, tone: "ok" | "warn" | "error" = "ok") => setMessage({ text, tone });
+    // Komunikat w module (krótki) i wpis w pasku komunikatów: uwagi i błędy czekają na pokwitowanie, potwierdzenia trafiają do archiwum.
+    const report = useReport();
+    const notify = (text: string, tone: "ok" | "warn" | "error" = "ok") => { setMessage({ text, tone });
+        report(moduleNotice({ source: "program-message", severity: tone === "error" ? "error" : tone === "warn" ? "warning" : "info",
+            context: `Programowanie${program?.name ? ` · „${program.name}”` : ""}`, message: text }, "Programowanie", "#programming")); };
     useEffect(() => { if (message?.tone !== "ok") return; const t = setTimeout(() => setMessage(null), 4000); return () => clearTimeout(t); }, [message]);
 
     const refreshList = useCallback(async () => { const data = await programApi.list(); setList(data.items); return data.items; }, []);
@@ -296,7 +301,6 @@ export function ProgrammingPage() {
                 <button className="secondary-button" onClick={() => void revoke()}>Cofnij zatwierdzenie</button></> :
                 <button className="secondary-button" disabled={dirty || issues.length > 0 || !program.id} title={dirty ? "Najpierw zapisz program" : issues.length ? "Najpierw usuń uwagi z panelu Sprawdzenie" : "Pozwala wykonać tę rewizję programu (scripts/run_program.py --execute)"}
                     onClick={() => void approve()}>✔ Zatwierdź do wykonania</button>)}
-            <span className="prg-mode"><span />PROGRAMOWANIE · edycja</span>
         </header>
         {message && <div className={`prg-message ${message.tone}`} role="status">{message.text}<button aria-label="Zamknij" onClick={() => setMessage(null)}>×</button></div>}
         {!program ? <section className="prg-empty"><h2>Brak otwartego programu</h2><p>Utwórz pierwszy program. Pliki zapisywane są w <code>{library?.directory ?? "~/.local/state/robot/programs"}</code>.</p>

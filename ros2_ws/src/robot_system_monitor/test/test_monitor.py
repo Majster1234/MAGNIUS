@@ -23,6 +23,15 @@ def test_can_states(links, level):
     assert probes.parse_can_link(links)[0] == level
 
 
+def test_host_status_reports_each_cpu_thread(monkeypatch):
+    def cpu_percent(interval=None, percpu=False):
+        return [12.5, 40.0, 7.0, 99.0] if percpu else 39.6
+    monkeypatch.setattr(probes.psutil, 'cpu_percent', cpu_percent)
+    values = probes.host_status()
+    assert values['cpu_percent'] == 39.6
+    assert values['cpu_per_core_percent'] == [12.5, 40.0, 7.0, 99.0]
+
+
 def test_active_can_is_not_drive_confirmation():
     level, message, values = probes.parse_can_link(link())
     assert level == 0

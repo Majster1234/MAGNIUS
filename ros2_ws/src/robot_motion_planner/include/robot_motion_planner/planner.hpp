@@ -12,7 +12,8 @@ namespace robot_motion_planner {
 using Context=robot_control_interfaces::msg::PlanningContext;
 using Plan=robot_control_interfaces::msg::CartesianPlan;
 using Pose=robot_kinematics::Pose;
-struct TcpLimits { double velocity{},acceleration{},angular_velocity{}; };
+// angular_acceleration [rad/s²]: 0 = bez limitu (pojedyncze PTP/LIN z podglądu); ciągi programu/CIRC z tcp.angular_acceleration.
+struct TcpLimits { double velocity{},acceleration{},angular_velocity{},angular_acceleration{}; };
 Pose pose_from_message(const geometry_msgs::msg::Pose &message);
 geometry_msgs::msg::Pose pose_message(const Pose &pose);
 void validate_context(const Context &context);
@@ -30,12 +31,14 @@ Plan compute_preview(const Context &context, const robot_kinematics::Joints &tar
 Plan compute(const Context &context, const std::vector<Pose> &targets, double position_tolerance, double orientation_tolerance,
              double velocity_scaling, double acceleration_scaling, const std::array<int64_t,6> &acceleration_codes,
              const std::function<bool()> &cancelled={}, const std::function<void(float,const std::string&)> &progress={});
-// Ciąg ruchów PTP/LIN z przejściami (promień na torze TCP) i postojami jako jedna trajektoria (motion_type "CHAIN").
+// Ciąg ruchów PTP/LIN/CIRC z przejściami (promień na torze TCP) i postojami jako jedna trajektoria (motion_type "CHAIN").
 struct ChainSegment {
-  uint8_t motion_type{};               // 0 PTP, 1 LIN
+  uint8_t motion_type{};               // 0 PTP, 1 LIN, 2 CIRC
   robot_kinematics::Joints target{};   // rad
+  robot_kinematics::Joints via{};      // CIRC: punkt pośredni łuku (rad); inne: ignorowany
+  uint8_t circ_orientation{};          // CIRC: 0 interpolacja start→cel, 1 stała względem środka okręgu
   std::array<double,6> max_velocity{},max_acceleration{};
-  TcpLimits tcp;                       // LIN: dodatnie; PTP: zera
+  TcpLimits tcp;                       // LIN/CIRC: dodatnie; PTP: zera
   double blend_radius{};               // m; 0 = postój w punkcie
   std::string tag;
 };

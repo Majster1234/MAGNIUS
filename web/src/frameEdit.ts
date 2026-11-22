@@ -95,3 +95,39 @@ export function geometryChecks(values: Values) {
         wrist: [[3, 4], [4, 5], [3, 5]].map(([a, b]) => ({axes: `J${a + 1}–J${b + 1}`, distanceMm: lineDistance(axes[a], axes[b]) * 1000})),
     };
 }
+
+// ---------- Zero robota pod podstawą ----------
+// Układ bazy robota (zero całego robota) leży zawsze na osi J1, w najniższym punkcie siatki podstawy (wzdłuż osi J1).
+// Przeniesienie zera = przesunięcie układu bazy o wektor `root`: model 3D (złożenie → baza) i położenie J1 w konfiguracji
+// zmieniają się o −root, pozostałe przeguby i TCP są względne (bez zmian). Kąty osi i fizyczny robot pozostają te same.
+export type GeometrySource = { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 };
+/** Najmniejsza współrzędna punktów siatek wzdłuż osi (axis jednostkowa) względem `point`; null — brak punktów. */
+export function lowestAlong(sources: GeometrySource[], point: THREE.Vector3, axis: THREE.Vector3): number | null {
+    let lowest = Infinity;
+    const v = new THREE.Vector3();
+    for (const {geometry, matrix} of sources) {
+        const positions = geometry.getAttribute("position");
+        if (!positions) continue;
+        for (let i = 0; i < positions.count; i++) {
+            v.fromBufferAttribute(positions, i).applyMatrix4(matrix).sub(point);
+            const along = v.dot(axis);
+            if (along < lowest) lowest = along;
+        }
+    }
+    return Number.isFinite(lowest) ? lowest : null;
+}
+export type RootShift = { root: THREE.Vector3; needed: boolean; transform: { x: number; y: number; z: number }; draft: Record<string, string> };
+/** Przesunięcie zera robota pod podstawę. `lowest` — funkcja najniższego punktu podstawy wzdłuż osi J1 (null — brak
+ *  siatki podstawy: zero na osi J1 bez zmiany wysokości). `transform` — przesunięcie złożenie → baza [mm]. */
+export function rootUnderBase(values: Values, transform: { x: number; y: number; z: number },
+    lowest: ((point: THREE.Vector3, axis: THREE.Vector3) => number | null) | null): RootShift {
+    const {joints} = worldFrames(values);
+    const point = joints[0].position, axis = worldAxis(joints[0], 1);
+    const along = lowest ? lowest(point, axis) : null;
+    // Bez siatki podstawy: punkt osi J1 najbliższy obecnemu zeru (przesunięcie tylko w poprzek osi).
+    const root = along !== null ? point.clone().addScaledVector(axis, along) : point.clone().addScaledVector(axis, -point.dot(axis));
+    const mm = root.clone().multiplyScalar(1000);
+    const draft = Object.fromEntries(originKeys.slice(0, 3).map((key, i) => [`joint.1.${key}`, format(point.getComponent(i) * 1000 - mm.getComponent(i))]));
+    return {root, needed: mm.length() > .05,
+        transform: {x: Number(format(transform.x - mm.x)), y: Number(format(transform.y - mm.y)), z: Number(format(transform.z - mm.z))}, draft};
+}

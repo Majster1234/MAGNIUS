@@ -44,6 +44,10 @@ export function createProgramScene(host: HTMLElement, options: { maxFps?: number
     const linkMat = new THREE.MeshStandardMaterial({ color: 0x8096a3, metalness: .25, roughness: .55 }), jointMat = new THREE.MeshStandardMaterial({ color: 0x77c8a7, roughness: .5 });
     const markerMat = new THREE.MeshBasicMaterial({ color: 0x86a9c8 }), selMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     const badMat = new THREE.MeshBasicMaterial({ color: 0xff4b5c });
+    // Podświetlenie osi (karta awarii w pasku komunikatów): czerwony przegub i pulsujący pierścień wokół osi obrotu.
+    const highlightMat = new THREE.MeshStandardMaterial({ color: 0xff3b4e, emissive: 0x7a0f1a, roughness: .4 });
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xff3b4e, transparent: true, opacity: .9, depthTest: false });
+    let jointMeshes: THREE.Mesh[] = [], highlighted: number | null = null, ring: THREE.Mesh | null = null;
     let glows: ReturnType<typeof createLimitGlowsFor> | null = null, limits: LimitIndicator[][] = [];
     const currentGlows = () => glows;
     const base = new THREE.Mesh(new THREE.CylinderGeometry(.09, .1, .1, 32), new THREE.MeshStandardMaterial({ color: 0x4b616c })); base.rotation.x = Math.PI / 2; base.position.z = .05; scene.add(base);
@@ -56,12 +60,14 @@ export function createProgramScene(host: HTMLElement, options: { maxFps?: number
         mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); return mesh;
     }
     function build(v: Values) {
-        values = v; scene.remove(robot); robot = new THREE.Group(); scene.add(robot); pivots = []; axes = [];
+        values = v; scene.remove(robot); robot = new THREE.Group(); scene.add(robot); pivots = []; axes = []; jointMeshes = []; ring = null;
         const { joints, tool } = chain(v); let parent: THREE.Object3D = robot;
+        // Podstawa w zerze robota (pod osią J1), wysokość do układu J1.
+        const baseHeight = Math.max(.02, joints[0].xyz[2]); base.scale.set(1, baseHeight / .1, 1); base.position.set(0, 0, baseHeight / 2);
         joints.forEach((j, i) => {
             const g = new THREE.Group(); g.position.set(j.xyz[0], j.xyz[1], j.xyz[2]); g.rotation.set(j.rpy[0], j.rpy[1], j.rpy[2], "ZYX"); parent.add(g);
             const pivot = new THREE.Group(); g.add(pivot); pivots.push(pivot); axes.push(j.axis);
-            const jm = new THREE.Mesh(new THREE.CylinderGeometry(.032, .032, .075, 24), jointMat); jm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), j.axis); pivot.add(jm);
+            const jm = new THREE.Mesh(new THREE.CylinderGeometry(.032, .032, .075, 24), jointMat); jm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), j.axis); pivot.add(jm); jointMeshes.push(jm);
             const next = i < 5 ? joints[i + 1].xyz : tool.xyz; pivot.add(cylinder(new THREE.Vector3(), new THREE.Vector3(...next), i < 3 ? .024 : .018, linkMat)); parent = pivot;
         });
         const t = new THREE.Group(); t.position.set(tool.xyz[0], tool.xyz[1], tool.xyz[2]); parent.add(t); t.add(new THREE.AxesHelper(.06));
@@ -69,6 +75,15 @@ export function createProgramScene(host: HTMLElement, options: { maxFps?: number
         glows?.dispose();
         glows = createLimitGlowsFor(pivots.map((pivot, i) => ({ parent: pivot.parent!, position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), axis: axes[i] })), host);
         glows.update(limits, performance.now());
+        applyHighlight(highlighted);
+    }
+    function applyHighlight(axis: number | null) {
+        highlighted = axis;
+        jointMeshes.forEach((mesh, i) => { mesh.material = i + 1 === axis ? highlightMat : jointMat; });
+        if (ring) { ring.parent?.remove(ring); ring.geometry.dispose(); ring = null; }
+        if (!axis || !pivots[axis - 1]) return;
+        ring = new THREE.Mesh(new THREE.TorusGeometry(.06, .006, 12, 48), ringMat); ring.renderOrder = 10;
+        ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axes[axis - 1]); pivots[axis - 1].parent!.add(ring);
     }
     let markers: { mesh: THREE.Mesh; label: HTMLSpanElement }[] = [];
     function setPositions(list: Position[], selected: string | null, outside: Set<string> = new Set()) {
@@ -84,7 +99,8 @@ export function createProgramScene(host: HTMLElement, options: { maxFps?: number
     }
     function setPose(deg: number[] | null) { pivots.forEach((p, i) => { p.quaternion.setFromAxisAngle(axes[i], rad(deg?.[i] ?? 0)); }); }
     let frame = 0;
-    const resize = () => { const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+    // Rysunek od razu po zmianie rozmiaru (kanwa jest wtedy czyszczona) — model nie znika podczas animacji menu.
+    const resize = () => { const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.render(scene, camera); };
     const observer = new ResizeObserver(resize); observer.observe(host); resize();
     let rendered = -Infinity;
     (function loop(now: number = performance.now()) {
@@ -94,9 +110,11 @@ export function createProgramScene(host: HTMLElement, options: { maxFps?: number
         const w = host.clientWidth, h = host.clientHeight;
         for (const m of markers) { const p = m.mesh.position.clone().project(camera); m.label.style.transform = `translate(${(p.x * .5 + .5) * w}px,${(-p.y * .5 + .5) * h}px)`; m.label.style.display = p.z < 1 ? "" : "none"; }
         const g = currentGlows(); if (g) { g.update(limits, performance.now()); g.project(camera, w, h); }
+        if (ring) ringMat.opacity = .45 + .45 * (.5 + .5 * Math.sin(now / 260));
         renderer.render(scene, camera);
     })();
     build(null);
-    return { setGeometry: build, setPositions, setPose, setLimits(next: LimitIndicator[][]) { limits = next; },
-        dispose() { cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); glows?.dispose(); renderer.dispose(); disposables.forEach(d => d.dispose()); host.replaceChildren(); } };
+    return { setGeometry: build, setPositions, setPose, setHighlight: applyHighlight, setLimits(next: LimitIndicator[][]) { limits = next; },
+        dispose() { cancelAnimationFrame(frame); observer.disconnect(); controls.dispose(); glows?.dispose(); ring?.geometry.dispose(); highlightMat.dispose(); ringMat.dispose();
+            renderer.dispose(); disposables.forEach(d => d.dispose()); host.replaceChildren(); } };
 }

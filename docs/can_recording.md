@@ -103,8 +103,9 @@ i identyfikatory stanu. Znaczniki panelu mają osobny limit częstotliwości.
 
 C++ ma kolejkę MPSC 4096 zdarzeń i osobny wątek zapisu. Producent nie czeka
 na dysk ani mutex. Backend ma kolejkę 512 wpisów i własny wątek. `dropped_total`
-ujawnia pominięcia przy przepełnieniu. Pętla ciągła: CAN `ROBOT_TRACE_CAN_MIB` (domyślnie 2048 MiB =
-128 × 16 MiB, ok. 35 min ciągłego ruchu przy ~1 MiB/s), backend `ROBOT_TRACE_BRIDGE_MIB` (domyślnie
+ujawnia pominięcia przy przepełnieniu. Pętla ciągła: CAN `ROBOT_TRACE_CAN_MIB` (domyślnie 6144 MiB =
+384 × 16 MiB od 22.11.2026; ruch SYNC 100 Hz zapisuje ok. 2,6 MB/s → ok. 40 min ciągłego ruchu, postój ok. 0,45 MB/s → ok. 4 h;
+wcześniej 2048 MiB mieściło tylko ~13 min ruchu), backend `ROBOT_TRACE_BRIDGE_MIB` (domyślnie
 1024 MiB = 128 × 8 MiB). Segmenty `can-N.jsonl`/`bridge-N.jsonl` nadpisywane po kolei; kolejność wg czasu
 modyfikacji lub `utc_ns`. Drobne raporty/sesja są osobne. Błąd zapisu wyłącza
 rejestrator i nie zatrzymuje aplikacji. Zapis nie przechowuje sesji uprawniających

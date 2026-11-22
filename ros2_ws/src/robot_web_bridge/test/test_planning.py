@@ -151,3 +151,53 @@ def test_read_and_cancel_routes_and_no_execution_api(tmp_path):
         await app(request, receive, send)
         return output
     assert asyncio.run(cancel())[0]['status'] == 200 and calls == ['job']
+
+
+def circ_client(extra_values=None):
+    from robot_control_interfaces.action import ComputeMotionChain
+    value = feed_client()
+    value.chain_type = ComputeMotionChain
+    value.chain = SimpleNamespace(server_is_ready=lambda: True)
+    base = value.configuration
+    async def configuration(operation):
+        code, data = await base(operation)
+        if operation != 'system_get' and extra_values:
+            data['active']['document']['values'].update(extra_values)
+        return code, data
+    async def submit(goal, action, metadata):
+        return goal, metadata
+    value.configuration, value.submit = configuration, submit
+    return value
+
+
+def circ_data(**extra):
+    return dict(model_id='model', configuration_revision='rev', settings_revision='settings', motion_type='CIRC',
+                seed_degrees=[0.]*6, target_degrees=[2.]*6, via_degrees=[1.]*6, simulated_start=[True]*6,
+                tcp_velocity_mm_s=20, tcp_acceleration_mm_s2=100, tcp_angular_velocity_degrees_s=30, **extra)
+
+
+def test_circ_preview_is_single_segment_chain_with_orientation_and_request():
+    from robot_control_interfaces.msg import MotionSegment
+    goal, metadata = asyncio.run(circ_client().move(circ_data(circ_orientation='path')))
+    assert len(goal.segments) == 1 and goal.max_duration == pytest.approx(95)
+    segment = goal.segments[0]
+    assert segment.motion_type == MotionSegment.CIRC and segment.circ_orientation == MotionSegment.CIRC_PATH
+    assert list(segment.via_positions) == pytest.approx([math.radians(1)]*6)
+    assert list(segment.target_positions) == pytest.approx([math.radians(2)]*6)
+    assert segment.tcp_velocity == pytest.approx(.02) and segment.blend_radius == 0
+    assert list(segment.max_joint_velocity) == pytest.approx([math.radians(30)]*6)   # profil osi (profile_limits)
+    assert metadata['circ_request'] == {'via_degrees': [1.]*6, 'target_degrees': [2.]*6, 'circ_orientation': 'path',
+                                        'tcp_angular_acceleration_degrees_s2': 0.}
+    goal, metadata = asyncio.run(circ_client({'tcp.angular_acceleration': 100}).move(circ_data()))
+    assert goal.segments[0].tcp_angular_acceleration == pytest.approx(math.radians(100))
+    assert metadata['circ_request']['tcp_angular_acceleration_degrees_s2'] == 100
+    goal, _ = asyncio.run(circ_client().move(circ_data()))
+    assert goal.segments[0].circ_orientation == MotionSegment.CIRC_INTERPOLATED
+
+
+@pytest.mark.parametrize('change,text', [(dict(via_degrees=[1.]*5), 'pośrednich'), (dict(circ_orientation='center'), 'orientacja'),
+                                         (dict(tcp_velocity_mm_s=150), 'tcp.max_linear_velocity')])
+def test_circ_preview_rejects_bad_input_and_speed_above_configuration(change, text):
+    data = circ_data(); data.update(change)
+    with pytest.raises(ValueError, match=text):
+        asyncio.run(circ_client({'tcp.max_linear_velocity': 100, 'tcp.max_angular_velocity': 100}).move(data))

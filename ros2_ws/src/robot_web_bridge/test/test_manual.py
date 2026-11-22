@@ -324,3 +324,21 @@ def test_stalled_browser_does_not_block_keepalive_and_closes_after_limit(manual_
     assert [values['action'] for _, values in calls[:3]] == [0, 1, 1]
     assert calls[-1][1]['action'] == 2  # STOP po zamknięciu sesji
     assert closed and .35 <= closed[0] < 1.
+
+
+def test_zero_and_enable_blocked_while_program_owns_motion(tmp_path):
+    from types import SimpleNamespace
+    calls = []
+    async def action(operation, **values):
+        calls.append((operation, values)); return True, 'ok'
+    motion = SimpleNamespace(owner='program-run')
+    app = create_app(StatusStore('192.168.1.69', 8080, 'enp2s0', '192.168.1.0/24'), tmp_path, manual_store=SimpleNamespace(snapshot=lambda: {}),
+                     manual_action=action, motion_client=motion)
+    assert asyncio.run(post(app, '/api/v1/manual/axes/2/zero', {})) == 409
+    assert asyncio.run(post(app, '/api/v1/manual/enable-all', {'enabled': True})) == 409
+    assert asyncio.run(post(app, '/api/v1/manual/axes/4/enable', {'enabled': True})) == 409
+    assert calls == []
+    assert asyncio.run(post(app, '/api/v1/manual/enable-all', {'enabled': False})) == 202   # wyłączenie zawsze
+    assert asyncio.run(post(app, '/api/v1/manual/axes/4/enable', {'enabled': False})) == 202
+    motion.owner = None
+    assert asyncio.run(post(app, '/api/v1/manual/axes/2/zero', {})) == 202

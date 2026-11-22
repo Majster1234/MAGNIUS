@@ -765,3 +765,248 @@ Dodatkowy trop (próba J2, acc 200, para 4 LIN, 15:40:49): J6 na ~0,3 s zatrzyma
 dojeżdżający do celu F5 w układzie enkodera nadrobiłby stratę — wskazuje to na przesunięcie wewnętrznego układu
 F5 napędu względem `31` po chwilowym utknięciu wału (ten sam mechanizm co ucieczki J2, mniejsza skala).
 Od 08.11.2026 nadzór ucieczki odczytuje 39h w chwili wykrycia (`docs/synchronized_streaming.md`).
+
+## Ucieczki osi — analiza i odtworzenie (18.11.2026)
+
+Wały rozsprzęglone, usługa z nastawami zależnymi od ruchu. Migawki awarii: `log/manual-can/faults/faults.rfs` (`20261118-123508-798`, `-134948-454`, `-144837-922`,
+`-150948-846`, `-151301-627`, `-154705-941`). Test: `scripts/axis_runaway_repro.py`, wyniki `log/axis_runaway/20261118-162105` i `-165905`.
+
+**Odtworzone: cofnięcie przy dojeździe.** Podczas strumienia trzymania cel F5 i prędkość 20,875 RPM są stałe. Wał podchodzi do celu, a przy odległości ok. 15–45 impulsów (przy acc 241 do 443)
+rusza od celu, F1 przechodzi na 2 (przyspieszanie), prędkość sięga ok. 35 RPM. Przykład: `base` w `-165905`, J3, 10 z 20 ruchów powrotnych, start 306–333 ms po końcu trajektorii,
+odległość 33–43 impulsy, szczyt 660–989 impulsów (zwykle ok. 668, czyli 14,7° wału i 0,59° przegubu). Komenda przed cofnięciem się nie zmienia.
+Zjawisko występuje także przy Kp = 0 i Ki = 0 (3 duże cofnięcia w 24 dojazdach), więc nie wywołuje go regulator wykonania.
+
+| Konfiguracja, 40 dojazdów (`-165905`) | Droga hamowania rampy przy 20,9 RPM [imp.] | Cofnięcia ≥ 150 imp. |
+| --- | --- | --- |
+| acc 254, pierwszy przebieg / ostatni | 48 | 0 / 10 |
+| acc 255 | 24 | 0 |
+| acc 252 | 95 | 18 |
+| acc 248 | 190 | 0 |
+| acc 241 | 357 | 16 |
+| acc 0 (bez rampy) | 0 | 0 |
+
+Wynik nie potwierdza prostej zależności od rampy: te same nastawy dają 0 albo 10 cofnięć, a seria dotyczy zwykle jednej osi i jednego celu w danym przebiegu po zerowaniu.
+W awariach „uchyb dolotu rośnie mimo korekt” (J1, J6) start wygląda tak samo; korekta `F5 += cel − pomiar` działa już po rozpoczęciu cofania.
+
+**Nieodtworzone: ucieczka w ruchu wolnym** (J2 13:49:48, J5 14:48:37, wał powoli odwraca kierunek przy zadanych 1,5–5 RPM). W wolnym ruchu 0,3–3 °/s (ok. 3190 s·oś w czterech konfiguracjach) nie wystąpiło żadne cofnięcie.
+Dane dla wyprzedzenia 10/50/100 ms i pierwszego przebiegu `base` w `-162105` zostały nadpisane w pierścieniu nagrania; skrypt liczy teraz wynik po każdej konfiguracji.
+
+Testy diagnostyczne (przygotowane 18.11.2026, wymagają restartu usługi): `python3 scripts/axis_runaway_repro.py --execute --suite all`. Skrypt szuka zerowania z powtarzalnymi cofnięciami i w jego obrębie przeplata bloki kontrolne z wariantami:
+`hold` (F5 co 2/5/20/100 cykli przy SYNC co 10 ms, prędkość trzymania 5/10/40 RPM, acc 0), `phase` (cele przesunięte o k/8 okresu elektrycznego, przy założeniu silnika 1,8°), `profile` (prędkość, przyspieszenie, długość dojazdu).
+Nastawy `hold_period_cycles` i `hold_rpm` działają tylko przez `/api/v1/motion/execution-tuning`; domyślnie 1 i 0 nie zmieniają sterowania.
+
+### Wyniki testów diagnostycznych cofnięć (18.11.2026, wieczór)
+
+Wały rozsprzęglone, 12 dojazdów na blok (6 powrotów), porównanie w obrębie jednego zerowania, po każdym wariancie blok kontrolny. Wyniki: `log/axis_runaway/20261118-182845` (`hold`, `phase`, `profile`), `-190308` (`confirm`). Awarie: 0.
+
+| Wariant | Cofnięcia ≥ 150 imp. | Bloki kontrolne obok wariantu | Wniosek |
+| --- | --- | --- | --- |
+| **acc F5 = 0 (bez rampy), 6 bloków** | **0** | **16** | cofnięcia znikają |
+| **dojazd 10 °/s, 3 bloki** | **0** | **12** | cofnięcia znikają |
+| dojazd 40 °/s, 3 bloki | 13 | 8 | bez poprawy |
+| F5 trzymania co 2 / 5 / 20 / 100 cykli | 2 / 2 / 3 / 4 | 0 / 1 / 2 / 1 | powtarzanie F5 nie jest przyczyną |
+| prędkość trzymania 5 / 10 / 40 RPM | 2 / 3 / 1 | 1 / 2 / 0 | prędkość trzymania nie jest przyczyną |
+| cele przesunięte o 1/8…7/8 okresu elektrycznego | 3 / 0 / 0 / 1 / 1 / 0 / 1 | 3 / 1 / 1 / 0 / 3 / 4 / 2 | brak wyraźnej zależności |
+
+Wszystkie 67 cofnięć z zestawów `hold`, `phase` i `profile` wystąpiło przy powrocie do pozy bazowej; dotyczyły głównie J3, a w `confirm` także J1. Przy kroku ×2 cofała się J6 (4 razy).
+Wniosek: zjawisko wymaga rampy F5 napędu (acc ≠ 0) i dostatecznej prędkości dojazdu. Mechanizm wewnątrz firmware pozostaje nieznany. Nie sprawdzono acc 0 dla jakości ruchu przy obecnych nastawach ani ucieczek J2/J5 w wolnym ruchu.
+
+Test końca ruchu (przygotowany 18.11.2026, wymaga restartu usługi): `python3 scripts/axis_runaway_repro.py --execute --suite finish`. Każdy wariant 3 razy, przeplatany blokami kontrolnymi:
+acc 0 w ramkach dolotu (`hold_acc=0`), także przy jednej ramce (`hold_period=100`), acc 0 od 100 lub 300 ms przed końcem trajektorii (`hold_tail`), STOP osi po podejściu na 150 impulsów do celu: `F7` (`hold_stop=1`) albo `F5 STOP` z acc 0 przez SYNC (`hold_stop=2`).
+Tabela zawiera też błąd końcowy osi i nadmiar czasu. Nastawy działają tylko przez `/api/v1/motion/execution-tuning`; domyślnie są wyłączone.
+
+### Wyniki testu końca ruchu (18.11.2026, wieczór)
+
+Dojazdy 5° przy 40 °/s (ruch ok. 0,55–0,59 s), 12 dojazdów na blok, po każdym wariancie blok kontrolny w tym samym zerowaniu. Wyniki: `log/axis_runaway/20261118-194251` (zapis częściowy), `-195152`, `-201152`.
+
+| Wariant | Bloki | Cofnięcia | Kontrole obok | Błąd końcowy osi śr./maks. [°] (`-201152`) | Wniosek |
+| --- | --- | --- | --- | --- | --- |
+| acc 0 tylko w ramkach dolotu | 5 | 9 | 9 | 0,035 / 0,098 | bez efektu |
+| acc 0 od 100 ms przed końcem | 5 | 13 | 12 | 0,039 / 0,090 | bez efektu |
+| acc 0 od 300 ms przed końcem | 5 | 2 | 14 | 0,048 / 0,097 | wyraźna poprawa |
+| acc 0 od 500 ms przed końcem | 3 | 0 | 10 | 0,042 / 0,096 | cofnięcia znikają, ale to ok. 90% ruchu |
+| `F5 STOP` po podejściu na 150 imp. | 3 | 19 | 18 | 0,072 / 0,285 | bez efektu, gorszy błąd końcowy |
+| jedna ramka dolotu z acc 0 (`hold_period=100`) | 2 | 2 | 1 | — | odjazd J3 o 4° (awaria nadzoru), wariant odrzucony |
+
+Bloki kontrolne: błąd końcowy 0,037 / 0,102°. Wariant `F7` w pierwszej wersji zderzał się z odpowiedziami osi (zapytania tuż po F7, ten sam identyfikator CAN), więc nie ma wyniku; poprawiono rezerwację odpowiedzi.
+Tą samą kolizją wyjaśnia się „Nie potwierdzono ENABLE J3”: F3 szło ok. 1 ms po zapytaniu 0x31 tej osi. `group_tick` czeka teraz na wolną oś.
+Do sprawdzenia na dłuższym ruchu: czy wystarcza acc 0 tylko w fazie hamowania (`--step-scale 4`).
+
+Uzupełnienie po poprawce kolizji (`log/axis_runaway/20261118-204909`, `-205345`):
+- `F7` po podejściu na 150 impulsów: 24 cofnięcia wobec 8 w blokach kontrolnych, błąd końcowy osi 0,074 / 0,345° wobec 0,045 / 0,097°. Wariant odrzucony.
+- Dojazdy 20° przy 40 °/s: 0 cofnięć w 12 zerowaniach (144 ruchy), więc nie dało się porównać acc 0 w końcówce ruchu. Cofnięcia odtwarzają się na krótkich dojazdach (5°, przy kroku 10° na J6), a dłuższy ruch PTP w tym teście ich nie wywołuje.
+
+Analiza `F5 STOP` z zapisanych wyników (`-201152`): cofnięcie zaczynało się w medianie 123–131 imp. od celu, wobec 20–38 imp. w kontrolach, czyli mniej więcej w miejscu wysłania STOP, a jego wielkość pozostała podobna. Nie porównano czasu ramki STOP z początkiem cofnięcia.
+
+Test okna ramek i ciszy po celu (przygotowany 18.11.2026, wymaga restartu usługi): `python3 scripts/axis_runaway_repro.py --execute --suite window --velocity 40 --sessions 12`. Każdy wariant 3 razy, przeplatany blokami kontrolnymi:
+- acc 0 tylko w ramkach 150–230 ms przed końcem trajektorii (`hold_acc=0,hold_tail=230,hold_tail_end=150`),
+- prędkość tych ramek ×0,6 i ×1,5 (`hold_mark`): jeśli napęd wraca do tych ramek, prędkość cofania powinna iść za oznaczeniem,
+- po końcu trajektorii jedna ramka celu, potem bez F5 i SYNC (`hold_silent=1`). Odczyty pozycji, limit 4° i korekta osi poza tolerancją działają dalej.
+
+Tabela wyniku podaje też początek cofnięcia po końcu trajektorii, ramkę o celu najbliższym punktowi zwrotnemu, prędkość wału i tej ramki oraz liczbę ramek F5 po końcu.
+
+### Wyniki testu okna ramek i ciszy (18.11.2026, 23:06–23:22)
+
+Dojazdy 5° przy 40 °/s, wały rozsprzęglone, bez awarii. Wyniki: `log/axis_runaway/20261118-230626`. Kontrola: 12 bloków przeplecionych z wariantami (bez bloku próbnego). Wartości czasu i prędkości policzono z surowych ramek CAN, z końcem trajektorii liczonym od pierwszej ramki F5.
+
+| Wariant | Dojazdy | Cofnięcia | Osie | Prędkość wału / ramek okna, mediana [RPM] | Błąd końcowy osi śr./maks. [°] |
+| --- | --- | --- | --- | --- | --- |
+| Kontrola | 144 | 31 | J3, J6 | 47 / 54 | 0,043 / 0,120 |
+| acc 0 w oknie 150–230 ms | 36 | **0** | — | — | 0,053 / 0,113 |
+| Prędkość ramek okna ×0,6 | 36 | **0** | — | — | 0,030 / 0,091 |
+| Prędkość ramek okna ×1,5 | 36 | 18 | J3, J5, J6 | 66 / 65 (stosunek 0,88–1,12) | 0,048 / 0,110 |
+| Jedna ramka celu, potem cisza | 36 | 22 | J3, J5, J6 | 47 / 49 | 0,045 / 0,130 |
+
+Wnioski:
+- Ramki z okna 150–230 ms przed końcem wpływają na cofnięcie: ich zmiana usuwa je albo nasila, a przy ×1,5 prędkość cofania równa się oznaczonej prędkości ramek.
+- W wariancie ciszy wszystkie 22 cofnięcia zaczęły się bez nowej komendy: mediana 156 ms po ostatnim SYNC i 165 ms po ostatniej ramce F5, minimum 99 i 108 ms. Moment startu jest taki sam jak przy strumieniu trzymania (196 wobec 200 ms od końca liczonego z pierwszej ramki), więc strumień nie wywołuje cofnięcia.
+- Punkt zwrotny nie trafia w cel konkretnej ramki lepiej niż przypadek (średnia względna różnica 0,41–0,52; 0,5 = przypadek). Potwierdzone jest przejęcie prędkości z tych ramek, a nie powrót do ich dokładnej pozycji. Mechanizm w firmware pozostaje nieznany.
+- Nie sprawdzono wpływu ×0,6 i acc 0 w oknie na uchyb w trakcie ruchu, dłuższe ruchy, LIN ani pracę pod obciążeniem. Okno jest stałe, a zależność od długości i prędkości ruchu nieznana.
+
+Test mnożnika prędkości ramek okna (przygotowany 18.11.2026, bez zmian w C++): `python3 scripts/axis_runaway_repro.py --execute --suite scale,scale_profile --velocity 40 --sessions 12`.
+- `scale`: mnożniki 0,9 / 0,8 / 0,7 / 0,6 w oknie 150–230 ms, każdy 3 razy, dojazdy 5° przy 40 °/s, przeplatane kontrolą.
+- `scale_profile`: mnożnik z najmniejszą liczbą cofnięć i awarii, a przy remisie najbliższy 1 (albo `--mark`). Profile: krok 2,5° i 10°, 20 °/s, przyspieszenie 50 i 300 °/s², każdy 3 razy z własną kontrolą.
+- Podsumowanie łączy bloki wariantu i podaje odległość wału od celu F5 w trakcie ruchu. Cel zawiera wyprzedzenie, więc ta wartość służy tylko do porównań.
+- Potem jakość TCP dla wybranego mnożnika `M`: `python3 scripts/tcp_motion_quality.py --execute --fixed hold_tail=230 --fixed hold_tail_end=150 --tune hold_mark=1,M`.
+
+### Wyniki testu mnożnika (18–19.11.2026)
+
+Wyniki: `log/axis_runaway/20261118-234840`, `log/tcp_quality/20261119-002337`. Wały rozsprzęglone, bez awarii.
+
+| Dojazdy 5°, 40 °/s | Dojazdy | Cofnięcia | Błąd końcowy osi śr./maks. [°] |
+| --- | --- | --- | --- |
+| Kontrola | 144 | 20 (tylko J6) | 0,040 / 0,121 |
+| ×0,9 | 36 | 0 | 0,041 / 0,117 |
+| ×0,8 | 36 | 0 | 0,045 / 0,121 |
+| ×0,7 | 36 | 0 | 0,054 / 0,119 |
+| ×0,6 | 36 | 1 (J6) | 0,055 / 0,119 |
+
+| Profil przy ×0,9 (po 36 dojazdów) | Cofnięcia ×0,9 | Cofnięcia kontrola |
+| --- | --- | --- |
+| krok 2,5° | 2 | 4 |
+| krok 10° | 0 | 0 |
+| 20 °/s | 0 | 0 |
+| przyspieszenie 50 °/s² | 0 | 1 |
+| przyspieszenie 300 °/s² | 0 | 0 |
+
+Wnioski:
+- Na dojazdach 5° wystarcza ×0,9, a mniejsze mnożniki pogarszają średni błąd końcowy.
+- Przy kroku 2,5° stałe okno 150–230 ms nie usuwa cofnięć, więc okno trzeba powiązać z przebiegiem ruchu.
+- Pozostałe profile niczego nie rozstrzygają, bo kontrole prawie nie dały cofnięć.
+- W tej serii kontrole cofały się tylko na J6, więc skuteczność ×0,9 na J3 i J5 nie jest potwierdzona.
+- Jakość TCP przy ×0,9 (po jednym przebiegu) nie pogorszyła się: szczegóły w `docs/benchmark_results.md`.
+
+## 19.11.2026 — ucieczka J4 w wolnym PTP (test jakości TCP, 13:01:37)
+
+Test `log/tcp_quality/20261119-125922`, ruch 7 „PTP 400mm 5mm/s” (J4 0 → −65,5°, wał ok. 2,5 RPM), po ~70 s ruchu przy J4 ≈ −45°.
+Komunikat: „ucieczka osi — oś jedzie przeciwnie do referencji (uchyb −1,521°, oddalenie 0,541° w 200 ms); 39h: 0,218° wału =
+0,009° przegubu”. Ślad wałów J4: do 70,3 s pomiar − referencja w granicach ±1,8° wału, cel F5 − referencja −0,6…−1,3° wału
+(wyprzedzenie + człon całkujący, bez zmiany znaku), RPM F5 2,1–3,6. Od 70,3 s wał jedzie w stronę dodatnią (+38° wału w 0,6 s)
+przy celu F5 coraz dalej w stronę ujemną i RPM rosnącym do 27 (korekta Kp) — napęd jedzie wbrew F5, jak ucieczki J2/J5
+w wolnym ruchu (18.11). Referencja J4 monotoniczna, więc anty-windup członu całkującego z 19.11 nie działał. Po STOP: ENABLE=0,
+gotowy do ponownego załączenia, poza J1 50,5° J2 7,1° J3 26,7° J4 −43,5° J5 47,2° J6 84,5°.
+
+## 19.11.2026 — ucieczka J2 w PTP 400 mm 15 mm/s (seria nastaw, 14:55:19)
+
+Seria `--tune` (`log/tcp_quality/20261119-143943`), przebieg „lookahead_ms=40”, ruch 9 „PTP 400mm 15mm/s”. Komunikat: „ucieczka osi —
+oś jedzie przeciwnie do referencji (uchyb 1,516°, oddalenie 0,482° w 200 ms); 39h: −0,626° wału = −0,025° przegubu”. Druga ucieczka
+tego dnia w wolnej pracy osi (J4 12:59 przy 5 mm/s, nastawy z pliku); pojedyncze zdarzenie nie wskazuje na wpływ wyprzedzenia 40 ms.
+Skrypt nie przywrócił nastaw w trakcie obsługi awarii (`tuning_reset_failed`) — przywrócone ręcznie (`{"reset": true}`) o 14:56.
+
+## 19.11.2026 — ucieczka J3 w LIN 400 mm 5 mm/s przy acc 0 (seria acc, 18:53:37)
+
+Seria `--tune acc=0,230,200,160` (`log/tcp_quality/20261119-184513`), przebieg „acc=0” (bez rampy F5), ruch 8 „LIN 400mm 5mm/s”.
+Komunikat: „ucieczka osi — oś jedzie przeciwnie do referencji (uchyb 1,521°, oddalenie 0,500° w 200 ms); 39h: 0,120° wału = 0,005°
+przegubu”. Trzecia ucieczka tego dnia w wolnej pracy osi (J4 12:59, J2 14:55, J3 18:53) — przy różnych nastawach (plik, wyprzedzenie
+40 ms, acc 0). Nastawy przywrócone ręcznie (`tuning_reset_failed` w trakcie obsługi awarii).
+
+## 19.11.2026 — ucieczka J1 w SR_CLOSE (test trybu napędu, 19:34)
+
+`log/drive-mode-20261119-193212-J1`, J1 sam (tryb izolowany), tryb testowy SR_CLOSE, wolne PTP 1 RPM wału, ruch powrotny.
+Po ~18 s poprawnego śledzenia wał ruszył przeciwnie do referencji i celu F5: 33 → 114° wału w ok. 2 s, przyspieszając do 67 RPM
+(prędkość z F5 rosła z korekty Kp ∝ uchyb — sprzężenie dodatnie przy ruchu napędu wbrew celowi). Błąd kąta napędu 39h 0,541° wału
+(napęd uważa, że jest na celu). Zatrzymanie: nadzór uchybu śledzenia > 4° przegubu (detektor ruchu przeciwnego nie zadziałał przy
+referencji 0,24 °/s przegubu). Czwarta ucieczka 19.11 (J4, J2, J3 w vFOC; J1 w SR_CLOSE). Propozycja: przy ruchu osi przeciwnym do celu
+F5 nie zwiększać prędkości korektą Kp (ograniczenie sprzężenia) i obniżyć próg detektora ruchu przeciwnego dla wolnych referencji.
+
+## 19.11.2026 — restart sterownika J1 w postoju i zatrzaśnięte odzyskiwanie (20:49:23)
+
+Po uruchomieniu usługi (20:47) i załączeniu J1 (20:47:45): krótki brak odpowiedzi J1, licznik położenia J1 = 0 (wcześniej ~742 imp.),
+nadzór postoju: „ruch bez komendy w postoju — odchyłka 0,652° przegubu (742 imp. wału)”, zatrzymanie awaryjne; po STOP J1 zgłaszał
+ENABLE=1 (powrót do ostatniego stanu po restarcie napędu), ponowione F3=0 niepotwierdzone w 5 s → `recovery_failed` („przekroczono termin
+etapu verifying_disabled”). Prawdopodobnie restart zasilania/sterownika J1 (do sprawdzenia: zasilanie i złącze J1). Reset CAN nie kasował
+błędu (`sync_recovery_required_` blokowało `clear_fault`) — poprawka: reset po nieudanym odzyskiwaniu uruchamia je od nowa
+(test `SynchronizedProgram.OperatorCanResetRerunsFailedRecoveryAndUnlocksOnlyAfterVerification`).
+
+## 22.11.2026 — utrata synchronizmu J4 przy szybkich obrotach nadgarstka (test zakresu prędkości)
+
+1) `log/tcp_quality/20261122-zakres-predkosci`, CIRC „względem środka” R20 40 mm/s (powrót), 16:28:20: J4 jechał równo 55 °/s przegubu
+(≈ 229 RPM wału, F5 1797 → 2351 jedn. = 225 → 294 RPM, cel F5 ~1200 imp. przed enkoderem, SYNC na czas, J4 potwierdza każdy cykl).
+W ciągu 10 ms przyrost enkodera spadł z ~630 do 100–170 imp./10 ms; uchyb śledzenia 4,11° w 110 ms → nadzór. Błąd kąta napędu 39h
+−2,06° wału = −0,082° przegubu. 2) `log/tcp_quality/20261122-circ-path-R100`, R100 70 mm/s (tam), 16:34: ten sam skok opóźnienia J4
+przy ~135 RPM wału (różnica cel−enkoder −600 → −2100 imp. w 50 ms), potem w trzymaniu po trajektorii wał cofnął się o ~2000 imp.
+(~44° wału) i dolot nie nadążał: „uchyb dolotu rośnie mimo korekt (1,622°)”, 39h −0,584° wału. W tej samej sesji PTP 260 mm/s:
+J6 271 RPM, J1 ~160 RPM, J4 ~145 RPM bez incydentów — zjawisko dotyczy J4 przy zmiennej prędkości (łuk z obrotem narzędzia).
+Wcześniej J4: przejeżdżanie celu o 4,2° wału i skoki z cofnięciem przy pojedynczym F5 (19.11.2026). Kierunki: kalibracja enkodera
+J4, sprawdzenie silnika/złącza/zasilania J4 (zamiana napędu z inną osią), prąd J4 przez mechanizm kopii; doraźnie limit prędkości J4.
+
+## 22.11.2026 — diagnoza J4: przyczyną nie jest silnik, tylko przestoje wątku I/O CAN (grafika i915) i błąd osi czasu SYNC
+
+Testy (wały rozsprzęglone, `scripts/axis_diagnosis.py`, każdy blok od zerowania MKS):
+- `log/axis_diagnosis/20261122-J4` — J4 sam, J6 (odniesienie), J4 powtórka: 102 ruchy PTP jednej osi do ~245 RPM wału,
+  przyspieszenia 100/400 °/s², oba kierunki — **0 utrat synchronizmu**. Wspólne dla J4 i J6 pasmo rezonansu ok. 80 RPM wału
+  (min. v pomiar/ref 0,48–0,54, część zmienna uchybu 1,5–1,9° wału, przy ≥ 110 RPM 0,3–0,7°). Błędy okresowe (harmoniczne 1/obr
+  i 50/obr) J4 mniejsze niż J6 (1/obr 0,06–0,14° wobec 0,42–0,47° wału) — brak oznak mimośrodu magnesu/kalibracji enkodera J4.
+  Trzymanie po ruchu: rozrzut 0,02–0,35° wału, bez cofania.
+- `log/axis_diagnosis/20261122-J4-multi` — PTP wszystkich osi naraz, J4 140–212 RPM: 24 ruchy, 0 awarii (obciążenie zasilania
+  i magistrali nie wywołuje zjawiska).
+- `log/tcp_quality/20261122-J4-circR20-40-{1,2,3}` — dokładnie profil, który zawiódł (CIRC „względem środka” R20 40 mm/s):
+  uchyb J4 0,45–1,58° w każdym ruchu, powtórka 3 przerwana nadzorem (4,008°, 39h −2,918° wału).
+
+Mechanizm (ślad `raw_J4.json` powtórki 3): `io_loop_gap` — wątek I/O CAN (SCHED_FIFO 50) budzi się **7 ms za późno 4 razy z rzędu**
+→ `sync_shifted` 7,1 i 5,0 ms, brak odczytów 0x31 przez 2 cykle. Po przesunięciu osi czasu (`phase_origin += Δ`) stary pomiar był
+oceniany względem nowej osi: referencja w chwili pomiaru (`q_RX`) „cofnęła się”, fałszywy uchyb 0,6–0,9° przegubu („wał z przodu”),
+regulator skrócił cel F5 (wyprzedzenie 1663 → 1063 imp.) przy wale 230 RPM; napęd gwałtownie zwolnił do ~40 RPM i rozpędzał się
+z ograniczeniem acc (~800 RPM/s), a referencja jechała dalej 57 °/s → niedobór v²/2a ≈ 150° wału > 4° przegubu → nadzór.
+J4 jest najbardziej narażony, bo w łuku „względem środka” ma największe obroty wału i był przed referencją (mniejszy zapas celu).
+
+Źródło przestojów: `i915_hpd_poll_init_work` i `output_poll_execute` (dziennik jądra: „hogged CPU for >10000us”, ≥ 64 razy) —
+komputer bez monitora, grafika usypiana co 10 s (`power/control=auto`), przy każdym uśpieniu/wybudzeniu odpytuje 6 pustych złączy
+DP/HDMI, blokując rdzeń > 10 ms (jądro `PREEMPT_DYNAMIC` w trybie voluntary — praca jądra nie jest wywłaszczana przez FIFO 50).
+Okres 22,53 s (przerwania IRQ 139 i915), także w postoju i po restarcie komputera; widoczne tylko, gdy wątek CAN trafi na ten sam
+rdzeń (przypięcie wątków do CPU 2/CPU 3 tego nie usuwa — praca trafia na różne rdzenie).
+
+Działania: (1) kod — pomiar sprzed przesunięcia oceniany względem osi czasu z chwili pomiaru (`phase_origin_at`, historia
+przesunięć w `MotionExecutor`; test `PhaseOriginAtMeasurementExcludesLaterShifts`, `mks_servo_can` 314/314); Release w
+`install/stop-recovery-ros` (kopia `install/deployment-backups/shift-origin-1795368966`), wymaga restartu usługi. (2) system
+(operator, sudo) — wyłączenie usypiania grafiki (`/sys/bus/pci/devices/0000:00:02.0/power/control=on`, reguła udev). Do weryfikacji
+po obu: powtórki CIRC R20 40 mm/s i brak serii `io_loop_gap` co 22,5 s. Uwaga: rejestr prędkości 0x32 J4 zwraca 0 RPM w ruchu
+(`speed_source_mismatch`), osobna sprawa.
+
+### 22.11.2026 (wieczór) — weryfikacja po wdrożeniu: przestoje usunięte, J4 nadal zawodzi; właściwy czynnik — wyprzedzenie 25 ms w CIRC
+
+Po restarcie usługi (19:01, nowy build z `phase_origin_at`) i `power/control=on` grafiki: **brak `io_loop_gap` ≥ 5 ms i przesunięć SYNC**
+w całym nagraniu. Mimo to `log/tcp_quality/20261122-weryfikacja-circR20-40-1` — ucieczka J4 (4,167°) bez żadnego przestoju: J4 przyspiesza
+do ~227 RPM, jest przed referencją o 8–10° wału, cel F5 tylko 16–25° wału (~18 ms) przed wałem; wał nagle staje (56 → ~10 °/s w 10 ms),
+39h −1,5° wału (cel wewnętrzny napędu też stanął), potem rozpędza się z rampą acc. Drugi typ (A3, A13, A15 — „uchyb dolotu rośnie”):
+po dojechaniu do celu w strumieniu trzymania (F5 21 RPM, cel bez zmian) wał cofa się o ~61° wału w ~120 ms, 0x32 = −208 RPM.
+
+Seria naprzemienna, CIRC „względem środka” R20 40 mm/s, każdy przebieg od zerowania (`log/tcp_quality/20261122-wyprzedzenie-{A,B}-{1..15}`):
+
+| Wariant | Przebiegi | Przerwane | Ruchy z uchybem J4 > 2,5° | Uchyb J4 maks. śr. / maks. | Odchyłka drogi maks. śr. |
+| --- | --- | --- | --- | --- | --- |
+| A: nastawy z pliku (wyprzedzenie 25 ms) | 15 | 3 (wszystkie: cofnięcie w trzymaniu) | 1 (3,67°) | 1,02 / 3,67° | 1,86 mm |
+| B: `lookahead_ms=40` | 15 | 0 | 0 | 0,98 / 1,47° | 1,67 mm |
+
+(Fisher p ≈ 0,11 — kierunek wyraźny, ale nie rozstrzygające statystycznie.) Wariant `min_lead=60` niedostępny (walidacja 0–10° wału).
+Najmniejsze wyprzedzenie celu przed wałem J4 > 150 RPM: A 15–18 ms (także w udanych przebiegach), B 22–25 ms — sam próg wyprzedzenia nie
+rozdziela przebiegów udanych i nieudanych.
+
+Przyczyna różnicy PTP/CIRC: harmonogram nastaw (`execution_gain_schedule_enabled`) dotyczy **tylko PTP** (szczyt osi ≥ 21 °/s →
+wyprzedzenie 50 ms, Kp 12). Dlatego J4 nie zawodził w PTP (sam do 245 RPM i razem z osiami do 212 RPM — nastawy szybkie), a zawodzi
+w CIRC/LIN na nastawach podstawowych (25 ms) przy tych samych obrotach. Osobno: 19:41 awaria J1 „brak odpowiedzi podczas uzbrajania”
+(0x32 wysłane 1 ms po 0x31 bez odpowiedzi, ramki błędu CAN) — nakładanie się zapytań przy uzbrajaniu, do zbadania.
+
+**Cofnięte (22.11.2026, decyzja operatora):** poprawka `phase_origin_at` usunięta ze źródeł (`mks_servo_can` 313/313), binaria w
+`install/stop-recovery-ros` przywrócone z `install/deployment-backups/shift-origin-1795368966`. Zostaje wyłączenie usypiania grafiki
+(udev `80-i915-no-runtime-pm.rules`) — przestoje wątku I/O CAN usunięte. Opis mechanizmu wyżej zostaje jako materiał do dalszych prac.

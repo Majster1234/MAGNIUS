@@ -200,6 +200,55 @@ TEST(StreamingMath, PositionIntegralShiftsTargetOnlyDuringMotionAndIsLimited) {
   auto off=axis();StreamingState plain;
   EXPECT_NEAR(streaming_setpoint(off,.1,0.,plain,.095,16,0.,1.,0.).lookahead_position,.1,1e-12);EXPECT_EQ(plain.integral,0.);
 }
+TEST(StreamingMath, PositionIntegralResetsWhenPlannedVelocityReverses) {
+  auto a=axis();a.streaming.position_integral=true;a.streaming.integral_gain=2;a.streaming.integral_limit=.01;
+  a.streaming.lookahead_time_sec=.025;
+  StreamingState state;
+  // Ruch w + z osią za referencją: człon rośnie dodatnio i zostaje przy v=0 (postój bez zmiany kierunku).
+  for(unsigned i=0;i<300;++i) (void)streaming_setpoint(a,.1,.2,state,.095,16,0.,1.,0.);
+  EXPECT_NEAR(state.integral,.01,1e-12);
+  (void)streaming_setpoint(a,.1,0.,state,.1,16,0.,1.,0.);
+  EXPECT_NEAR(state.integral,.01,1e-12);
+  // Zawrót (v<0): stary człon nie może pchać celu dalej w +; cel = referencja + v·t, bez +0,01 rad.
+  const auto back=streaming_setpoint(a,.1,-.2,state,.1,16,0.,1.,0.);
+  EXPECT_NEAR(state.integral,0.,1e-12);
+  EXPECT_NEAR(back.lookahead_position,.1-.2*.025,1e-12);
+  // Dalej narasta już w nowym kierunku (oś za referencją po stronie +).
+  (void)streaming_setpoint(a,.1,-.2,state,.105,16,0.,1.,0.);
+  EXPECT_LT(state.integral,0.);
+}
+TEST(StreamingMath, MinimumLeadKeepsTargetAheadButNotBeyondPlannedStop) {
+  auto a=axis();const double lead=2*std::acos(-1.)/180;   // 2° wału przy przełożeniu 1
+  StreamingState s0;
+  const double plain=streaming_setpoint(a,.1,.01,s0,std::nullopt,16,0.,1.,0.).lookahead_position;
+  EXPECT_NEAR(plain,.1+.01*.085,1e-12);                    // wyłączone: v·t
+  a.streaming.min_lead_shaft_deg=2;StreamingState s1,s2,s3,s4,s5;
+  EXPECT_NEAR(streaming_setpoint(a,.1,.01,s1,std::nullopt,16,0.,10.,0.).lookahead_position,.1+lead,1e-12);
+  EXPECT_NEAR(streaming_setpoint(a,.1,-.01,s2,std::nullopt,16,0.,10.,0.).lookahead_position,.1-lead,1e-12);
+  // Hamowanie: najwyżej do punktu zatrzymania planu v²/(2|a|).
+  EXPECT_NEAR(streaming_setpoint(a,.1,.01,s3,std::nullopt,16,-.1,10.,0.).lookahead_position,.1+.01*.01/(2*.1),1e-12);
+  // Przed końcem trajektorii: najwyżej v·pozostały czas.
+  EXPECT_NEAR(streaming_setpoint(a,.1,.01,s4,std::nullopt,16,0.,.5,0.).lookahead_position,.1+.005,1e-12);
+  // Jawny cel (JOG TCP) i dolot (remaining = 0) bez zmian.
+  EXPECT_NEAR(streaming_setpoint(a,.1,.01,s5,std::nullopt,16,0.,1.,0.,.1004).lookahead_position,.1004,1e-12);
+  StreamingState s6;EXPECT_NEAR(streaming_setpoint(a,.1,.01,s6,std::nullopt,16,0.,0.,0.).lookahead_position,.1,1e-12);
+  // Tryb synchroniczny: jawny cel z referencji planu też dostaje minimalne wyprzedzenie (ta sama funkcja).
+  EXPECT_NEAR(minimum_lead_target(a,.1,.01,0.,10.,.1004),.1+lead,1e-12);
+  EXPECT_NEAR(minimum_lead_target(a,.1,.01,0.,10.,.2),.2,1e-12);             // cel już dalej: bez zmian
+  EXPECT_NEAR(minimum_lead_target(a,.1,0.,0.,10.,.1),.1,1e-12);              // postój
+  a.streaming.min_lead_shaft_deg=0;EXPECT_NEAR(minimum_lead_target(a,.1,.01,0.,10.,.1004),.1004,1e-12);
+  a.streaming.min_lead_shaft_deg=10.5;StreamingState s7;
+  EXPECT_THROW((void)streaming_setpoint(a,.1,.01,s7,std::nullopt,16,0.,1.,0.),std::invalid_argument);
+}
+TEST(StreamingMath, VelocityFeedForwardBelowOneScalesRpmAndLimitIsHalf) {
+  auto a=axis();a.streaming.min_holding_rpm=.125;StreamingState s1,s2;
+  const auto full=streaming_setpoint(a,.1,.2,s1,std::nullopt,128);
+  a.streaming.velocity_ff_scale=.8;
+  const auto low=streaming_setpoint(a,.1,.2,s2,std::nullopt,128);
+  EXPECT_NEAR(double(low.rpm)/full.rpm,.8,.02);
+  a.streaming.velocity_ff_scale=.49;StreamingState s3;
+  EXPECT_THROW((void)streaming_setpoint(a,.1,.2,s3,std::nullopt,128),std::invalid_argument);
+}
 TEST(StreamingMath, FractionalMinimumIsRoundedUpToOneMksSpeedUnitAndDithersBelowOneRpm) {
   auto a=axis();a.streaming.min_holding_rpm=.125;StreamingState state;
   // Mikrokrok 128: jednostka 0,125 RPM. Postój = 1 jednostka (nie 8 jak przy minimum 1 RPM), nigdy 0 (STOP F5).
@@ -213,4 +262,19 @@ TEST(StreamingMath, FractionalMinimumIsRoundedUpToOneMksSpeedUnitAndDithersBelow
   EXPECT_EQ(streaming_setpoint(a,0,v,legacy,std::nullopt,128).rpm,8) << "dotychczasowe minimum 1 RPM = 8 jednostek";
   a.streaming.min_holding_rpm=0;EXPECT_THROW(streaming_setpoint(a,0,0,state),std::invalid_argument);
   a.streaming.min_holding_rpm=NAN;EXPECT_THROW(streaming_setpoint(a,0,0,state),std::invalid_argument);
+}
+TEST(StreamingAccuracy, AccelerationTermLeadsSpeedAndNeverReversesIt) {
+  auto a=axis();a.streaming.lookahead_time_sec=.05;a.streaming.position_kp=0;
+  const auto rpm=[&](double scale,double v,double acc) {
+    a.streaming.acceleration_ff_scale=scale;StreamingState state;
+    return streaming_setpoint(a,0.,v,state,std::nullopt,128,acc,1.).rpm*.125;
+  };
+  const double to_rpm=60/(2*pi);
+  EXPECT_NEAR(rpm(0,1,8),1*to_rpm,.13);                 // domyślnie bez zmian
+  EXPECT_NEAR(rpm(1,1,8),(1+8*.05)*to_rpm,.13);         // rozpędzanie: prędkość z chwili celu
+  EXPECT_NEAR(rpm(1,1,-8),(1-8*.05)*to_rpm,.13);        // hamowanie
+  EXPECT_NEAR(rpm(1,-1,-8),(1+8*.05)*to_rpm,.13);       // ten sam moduł w drugą stronę
+  EXPECT_NEAR(rpm(.5,1,8),(1+.5*8*.05)*to_rpm,.13);
+  EXPECT_DOUBLE_EQ(rpm(1,.1,-8),1.);                    // hamowanie do zera: minimalna prędkość F5, bez odwrócenia
+  a.streaming.acceleration_ff_scale=2.5;EXPECT_THROW(streaming_setpoint(a,0,0),std::invalid_argument);
 }

@@ -115,6 +115,7 @@ struct Rig {
   static std::unique_ptr<Port> make(Port *&port) { auto p = std::make_unique<Port>(); port = p.get(); return p; }
   // hold=false: test skokowo przestawia emulowany wał przy ENABLE=1 (bez nadzoru postoju).
   explicit Rig(bool hold = true) : bus(hold_config(hold), make(port)) { bus.open(now); bus.start_scan(); step(180); }
+  explicit Rig(BusConfig config) : bus(config, make(port)) { bus.open(now); bus.start_scan(); step(180); }
   static BusConfig hold_config(bool hold) { BusConfig c; c.hold_supervision = hold; return c; }
   void step(unsigned count = 1) {
     for (unsigned i = 0; i < count; ++i) { now += 1ms; port->now = now; port->advance(); bus.tick(now); }
@@ -461,6 +462,25 @@ TEST(Configuration, CancelledLatePrepareAndCommitCannotApply) {
   EXPECT_FALSE(r.bus.configure(ConfigurationPhase::prepare,"cancelled","initial",profile,r.now).accepted);
   EXPECT_FALSE(r.bus.configure(ConfigurationPhase::commit,"cancelled","",profile,r.now).accepted);
   EXPECT_FALSE(r.state().axes[0].configured);
+}
+TEST(Configuration, JointJogReachesConfiguredJointVelocityAboveShaftJogLimit) {
+  // Profil: przełożenie 10, limit przegubu 0,5 rad/s = 47,7 obr./min wału > manual_max_rpm (30).
+  Rig r; apply_profile(r,joint_profile());r.enable();
+  EXPECT_DOUBLE_EQ(r.state().axes[0].maximum_velocity,.5);
+  EXPECT_FALSE(r.manual().jog_joint(JogAction::start,1,1,.5001,"profile-1","owner",1,r.now,r.now));
+  ASSERT_TRUE(r.manual().jog_joint(JogAction::start,1,1,.5,"profile-1","owner",1,r.now,r.now));
+  r.step(160);
+  EXPECT_DOUBLE_EQ(r.port->motors[1].target,-47);
+  ASSERT_TRUE(r.manual().jog_joint(JogAction::stop,1,0,0,"profile-1","owner",2,r.now,r.now));r.step(400);
+  EXPECT_FALSE(r.manual().jog(JogAction::start,2,1,31,"shaft",1,r.now,r.now));
+}
+TEST(Configuration, JointJogSpeedCappedByExecutionMaxRpm) {
+  auto config=Rig::hold_config(true); config.program_streaming[0].max_rpm=20;
+  Rig r(config); apply_profile(r,joint_profile());r.enable();
+  EXPECT_NEAR(r.state().axes[0].maximum_velocity,20*2*std::acos(-1.0)/60/10,1e-12);
+  ASSERT_TRUE(r.manual().jog_joint(JogAction::start,1,1,.5,"profile-1","owner",1,r.now,r.now));
+  r.step(160);
+  EXPECT_DOUBLE_EQ(r.port->motors[1].target,-20);
 }
 TEST(Configuration, JointJogUsesRatioDirectionAndFloorsSpeedWithoutLegacyBypass) {
   Rig r; apply_profile(r,joint_profile());r.enable();

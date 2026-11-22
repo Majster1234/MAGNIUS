@@ -317,7 +317,10 @@ void DiagnosticsNode::publish() {
   message.status.push_back(status("scan", error.empty() ? 0 : 2, resetting_ ? "Resetowanie CAN" : snapshot.message, {
       kv("state", quote(resetting_ ? "Resetowanie" : snapshot.scanning ? "Skanowanie" : snapshot.fault ? "Błąd" : "Gotowe")),
       kv("scanning", snapshot.scanning ? "true" : "false"), kv("resetting", resetting_ ? "true" : "false"),
-      kv("checked", std::to_string(snapshot.checked)), kv("total", std::to_string(mks_servo_can::kScanMaximumAddress)), kv("error", quote(error))}));
+      kv("checked", std::to_string(snapshot.checked)), kv("total", std::to_string(mks_servo_can::kScanMaximumAddress)), kv("error", quote(error)),
+      kv("startup_enabled", snapshot.startup_enabled ? "true" : "false"), kv("startup_generation", std::to_string(snapshot.startup_generation)),
+      kv("startup_pending_mask", std::to_string(snapshot.startup_pending)), kv("startup_busy_mask", std::to_string(snapshot.startup_busy)),
+      kv("startup_failed_mask", std::to_string(snapshot.startup_failed)), kv("startup_ready_mask", std::to_string(snapshot.startup_ready))}));
   for (std::size_t address = 1; address < snapshot.devices.size(); ++address) {
     const auto &d = snapshot.devices[address]; if (!d.detected) continue;
     const auto connected = snapshot.open && d.consecutive_timeouts < 3 && d.last_ok!=mks_servo_can::Time{} && now - d.last_ok < 3s;

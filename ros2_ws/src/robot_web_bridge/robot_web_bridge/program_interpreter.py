@@ -1,7 +1,8 @@
 """Interpreter programu blokowego (bez ROS): przechodzi drzewo bloków i wydaje zdarzenia ruchu.
 
 Kursor programu = blok, który interpreter właśnie przetwarza. Zdarzenia:
-- ``Move``  — ruch PTP/LIN do pozycji (kąty przegubów w °) z prędkością i promieniem pominięcia punktu; ruch względny
+- ``Move``  — ruch PTP/LIN/CIRC do pozycji (kąty przegubów w °) z prędkością i promieniem pominięcia punktu (CIRC: łuk
+  przez pozycję pośrednią ``via``); ruch względny
   (``relative``: przesunięcie/obrót TCP w układzie bazy lub narzędzia) ma ``joints_deg=None`` — cel wyznacza wykonawca
   (FK celu poprzedniego ruchu → przyrost pozy → IK, ``ProgramRunner.resolve``);
 - ``Sync``  — punkt synchronizacji kończący ciąg ruchów: ``kind`` = 'wait' (czekanie ``seconds``), 'operator'
@@ -35,14 +36,17 @@ class ProgramFailure(Exception):
 @dataclass
 class Move:
     block_id: str
-    kind: str                 # 'PTP' | 'LIN'
+    kind: str                 # 'PTP' | 'LIN' | 'CIRC'
     position: str             # nazwa pozycji
     joints_deg: list
-    speed: float              # PTP: % ; LIN: mm/s
+    speed: float              # PTP: % ; LIN/CIRC: mm/s
     blend_mm: float           # 0 = postój w punkcie
     path: list = field(default_factory=list)   # bloki nadrzędne (pętle/warunki)
     relative: dict = None     # {'frame': 'base'|'tool', 'translation_mm': [3], 'rotation_deg': [3]} — ruch względny
     angular_speed: float = None   # obrót względny: prędkość kątowa TCP [°/s]
+    via: str = None           # CIRC: nazwa pozycji pośredniej łuku
+    via_joints_deg: list = None   # CIRC: kąty przegubów pozycji pośredniej [°]
+    circ_orientation: int = 0     # CIRC: 0 interpolacja start→cel, 1 stała względem środka okręgu
 
 
 @dataclass
@@ -411,6 +415,19 @@ class Interpreter:
             raise ProgramFailure(f'Program przekracza {MAX_MOVES} ruchów', block_id)
         yield Move(block_id, kind, name, joints, speed, blend, list(path))
 
+    def move_circ(self, block, path):
+        """Łuk okręgu TCP od celu poprzedniego ruchu przez pozycję pośrednią do pozycji docelowej (prędkość TCP mm/s)."""
+        params = block.get('params', {})
+        via, via_joints = self.position(params.get('via'), block['id'])
+        orientation = self.CIRC_ORIENTATIONS.get(params.get('orientation', 'interpolowana'))
+        if orientation is None:
+            raise ProgramFailure(f'Orientacja CIRC: interpolowana albo względem środka, jest {params.get("orientation")!r}', block['id'])
+        for move in self.move(block, path, 'CIRC'):
+            move.via, move.via_joints_deg, move.circ_orientation = via, via_joints, orientation
+            yield move
+
+    CIRC_ORIENTATIONS = {'interpolowana': 0, 'względem środka': 1}
+
     FRAMES = {'baza': 'base', 'narzędzie': 'tool'}
 
     def move_relative(self, block, path, rotation):
@@ -597,6 +614,7 @@ class Interpreter:
     HANDLERS = {
         'move_ptp': lambda self, block, path: self.move(block, path, 'PTP'),
         'move_lin': lambda self, block, path: self.move(block, path, 'LIN'),
+        'move_circ': move_circ,
         'move_rel': lambda self, block, path: self.move_relative(block, path, False),
         'rotate_rel': lambda self, block, path: self.move_relative(block, path, True),
         'wait_time': wait_time, 'wait_operator': wait_operator,

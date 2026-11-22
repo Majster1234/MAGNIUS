@@ -98,7 +98,7 @@ class JogRateLimit:
         return True
 
 
-def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None, overview=None, program_store=None, program_runner=None, robot_model_store=None):
+def create_app(store, static_dir, can_store=None, can_action=None, manual_store=None, manual_action=None, description_store=None, configuration_action=None, planning_client=None, motion_client=None, shaft_trace=None, overview=None, program_store=None, program_runner=None, robot_model_store=None, fault_snapshots=None):
     from .system_overview import ConnectionCounter
     connections = overview.connections if overview is not None else ConnectionCounter()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -116,6 +116,8 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
     add_program_run_routes(app, program_runner)
     from .robot_model import add_robot_model_routes
     add_robot_model_routes(app, robot_model_store)
+    from .fault_api import add_fault_routes
+    add_fault_routes(app, fault_snapshots)
 
     @app.get('/healthz')
     async def health():
@@ -210,6 +212,25 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
         data = await configuration_body(request)
         return await configuration_call('drive_backup_test_set', axes=data.get('axes'))
 
+    # Inicjalizacja napędów: wynik porównania nastaw z kopią base i decyzja operatora.
+    @app.get('/api/v1/drive-startup')
+    async def drive_startup_status():
+        return await configuration_call('drive_startup_status')
+
+    @app.post('/api/v1/drive-startup/apply')
+    async def drive_startup_apply(request: Request):
+        data = await configuration_body(request)
+        return await configuration_call('drive_startup_apply', generation=data.get('generation'))
+
+    @app.post('/api/v1/drive-startup/dismiss')
+    async def drive_startup_dismiss(request: Request):
+        data = await configuration_body(request)
+        return await configuration_call('drive_startup_dismiss', generation=data.get('generation'))
+
+    @app.post('/api/v1/drive-startup/recheck')
+    async def drive_startup_recheck():
+        return await configuration_call('drive_startup_recheck')
+
     @app.post('/api/v1/configuration/reconcile')
     async def configuration_reconcile():
         return await configuration_call('reconcile')
@@ -249,6 +270,13 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
         if manual_store is None or manual_action is None:
             raise HTTPException(status_code=503, detail='Moduł sterowania ręcznego jest niedostępny')
 
+    def guard_program(action):
+        """Zerowanie i załączanie osi są zablokowane, gdy ruchem steruje wykonawca programu (także w czekaniu na operatora):
+        19.11.2026 test jakości wyzerował MKS w trakcie przebiegu programu, który dalej planowałby od fałszywego odniesienia.
+        Wyłączenie ENABLE pozostaje zawsze dozwolone."""
+        if motion_client is not None and getattr(motion_client, 'owner', None) is not None:
+            raise HTTPException(status_code=409, detail=f'{action}: ruchem steruje wykonawca programu; zatrzymaj program (STOP)')
+
     @app.get('/api/v1/manual/status')
     async def manual_status():
         require_manual()
@@ -266,11 +294,15 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
 
     @app.post('/api/v1/manual/axes/{axis}/enable')
     async def motor_enable(axis: int, body: EnableBody):
+        if body.enabled:
+            guard_program('Załączenie osi')
         return await motor_action('enable', axis, enabled=body.enabled)
 
     @app.post('/api/v1/manual/enable-all')
     async def motors_enable_all(body: EnableBody):
         require_manual()
+        if body.enabled:
+            guard_program('Załączenie osi')
         accepted, message = await manual_action('enable_all', enabled=body.enabled)
         if not accepted:
             raise HTTPException(status_code=409, detail=message)
@@ -278,6 +310,7 @@ def create_app(store, static_dir, can_store=None, can_action=None, manual_store=
 
     @app.post('/api/v1/manual/axes/{axis}/zero')
     async def motor_zero(axis: int):
+        guard_program('Zerowanie osi')
         return await motor_action('zero', axis)
 
     async def manual_session(websocket: WebSocket):

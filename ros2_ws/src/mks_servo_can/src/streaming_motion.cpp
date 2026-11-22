@@ -6,6 +6,15 @@
 
 namespace mks_servo_can {
 namespace { constexpr double pi=3.14159265358979323846; }
+double minimum_lead_target(const AxisConfig &a,double q,double v,double a_ref,double remaining_time_sec,double target) {
+  const auto &s=a.streaming;
+  if(!(s.min_lead_shaft_deg>0) || !(remaining_time_sec>0) || !(std::abs(v)>1e-6) || !(a.gear_ratio>0)) return target;
+  const double dir=v>0 ? 1. : -1.;
+  double floor=s.min_lead_shaft_deg*pi/180/a.gear_ratio;   // rad przegubu
+  if(v*a_ref<0) floor=std::min(floor,v*v/(2*std::abs(a_ref)));   // hamowanie: najwyżej do punktu zatrzymania planu
+  floor=std::min(floor,std::abs(v)*remaining_time_sec);           // najwyżej do końca trajektorii
+  return (target-q)*dir<floor ? std::clamp(q+dir*floor,a.lower,a.upper) : target;
+}
 StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,std::uint16_t microstep) {
   StreamingState state;
   return streaming_setpoint(a,q,v,state,std::nullopt,microstep);
@@ -23,7 +32,9 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
       !std::isfinite(a.lower) || !std::isfinite(a.upper) || a.lower>=a.upper || q<a.lower-1e-9 || q>a.upper+1e-9 ||
       !std::isfinite(a.max_velocity) || a.max_velocity<=0 || std::abs(v)>a.max_velocity+1e-6 ||
       !std::isfinite(s.lookahead_time_sec) || s.lookahead_time_sec<0 || s.lookahead_time_sec>.2 ||
-      !std::isfinite(s.velocity_ff_scale) || s.velocity_ff_scale<1 || s.velocity_ff_scale>3 ||
+      !std::isfinite(s.velocity_ff_scale) || s.velocity_ff_scale<.5 || s.velocity_ff_scale>3 ||
+      !std::isfinite(s.acceleration_ff_scale) || s.acceleration_ff_scale<0 || s.acceleration_ff_scale>2 ||
+      !std::isfinite(s.min_lead_shaft_deg) || s.min_lead_shaft_deg<0 || s.min_lead_shaft_deg>10 ||
       !std::isfinite(s.position_kp) || s.position_kp<0 ||
       !std::isfinite(s.integral_gain) || s.integral_gain<0 || !std::isfinite(s.integral_limit) || s.integral_limit<0 ||
       !std::isfinite(state.integral) || std::abs(state.integral)>s.integral_limit+1e-12 ||
@@ -47,11 +58,19 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
   // JOG TCP dostarcza punkt ze sprawdzonej drogi hamowania, również podczas
   // rozruchu. Ekstrapolacja bieżącego przyspieszenia mogłaby przekroczyć impuls.
   if(lookahead_position) out.lookahead_position=*lookahead_position;
+  else out.lookahead_position=minimum_lead_target(a,q,v,a_ref,remaining_time_sec,out.lookahead_position);
   const double clamped_age=std::clamp(actual_age_sec,0.,.05);
   const double q_ref_at_sample=q-v*clamped_age+.5*a_ref*clamped_age*clamped_age;
   const double pos_error=actual ? q_ref_at_sample-*actual : 0.;
   // Tylko w trakcie ruchu (remaining > 0): dolot końcowy ma własną korektę celu. Usuwa stały uchyb napędu.
   if(s.position_integral && remaining_time_sec>0) {
+    // Anty-windup przy zawrocie: opóźnienie osi za referencją daje człon o znaku kierunku ruchu. Gdy prędkość planu
+    // zmienia znak, taki człon przesuwa cel F5 w poprzednią stronę i napęd jedzie dalej, dopóki cel go nie minie
+    // (CIRC 19.11.2026: ~240 ms, 0,5° przegubu, ~2,7 mm TCP przy każdym zawrocie osi) — zerowany, narasta od nowa.
+    // Człon przeciwny do poprzedniego kierunku (stałe przesunięcie napędu przed celem) zostaje.
+    const int moving=std::abs(v)>1e-6 ? (v>0)-(v<0) : 0;
+    if(moving && state.motion_direction && moving!=state.motion_direction && state.integral*state.motion_direction>0) state.integral=0.;
+    if(moving) state.motion_direction=moving;
     if(actual) state.integral=std::clamp(state.integral+s.integral_gain*pos_error*kStreamingCycleSeconds,-s.integral_limit,s.integral_limit);
     out.lookahead_position=std::clamp(out.lookahead_position+state.integral,a.lower,a.upper);
   }
@@ -63,7 +82,9 @@ StreamingSetpoint streaming_setpoint(const AxisConfig &a,double q,double v,Strea
       (actual && std::abs(pos_error)>kDeadbandRad ? (pos_error>0)-(pos_error<0) : 0);
   if(direction!=state.direction) {state.rpm_dither_accum=0;state.direction=direction;}
   const double correction=actual && direction ? s.position_kp*pos_error*direction : 0.;
-  const double effective=std::clamp(std::abs(v)*s.velocity_ff_scale+correction,0.,a.max_velocity);
+  // t_kin przy hamowaniu kończy się na v=0, więc składnik przyspieszenia nie zmienia znaku prędkości.
+  const double velocity_ahead=v+s.acceleration_ff_scale*a_ref*t_kin;
+  const double effective=std::clamp(std::abs(velocity_ahead)*s.velocity_ff_scale+correction,0.,a.max_velocity);
   const double rpm=std::min(effective*joint_to_rpm/scale,static_cast<double>(maximum));
   if(rpm<minimum) {out.rpm=minimum;state.rpm_dither_accum=0;}
   else {

@@ -14,6 +14,8 @@ int main(int argc, char **argv) {
     // SCHED_FIFO wątków IO/RX CAN (terminy SYNC); 0 = zwykły planista. Wymaga LimitRTPRIO w usłudze.
     config.io_realtime_priority=static_cast<int>(parameters->declare_parameter("can_io_realtime_priority",0));
     config.manual_max_rpm = parameters->declare_parameter("manual_max_rpm", 30);
+    // Po starcie napędy dostają ENABLE=0 i komendy inicjalizacyjne (napęd MKS pamięta poprzedni stan ENABLE).
+    config.drive_startup = parameters->declare_parameter("drive_startup_init", true);
     auto runtime = std::make_shared<mks_servo_can::BusRuntime>(config);
     auto node = std::make_shared<robot_can_diagnostics::DiagnosticsNode>(runtime, config);
     runtime->start(false);  // Skan uruchomi się raz, po uzgodnieniu konfiguracji.

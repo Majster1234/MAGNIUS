@@ -14,6 +14,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from rcl_interfaces.srv import SetParametersAtomically
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
+from diagnostic_msgs.msg import DiagnosticArray
 from std_msgs.msg import String
 from robot_control_interfaces.msg import JointConfiguration, RobotConfiguration, ManualState, MotionSettings
 from robot_control_interfaces.srv import ConfigurationCommand, ConfigureRobot, DriveParameter
@@ -21,6 +22,7 @@ from .schema import profiles, validate, CRITICAL_FAULT_POLICY, DISPATCH_MODE, F5
 from .storage import Storage, decode
 from .coordinator import Coordinator, Conflict
 from .drive_backup import DriveBackups, Conflict as DriveConflict
+from .drive_startup import DriveStartup
 
 
 class RosDriveDevice:
@@ -131,6 +133,8 @@ class ConfigurationNode(Node):
         self.coordinator = Coordinator(self.storage, RosTransport(self, self.group, self.storage))
         # Kopie nastaw sterowników MKS: katalog drive-backups obok katalogu konfiguracji.
         self.drive_backups = DriveBackups(self.storage.root.parent / 'drive-backups', RosDriveDevice(self, self.group))
+        self.drive_startup = DriveStartup(self.drive_backups, busy=lambda: self.coordinator.running)
+        self.create_subscription(DiagnosticArray, '/robot/can/diagnostics', self.can_diagnostics, 1, callback_group=self.group)
         self.calibration_state = None
         self.create_subscription(ManualState, '/robot/manual/state', self.calibration_update, 1, callback_group=self.group)
         self.service = self.create_service(ConfigurationCommand, '/robot/configuration/command', self.command, callback_group=self.group)
@@ -140,6 +144,21 @@ class ConfigurationNode(Node):
         self.timer = self.create_timer(.5, self.publish)
         self.worker = None
         self.startup = self.create_timer(.2, self.bootstrap)
+
+    def can_diagnostics(self, message):
+        for status in message.status:
+            if status.name != 'scan':
+                continue
+            values = {item.key: item.value for item in status.values}
+            if 'startup_generation' not in values:
+                return  # starszy właściciel CAN bez inicjalizacji napędów
+            try:
+                self.drive_startup.can_status(values['startup_enabled'] == 'true', int(values['startup_generation']),
+                                              int(values['startup_busy_mask']), int(values['startup_ready_mask']),
+                                              int(values['startup_failed_mask']))
+            except (KeyError, ValueError) as error:
+                self.get_logger().warning(f'Nieprawidłowy stan inicjalizacji napędów: {error}')
+            return
 
     def calibration_update(self, message):
         with self.coordinator.lock:
@@ -234,6 +253,14 @@ class ConfigurationNode(Node):
                 if self.coordinator.running:
                     raise Conflict('Trwa zapis konfiguracji robota')
                 result = self.drive_backups.start(data.get('action'), data); code = 202
+            elif operation == 'drive_startup_status':
+                result = self.drive_startup.status(); code = 200
+            elif operation == 'drive_startup_apply':
+                self.drive_startup.apply(data.get('generation')); result = self.drive_startup.status(); code = 202
+            elif operation == 'drive_startup_dismiss':
+                result = self.drive_startup.dismiss(data.get('generation')); code = 200
+            elif operation == 'drive_startup_recheck':
+                result = self.drive_startup.recheck(); code = 202
             else:
                 raise ValueError('Nieznana operacja konfiguracji')
         except (Conflict, DriveConflict, FileExistsError) as error:

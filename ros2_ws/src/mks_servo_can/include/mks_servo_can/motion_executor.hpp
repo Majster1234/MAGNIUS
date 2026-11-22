@@ -31,6 +31,9 @@ struct PreparedMotionProgram {
   // Jawna maska osi programu (bit j = J(j+1)); 0 = wszystkie wykryte (dotychczasowe działanie).
   // Osie spoza maski nie są komendowane ani sprawdzane (np. strojenie jednej osi przy ENABLE=0 pozostałych).
   std::uint8_t participation_mask{0};
+  // Typ ruchu z planu (PTP/LIN/CHAIN) i wybór nastaw szybkiego PTP przy przygotowaniu programu.
+  std::string motion_type;
+  bool fast_gains{false};
 };
 struct MotionProgramStatus {
   std::string program_id, state{"idle"}, mode, message, execution_key;
@@ -68,6 +71,8 @@ class MotionExecutor {
   // Dolot SYNC (11.11.2026): koniec strumienia trzymania (osie w tolerancji i stabilne); niepełny dolot przy stojących
   // osiach = program nieudany bez awarii/ENABLE=0 (po przywróceniu 4A=0); ostrzeżenie dołączane do komunikatu końca.
   bool hold_done{};
+  unsigned hold_cycle{};  // numer cyklu strumienia trzymania od ostatniej ramki z korektą
+  std::uint8_t hold_stopped{};  // diagnostyka: osie zatrzymane przy celu
   std::string soft_failure, warning;
   bool sync_waiting_confirmation{}, sync_uncertain{};
   std::array<Time,6> staged_sent{};

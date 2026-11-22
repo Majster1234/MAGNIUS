@@ -33,9 +33,11 @@ def limit_violations(joints_deg, ranges):
 class MotionLimits:
     """Limity osi i TCP z aktywnej konfiguracji robota (istniejące klucze; nic nie jest zgadywane)."""
 
-    def __init__(self, joint_velocity, joint_acceleration, tcp_velocity, tcp_acceleration, tcp_angular, joint_range=None):
+    def __init__(self, joint_velocity, joint_acceleration, tcp_velocity, tcp_acceleration, tcp_angular, joint_range=None,
+                 tcp_angular_acceleration=None):
         self.joint_velocity, self.joint_acceleration = list(joint_velocity), list(joint_acceleration)   # °/s, °/s²
         self.tcp_velocity, self.tcp_acceleration, self.tcp_angular = tcp_velocity, tcp_acceleration, tcp_angular
+        self.tcp_angular_acceleration = tcp_angular_acceleration   # °/s² (tcp.angular_acceleration); None = bez limitu
         self.joint_range = joint_range or [None] * 6   # (dolny, górny) [°] albo None (brak danych)
 
     @classmethod
@@ -48,10 +50,13 @@ class MotionLimits:
         tcp = [values.get(key) for key in ('tcp.max_linear_velocity', 'tcp.linear_acceleration', 'tcp.max_angular_velocity')]
         if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in velocity + acceleration):
             raise ProgramFailure('Konfiguracja robota: limity osi muszą być dodatnie')
-        return cls(velocity, acceleration, *[float(v) if type(v) in (int, float) else None for v in tcp], joint_ranges(values))
+        angular_acceleration = values.get('tcp.angular_acceleration')
+        angular_acceleration = float(angular_acceleration) if type(angular_acceleration) in (int, float) and angular_acceleration > 0 else None
+        return cls(velocity, acceleration, *[float(v) if type(v) in (int, float) else None for v in tcp], joint_ranges(values),
+                   angular_acceleration)
 
     def segment(self, move):
-        """Ruch → pola MotionSegment (SI). PTP: % najwolniejszej osi (jak dawny Mover); LIN: mm/s ≤ tcp.max_linear_velocity."""
+        """Ruch → pola MotionSegment (SI). PTP: % najwolniejszej osi (jak dawny Mover); LIN/CIRC: mm/s ≤ tcp.max_linear_velocity."""
         if move.joints_deg is None:
             raise ProgramFailure('Ruch względny bez wyznaczonego celu (IK)', move.block_id)
         for j, (q, bounds) in enumerate(zip(move.joints_deg, self.joint_range)):
@@ -61,6 +66,14 @@ class MotionLimits:
             raise ProgramFailure(f'Promień pominięcia {move.blend_mm:g} mm poza zakresem 0–{BLEND_MAX_MM:g} mm', move.block_id)
         segment = {'tag': move.block_id, 'motion_type': move.kind, 'target_positions': [math.radians(q) for q in move.joints_deg],
                    'blend_radius': move.blend_mm / 1000, 'tcp_velocity': 0., 'tcp_acceleration': 0., 'tcp_angular_velocity': 0.}
+        if move.kind == 'CIRC':
+            if move.via_joints_deg is None:
+                raise ProgramFailure('CIRC: brak pozycji pośredniej', move.block_id)
+            for j, (q, bounds) in enumerate(zip(move.via_joints_deg, self.joint_range)):
+                if bounds and not bounds[0] - 1e-6 <= q <= bounds[1] + 1e-6:
+                    raise ProgramFailure(f'{move.via} (pośrednia): J{j + 1} = {q:.2f}° poza zakresem osi [{bounds[0]:g}, {bounds[1]:g}]°', move.block_id)
+            segment['via_positions'] = [math.radians(q) for q in move.via_joints_deg]
+            segment['circ_orientation'] = int(move.circ_orientation or 0)
         if move.kind == 'PTP':
             if not 0 < move.speed <= 100:
                 raise ProgramFailure(f'PTP: prędkość {move.speed:g}% poza zakresem 1–100%', move.block_id)
@@ -78,12 +91,13 @@ class MotionLimits:
             angular, linear = move.angular_speed, self.tcp_velocity
         else:
             if not 0 < move.speed <= self.tcp_velocity:
-                raise ProgramFailure(f'LIN: prędkość {move.speed:g} mm/s poza zakresem (0, {self.tcp_velocity:g}] z konfiguracji', move.block_id)
+                raise ProgramFailure(f'{move.kind}: prędkość {move.speed:g} mm/s poza zakresem (0, {self.tcp_velocity:g}] z konfiguracji', move.block_id)
             linear = move.speed
         segment['max_joint_velocity'] = [math.radians(v) for v in self.joint_velocity]
         segment['max_joint_acceleration'] = [math.radians(a) for a in self.joint_acceleration]
         segment.update(tcp_velocity=linear / 1000, tcp_acceleration=max(100., self.tcp_acceleration) / 1000,
-                       tcp_angular_velocity=math.radians(angular))
+                       tcp_angular_velocity=math.radians(angular),
+                       tcp_angular_acceleration=math.radians(self.tcp_angular_acceleration or 0.))
         return segment
 
     def estimate(self, start_deg, move):
@@ -99,6 +113,9 @@ class MotionLimits:
             v, a = min(self.joint_velocity) * move.speed / 100, min(self.joint_acceleration) * move.speed / 100
         else:
             v, a = min(self.joint_velocity), min(self.joint_acceleration)
+        if move.kind == 'CIRC' and move.via_joints_deg is not None:   # droga przez pozycję pośrednią
+            return (max(abs(q - p) for q, p in zip(move.via_joints_deg, start_deg))
+                    + max(abs(q - p) for q, p in zip(move.joints_deg, move.via_joints_deg))) / v + v / a
         return max(abs(q - p) for q, p in zip(move.joints_deg, start_deg)) / v + v / a
 
 

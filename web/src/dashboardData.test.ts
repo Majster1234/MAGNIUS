@@ -3,9 +3,11 @@ import { axisPresence, busStateLabel } from "./dashboardData";
 import type { CanSnapshot } from "./canStatus";
 import { pageFromHash } from "./AppShell";
 
-it("mapuje trasy i zachowuje poprzedni adres konfiguracji", () => {
-    for (const page of ["overview", "can", "diagnostics", "manual", "config", "architecture"] as const) expect(pageFromHash(`#${page}`)).toBe(page);
+it("mapuje trasy i zachowuje poprzednie adresy konfiguracji, CAN i architektury", () => {
+    for (const page of ["overview", "diagnostics", "manual", "programming", "config"] as const) expect(pageFromHash(`#${page}`)).toBe(page);
     expect(pageFromHash("#configuration")).toBe("config");
+    expect(pageFromHash("#can")).toBe("diagnostics");
+    expect(pageFromHash("#architecture")).toBe("diagnostics");
     expect(pageFromHash("")).toBe("overview");
     expect(pageFromHash("#nieznana")).toBe("overview");
 });

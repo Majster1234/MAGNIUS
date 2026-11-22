@@ -262,6 +262,26 @@ TEST(SynchronizedProgram, RecoveryRejectionKeepsMotionBlockedAndDiagnosticsAlive
   }
   EXPECT_EQ(h.port->counts[0x4b],0u);
 }
+TEST(SynchronizedProgram, OperatorCanResetRerunsFailedRecoveryAndUnlocksOnlyAfterVerification) {
+  // 19.11.2026: po „przekroczono termin etapu verifying_disabled” Reset CAN nie kasował błędu (sync_recovery_required_).
+  auto c=config();c.program_staged_reset_verified=true;Rig h(c);h.ready();h.synchronized();
+  h.port->sync.fill(true);h.port->rejected_ack=3;h.bus->stop("STOP operatora",false);h.run(2500);
+  ASSERT_EQ(h.bus->manual().snapshot(h.now).recovery_state,"recovery_failed");
+  h.port->rejected_ack=0;                       // przyczyna ustąpiła
+  const auto first=h.port->events.size();
+  h.bus->close();h.bus->reset_session(ResetMode::preserve_discovery);h.bus->open(h.now);h.run(4000);
+  EXPECT_EQ(h.bus->manual().snapshot(h.now).recovery_state,"idle_disabled") << h.bus->snapshot().message;
+  EXPECT_FALSE(h.bus->snapshot().fault);
+  for(auto it=h.port->events.begin()+first;it!=h.port->events.end();++it) {
+    EXPECT_FALSE(it->data[0]==0xf3 && it->data[1]!=0) << "reset nie załącza osi";
+    EXPECT_NE(it->data[0],0x4b);
+  }
+  for(unsigned j=1;j<=6;++j) EXPECT_FALSE(h.port->sync[j]) << "SYNC wyłączony po odzyskiwaniu J" << j;
+  // Bez nieudanego odzyskiwania reset nie uruchamia odzyskiwania.
+  const auto stops=h.port->counts[0xf7];
+  h.bus->close();h.bus->reset_session(ResetMode::preserve_discovery);h.bus->open(h.now);h.run(1000);
+  EXPECT_EQ(h.port->counts[0xf7],stops);EXPECT_FALSE(h.bus->snapshot().fault);
+}
 TEST(SynchronizedProgram, HardwareAcceptanceGatePreventsAutomaticUnlock) {
   Rig h;h.ready();h.synchronized();h.port->sync.fill(true);h.bus->stop("STOP operatora",false);h.run(2500);
   EXPECT_TRUE(h.bus->snapshot().fault);EXPECT_EQ(h.bus->manual().snapshot(h.now).recovery_state,"recovery_failed");
@@ -443,6 +463,23 @@ TEST(PositionIntegral, ConfigurationOptionReachesF5TargetsAndCompensatesDriveOff
     h.run(3000);EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
   }
   EXPECT_LT(late[1],late[0]-100) << "korekta ~200 impulsów w stronę zmniejszenia celu";
+}
+TEST(MinimumLead, SynchronizedTargetsKeepMinimumLeadInSlowMotion) {
+  // Tryb synchroniczny podaje jawny cel z referencji planu; minimalne wyprzedzenie musi działać także tu (19.11.2026: pomijane).
+  std::array<std::int64_t,2> mid{};
+  for(int run=0;run<2;++run) {
+    Rig h;h.ready();h.synchronized();
+    ExecutionTuning t;t.lookahead_time_sec=.025;t.velocity_ff_scale=1;t.position_kp=4;t.integral_gain=2;t.integral_limit=.01;
+    t.min_lead_shaft_deg=run ? 3. : 0.;std::string reason;
+    ASSERT_TRUE(h.bus->set_execution_tuning(t,reason)) << reason;
+    h.execute(h.program(.02,4.));h.run(2000);   // połowa wolnego ruchu
+    for(auto it=h.port->events.rbegin();it!=h.port->events.rend();++it) if(it->axis==2 && it->data.size()==8 && it->data[0]==0xf5) {
+      const auto raw=(std::uint32_t(it->data[4])<<16)|(std::uint32_t(it->data[5])<<8)|it->data[6];
+      mid[run]=raw&0x800000 ? static_cast<std::int32_t>(raw)-0x1000000 : static_cast<std::int32_t>(raw);break;
+    }
+    h.run(4000);EXPECT_EQ(h.bus->program_status().state,"succeeded") << h.bus->program_status().message;
+  }
+  EXPECT_GT(std::abs(mid[1]-mid[0]),50) << "cel F5 przesunięty o minimalne wyprzedzenie (" << mid[0] << " → " << mid[1] << ")";
 }
 TEST(HoldGuard, DriftWithoutCommandAfterIdleTriggersCriticalStop) {
   Rig h;h.ready();h.run(300);ASSERT_FALSE(h.bus->snapshot().fault);

@@ -24,6 +24,10 @@ constexpr auto kSyncPrepareMargin=3ms;
 constexpr auto kFinalStableWindow=150ms;
 constexpr auto kFinalCorrectionWhileMoving=600ms;
 double ms(Clock::duration d) {return std::chrono::duration<double,std::milli>(d).count();}
+void set_f5_speed(std::array<std::uint8_t,8> &bytes,unsigned address,unsigned units) {
+  bytes[1]=static_cast<std::uint8_t>((units>>8)&0x0f);bytes[2]=static_cast<std::uint8_t>(units);
+  unsigned sum=address;for(unsigned i=0;i<7;++i) sum+=bytes[i];bytes[7]=static_cast<std::uint8_t>(sum);
+}
 std::uint8_t participants(const MotionProgramStatus &s) {
   std::uint8_t mask=0;for(unsigned j=0;j<6;++j) if(s.participating[j]) mask|=1u<<j;return mask;
 }
@@ -67,11 +71,17 @@ bool CanBusManager::synchronized_query_window(Time now) const {
   const auto &e=executor_;
   if(e.status.dispatch_mode!="synchronized") return true;
   if(e.status.state=="arming" || e.status.state=="restoring") return false;
+  if(synchronized_silent_hold()) return true;
   // Po trajektorii: strumień trzymania dolotu (zestawy co cykl) ma to samo okno co ruch; po nim zapytania swobodnie.
   if(!e.program || (e.frame>=e.program->frames.size() && e.hold_done)) return true;
   // Zestaw k+1 powstaje po echu SYNC k. Przerwa 4 ms przed najwcześniejszą
   // kolejną wysyłką F5; RX i potwierdzenia nie są wstrzymywane.
   return e.staged && !e.sync_waiting_confirmation && now<std::min(e.due,e.batch_started+kStreamingCycle)-4ms;
+}
+bool CanBusManager::synchronized_silent_hold() const {
+  const auto &e=executor_;
+  return config_.program_hold_silent && e.program && e.frame>=e.program->frames.size() && e.final_started!=Time{} &&
+      !e.hold_done && e.hold_cycle>0 && !e.staged && !e.sync_waiting_confirmation;
 }
 bool CanBusManager::synchronized_reply(const Frame &frame,Time stamp) {
   auto &e=executor_;auto &s=e.status;
@@ -149,7 +159,7 @@ void CanBusManager::synchronized_final_approach(Time now) {
   if(e.staged || e.sync_waiting_confirmation) {schedule_synchronized_program(now);return;}
   if(e.final_started==Time{}) {
     e.final_started=now;e.final_next=now+kFinalApproachDelay;e.final_command=p.target;final_prev_error_.fill(-1);final_growth_.fill(0);
-    final_stable_since_.fill(Time{});final_stable_seen_.fill(Time{});e.hold_done=false;
+    final_stable_since_.fill(Time{});final_stable_seen_.fill(Time{});e.hold_done=false;e.hold_cycle=0;e.hold_stopped=0;
   }
   bool outside=false,all_stable=true;std::string axes;std::array<double,kAxes> error{};std::array<bool,kAxes> stable{};
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
@@ -196,6 +206,30 @@ void CanBusManager::synchronized_final_approach(Time now) {
     }
     e.final_command[j]=std::clamp(e.final_command[j]+error[j],axis.lower,axis.upper);correct=true;
   }
+  // Diagnostyka: zatrzymanie osi, która podeszła do celu. Oś poza tolerancją wraca do strumienia.
+  std::uint8_t stop_now=0;
+  if(config_.program_hold_stop_mode) for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+    const std::uint8_t bit=1u<<j;const auto &axis=config_.axes[j];
+    if(std::abs(error[j])>config_.program_position_tolerance[j]) {e.hold_stopped&=static_cast<std::uint8_t>(~bit);continue;}
+    const double gear=std::isfinite(axis.gear_ratio) && axis.gear_ratio>0 ? axis.gear_ratio : 1.;
+    if(!(e.hold_stopped&bit) && std::abs(error[j])*gear*16384/(2*std::acos(-1.))<=config_.program_hold_stop_ticks) stop_now|=bit;
+  }
+  // F7 z rezerwacją odpowiedzi: do jej nadejścia ta oś nie dostaje zapytań (ten sam identyfikator CAN).
+  if(config_.program_hold_stop_mode==1) for(unsigned j=0;j<kAxes;++j) if(stop_now&(1u<<j)) {
+    const auto address=config_.axes[j].address;const auto current=current_time(now);
+    const auto slot=std::find_if(pending_.begin(),pending_.end(),[](const Pending &q){return !q.used;});
+    if(slot==pending_.end() || !can_send(address,current)) {stop_now&=static_cast<std::uint8_t>(~(1u<<j));continue;}   // następny cykl
+    try {transport_->send(address,stop_request(address));++stats_.tx;}
+    catch(const std::exception &error_) {fault(axis_diagnostic_label(j+1,address)+": błąd wysłania F7 przy celu: "+error_.what());return;}
+    *slot={true,address,Kind::hold_stop,0xf7,3,current,current+config_.response_timeout};
+    trace_note("hold_stop_f7",axis_diagnostic_label(j+1,address),address,0xf7);
+  }
+  e.hold_stopped|=stop_now;
+  const std::uint8_t stop_frames=config_.program_hold_stop_mode==2 ? stop_now : 0;
+  // Diagnostyka: po pierwszej ramce celu cisza. Pomiary, limit 4° i korekta osi poza tolerancją działają dalej.
+  if(config_.program_hold_silent && e.hold_cycle>0 && !correct && !stop_frames) {
+    s.state="waiting_position";s.message="Dolot końcowy SYNC: cisza po ramce celu"+(axes.empty() ? std::string() : " —"+axes);return;
+  }
   unsigned count=0;for(bool yes:s.participating) count+=yes;
   const double cost=count*(can_frame_bits(8)+can_frame_bits(3))+can_frame_bits(2);
   const double budget=config_.bitrate*.01*std::min(kPlannedUtilization,config_.utilization_limit);
@@ -204,7 +238,8 @@ void CanBusManager::synchronized_final_approach(Time now) {
   if(spent_bits_+cost>budget) return;
   staged_streaming_states_=streaming_states_;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
+    auto axis=config_.axes[j];axis.streaming=execution_streaming(j,p);
+    if(config_.program_hold_acceleration>=0 && config_.program_hold_tail_end<=0) axis.streaming.acceleration=static_cast<std::uint8_t>(config_.program_hold_acceleration);
     const auto &d=devices_[axis.address];
     const double measured=position_to_joint(axis,d.position.value);
     auto sample=streaming_setpoint(axis,p.target[j],0.,staged_streaming_states_[j],measured,d.microstep.value,0.,0.,
@@ -214,16 +249,14 @@ void CanBusManager::synchronized_final_approach(Time now) {
     // własnym układzie — MKS odrzucał wtedy zapis 4A=0 i kolejne uzbrojenie (11.11.2026).
     {
       const double gear=std::isfinite(axis.gear_ratio) && axis.gear_ratio>0 ? axis.gear_ratio : 1.;
-      const double hold_rpm=config_.program_position_tolerance[j]*gear/(2*std::acos(-1.))*60/.1;
+      const double hold_rpm=config_.program_hold_rpm>0 ? config_.program_hold_rpm : config_.program_position_tolerance[j]*gear/(2*std::acos(-1.))*60/.1;
       const double scale=speed_scale(d.microstep.value);
       const double cap=std::min<double>(axis.streaming.max_rpm,axis.max_velocity*gear*60/(2*std::acos(-1.)));
       const auto floor=static_cast<std::uint16_t>(std::clamp(std::ceil(std::min(hold_rpm,cap)/scale),1.,3000.));
-      if(sample.rpm<floor) {
-        sample.bytes[1]=static_cast<std::uint8_t>((floor>>8)&0x0f);sample.bytes[2]=static_cast<std::uint8_t>(floor);
-        unsigned sum=axis.address;for(unsigned i=0;i<7;++i) sum+=sample.bytes[i];sample.bytes[7]=static_cast<std::uint8_t>(sum);
-      }
+      if(sample.rpm<floor) set_f5_speed(sample.bytes,axis.address,floor);
     }
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
+    if(stop_frames&(1u<<j)) {const auto stop=absolute_position_stop_request(axis.address,0);std::copy(stop.begin(),stop.end(),stream_payloads_[j].begin());}
   }
   e.staged_reference=ProgramPoint{};e.staged_reference.seconds=p.duration;e.staged_reference.positions=p.target;
   e.staged_ack_mask=e.staged_sent_mask=0;s.sync_ack_mask=0;e.batch_started=now;
@@ -235,7 +268,10 @@ void CanBusManager::synchronized_final_approach(Time now) {
   }
   e.staged=e.correction=true;s.sync_state="waiting_ack";s.sync_due_monotonic_ns=trace_ns(e.due);
   spent_bits_+=cost;
-  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
+  // Diagnostyka: identyczna ramka trzymania rzadziej; SYNC, odczyty i korekty celu bez zmian.
+  const bool send_f5=correct || stop_frames || config_.program_hold_period_cycles<=1 || e.hold_cycle%config_.program_hold_period_cycles==0;
+  e.hold_cycle=correct ? 1 : e.hold_cycle+1;
+  if(send_f5) for(unsigned j=0;j<kAxes;++j) if(s.participating[j] && (!(e.hold_stopped&(1u<<j)) || (stop_frames&(1u<<j)))) {
     e.staged_sent[j]=current_time(now);
     try {transport_->send(config_.axes[j].address,stream_payloads_[j]);++stats_.tx;}
     catch(const std::exception &error) {fault(axis_diagnostic_label(j+1,config_.axes[j].address)+": błąd wysłania korekty F5 SYNC: "+error.what());return;}
@@ -257,6 +293,7 @@ void CanBusManager::schedule_synchronized_program(Time now) {
     std::string missing;
     for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
       if(e.staged_ack_mask&(1u<<j)) {e.missed_acks[j]=0;continue;}
+      if(e.correction && !(e.staged_sent_mask&(1u<<j))) continue;  // cykl trzymania bez ramki F5
       ++stats_.sync_missed_acks;missing+=" "+axis_diagnostic_label(j+1,config_.axes[j].address);
       if(++e.missed_acks[j]>kSyncMissedAckLimit) {
         fault("SYNC: brak ACK F5=05 przed terminem od "+axis_diagnostic_label(j+1,config_.axes[j].address)+" w "+
@@ -285,14 +322,18 @@ void CanBusManager::schedule_synchronized_program(Time now) {
   // Ostatni punkt samplera ma seconds=duration, a nie czas granicy zaokrąglenia.
   e.staged_reference.seconds=phase;
   double horizon=std::max(0.,p.duration-phase);
-  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) horizon=std::min(horizon,config_.program_streaming[j].lookahead_time_sec);
+  for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) horizon=std::min(horizon,execution_streaming(j,p).lookahead_time_sec);
   e.staged_horizon=program_lookahead_time(p,phase,horizon);
   const auto target=program_reference(p,e.staged_horizon);
   staged_streaming_states_=streaming_states_;e.staged_ack_mask=e.staged_sent_mask=0;
   s.sync_ack_mask=0;s.sync_state="waiting_ack";s.sync_due_monotonic_ns=trace_ns(e.due);
   e.batch_started=now;e.staged=true;
+  const double remaining=p.duration-phase;
+  const bool tail_window=config_.program_hold_tail>0 && remaining<=config_.program_hold_tail && remaining>=config_.program_hold_tail_end;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
+    auto axis=config_.axes[j];axis.streaming=execution_streaming(j,p);
+    if(config_.program_hold_acceleration>=0 && tail_window)
+      axis.streaming.acceleration=static_cast<std::uint8_t>(config_.program_hold_acceleration);
     const auto feedback=streaming_feedback_position(j,now);
     std::optional<double> equivalent;
     if(feedback.valid) {
@@ -308,9 +349,17 @@ void CanBusManager::schedule_synchronized_program(Time now) {
       record.position_age_ns=trace_ns(now)-trace_ns(feedback.stamp);
       std::snprintf(record.detail.data(),record.detail.size(),"cycle=%zu q_RX=%.12g q_measured=%.12g error=%.12g",e.frame,at_measurement,feedback.value,at_measurement-feedback.value);trace(record);
     }
-    const auto sample=streaming_setpoint(axis,e.staged_reference.positions[j],e.staged_reference.velocities[j],
+    auto sample=streaming_setpoint(axis,e.staged_reference.positions[j],e.staged_reference.velocities[j],
         staged_streaming_states_[j],equivalent,devices_[axis.address].microstep.value,
-        e.staged_reference.accelerations[j],std::max(0.,p.duration-phase),0.,target.positions[j]);
+        e.staged_reference.accelerations[j],std::max(0.,p.duration-phase),0.,
+        minimum_lead_target(axis,e.staged_reference.positions[j],e.staged_reference.velocities[j],e.staged_reference.accelerations[j],
+                            std::max(0.,p.duration-phase),target.positions[j]));
+    // Diagnostyka: prędkość ramek okna oznacza je w nagraniu; widać, czy cofający się wał ją przejmuje.
+    if(tail_window && config_.program_hold_mark_scale!=1.) {
+      const double units_per_rpm=1/speed_scale(devices_[axis.address].microstep.value);
+      const double cap=std::min<double>(axis.streaming.max_rpm,axis.max_velocity*axis.gear_ratio*60/(2*std::acos(-1.)))*units_per_rpm;
+      set_f5_speed(sample.bytes,axis.address,static_cast<unsigned>(std::clamp(std::round(sample.rpm*config_.program_hold_mark_scale),1.,std::clamp(std::floor(cap),1.,3000.))));
+    }
     std::copy(sample.bytes.begin(),sample.bytes.end(),stream_payloads_[j].begin());
   }
   spent_bits_+=cost;

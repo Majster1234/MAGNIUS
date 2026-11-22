@@ -1,11 +1,14 @@
 import {useEffect,useMemo,useRef,useState} from "react";
 import {emptyScales,historyChannel,mergeTrace,positionText,reduceTrace,traceBase,traceChannelCount,traceGroup,valueAt,yRange,type ShaftFrame,type ShaftHistory,type ShaftPoint,type ShaftStatus,type YScale} from "./shaftTrace";
 import {createPortal} from "react-dom";
+import {moduleNotice,useCondition} from "./messageCenter";
 import {TraceButton} from "./TraceButton";
 import {TraceWindow} from "./TraceWindow";
+import {InfoTip} from "./PageHeader";
 import {ShaftHistoryCache} from "./shaftHistoryCache";
 
-const colors=["#1aa79c","#4e8ee8","#d99829","#b16bd6","#e47961","#6caa46"];
+// Kolory osi J1–J6 poza barwami stanów (te same co tokeny --j1…--j6 w theme.css).
+const colors=["#19e3f0","#a493ff","#f07cf5","#ff6fa8","#c8f03a","#d6dde3"];
 function localTime(value:number) {const d=new Date(value);return Number.isFinite(d.getTime())?new Date(value-d.getTimezoneOffset()*60000).toISOString().slice(0,23):"";}
 function timeText(value:number|null|undefined) {return value==null?"—":new Date(value).toLocaleString("pl-PL");}
 function loadSettings() {
@@ -124,9 +127,11 @@ function ShaftChart({axis,points,reference,command,rpm,start,end,scale,cursor,lo
         onCursor(start+ratio*(end-start));
     }}/>;
 }
-export function DiagnosticsPage({visible,pinnedAxis,onPin,onDock,onClose}:{visible:boolean;pinnedAxis:number|null;onPin:(axis:number)=>void;onDock:()=>void;onClose:()=>void}) {
+// Przebiegi wałów: zakładka Diagnostyki (portal do `host`) oraz okno przypiętej osi widoczne w innych modułach.
+export function DiagnosticsPage({visible,host,highlightAxis,pinnedAxis,onPin,onDock,onClose}:{visible:boolean;host:HTMLElement|null;highlightAxis:number|null;pinnedAxis:number|null;onPin:(axis:number)=>void;onDock:()=>void;onClose:()=>void}) {
     const [initial]=useState(loadSettings),[seconds,setSeconds]=useState(initial.seconds),[scales,setScales]=useState<YScale[]>(initial.scales);
     const [status,setStatus]=useState<ShaftStatus|null>(null),[connected,setConnected]=useState(false),[error,setError]=useState("");
+    useCondition("diag-trace",error?moduleNotice({source:"diag-trace",severity:"warning",title:"Przebiegi osi: problem z odczytem",message:error},"Diagnostyka · przebiegi","#diagnostics"):null);
     const [receivedAt,setReceivedAt]=useState(performance.now()),[clock,setClock]=useState(performance.now());
     const [live,setLive]=useState(true),[end,setEnd]=useState(Date.now()),[cursor,setCursor]=useState<number|null>(null);
     const [overlays,setOverlays]=useState(loadOverlays);
@@ -209,6 +214,7 @@ export function DiagnosticsPage({visible,pinnedAxis,onPin,onDock,onClose}:{visib
             } catch {/* Następne położenie kursora ponowi odczyt. */}
         },120);return ()=>{clearTimeout(timer);abort.abort();};
     },[cursor,seconds]);
+    useEffect(()=>{if(visible&&highlightAxis!==null) host?.querySelector(`.shaft-chart[data-axis="${highlightAxis}"]`)?.scrollIntoView({block:"nearest"});},[visible,host,highlightAxis]);
     function scale(axis:number,patch:Partial<YScale>) {setScales(old=>old.map((v,i)=>i===axis?{...v,...patch}:v));}
     function panTo(value:number) {
         range.current={...range.current,live:false,end:value};
@@ -252,7 +258,7 @@ export function DiagnosticsPage({visible,pinnedAxis,onPin,onDock,onClose}:{visib
             const deviation=overlays.reference&&reading&&planned?(reading.position_cdeg-planned.position_cdeg)/100:null;
             const sent=overlays.command&&reading?valueAt(cursorPoints?.[i+12]??commands[i],reading.time_ms):null;
             const speed=overlays.rpm&&reading?valueAt(cursorPoints?.[i+18]??speeds[i],reading.time_ms):null;
-            return <article key={axis} className="shaft-chart card" data-axis={axis}>
+            return <article key={axis} className={`shaft-chart card${axis===highlightAxis?" hl":""}`} data-axis={axis}>
                 <header><h2><span style={{background:colors[i]}}/>J{axis}<small>CAN {axis} · wał</small></h2><strong className="shaft-value">{positionText(reading)}</strong>{deviation!==null&&<span className="shaft-deviation" title={`Referencja ${positionText(planned)}`}>Δ ref {deviation>=0?"+":""}{deviation.toFixed(2)}°</span>}{sent&&reading&&<span className="shaft-deviation" title={`Cel F5 ${positionText(sent)}`}>Δ F5 {reading.position_cdeg>=sent.position_cdeg?"+":""}{((reading.position_cdeg-sent.position_cdeg)/100).toFixed(2)}°</span>}{speed&&<span className="shaft-deviation">{(speed.position_cdeg/100).toFixed(speed.position_cdeg<1000?2:0)} RPM</span>}<span className={`badge ${info?.error?"error":fresh?"ok":"stale"}`}>{info?.error?"Błąd zapisu":fresh?"Świeże dane":"Brak świeżego pomiaru"}</span>{axis!==pinnedAxis&&<TraceButton action="pin" label={`Przypnij wykres J${axis}`} title={`Przypnij J${axis} — podgląd w innych modułach`} onClick={()=>onPin(axis)}/>}</header>
                 <ShaftChart axis={axis} points={points} reference={overlays.reference?references[i]:null} command={overlays.command?commands[i]:null} rpm={overlays.rpm?speeds[i]:null} start={start} end={end} scale={settings} cursor={cursor} loading={loading} detached={axis===pinnedAxis} onCursor={setCursor} onPan={panTo}/>
                 <div className="shaft-scale"><label><input type="checkbox" checked={settings.auto} onChange={e=>scale(i,{auto:e.target.checked})}/>Auto Y</label>
@@ -267,15 +273,15 @@ export function DiagnosticsPage({visible,pinnedAxis,onPin,onDock,onClose}:{visib
     }
     const badges=<div className="trace-badges"><span className={`badge ${sourceConnected?"ok":"stale"}`}>{sourceConnected?"Źródło połączone":"Oczekiwanie na źródło"}</span><span className={`badge ${connected&&statusAge<500&&status?.recording?"ok":"warn"}`}>{!connected||statusAge>=500?"Stan zapisu nieaktualny":status?.recording?"Zapis ciągły aktywny":"Zapis niedostępny"}</span></div>;
     const losses=<p className="trace-note">Utraty: kolejka źródła {status?.source_dropped??0} · brakujące próbki {status?.missing_samples??0} · zapis {status?.writer_dropped??0}. Limit obejmuje cały plik osi; najstarsze dane są nadpisywane.</p>;
+    const help="Przeciągnij wykres lub użyj poziomej rolki myszy, aby przeglądać historię wszystkich osi. „Na żywo” wraca do ostatnich 10 s. Pinezka odłącza jedną oś; zakres czasu pozostaje wspólny. Linia ciągła: pomiar wału; przerywana w kolorze osi: referencja ruchu PTP/LIN/JOG TCP (cel planowany); kropkowana jasna: cel F5 wysłany do napędu; szara cienka (prawa oś): RPM F5. Δ ref / Δ F5: pomiar minus referencja / cel F5.";
     return <>
-        {visible&&<section className="diagnostics-screen" aria-label="Diagnostyka pozycji wałów">
-            <div className="page-title"><div><div className="eyebrow">TRACE POZYCJI WAŁÓW</div><h1>Diagnostyka</h1><p>J1–J6 · ciągły zapis · dokładność prezentacji 0,01°</p></div>{badges}</div>
+        {visible&&host&&createPortal(<section className="diagnostics-screen" aria-label="Diagnostyka pozycji wałów">
+            <div className="trace-head">{badges}<InfoTip text={help}/></div>
             {controls}
             {error&&<p className="trace-error" role="alert">{error}</p>}
-            <p className="trace-note" id="trace-pan-help">Przeciągnij wykres lub użyj poziomej rolki myszy, aby przeglądać historię wszystkich osi. „Na żywo” wraca do ostatnich 10 s. Pinezka odłącza jedną oś; zakres czasu pozostaje wspólny. Linia ciągła: pomiar wału; przerywana w kolorze osi: referencja ruchu PTP/LIN/JOG TCP (cel planowany); kropkowana jasna: cel F5 wysłany do napędu; szara cienka (prawa oś): RPM F5. Δ ref / Δ F5: pomiar minus referencja / cel F5. Kanały włączasz checkboxami u góry.</p>
             <div className="shaft-charts">{series.map((_,i)=>i+1===pinnedAxis?null:chart(i+1))}</div>
             {losses}
-        </section>}
+        </section>,host)}
         {pinnedAxis!==null&&createPortal(<TraceWindow axis={pinnedAxis} controls={controls} onDock={onDock} onClose={onClose}>
             <section className="diagnostics-screen" aria-label={`Pozycja wału J${pinnedAxis}`}>
                 {badges}

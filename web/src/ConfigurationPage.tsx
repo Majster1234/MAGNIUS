@@ -1,5 +1,7 @@
+import { PageHeader } from "./PageHeader";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { EventConsole, useEventConsole } from "./EventConsole";
+import { moduleNotice, useCondition, useReport } from "./messageCenter";
+import type { Notice } from "./eventLog";
 import { ConfigurationPreview, type PreviewModel } from "./ConfigurationPreview";
 import { dispatchModeKey, criticalFaultPolicyKey, positionIntegralKey, minDitherKey, minDitherDefault, minDitherMax, f5AccelerationKey, systemConfigurationKeys, dirtyKeys, fieldErrors, configurationKeys, valueOf } from "./configurationData";
 import { RobotModelPanel } from "./RobotModelPanel";
@@ -139,7 +141,9 @@ export function ConfigurationPage() {
         return Object.fromEntries(configurationKeys.map(key => [key, bad[key] ? null : valueOf(key, draft[key] ?? "")]));
     }, [draft, nativeErrors]);
     const applyModelDraft = useCallback((updates: Record<string, string>) => setDraft(previous => ({...previous, ...updates})), []);
-    const {entries, notice} = useEventConsole();
+    // Zdarzenia konfiguracji trafiają do paska komunikatów (dawna konsola zdarzeń modułu).
+    const report = useReport();
+    const notice = useCallback((event: Notice) => report(moduleNotice(event, "Konfiguracja", "#config")), [report]);
     const hasLocal = useRef((() => {try { return sessionStorage.getItem(storageKey) !== null || sessionStorage.getItem(legacyStorageKey) !== null; } catch { return true; }})());
     const fileInput = useRef<HTMLInputElement>(null);
     const configuration = useConfiguration(draft, replaceDraft, true, hasLocal.current, notice, section === "robot");
@@ -149,6 +153,11 @@ export function ConfigurationPage() {
     const systemError = systemConfigurationKeys.map(key => errors[key]).find(Boolean);
     const conflict = configuration.status && configuration.baseRevision !== configuration.status.active.revision;
     const invalidCalibration = configuration.status?.calibration_invalid ?? [];
+    useCondition("config-conflict", conflict ? moduleNotice({ source: "config-conflict", severity: "warning", title: "Konfiguracja ROS zmieniła się",
+        message: "Aktywna rewizja w ROS różni się od bazy szkicu.", description: "Szkic konfiguracji powstał na innej rewizji niż aktywna w ROS; zapis jest zablokowany.",
+        remedy: "Uzgodnij szkic w Parametrach robota przed zapisem." }, "Konfiguracja", "#config") : null);
+    useCondition("config-system-save", system.error ? moduleNotice({ source: "config-system-save", severity: "error", title: "Nie zapisano ustawienia systemowego",
+        message: system.error }, "Konfiguracja", "#config") : null);
     useEffect(() => {setConfirmAxes(previous => previous.filter(axis => invalidCalibration[axis-1]));}, [configuration.status]);
     useEffect(() => {
         try {
@@ -181,9 +190,9 @@ export function ConfigurationPage() {
         })}</div>;
     }
     return <section className="configuration-screen" aria-label="Konfiguracja">
-        <header className="page-title configuration-header"><div><div className="eyebrow">{section === "system" ? "USTAWIENIA APLIKACJI I STEROWANIA" : "PARAMETRY KINEMATYKI I NAPĘDÓW"}</div><h1>Konfiguracja</h1><p>{section === "system" ? "Opcje planowania, wykonania ruchu i zabezpieczeń." : "Geometria, przełożenia i ograniczenia sześciu osi. Snapshoty i zastosowanie do ROS."}</p></div>
-            <div className="page-header-status"><span className={`badge ${dirty.size ? "warn" : "ok"}`}>{dirty.size ? `Szkic · ${dirty.size} zmian` : "Bez zmian w szkicu"}</span>{conflict && <span className="badge error">Konflikt rewizji</span>}</div></header>
-        <EventConsole entries={entries}/>
+        <PageHeader icon="config" title="Konfiguracja"
+            info={section === "system" ? "Ustawienia aplikacji i sterowania: opcje planowania, wykonania ruchu i zabezpieczeń." : "Parametry kinematyki i napędów: geometria, przełożenia i ograniczenia sześciu osi. Snapshoty i zastosowanie do ROS."}
+            state={<><span className={`badge ${dirty.size ? "warn" : "ok"}`}><span className="dot" />{dirty.size ? `Szkic · ${dirty.size} zmian` : "Bez zmian w szkicu"}</span>{conflict && <span className="badge error"><span className="dot" />Konflikt rewizji</span>}</>} />
         <div className="configuration-tabs" role="tablist" aria-label="Obszar konfiguracji" onKeyDown={event => {
             if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
             event.preventDefault();

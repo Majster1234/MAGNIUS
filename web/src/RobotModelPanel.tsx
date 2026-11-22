@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Notice } from "./eventLog";
+import { moduleNotice, useCondition } from "./messageCenter";
 import { assemblyMatrix, deleteMesh, emptyAssembly, fetchRobotModel, loadAssemblyMeshes, modelLinkLabels, modelLinks, saveAssembly, uploadMesh,
     type Assembly, type AssemblyTransform, type MeshInfo, type ModelLink, type RobotModel } from "./robotModel";
 import { fitCylinder, type CylinderFit } from "./axisFit";
-import { applyJointAxis, applyTcpPoint, geometryChecks } from "./frameEdit";
+import { applyJointAxis, applyTcpPoint, geometryChecks, lowestAlong, rootUnderBase } from "./frameEdit";
 import type { ModelPick, PickOverlay } from "./configurationScene";
 import type { PreviewModel } from "./ConfigurationPreview";
 import type { Values } from "./configurationData";
@@ -42,6 +43,7 @@ export function RobotModelPanel({values, onDraft, onNotice, onPreview, onPicking
         } catch (failure) { setError(failure instanceof Error ? failure.message : "Model 3D niedostępny"); }
     }, []);
     useEffect(() => { void refresh(true); }, [refresh]);
+    useCondition("config-model", error ? moduleNotice({ source: "config-model", severity: "warning", title: "Model 3D niedostępny", message: error }, "Konfiguracja · model 3D", "#config") : null);
     const processing = !!model?.meshes.some(mesh => mesh.state === "queued" || mesh.state === "processing" || mesh.safety.state === "queued" || mesh.safety.state === "processing");
     useEffect(() => {
         if (!processing) return;
@@ -108,11 +110,30 @@ export function RobotModelPanel({values, onDraft, onNotice, onPreview, onPicking
     function assign(id: string, link: ModelLink | "") {
         setAssembly(current => ({...current, links: Object.fromEntries(modelLinks.map(item => [item, [...current.links[item].filter(value => value !== id), ...(item === link ? [id] : [])]])) as Record<ModelLink, string[]>}));
     }
+    // Zero robota zawsze pod podstawą: najniższy punkt siatek podstawy wzdłuż osi J1 (bez siatki podstawy — na osi J1).
+    const lowest = useMemo(() => {
+        const sources = preview ? preview.items.filter(item => item.link === "base").map(item => ({geometry: item.geometry, matrix: preview.matrix})) : [];
+        return sources.length ? (point: import("three").Vector3, axis: import("three").Vector3) => lowestAlong(sources, point, axis) : null;
+    }, [preview]);
+    const root = useMemo(() => preview?.items.length ? rootUnderBase(values, assembly.transform, lowest) : null, [values, assembly.transform, lowest, preview]);
+    function moveRoot() {
+        if (!root?.needed) return;
+        setAssembly(current => ({...current, transform: {...current.transform, ...root.transform}}));
+        onDraft(root.draft);
+        onNotice({source: "robot-model", severity: "info", message: `Zero robota przeniesione pod podstawę (przesunięcie ${root.root.toArray().map(v => fixed(v * 1000, 1)).join(" / ")} mm). Zapisz model 3D i konfigurację („Zapisz do ROS”).`});
+    }
     function confirm() {
         if (!pending) return;
         if (pending.target.kind === "joint" && edit) {
-            onDraft(edit.draft);
-            onNotice({source: "robot-model-pick", severity: "info", message: `Układ J${pending.target.joint} ustawiony w szkicu${edit.snapped ? " (oś przyciągnięta do osi układu)" : ""}; zmieniono pola J${pending.target.joint}${pending.target.joint < 6 ? ` i J${pending.target.joint + 1}` : " i TCP"}. Zastosowanie w sterowaniu: „Zapisz do ROS”.`});
+            let draft = edit.draft, moved = false;
+            if (pending.target.joint === 1) {
+                // Nowa oś J1 → zero robota od razu na tej osi pod podstawą.
+                const merged = {...values, ...Object.fromEntries(Object.entries(edit.draft).map(([key, value]) => [key, Number(value)]))};
+                const shift = rootUnderBase(merged, assembly.transform, lowest);
+                if (shift.needed) { draft = {...draft, ...shift.draft}; moved = true; setAssembly(current => ({...current, transform: {...current.transform, ...shift.transform}})); }
+            }
+            onDraft(draft);
+            onNotice({source: "robot-model-pick", severity: "info", message: `Układ J${pending.target.joint} ustawiony w szkicu${edit.snapped ? " (oś przyciągnięta do osi układu)" : ""}; zmieniono pola J${pending.target.joint}${pending.target.joint < 6 ? ` i J${pending.target.joint + 1}` : " i TCP"}.${moved ? " Zero robota przeniesione pod podstawę — zapisz też model 3D." : ""} Zastosowanie w sterowaniu: „Zapisz do ROS”.`});
         } else onDraft(applyTcpPoint(values, pending.point));
         setPending(null); setTarget(null);
     }
@@ -148,6 +169,10 @@ export function RobotModelPanel({values, onDraft, onNotice, onPreview, onPicking
             {transformFields.map(([key, label, unit]) => <label key={key}>{label}<span><input type="number" step="any" value={assembly.transform[key]}
                 onChange={event => { const value = Number(event.target.value); if (Number.isFinite(value)) setAssembly(current => ({...current, transform: {...current.transform, [key]: value}})); }}/><small>{unit}</small></span></label>)}
             <p>Przesunięcie i obrót początku złożenia względem układu bazy (po zamianie osi „w górę”). Zmiana po wskazaniu osi wymaga ponownego wskazania.</p>
+            {root && <p className={`robot-model-root ${root.needed ? "warn" : "ok"}`} role="status">{root.needed
+                ? <>Zero robota nie leży pod podstawą — przesunięcie do osi J1 pod spodem podstawy: {root.root.toArray().map(v => fixed(v * 1000, 1)).join(" / ")} mm.
+                    <button type="button" className="configuration-apply" onClick={moveRoot} disabled={busy}>Przenieś zero pod podstawę</button></>
+                : <>Zero robota: na osi J1 pod podstawą{lowest ? "" : " (brak siatki podstawy — wysokość bez zmian)"}.</>}</p>}
         </fieldset>
         <div className="robot-model-row"><button type="button" className="configuration-apply" onClick={() => void save()} disabled={!dirty || busy}>Zapisz model 3D</button>
             {dirty && <button type="button" onClick={() => model && setAssembly(model.assembly)} disabled={busy}>Cofnij zmiany modelu</button>}

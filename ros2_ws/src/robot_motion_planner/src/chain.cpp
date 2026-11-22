@@ -1,4 +1,4 @@
-// Ciąg ruchów PTP/LIN: przejścia w promieniu wokół punktu (krzywa Hermite'a 5. stopnia w przegubach),
+// Ciąg ruchów PTP/LIN/CIRC: przejścia w promieniu wokół punktu (krzywa Hermite'a 5. stopnia w przegubach),
 // postoje (v=0) wewnątrz jednej trajektorii, czasy ruchów dla kursora robota. Opis: docs/programming.md.
 #include "planner_detail.hpp"
 #include "mks_servo_can/bus_manager.hpp"
@@ -18,14 +18,57 @@ constexpr double min_blend=.0005;          // m; mniejszy promień → postój
 constexpr double max_reversal=170*pi/180;  // zawrócenie drogi przegubów → postój
 constexpr size_t max_segment_points=2000, max_total_points=20000;
 constexpr double totg_deviation=1e-4;     // rad
+constexpr double min_circ_chord=.001;      // m; minimalna odległość start / punkt pośredni / cel łuku CIRC
+constexpr double min_circ_sag=1e-4;        // m; minimalne odsunięcie punktu pośredniego od cięciwy (współliniowość)
 
 Joints lerp(const Joints &a,const Joints &b,double t) { Joints r; for(unsigned j=0;j<6;++j) r[j]=a[j]+(b[j]-a[j])*t; return r; }
 double norm(const Joints &a,const Joints &b) { double s=0; for(unsigned j=0;j<6;++j) s+=(a[j]-b[j])*(a[j]-b[j]); return std::sqrt(s); }
 double max_abs(const Joints &a,const Joints &b) { double s=0; for(unsigned j=0;j<6;++j) s=std::max(s,std::abs(a[j]-b[j])); return s; }
 
+// Łuk CIRC: okrąg przez położenia TCP startu, punktu pośredniego i celu (kierunek start → pośredni → cel).
+// Orientacja (orientacja punktu pośredniego nie jest używana): interpolacja slerp start → cel proporcjonalnie do kąta
+// łuku albo (path) stała względem środka — obrót z łukiem wokół osi okręgu, a różnica do orientacji celu jest
+// interpolowana w obracającym się układzie (dla celu „obróconego o kąt łuku” orientacja względem środka jest stała).
+struct Arc {
+  Eigen::Vector3d center{Eigen::Vector3d::Zero()},u{Eigen::Vector3d::UnitX()},v{Eigen::Vector3d::UnitY()},normal{Eigen::Vector3d::UnitZ()};
+  double radius{},sweep{}; bool path{}; Eigen::Quaterniond q0{Eigen::Quaterniond::Identity()},q1{Eigen::Quaterniond::Identity()};
+  Pose at(double s) const {
+    Pose r=Pose::Identity(); const double a=s*sweep;
+    r.translation()=center+radius*(std::cos(a)*u+std::sin(a)*v);
+    r.linear()=path ? (Eigen::AngleAxisd(a,normal)*q0.slerp(s,q1)).toRotationMatrix() : q0.slerp(s,q1).toRotationMatrix();
+    return r;
+  }
+  // Całkowity obrót orientacji wzdłuż łuku (próbkowanie drogi).
+  double rotation() const { return (path ? sweep : 0.)+q0.angularDistance(q1); }
+  // Poza na łuku w tolerancji położenia i orientacji (najbliższy punkt wg kąta w płaszczyźnie łuku).
+  bool near(const Pose &pose,double p_tol,double r_tol) const {
+    const Eigen::Vector3d d=pose.translation()-center; double a=std::atan2(d.dot(v),d.dot(u)); if(a<0) a+=2*pi;
+    const double s=a<=sweep ? a/sweep : (a-sweep<2*pi-a ? 1. : 0.);
+    const auto nearest=at(s);
+    return (nearest.translation()-pose.translation()).norm()<=p_tol && Eigen::AngleAxisd(nearest.rotation()*pose.rotation().transpose()).angle()<=r_tol;
+  }
+};
+Arc make_arc(const Pose &start,const Eigen::Vector3d &via,const Pose &end,bool path,int segment) {
+  const Eigen::Vector3d a=start.translation(),ab=via-a,ac=end.translation()-a,bc=end.translation()-via;
+  if(ab.norm()<min_circ_chord || ac.norm()<min_circ_chord || bc.norm()<min_circ_chord)
+    throw ChainError(segment,"CIRC: start, punkt pośredni i cel muszą być od siebie odległe o co najmniej 1 mm (TCP)");
+  const Eigen::Vector3d n=ab.cross(ac);
+  if(n.norm()/ac.norm()<min_circ_sag) throw ChainError(segment,"CIRC: punkt pośredni leży na prostej start–cel; użyj LIN lub przesuń punkt");
+  Arc arc; arc.center=a+(ac.squaredNorm()*n.cross(ab)+ab.squaredNorm()*ac.cross(n))/(2*n.squaredNorm());
+  arc.radius=(a-arc.center).norm(); arc.u=(a-arc.center)/arc.radius; arc.normal=n.normalized(); arc.v=arc.normal.cross(arc.u);
+  auto angle_of=[&](const Eigen::Vector3d &p) { const Eigen::Vector3d d=p-arc.center; double t=std::atan2(d.dot(arc.v),d.dot(arc.u)); return t<0 ? t+2*pi : t; };
+  arc.sweep=angle_of(end.translation());
+  if(!(angle_of(via)<arc.sweep)) throw ChainError(segment,"CIRC: nie można wyznaczyć łuku przez punkt pośredni");
+  arc.q0=Eigen::Quaterniond(start.rotation()); arc.path=path;
+  // path: orientacja celu sprowadzona do układu startu (cofnięta o kąt łuku wokół osi okręgu).
+  arc.q1=path ? Eigen::Quaterniond(Eigen::AngleAxisd(-arc.sweep,arc.normal)*end.rotation()) : Eigen::Quaterniond(end.rotation());
+  if(arc.q0.dot(arc.q1)<0) arc.q1.coeffs()*=-1;
+  return arc;
+}
+
 // Gęsta droga jednego ruchu: przeguby, TCP i długość toru TCP.
 struct SegPath {
-  std::vector<Joints> q; std::vector<Eigen::Vector3d> p; double length{}; Pose start,end;
+  std::vector<Joints> q; std::vector<Eigen::Vector3d> p; double length{}; Pose start,end; Arc arc;
   Joints at(double sigma) const {
     const size_t k=std::min(q.size()-2,static_cast<size_t>(std::floor(sigma)));
     return lerp(q[k],q[k+1],sigma-k);
@@ -89,7 +132,10 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
   }
   for(size_t i=0;i<input.size();++i) {
     const auto &s=input[i]; const int n=static_cast<int>(i);
-    if(s.motion_type>1) throw ChainError(n,"Nieznany typ ruchu");
+    if(s.motion_type>2) throw ChainError(n,"Nieznany typ ruchu");
+    if(s.motion_type==2 && s.circ_orientation>1) throw ChainError(n,"Nieznany tryb orientacji CIRC");
+    if(s.motion_type==2) for(unsigned j=0;j<6;++j)
+      if(!std::isfinite(s.via[j]) || s.via[j]<c.lower[j] || s.via[j]>c.upper[j]) throw ChainError(n,"Punkt pośredni CIRC: J"+std::to_string(j+1)+" poza limitami osi");
     for(unsigned j=0;j<6;++j) {
       if(!std::isfinite(s.target[j]) || s.target[j]<c.lower[j] || s.target[j]>c.upper[j]) throw ChainError(n,"Cel J"+std::to_string(j+1)+" poza limitami osi");
       if(!std::isfinite(s.max_velocity[j]) || s.max_velocity[j]<=0 || s.max_velocity[j]>c.max_velocity[j]*(1+1e-9) ||
@@ -98,8 +144,10 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
     }
     const bool positive=std::isfinite(s.tcp.velocity) && s.tcp.velocity>0 && std::isfinite(s.tcp.acceleration) && s.tcp.acceleration>0 &&
                         std::isfinite(s.tcp.angular_velocity) && s.tcp.angular_velocity>0;
-    if(s.motion_type==1 ? !positive : (s.tcp.velocity!=0 || s.tcp.acceleration!=0 || s.tcp.angular_velocity!=0))
-      throw ChainError(n,"LIN wymaga dodatnich limitów TCP; PTP wymaga zerowych pól TCP");
+    if(!std::isfinite(s.tcp.angular_acceleration) || s.tcp.angular_acceleration<0 || (s.motion_type==0 && s.tcp.angular_acceleration!=0))
+      throw ChainError(n,"Przyspieszenie kątowe TCP: ≥ 0 (0 = bez limitu), PTP: 0");
+    if(s.motion_type>=1 ? !positive : (s.tcp.velocity!=0 || s.tcp.acceleration!=0 || s.tcp.angular_velocity!=0))
+      throw ChainError(n,"LIN/CIRC wymaga dodatnich limitów TCP; PTP wymaga zerowych pól TCP");
     if(!std::isfinite(s.blend_radius) || s.blend_radius<0 || s.blend_radius>.5) throw ChainError(n,"Promień przejścia poza zakresem 0–500 mm");
   }
   robot_kinematics::Model kinematics(c.urdf,c.lower,c.upper);
@@ -113,22 +161,28 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
   Joints from=c.seed;
   for(size_t i=0;i<input.size();++i) {
     const auto &s=input[i];
-    if(max_abs(from,s.target)<1e-9) { result.warnings.push_back(warning(i,"no_motion","Ruch do bieżącej pozycji — pominięty")); continue; }
+    if(s.motion_type!=2 && max_abs(from,s.target)<1e-9) { result.warnings.push_back(warning(i,"no_motion","Ruch do bieżącej pozycji — pominięty")); continue; }
     SegPath path; path.start=kinematics.fk(from); path.end=kinematics.fk(s.target); path.q.push_back(from);
-    if(s.motion_type==1) {
-      const auto distance=(path.end.translation()-path.start.translation()).norm();
+    if(s.motion_type==1 || s.motion_type==2) {
+      const bool circ=s.motion_type==2; const std::string name=circ ? "CIRC" : "LIN";
       const double rotation=Eigen::AngleAxisd(path.end.rotation()*path.start.rotation().transpose()).angle();
-      const size_t steps=std::max<size_t>(1,std::ceil(std::max(distance/.001,rotation/.01)));
-      if(steps>max_segment_points) throw ChainError(static_cast<int>(i),"Ruch LIN przekracza 2000 punktów IK; podziel ruch");
+      double steps_needed;
+      if(circ) {
+        path.arc=make_arc(path.start,kinematics.fk(s.via).translation(),path.end,s.circ_orientation==1,static_cast<int>(i));
+        steps_needed=std::max({path.arc.radius*path.arc.sweep/.001,path.arc.sweep/.05,path.arc.rotation()/.01});
+      } else steps_needed=std::max((path.end.translation()-path.start.translation()).norm()/.001,rotation/.01);
+      const size_t steps=std::max<size_t>(1,std::ceil(steps_needed));
+      if(steps>max_segment_points) throw ChainError(static_cast<int>(i),"Ruch "+name+" przekracza 2000 punktów IK; podziel ruch");
       auto previous=from;
       for(size_t step=1;step<=steps;++step) {
-        check(); const auto solution=kinematics.solve(robot_kinematics::interpolate(path.start,path.end,double(step)/steps),previous,c.locked,1e-5,pi/1800/10,cancelled);
+        const double u=double(step)/steps;
+        check(); const auto solution=kinematics.solve(circ ? path.arc.at(u) : robot_kinematics::interpolate(path.start,path.end,u),previous,c.locked,1e-5,pi/1800/10,cancelled);
         if(!solution.success) throw ChainError(static_cast<int>(i),solution.message+"; punkt "+std::to_string(step));
-        for(unsigned j=0;j<6;++j) if(std::abs(solution.positions[j]-previous[j])>.25) throw ChainError(static_cast<int>(i),"Przeskok gałęzi IK na drodze LIN");
+        for(unsigned j=0;j<6;++j) if(std::abs(solution.positions[j]-previous[j])>.25) throw ChainError(static_cast<int>(i),"Przeskok gałęzi IK na drodze "+name);
         previous=solution.positions; path.q.push_back(previous);
       }
       for(unsigned j=0;j<6;++j) if(std::abs(path.q.back()[j]-s.target[j])>pi/1800)
-        throw ChainError(static_cast<int>(i),"LIN prowadzi do innej konfiguracji końcowej; wybierz PTP lub zmień cel");
+        throw ChainError(static_cast<int>(i),name+" prowadzi do innej konfiguracji końcowej; wybierz PTP lub zmień cel");
       path.q.back()=s.target;
     } else {
       size_t steps=std::max<size_t>(1,std::ceil(max_abs(from,s.target)/.01));
@@ -231,14 +285,17 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
   auto model=make_moveit_model(c,kinematics);
   auto caps_of=[&](const Label &label) {
     const auto &a=input[index[label.segment]];
-    SampleCaps caps{a.max_velocity,a.max_acceleration,a.tcp,a.motion_type==1};
+    SampleCaps caps{a.max_velocity,a.max_acceleration,a.tcp,a.motion_type>=1};
     if(label.blend && static_cast<size_t>(label.segment)+1<n) {
       const auto &b=input[index[label.segment+1]];
       for(unsigned j=0;j<6;++j) { caps.v[j]=std::min(caps.v[j],b.max_velocity[j]); caps.a[j]=std::min(caps.a[j],b.max_acceleration[j]); }
+      // Przyspieszenie kątowe: mniejszy z niezerowych limitów (0 = bez limitu).
+      const double aa=a.tcp.angular_acceleration>0 && b.tcp.angular_acceleration>0 ? std::min(a.tcp.angular_acceleration,b.tcp.angular_acceleration) :
+                      std::max(a.tcp.angular_acceleration,b.tcp.angular_acceleration);
       if(a.tcp.velocity>0 && b.tcp.velocity>0) caps.tcp={std::min(a.tcp.velocity,b.tcp.velocity),std::min(a.tcp.acceleration,b.tcp.acceleration),
-                                                         std::min(a.tcp.angular_velocity,b.tcp.angular_velocity)};
+                                                         std::min(a.tcp.angular_velocity,b.tcp.angular_velocity),aa};
       else if(b.tcp.velocity>0) caps.tcp=b.tcp;
-      caps.wrist=caps.wrist || b.motion_type==1;   // przejście z udziałem LIN: tor TCP
+      caps.wrist=caps.wrist || b.motion_type>=1;   // przejście z udziałem LIN/CIRC: tor TCP
     }
     return caps;
   };
@@ -262,7 +319,7 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
       Projector projector(vertices);
       const CapProvider caps{[&]{ projector.reset(); },[&](const Joints &q) { return caps_of(projector.label(q)); }};
       limit_path_speed(part,kinematics,vmax,amax,caps,false,check);
-      // Walidacja co 5 ms: osie, TCP, prosta LIN poza strefami, strefa przejścia w promieniu.
+      // Walidacja co 5 ms: osie, TCP, prosta LIN / łuk CIRC poza strefami, strefa przejścia w promieniu.
       const double total=seconds(part.points.back().time_from_start); size_t cursor=0; projector.reset();
       for(double t=0;t<=total+1e-9;t+=.005) {
         check(); const auto s=sample(part,std::min(t,total),cursor); const auto label=projector.label(s.q); const auto cap=caps_of(label);
@@ -278,6 +335,8 @@ ChainResult compute_chain(const Context &c,const std::vector<ChainSegment> &inpu
             throw ChainError(seg,"Przejście wychodzi poza promień");
         } else if(input[index[label.segment]].motion_type==1 && !near_path(pose,{path.start,path.end},1e-4,pi/1800))
           throw ChainError(seg,"Droga LIN odbiega od prostej");
+        else if(input[index[label.segment]].motion_type==2 && !path.arc.near(pose,1e-4,pi/1800))
+          throw ChainError(seg,"Droga CIRC odbiega od łuku");
       }
     } catch(const ChainError &) { throw; }
     catch(const std::exception &e) { throw ChainError(static_cast<int>(index[first]),e.what()); }

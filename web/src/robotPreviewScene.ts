@@ -143,6 +143,9 @@ export function createPreviewScene(host: HTMLElement, xml: string, frame: () => 
     const resize = new ResizeObserver(() => {
         width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight);
         renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); dirty = true;
+        // Zmiana rozmiaru kanwy czyści jej zawartość, a ResizeObserver działa po klatce pętli rysowania — bez
+        // natychmiastowego rysunku podczas animacji menu (zmiana szerokości w każdej klatce) model znikałby z ekranu.
+        if (!disposed) { scene.updateMatrixWorld(true); renderer.render(scene, camera); }
     }); resize.observe(host); controls.addEventListener("change", () => { dirty = true; });
     view("iso");
     let request = 0;

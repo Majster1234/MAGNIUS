@@ -9,6 +9,7 @@
 #include <cmath>
 namespace robot_can_diagnostics {
 namespace {
+bool nearly(double x,double y) {return std::abs(x-y)<=1e-9*std::max(1.,std::abs(y));}
 robot_control_interfaces::msg::MotionProgramStatus message(const mks_servo_can::MotionProgramStatus &s) {
   robot_control_interfaces::msg::MotionProgramStatus out;
   out.program_id=s.program_id;out.state=s.state;out.mode=s.mode;out.message=s.message;out.execution_key=s.execution_key;
@@ -24,14 +25,24 @@ void ProgramApi::publish_tuning() {
   const auto json=[](const mks_servo_can::ExecutionTuning &t) {
     std::ostringstream out;out.precision(17);
     out<<"{\"lookahead_time_sec\":"<<t.lookahead_time_sec<<",\"velocity_ff_scale\":"<<t.velocity_ff_scale<<",\"position_kp\":"<<t.position_kp
-       <<",\"integral_gain\":"<<t.integral_gain<<",\"integral_limit_rad\":"<<t.integral_limit<<",\"acceleration_code\":"<<t.acceleration_code<<"}";
+       <<",\"integral_gain\":"<<t.integral_gain<<",\"integral_limit_rad\":"<<t.integral_limit<<",\"acceleration_code\":"<<t.acceleration_code
+       <<",\"acceleration_ff_scale\":"<<t.acceleration_ff_scale<<",\"gain_schedule\":"<<(t.gain_schedule ? "true" : "false")
+       <<",\"hold_period_cycles\":"<<t.hold_period_cycles<<",\"hold_rpm\":"<<t.hold_rpm
+       <<",\"hold_acceleration\":"<<t.hold_acceleration<<",\"hold_tail_ms\":"<<t.hold_tail_ms
+       <<",\"hold_stop_mode\":"<<t.hold_stop_mode<<",\"hold_stop_ticks\":"<<t.hold_stop_ticks
+       <<",\"hold_tail_end_ms\":"<<t.hold_tail_end_ms<<",\"hold_mark_scale\":"<<t.hold_mark_scale<<",\"hold_silent\":"<<t.hold_silent
+       <<",\"min_lead_shaft_deg\":"<<t.min_lead_shaft_deg<<"}";
     return out.str();
   };
   const auto same=[](const mks_servo_can::ExecutionTuning &a,const mks_servo_can::ExecutionTuning &b) {
     // Tolerancja: wartości bazowe wracają z JSON (reset z mostu) z zaokrągleniem.
-    const auto near=[](double x,double y){return std::abs(x-y)<=1e-9*std::max(1.,std::abs(y));};
-    return near(a.lookahead_time_sec,b.lookahead_time_sec) && near(a.velocity_ff_scale,b.velocity_ff_scale) && near(a.position_kp,b.position_kp) &&
-        near(a.integral_gain,b.integral_gain) && near(a.integral_limit,b.integral_limit) && a.acceleration_code==b.acceleration_code;
+    return nearly(a.lookahead_time_sec,b.lookahead_time_sec) && nearly(a.velocity_ff_scale,b.velocity_ff_scale) && nearly(a.position_kp,b.position_kp) &&
+        nearly(a.integral_gain,b.integral_gain) && nearly(a.integral_limit,b.integral_limit) && a.acceleration_code==b.acceleration_code &&
+        nearly(a.acceleration_ff_scale,b.acceleration_ff_scale) && a.gain_schedule==b.gain_schedule &&
+        a.hold_period_cycles==b.hold_period_cycles && nearly(a.hold_rpm,b.hold_rpm) && a.hold_acceleration==b.hold_acceleration &&
+        a.hold_tail_ms==b.hold_tail_ms && a.hold_stop_mode==b.hold_stop_mode && a.hold_stop_ticks==b.hold_stop_ticks &&
+        a.hold_tail_end_ms==b.hold_tail_end_ms && nearly(a.hold_mark_scale,b.hold_mark_scale) && a.hold_silent==b.hold_silent &&
+        nearly(a.min_lead_shaft_deg,b.min_lead_shaft_deg);
   };
   std_msgs::msg::String message;
   message.data="{\"test\":"+std::string(same(tuning_,baseline_tuning_) ? "false" : "true")+",\"active\":"+json(tuning_)+",\"baseline\":"+json(baseline_tuning_)+"}";
@@ -79,8 +90,30 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
     stream.integral_gain=integral_gain;stream.integral_limit=integral_limit;
     stream.min_holding_rpm=minimum;stream.max_rpm=maximum;stream.acceleration=static_cast<std::uint8_t>(codes[j]);
   }
+  // Składnik przyspieszenia w prędkości F5 programów LIN oraz nastawy szybkiego PTP wybierane przy przygotowaniu programu.
+  const auto acceleration_ff=node->declare_parameter("execution_acceleration_ff_scale",0.0);
+  const auto gain_schedule=node->declare_parameter("execution_gain_schedule_enabled",false);
+  const auto fast_velocity=node->declare_parameter("execution_fast_ptp_velocity_deg_s",21.0);
+  const auto fast_lookahead=node->declare_parameter("execution_fast_ptp_lookahead_time_sec",.05);
+  const auto fast_kp=node->declare_parameter("execution_fast_ptp_position_kp",12.0);
+  if(!std::isfinite(acceleration_ff) || acceleration_ff<0 || acceleration_ff>2) throw std::invalid_argument("Składnik przyspieszenia F5: 0–2");
+  if(!std::isfinite(fast_velocity) || fast_velocity<=0 || !std::isfinite(fast_lookahead) || fast_lookahead<0 || fast_lookahead>.2 ||
+      !std::isfinite(fast_kp) || fast_kp<0 || fast_kp>20) throw std::invalid_argument("Nastawy szybkiego PTP: prędkość > 0, wyprzedzenie 0–0,2 s, Kp 0–20");
+  authorization.program_acceleration_ff=acceleration_ff;
+  authorization.program_gain_schedule={gain_schedule,fast_velocity*std::acos(-1.)/180,fast_lookahead,fast_kp};
   runtime_->configure_program_authorization(authorization);
-  baseline_tuning_=tuning_={lookahead,ff,kp,integral_gain,integral_limit,-1};
+  baseline_tuning_=tuning_={lookahead,ff,kp,integral_gain,integral_limit,-1,acceleration_ff,gain_schedule,1,0.};
+  // Tylko w locie, do testów ucieczek przy dojeździe; plik parametrów ich nie ustawia.
+  (void)node->declare_parameter("execution_hold_period_cycles",1);
+  (void)node->declare_parameter("execution_hold_rpm",0.0);
+  (void)node->declare_parameter("execution_hold_acceleration",-1);
+  (void)node->declare_parameter("execution_hold_tail_ms",0);
+  (void)node->declare_parameter("execution_hold_stop_mode",0);
+  (void)node->declare_parameter("execution_hold_stop_ticks",0);
+  (void)node->declare_parameter("execution_hold_tail_end_ms",0);
+  (void)node->declare_parameter("execution_hold_mark_scale",1.0);
+  (void)node->declare_parameter("execution_hold_silent",0);
+  (void)node->declare_parameter("execution_min_lead_shaft_deg",0.0);   // minimalne wyprzedzenie celu F5 [° wału], 0 = wyłączone
   // Testowe nadpisanie kodu acc F5 (0–255, 0 = bez rampy); -1 = konfiguracja robota / plik. Tylko w locie, nie w pliku.
   (void)node->declare_parameter("execution_acceleration_override",-1);
   // /robot/motion/execution_tuning (JSON, transient local): aktywne nastawy, bazowe z pliku i flaga testu.
@@ -98,13 +131,39 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
         else if(name=="execution_position_integral_gain") candidate.integral_gain=p.as_double();
         else if(name=="execution_position_integral_limit_rad") candidate.integral_limit=p.as_double();
         else if(name=="execution_acceleration_override") candidate.acceleration_code=static_cast<int>(p.as_int());
+        else if(name=="execution_acceleration_ff_scale") candidate.acceleration_ff_scale=p.as_double();
+        else if(name=="execution_gain_schedule_enabled") candidate.gain_schedule=p.as_bool();
+        else if(name=="execution_hold_period_cycles") {
+          const auto cycles=p.as_int();
+          if(cycles<1 || cycles>100) {result.successful=false;result.reason="Okres ramek trzymania: 1–100 cykli";return result;}
+          candidate.hold_period_cycles=static_cast<unsigned>(cycles);
+        }
+        else if(name=="execution_hold_rpm") candidate.hold_rpm=p.as_double();
+        else if(name=="execution_hold_mark_scale") candidate.hold_mark_scale=p.as_double();
+        else if(name=="execution_min_lead_shaft_deg") candidate.min_lead_shaft_deg=p.as_double();
+        else if(name=="execution_hold_acceleration" || name=="execution_hold_tail_ms" || name=="execution_hold_stop_mode" || name=="execution_hold_stop_ticks" ||
+            name=="execution_hold_tail_end_ms" || name=="execution_hold_silent") {
+          const auto value=p.as_int();
+          if(value<-1 || value>2000) {result.successful=false;result.reason="Nastawa dolotu poza zakresem";return result;}
+          if(name=="execution_hold_acceleration") candidate.hold_acceleration=static_cast<int>(value);
+          else if(value<0) {result.successful=false;result.reason="Nastawa dolotu poza zakresem";return result;}
+          else if(name=="execution_hold_tail_ms") candidate.hold_tail_ms=static_cast<unsigned>(value);
+          else if(name=="execution_hold_stop_mode") candidate.hold_stop_mode=static_cast<unsigned>(value);
+          else if(name=="execution_hold_tail_end_ms") candidate.hold_tail_end_ms=static_cast<unsigned>(value);
+          else if(name=="execution_hold_silent") candidate.hold_silent=static_cast<unsigned>(value);
+          else candidate.hold_stop_ticks=static_cast<unsigned>(value);
+        }
         else continue;
         touched=true;
       }
     } catch(const std::exception &error) {result.successful=false;result.reason=std::string("Nieprawidłowy typ parametru: ")+error.what();return result;}
     if(!touched) return result;
     std::string reason;
-    if(!runtime_->set_execution_tuning(candidate,reason)) {result.successful=false;result.reason=reason;return result;}
+    // Ręcznie ustawione Kp lub wyprzedzenie mają pierwszeństwo: test dostaje dokładnie te wartości.
+    auto effective=candidate;
+    effective.gain_schedule=candidate.gain_schedule && nearly(candidate.lookahead_time_sec,baseline_tuning_.lookahead_time_sec) &&
+        nearly(candidate.position_kp,baseline_tuning_.position_kp);
+    if(!runtime_->set_execution_tuning(effective,reason)) {result.successful=false;result.reason=reason;return result;}
     tuning_=candidate;
     RCLCPP_WARN(node->get_logger(),"Nastawy regulatora wykonania zmienione w locie: lookahead %.0f ms, FF %.3g, Kp %.3g, Ki %.3g, acc %d (plik: %.0f ms, %.3g, %.3g, %.3g)",
         tuning_.lookahead_time_sec*1000,tuning_.velocity_ff_scale,tuning_.position_kp,tuning_.integral_gain,tuning_.acceleration_code,
@@ -132,7 +191,7 @@ ProgramApi::ProgramApi(rclcpp::Node *node,std::shared_ptr<mks_servo_can::BusRunt
         throw std::runtime_error("Wymagany fizyczny plan PTP/LIN/CHAIN z sześcioma osiami");
       mks_servo_can::PreparedMotionProgram input;input.id=plan.id;input.revision=plan.configuration_revision;input.model_id=plan.model_id;input.settings_revision=request->settings_revision;
       if(request->participation_mask>0x3f) throw std::runtime_error("Maska osi programu spoza J1–J6");
-      input.participation_mask=request->participation_mask;
+      input.participation_mask=request->participation_mask;input.motion_type=plan.motion_type;
       for(unsigned j=0;j<6;++j) if(plan.trajectory.joint_names[j]!="joint_"+std::to_string(j+1)) throw std::runtime_error("Nieprawidłowa kolejność osi");
       input.points.reserve(plan.trajectory.points.size());
       for(const auto &point:plan.trajectory.points) {

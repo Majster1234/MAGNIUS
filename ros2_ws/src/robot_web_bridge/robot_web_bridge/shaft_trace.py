@@ -3,6 +3,7 @@ from collections import deque
 import csv
 import fcntl
 import io
+import json
 import os
 from pathlib import Path
 import queue
@@ -439,3 +440,80 @@ class ShaftTraceStore:
                     yield output.getvalue()
                     gap = False
         return rows()
+
+
+def ring_window(path, start_ns, end_ns, limit=6000):
+    """Odczyt okna czasu z pliku pierścieniowego bez blokady (pliki trzyma na wyłączność proces mostka).
+
+    Rekordy mają stałą długość i rosnące numery; czas jest monotoniczny w numerach, więc początek okna
+    znajduje wyszukiwanie binarne. Uszkodzony lub właśnie nadpisywany rekord jest pomijany (CRC)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    except OSError:
+        return []
+    try:
+        size = os.fstat(fd).st_size
+        capacity = (size-HEADER_BYTES)//RECORD.size
+        if capacity < 2:
+            return []
+        heads = []
+        for offset in (0, 64):
+            data = os.pread(fd, HEADER.size+4, offset)
+            if len(data) == HEADER.size+4 and zlib.crc32(data[:-4]) == struct.unpack_from('<I', data, HEADER.size)[0]:
+                magic, version, record_size, stored_capacity, next_ = HEADER.unpack(data[:-4])
+                if magic == MAGIC and version == 1 and record_size == RECORD.size and stored_capacity == capacity:
+                    heads.append(next_)
+        if not heads:
+            return []
+        last = max(heads)-1
+        first = max(1, last-capacity+2)  # najstarszy rekord może być właśnie nadpisywany
+        offset = lambda ordinal: HEADER_BYTES+((ordinal-1) % capacity)*RECORD.size
+
+        def at(ordinal):
+            for probe in range(ordinal, min(last, ordinal+8)+1):
+                record = os.pread(fd, RECORD.size, offset(probe))
+                if len(record) == RECORD.size and zlib.crc32(record[:-4]) == struct.unpack_from('<I', record, RECORD.size-4)[0]:
+                    values = RECORD.unpack(record)
+                    if values[0] == probe:
+                        return probe, values
+            return None
+        low, high = first, last
+        while low < high:
+            middle = (low+high)//2
+            found = at(middle)
+            if found is None or found[1][4] < start_ns:
+                low = middle+1
+            else:
+                high = middle
+        points = []
+        ordinal = low
+        while ordinal <= last and len(points) < limit:
+            found = at(ordinal)
+            if found is None:
+                break
+            ordinal, values = found
+            if values[4] > end_ns:
+                break
+            if values[4] >= start_ns:
+                points.append(dict(utc_ns=values[4], value=values[5], gap=bool(values[6] & 3)))
+            ordinal += 1
+        return points
+    finally:
+        os.close(fd)
+
+
+def default_directory():
+    return Path(os.environ.get('XDG_STATE_HOME') or str(Path.home()/'.local/state'))/'robot/shaft-trace'
+
+
+def window_rows(directory, start_ns, end_ns):
+    """Wiersze migawki z przebiegów wałów: pomiar (position), cel planowany, cel F5 [° wału ×100] i prędkość F5 [RPM ×100]."""
+    rows = []
+    directory = Path(directory or default_directory())
+    for key in KEYS:
+        axis, channel = key % 10, next((name for name, _, base in CHANNELS if base < key <= base+6), 'position')
+        for point in ring_window(directory/ring_name(key), start_ns, end_ns):
+            row = dict(source='shaft', event='sample', utc_ns=point['utc_ns'], axis=axis, channel=channel,
+                       value=point['value'], gap=point['gap'])
+            rows.append((point['utc_ns'], json.dumps(row, separators=(',', ':')).encode('utf-8')))
+    return rows

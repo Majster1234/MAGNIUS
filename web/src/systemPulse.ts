@@ -81,14 +81,3 @@ export function driveCells(can: CanSnapshot | null, fresh: boolean): DriveCell[]
         return { axis: i + 1, state, text };
     });
 }
-
-// Kanał pikselowy: 32 kolumny; każde odebranie danych przesuwa go o jeden piksel.
-export const PULSE_COLUMNS = 32;
-export function nextColumn(columns: boolean[], seed: number): boolean[] {
-    const last = columns[columns.length - 1] ?? false;
-    let run = 0;
-    for (let i = columns.length - 1; i >= 0 && columns[i] === last; i--) run++;
-    // Deterministyczna długość odcinka 1–4 z numeru taktu (bez Math.random w renderze).
-    const length = 1 + ((seed * 2654435761) >>> 0) % 4;
-    return [...columns, run >= length ? !last : last].slice(-PULSE_COLUMNS);
-}

@@ -23,6 +23,12 @@ void CanBusManager::configure_program_authorization(const BusConfig &a) {
   config_.program_position_period=kStreamingCycle;
   config_.program_position_tolerance=a.program_position_tolerance;
   config_.program_streaming=a.program_streaming;
+  config_.program_gain_schedule=a.program_gain_schedule;config_.program_acceleration_ff=a.program_acceleration_ff;
+  config_.program_hold_period_cycles=a.program_hold_period_cycles;config_.program_hold_rpm=a.program_hold_rpm;
+  config_.program_hold_acceleration=a.program_hold_acceleration;config_.program_hold_tail=a.program_hold_tail;
+  config_.program_hold_stop_mode=a.program_hold_stop_mode;config_.program_hold_stop_ticks=a.program_hold_stop_ticks;
+  config_.program_hold_tail_end=a.program_hold_tail_end;config_.program_hold_mark_scale=a.program_hold_mark_scale;
+  config_.program_hold_silent=a.program_hold_silent;
   // To nie jest bramka zwykłego PTP. Zezwala wyłącznie na automatyczne
   // zdjęcie blokady po sprzętowo odebranej sekwencji czyszczenia bufora SYNC.
   config_.program_staged_reset_verified=a.program_staged_reset_verified;
@@ -33,13 +39,32 @@ void CanBusManager::configure_program_authorization(const BusConfig &a) {
   }
   rebuild_axis_lookup();
 }
+bool program_uses_fast_gains(const PreparedMotionProgram &p,const ProgramGainSchedule &schedule) {
+  if(!schedule.enabled || p.motion_type!="PTP") return false;
+  double peak=0;
+  for(const auto &point:p.points) for(unsigned j=0;j<kAxes;++j) if(p.participating[j]) peak=std::max(peak,std::abs(point.velocities[j]));
+  return peak>=schedule.fast_ptp_velocity;
+}
 std::string validate_execution_tuning(const ExecutionTuning &t) {
   if(!std::isfinite(t.lookahead_time_sec) || t.lookahead_time_sec<0 || t.lookahead_time_sec>.2) return "Wyprzedzenie celu: 0–0,2 s";
-  if(!std::isfinite(t.velocity_ff_scale) || t.velocity_ff_scale<1 || t.velocity_ff_scale>3) return "Feed-forward: 1–3";
+  // < 1 (od 19.11.2026): test „niższa prędkość niż plan” — oś za referencją, brakującą prędkość dodaje korekta Kp.
+  if(!std::isfinite(t.velocity_ff_scale) || t.velocity_ff_scale<.5 || t.velocity_ff_scale>3) return "Feed-forward: 0,5–3";
   if(!std::isfinite(t.position_kp) || t.position_kp<0 || t.position_kp>20) return "Kp: 0–20 1/s";
   if(!std::isfinite(t.integral_gain) || t.integral_gain<0 || t.integral_gain>20) return "Wzmocnienie całkujące: 0–20 1/s";
   if(!std::isfinite(t.integral_limit) || t.integral_limit<0 || t.integral_limit>.0873) return "Limit całkujący: 0–0,0873 rad";
   if(t.acceleration_code<-1 || t.acceleration_code>255) return "Kod acc: 0–255 albo -1 (bez nadpisania)";
+  if(!std::isfinite(t.acceleration_ff_scale) || t.acceleration_ff_scale<0 || t.acceleration_ff_scale>2) return "Składnik przyspieszenia F5: 0–2";
+  if(t.hold_period_cycles<1 || t.hold_period_cycles>100) return "Okres ramek trzymania: 1–100 cykli";
+  if(!std::isfinite(t.hold_rpm) || t.hold_rpm<0 || t.hold_rpm>500) return "Prędkość trzymania: 0–500 RPM (0 = standardowa)";
+  if(t.hold_acceleration<-1 || t.hold_acceleration>255) return "Kod acc dolotu: 0–255 albo -1 (bez zmiany)";
+  if(t.hold_tail_ms>2000) return "Końcówka trajektorii z kodem acc dolotu: 0–2000 ms";
+  if(t.hold_stop_mode>2) return "Tryb zatrzymania przy celu: 0 = brak, 1 = F7, 2 = F5 STOP";
+  if(t.hold_stop_ticks>2000 || (t.hold_stop_mode && !t.hold_stop_ticks)) return "Odległość zatrzymania przy celu: 1–2000 impulsów";
+  // Bez zależności między polami: most ustawia parametry po kolei, także przy powrocie do nastaw z pliku.
+  if(t.hold_tail_end_ms>2000) return "Koniec okna końcówki trajektorii: 0–2000 ms";
+  if(!std::isfinite(t.hold_mark_scale) || t.hold_mark_scale<.25 || t.hold_mark_scale>4) return "Mnożnik prędkości ramek okna: 0,25–4";
+  if(t.hold_silent>1) return "Cisza po ramce celu: 0 albo 1";
+  if(!std::isfinite(t.min_lead_shaft_deg) || t.min_lead_shaft_deg<0 || t.min_lead_shaft_deg>10) return "Minimalne wyprzedzenie celu: 0–10° wału";
   return {};
 }
 bool CanBusManager::set_execution_tuning(const ExecutionTuning &t,std::string &reason) {
@@ -48,12 +73,22 @@ bool CanBusManager::set_execution_tuning(const ExecutionTuning &t,std::string &r
   if(active_ || executor_.status.busy || manual_->busy() || fault_) {reason="Zmiana nastaw regulatora wymaga postoju bez aktywnego ruchu i awarii";return false;}
   for(auto &s:config_.program_streaming) {
     s.lookahead_time_sec=t.lookahead_time_sec;s.velocity_ff_scale=t.velocity_ff_scale;s.position_kp=t.position_kp;
-    s.integral_gain=t.integral_gain;s.integral_limit=t.integral_limit;
+    s.integral_gain=t.integral_gain;s.integral_limit=t.integral_limit;s.min_lead_shaft_deg=t.min_lead_shaft_deg;
   }
-  tuning_acceleration_=t.acceleration_code;
+  tuning_acceleration_=t.acceleration_code;config_.program_acceleration_ff=t.acceleration_ff_scale;config_.program_gain_schedule.enabled=t.gain_schedule;
+  config_.program_hold_period_cycles=t.hold_period_cycles;config_.program_hold_rpm=t.hold_rpm;
+  config_.program_hold_acceleration=t.hold_acceleration;config_.program_hold_tail=t.hold_tail_ms*1e-3;
+  config_.program_hold_stop_mode=t.hold_stop_mode;config_.program_hold_stop_ticks=t.hold_stop_ticks;
+  config_.program_hold_tail_end=t.hold_tail_end_ms*1e-3;config_.program_hold_mark_scale=t.hold_mark_scale;
+  config_.program_hold_silent=t.hold_silent!=0;
   if(executor_.status.state=="ready") {executor_.status.state="invalidated";executor_.status.message="Nastawy regulatora zmieniły się; przelicz program";}
   trace_note("execution_tuning","lookahead="+diagnostic_number(t.lookahead_time_sec*1000)+"ms ff="+diagnostic_number(t.velocity_ff_scale)+
-      " kp="+diagnostic_number(t.position_kp)+" ki="+diagnostic_number(t.integral_gain)+" acc="+std::to_string(t.acceleration_code));
+      " kp="+diagnostic_number(t.position_kp)+" ki="+diagnostic_number(t.integral_gain)+" acc="+std::to_string(t.acceleration_code)+
+      " aff="+diagnostic_number(t.acceleration_ff_scale)+" harmonogram="+(t.gain_schedule ? "1" : "0")+
+      " trzymanie="+std::to_string(t.hold_period_cycles)+"/"+diagnostic_number(t.hold_rpm)+
+      " acc_dolotu="+std::to_string(t.hold_acceleration)+"/"+std::to_string(t.hold_tail_ms)+"ms stop="+std::to_string(t.hold_stop_mode)+"/"+std::to_string(t.hold_stop_ticks)+
+      " okno_do="+std::to_string(t.hold_tail_end_ms)+"ms znacznik="+diagnostic_number(t.hold_mark_scale)+" cisza="+std::to_string(t.hold_silent)+
+      " min_wyprzedzenie="+diagnostic_number(t.min_lead_shaft_deg));
   return true;
 }
 void CanBusManager::update_motion_model(const std::string &model) {
@@ -116,8 +151,10 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
       throw std::runtime_error("J"+std::to_string(j+1)+": wymagane ENABLE, kalibracja i świeży stan SR_vFOC");
     if(p.points.empty() || std::abs(p.points.front().positions[j]-position_to_joint(a,d.position.value))>config_.program_position_tolerance[j])
       throw std::runtime_error("Zmieniła się pozycja początkowa; przelicz ruch");
-    microsteps[j]=d.microstep.value;axes[j].streaming=program_streaming(j);
+    microsteps[j]=d.microstep.value;
   }
+  p.fast_gains=program_uses_fast_gains(p,config_.program_gain_schedule);
+  for(unsigned j=0;j<kAxes;++j) if(p.participating[j]) axes[j].streaming=execution_streaming(j,p);
   if(streaming_bus_utilization(participants,config_.bitrate)+(synchronized ? (participants*can_frame_bits(3)+can_frame_bits(2))*100/config_.bitrate : 0)>std::min(kPlannedUtilization,config_.utilization_limit)+1e-12)
     throw std::runtime_error("Streaming 100 Hz przekracza budżet robota 40%; sześć osi wymaga profilu 1 Mbit/s");
   p=compile_streaming_program(std::move(p),axes,microsteps);
@@ -127,6 +164,8 @@ MotionProgramStatus CanBusManager::prepare_program(PreparedMotionProgram p,Time 
   auto &s=executor_.status;s.program_id=program.id;s.state="ready";s.mode=program.mode;s.participating=program.participating;
   s.dispatch_mode=program.dispatch_mode;s.tcp_verified=program.tcp_verified;s.duration=program.duration;s.start=program.start;s.target=program.target;
   s.message=synchronized ? "Streaming synchroniczny 100 Hz gotowy; płynność wymaga odbioru sprzętowego" : "Streaming 100 Hz gotowy; oczekiwanie na zatwierdzenie";
+  if(program.fast_gains) s.message+="; nastawy szybkiego PTP";
+  trace_note("program_gains",std::string(program.motion_type.empty() ? "?" : program.motion_type)+(program.fast_gains ? " szybki" : " podstawowe"));
   return s;
 }
 bool CanBusManager::program_feedback_good(Time now) const {
@@ -267,7 +306,7 @@ void CanBusManager::final_approach(Time now) {
   const auto budget=config_.bitrate*std::chrono::duration<double>(config_.cycle).count()*std::min(kPlannedUtilization,config_.utilization_limit);
   if(spent_bits_+count*can_frame_bits(8)>budget) return;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
+    auto axis=config_.axes[j];axis.streaming=execution_streaming(j,program);
     const auto &d=devices_[axis.address];
     if(!d.position.fresh(now,kProgramFeedbackTimeout)) return;
     const double measured=position_to_joint(axis,d.position.value),error=program.target[j]-measured;
@@ -356,6 +395,7 @@ void CanBusManager::schedule_program(Time now) {
     if(!synchronized) {final_approach(now);if(fault_) return;}
     else {
       synchronized_final_approach(now);if(fault_ || e.staged || e.sync_waiting_confirmation) return;
+      if(config_.program_hold_silent && !e.hold_done) return;   // cisza trwa tyle co strumień: do stabilnego dolotu
       if(!e.soft_failure.empty()) {   // niepełny dolot przy stojących osiach: koniec bez awarii po przywróceniu 4A=0
         s.state="restoring";s.sync_state="restoring";e.setup_axis=e.setup_step=0;e.waiting=false;e.preparation_deadline=now+3s;return;
       }
@@ -429,7 +469,7 @@ void CanBusManager::schedule_program(Time now) {
   const auto point=program_reference(program,std::min(program.duration,std::chrono::duration<double>(elapsed).count()));
   auto next_streaming=streaming_states_;
   for(unsigned j=0;j<kAxes;++j) if(s.participating[j]) {
-    auto axis=config_.axes[j];axis.streaming=program_streaming(j);
+    auto axis=config_.axes[j];axis.streaming=execution_streaming(j,program);
     const auto feedback=streaming_feedback_position(j,now);
     const auto sample=streaming_setpoint(axis,point.positions[j],point.velocities[j],next_streaming[j],
         feedback.valid ? std::optional<double>(feedback.value) : std::nullopt,devices_[axis.address].microstep.value,

@@ -1673,3 +1673,461 @@ Nagranie CAN (14:27–14:33): 13 × `sync_standstill_from_position` — postój 
 `speed_source_mismatch`: 89 epizodów ≥ 300 ms — 23 „0x32 > 3 RPM, wał stoi”, 38 „0x32 ≈ 0, wał w ruchu > 3 RPM”,
 28 różne wartości w ruchu. 0x32 bywa więc nieaktualne w obu kierunkach (także ≈ 0 na początku ruchu) — do
 dalszej analizy przed jakimkolwiek ograniczeniem jego odpytywania.
+
+## 2026-11-18 — granice prędkości TCP PTP i LIN (`scripts/tcp_speed_limits.py`)
+
+Wały rozsprzęglone (bez obciążenia), tryb `synchronized`, acc 254, Kp 4, wyprzedzenie 25 ms, start od zerowania MKS. Ruch 400 mm
+z pozy 0/0/0/0/45/0° w kierunku (−X, +Y, −Z)/√3, tam i z powrotem. PTP: przyspieszenie 100 °/s²; LIN: 100 mm/s². Limity konfiguracji bez zmian.
+Wyniki: `log/tcp_speed_limits/20261118-123047/` (rampa) i `20261118-123953/` (poziomy wyższe, bez zatrzymania po przekroczeniu progów).
+Progi „dobry / dopuszczalny”: odchyłka TCP 1,5 / 3 mm, uchyb osi 0,5 / 1°, tętnienie 30 / 50%, zatrzymania 2 / 5%, błąd końcowy 0,5 / 1 mm,
+nadmiar czasu 1,5 / 3 s, korekty dolotu 0 / 2.
+
+| Ruch | Zadane [mm/s] | Szczyt TCP [mm/s] | Maks. oś [°/s] | Maks. wał [RPM] | Odchyłka maks. [mm] | Uchyb osi [°] | Ocena |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PTP | 60 | 64,6 | 15,0 | 63 | 0,73 | 0,34 | dobry |
+| PTP | 100 | 106,6 | 25,0 | 104 | 2,07 | 0,73 | dopuszczalny (**zalecana granica**) |
+| PTP | 130 | 137,3 | 32,5 | 136 | 3,22 | 1,08 | przekroczony; w 1. przebiegu 2 awarie J1 |
+| PTP | 200 | 203,3 | 49,9 | 208 | 4,23 | 1,38 | przekroczony |
+| PTP | 230 | 228,8 | 57,5 | 240 | 4,91 | 1,61 | przekroczony |
+| PTP | 260 | 252,5 | 65,1 | 271 | 8,55 | 1,86 | przekroczony, bez awarii |
+| LIN | 60 | 56,9 | 22,1 | 92 | 1,52 | 1,00 | dopuszczalny (**zalecana granica**) |
+| LIN | 70 | 62,6–68,1 | 26,5 | 110 | 2,10 | 2,26 | przekroczony, korekty dolotu 3–6 |
+| LIN | 80 | 75,1 | 29,2 | 122 | 3,56 | 1,31 | przekroczony |
+| LIN | 100 | 88,4 | 34,5 | 144 | 2,98 | 1,90 | przekroczony, bez awarii |
+
+Oś ograniczająca: J6 (największa prędkość i uchyb), przy PTP powyżej 200 mm/s rośnie też uchyb J1. Planer PTP osiągał ok. 81% zadanej
+prędkości osi dominującej, więc limit 80 °/s nie został osiągnięty (maks. 65,1 °/s). Planer LIN dał 88 mm/s przy zadanych 100 mm/s.
+Awarie przy PTP 130 mm/s w pierwszym przebiegu: J1 bez odpowiedzi na 0x32 podczas uzbrajania programu (postój, niezależne od prędkości) oraz
+ucieczka J1 w dolocie (1,52°, błąd kąta 39h −0,71° wału). Poziomy powyżej granicy mają tylko po 4 ruchy: brak awarii nie potwierdza niezawodności.
+
+## 2026-11-18 — Kp i wyprzedzenie celu przy PTP 130 mm/s i LIN 100 mm/s
+
+Wały rozsprzęglone, tor 400 mm jak w teście granic, acc 254, FF 1, 3 przejazdy tam i z powrotem na nastawę (6 ruchów), każdy typ ruchu od zerowania MKS.
+Nastawy testowe przez `execution-tuning`, po serii przywrócone z pliku (Kp 4, 25 ms). Bez awarii i bez niezaliczonych ruchów.
+Wyniki: `log/tcp_speed_limits/20261118-130247` (Kp), `-131605` (wyprzedzenie przy Kp 12), `-132818` i `-133110` (PTP wokół optimum).
+
+| PTP 130 mm/s | Uchyb osi śr./maks. [°] | Odchyłka TCP śr./maks. [mm] | RMS TCP [mm] | Koniec trajektorii [mm] | Błąd końcowy [mm] |
+| --- | --- | --- | --- | --- | --- |
+| Kp 4, 25 ms (obecne, 2 serie) | 0,68 / 1,22 · 0,58 / 0,63 | 2,27 / 3,45 · 2,82 / 4,33 | 0,530 · 0,625 | 1,42 · 1,52 | 0,10 · 0,14 |
+| Kp 12, 25 ms (2 serie) | 0,29 / 0,33 · 0,29 / 0,32 | 1,16 / 1,60 · 1,23 / 1,65 | 0,292 · 0,307 | 0,86 · 0,95 | 0,14 · 0,11 |
+| Kp 12, 15 ms | 1,10 / 1,68 | 2,13 / 3,08 | 0,421 | 0,61 | 0,23 |
+| Kp 12, 35 ms | 0,22 / 0,58 | 1,06 / 1,69 | 0,278 | 0,85 | 0,20 |
+| Kp 12, 50 ms (2 serie) | 0,16 / 0,16 · 0,15 / 0,16 | 0,79 / 1,11 · 0,76 / 0,90 | 0,243 · 0,236 | 0,80 · 0,75 | 0,16 · 0,10 |
+| Kp 12, 65 ms | 0,16 / 0,16 | 0,90 / 1,17 | 0,251 | 0,79 | 0,16 |
+| Kp 12, 80 ms | 0,21 / 0,43 | 1,09 / 1,83 | 0,302 | 1,06 | 0,21 |
+| Kp 8, 50 ms | 0,26 / 0,63 | 1,08 / 1,89 | 0,318 | 1,05 | 0,17 |
+| **Kp 16, 50 ms** | **0,13 / 0,16** | **0,69 / 0,90** | **0,228** | **0,52** | **0,16** |
+
+| LIN 100 mm/s | Uchyb osi śr./maks. [°] | Odchyłka TCP śr./maks. [mm] | Poza linią śr./maks. [mm] | Korekty dolotu |
+| --- | --- | --- | --- | --- |
+| Kp 4, 25 ms (2 serie) | 1,33 / 1,88 · 1,46 / 2,07 | 2,40 / 3,41 · 2,22 / 2,79 | 1,59 / 2,28 · 1,59 / 2,10 | 2 · 2 |
+| Kp 12, 25 ms (3 serie) | 1,37–1,55 / 1,96–2,62 | 2,42–2,66 / 3,31–4,10 | 1,59–1,82 / 2,05–2,54 | 4–13 |
+| Kp 16, 25 ms | 1,70 / 2,17 | 2,77 / 5,58 | 1,86 / 2,87 | 19 |
+| Kp 12, 35 ms | 1,51 / 2,10 | 3,79 / 5,21 | 2,35 / 3,46 | 17 |
+| Kp 12, 50 ms | 1,73 / 2,54 | 4,30 / 6,15 | 2,65 / 4,05 | 22 |
+| Kp 12, 15 ms (4 ruchy o zwykłym czasie) | 1,41 / 1,56 | 2,75 / 3,37 | 2,07 / 2,83 | 0 |
+
+Wnioski: PTP zyskuje na Kp i dłuższym wyprzedzeniu (optimum 50 ms, Kp 12–16). LIN nie zyskuje: najlepsze pozostają Kp 4 i 25 ms, a dłuższe
+wyprzedzenie go pogarsza, więc jedna wspólna nastawa nie jest optymalna. Plany LIN dla tego samego ruchu trwały 5,8–7,6 s (szczyt 78–98 mm/s),
+a w serii 15 ms dwa trwały 17,7 i 19,2 s (34–38 mm/s), przyczyna nieustalona. Nastaw PTP nie sprawdzono przy niższych prędkościach ani krótkich ruchach.
+LIN 130 mm/s nie testowano: `tcp.max_linear_velocity` = 100 mm/s.
+
+## 2026-11-18 — wpływ Kp 12 i wyprzedzenia 50 ms na ruchy wolne oraz próba LIN 130 mm/s
+
+Wały rozsprzęglone, acc 254, start od zerowania MKS. Wyniki: `log/tcp_quality/20261118-133824`, `-134422`, `-134948` (test standardowy),
+`log/tcp_speed_limits/20261118-135546`, `-135729` (PTP 60/100), `-135911`, `-140146` (LIN, zadane 130 mm/s, limit tymczasowo 130, potem przywrócony 100).
+
+| Ruch | Kp 4, 25 ms | Kp 12, 50 ms |
+| --- | --- | --- |
+| Test standardowy do 15 mm/s i 20 mm/40 mm/s: uchyb osi maks. [°] | 0,08–0,15 | 0,08–0,22 |
+| Jak wyżej: odchyłka TCP maks. [mm] | 0,45–0,76 | 0,45–0,63 |
+| PTP 60 mm/s: uchyb osi śr./maks. [°], TCP śr./maks. [mm], koniec trajektorii [mm] | 0,32/0,37; 0,67/0,77; 0,35 | 0,51/0,52; 1,05/1,56; 1,05 |
+| PTP 100 mm/s: jak wyżej, korekty dolotu | 0,84/1,23; 2,02/2,17; 0,95; 5 | 0,37/0,43; 1,10/1,77; 1,14; 0 |
+
+Seria Kp 12 + 50 ms została przerwana przy PTP 400 mm 40 mm/s przez ucieczkę J2: zadane +1,7 °/s, wał cofnął się o ok. 0,95° w 0,6 s, błąd kąta 39h −0,012°
+przegubu. Kp 16 + 50 ms nie wykonano dla ruchów wolnych. Jedno zdarzenie nie rozstrzyga, czy nastawy zwiększają ryzyko.
+
+LIN, zadane 130 mm/s, 100 mm/s²: szczyt tylko 81–96 mm/s, plan 6,6–7,6 s. Kp 4 / 25 ms: uchyb osi 1,11/1,55°, TCP 2,16/3,53 mm, poza linią 1,11/1,41 mm;
+Kp 12 / 25 ms: 0,86/1,06°, 2,04/2,90 mm, 1,05/1,40 mm; Kp 12 / 50 ms: 1,43/1,77°, 2,93/3,50 mm, 2,02/2,90 mm, 15 korekt.
+Samo planowanie (bez ruchu), v = 130 mm/s: a = 100 → 7,03 s i 89 mm/s; a = 200 → 4,61 s i 108 mm/s; a = 400 → 4,16 s i 109 mm/s; a = 800 → 3,94 s i 109 mm/s.
+Ograniczeniem jest najpierw przyspieszenie TCP, a potem rozciąganie czasu planu (ok. 84% zadanej prędkości).
+
+## 2026-11-18 — nastawy zależne od ruchu i składnik przyspieszenia F5: odbiór sprzętowy
+
+Wały rozsprzęglone, usługa po restarcie 14:43, tor 400 mm, start od zerowania MKS. Wyniki: `log/tcp_quality/20261118-144530`, `-144838`, `-145427`, `-150025`;
+`log/tcp_speed_limits/20261118-150625` (składnik przyspieszenia), `-152304`, `-152620`, `-152928`, `-153238` (próg), `-153550` (LIN), `-155220`, `-155910` (PTP 40 mm/s, 20 ruchów).
+
+| PTP, bez składnika przyspieszenia | Oś maks. [°/s] | Podstawowe (Kp 4, 25 ms): uchyb osi śr./maks. [°]; TCP śr./maks. [mm] | Szybkie (Kp 12, 50 ms): uchyb osi; TCP |
+| --- | --- | --- | --- |
+| 40 mm/s, 30,7 °/s² | 10,0 | 0,20/0,35; 0,71/1,27 | 0,26/0,30; 0,94/1,29 |
+| 70 mm/s | 17,5 | 0,41/0,55; 0,75/0,97 | 0,56/0,60; 1,27/1,78 |
+| 80 mm/s | 20,0 | 0,50/0,60; 1,33/1,45 | 0,29/0,40; 1,47/2,00 |
+| 90 mm/s | 22,5 | 0,53/0,72; 1,57/1,79 | 0,27/0,40; 1,21/1,87 |
+
+Próg ustawiony na 21 °/s. Przy włączonym wyborze nastaw: PTP 100 mm/s 0,29/0,35°, TCP 0,84/1,12 mm; PTP 130 mm/s 0,16/0,17°, TCP 0,77/1,06 mm.
+
+| Składnik przyspieszenia | Bez | Skala 1 |
+| --- | --- | --- |
+| PTP 100 mm/s: uchyb osi śr.; TCP śr./maks. | 0,29°; 0,84/1,12 mm | 0,42°; 1,87/2,08 mm |
+| PTP 130 mm/s: jak wyżej | 0,16°; 0,77/1,06 mm | 0,34°; 1,62/2,01 mm |
+| LIN 60 mm/s (12 ruchów): uchyb osi śr.; TCP śr.; poza linią śr.; korekty | 0,72°; 1,58 mm; 1,06 mm; 0 | 0,76°; 1,49 mm; 0,91 mm; 0 |
+| LIN 100 mm/s (12 ruchów): jak wyżej | 1,54°; 2,69 mm; 1,94 mm; 24 | 1,16°; 2,09 mm; 1,53 mm; 2 |
+
+Decyzja: składnik przyspieszenia tylko dla LIN. Kombinacja końcowa (próg 21 °/s, składnik tylko w LIN) nie była jeszcze wykonana jako całość.
+Zdarzenia: ucieczka J5 (LIN 400 mm, 5 mm/s, skala 0), J6 w dolocie (LIN 100 mm/s skala 0; LIN 60 mm/s skala 1 i 0,5); seria 17 ramek błędów CAN przy załączaniu J3 (`Nie potwierdzono ENABLE J3`).
+PTP 400 mm 40 mm/s: po 20 ruchów przy obu nastawach bez ucieczki.
+
+## Jakość TCP z prędkością ramek okna ×0,9 (19.11.2026)
+
+Standardowy test 12 ruchów, po jednym przebiegu, wały rozsprzęglone, okno 150–230 ms przed końcem trajektorii, `motion.f5_acceleration_code` = 254. Wyniki: `log/tcp_quality/20261119-002337`.
+
+| Średnia z 12 ruchów | Mnożnik 1 | Mnożnik 0,9 |
+| --- | --- | --- |
+| Tętnienie prędkości TCP [mm/s] | 7,31 | 7,13 |
+| Zatrzymania [%] | 6,8 | 6,7 |
+| Odchyłka drogi maks. / RMS [mm] | 0,604 / 0,214 | 0,584 / 0,207 |
+| Uchyb na końcu trajektorii [mm] | 0,197 | 0,172 |
+| Błąd końcowy po dolocie [mm] | 0,199 | 0,187 |
+| Korekty dolotu | 0 | 0 |
+
+Różnice są małe i przy jednym przebiegu nie dowodzą poprawy. Pogorszenia nie stwierdzono. Mnożnik nie jest włączony w konfiguracji.
+
+## Dokładność CIRC: zegar planera i anty-windup członu całkującego (19.11.2026)
+
+Przebieg programu „Test środowiska programowania” (rewizja `8a422f32`, CIRC 80 mm/s, okrąg R = 80 mm wokół (320, 0, 150) mm,
+2 okrążenia, promień przejścia 20 mm), ślad wałów `shaft-trace` 12:06:16–12:06:35. Analiza: referencja planu, cel i RPM F5, pomiar wału.
+
+| Wykonanie (przed zmianą) | Wartość |
+| --- | --- |
+| Odchyłka TCP od toru poprzecznie RMS / maks. | 0,65 / 2,76 mm |
+| Odchyłka promienia / osi Z maks. | 1,83 / 2,15 mm |
+| Uchyb osi przy zawrocie kierunku (J1, J2, J3) | 0,37–0,53° przegubu |
+| Ruch wału w starą stronę po zawrocie celu | ~240 ms, do 6° wału |
+| Cel F5 − referencja tuż przed zawrotem (człon całkujący) | 10–14° wału |
+
+Przyczyna 1 (wykonawca): człon całkujący (`motion.position_integral`) narasta w kierunku ruchu, kompensując opóźnienie osi,
+i przy zawrocie nadal przesuwa cel F5 w starą stronę. Zmiana: zerowanie członu przy zmianie znaku prędkości planu, jeśli miał
+znak poprzedniego kierunku (`streaming_setpoint`, test `PositionIntegralResetsWhenPlannedVelocityReverses`).
+Stałe przesunięcie napędu przed celem (człon przeciwny do ruchu) pozostaje (`PositionIntegral.ConfigurationOption…`).
+
+Przyczyna 2 (planer, `limit_path_speed`): (a) limit prędkości z przyspieszenia TCP liczony z pełnego przyspieszenia starego
+zegara TOTG, zamiast ze składowej normalnej; (b) przekroczenie interpolacji na pierwszym odcinku od postoju (q_s = 0) rozciągało
+całą trajektorię. Zmiana: limit ze składowej normalnej, lokalne zmniejszanie zegara na przekroczonych odcinkach (do 8 iteracji),
+globalne rozciągnięcie tylko jako ostateczność. Plan offline (rzeczywisty URDF, limity z konfiguracji, TCP 100 mm/s²):
+
+| Plan | Przed: czas / v maks. | Po: czas / v maks. |
+| --- | --- | --- |
+| CIRC 2 × półokrąg, 80 mm/s | 9,50 s / 64,6 mm/s (falowanie 52–65) | 7,96 s / 79,8 mm/s (stałe na łuku) |
+| CIRC 2 × półokrąg, 40 mm/s | 16,25 s | 13,30 s |
+| LIN 160 mm, 5 mm/s | 34,44 s / 5,0 | 32,47 s / 5,0 |
+| LIN 160 mm, 15 mm/s | 12,54 s / 13,2 | 11,01 s / 15,0 |
+| LIN 160 mm, 40 mm/s | 5,25 s / 34,7 | 4,63 s / 39,9 |
+| LIN 160 mm, 80 mm/s | 3,36 s / 68,7 | 3,55 s / 79,7 |
+
+Przed zmianą LIN osiągał ~87 % zadanej prędkości. Przy 80 mm/s rozpędzanie jest wolniejsze (budżet zachowawczy), dlatego czas
+całkowity nieco wzrósł. Wpływu na wykonanie na sprzęcie jeszcze nie zmierzono (wymaga restartu usługi i testu jakości TCP).
+
+Odbiór po restarcie (12:34), standardowy test 12 ruchów, acc 254, wały rozsprzęglone (`log/tcp_quality/20261119-123512`),
+porównanie z przebiegiem bazowym 00:23 (mnożnik 1, przed zmianami):
+
+| Średnia z 12 ruchów | Przed | Po |
+| --- | --- | --- |
+| Tętnienie prędkości TCP [mm/s] | 7,31 | 7,29 |
+| Zatrzymania [%] | 6,8 | 6,6 |
+| Odchyłka drogi maks. / RMS [mm] | 0,604 / 0,214 | 0,634 / 0,220 |
+| Uchyb na końcu trajektorii [mm] | 0,197 | 0,185 |
+| Błąd końcowy po dolocie [mm] | 0,199 | 0,197 |
+| Korekty dolotu | 0 | 2 (PTP 400 mm 40 mm/s) |
+| Plan LIN 400 mm 15 / 40 mm/s [s] | 29,9 / 12,94 | 27,07 / 10,68 |
+
+Bez regresji; LIN jedzie z zadaną prędkością (o 10–17 % krócej), odchyłka LIN nieco większa przy wyższej rzeczywistej prędkości.
+Test nie zawiera zawrotów osi w trakcie ruchu — efekt anty-windupu wymaga przebiegu CIRC (program „Test środowiska”, rewizja `951ad41a`).
+
+## Sekcja CIRC testu jakości TCP — pierwszy przebieg (19.11.2026, 13:24)
+
+`--sections circ`, acc 254, wały rozsprzęglone, `log/tcp_quality/20261119-132414`. Geometria: środek 20 / 100 mm pod TCP startu
+(e1 = −Z), łuk 90° w płaszczyźnie YZ (e2 = +Y), narzędzie skierowane do środka; „względem środka”: J5 41–81°, J4 do −99°.
+
+| Średnio | Tętnienie [mm/s] | Zatrzymania [%] | Odchyłka drogi max/RMS [mm] | Odchyłka od łuku max/RMS [mm] | Błąd końcowy [mm] |
+| --- | --- | --- | --- | --- | --- |
+| CIRC stała (12 ruchów) | 7,64 | 13,1 | 0,585 / 0,225 | 0,420 / 0,162 | 0,076 |
+| CIRC względem środka R20 (5 ruchów) | 13,75 | 4,5 | 3,701 / 1,302 | 1,261 / 0,452 | 0,081 |
+
+„Stała” na poziomie LIN (tętnienie PTP/LIN 7,3 mm/s). „Względem środka” R20 (obrót narzędzia 90° na 31 mm drogi): 5 mm/s do 1,0 mm,
+15 mm/s do 5,4 mm, 40 mm/s do 6,9 mm; powrót 40 mm/s przerwany — J4 uchyb śledzenia 4,0° (39h −3,1° wału), bez ruchu wbrew komendzie.
+Przyczyna: planer nie ogranicza przyspieszenia kątowego TCP (`tcp.angular_acceleration` = 100 °/s² działa tylko w JOG TCP); obrót
+orientacji ograniczają jedynie prędkość kątowa (100 °/s) i limity osi (500 °/s²), których J4 nie nadąża. R100 „względem środka” niewykonane.
+Wcześniejsza próba 13:18 (płaszczyzna XZ, J5 przez 0°) — odchyłka do 6 mm i odrzucenie drogi przez TOTG; od 13:23 skrypt odrzuca
+geometrie z |J5| < 15° lub zmianą znaku J5 na łuku.
+
+## Test jakości TCP z sekcją CIRC po limicie przyspieszenia kątowego TCP (19.11.2026, 13:54 i 14:00)
+
+acc 254, wały rozsprzęglone, usługa od 13:53 (`tcp.angular_acceleration` = 100 °/s² w planerze). CIRC: `log/tcp_quality/20261119-135416`,
+PTP/LIN: `log/tcp_quality/20261119-140025`. Wszystkie ruchy zaliczone (24 CIRC, 12 PTP/LIN).
+
+| Średnio | Tętnienie [mm/s] | Zatrzymania [%] | Odchyłka drogi max/RMS [mm] | Odchyłka od łuku max/RMS [mm] | Błąd końcowy [mm] | Korekty dolotu |
+| --- | --- | --- | --- | --- | --- | --- |
+| PTP/LIN (12) — bazowy 00:23 | 7,31 | 6,8 | 0,604 / 0,214 | — | 0,199 | 0 |
+| PTP/LIN (12) — 14:00 | 7,24 | 6,3 | 0,606 / 0,213 | — | 0,082 | 0 |
+| CIRC stała (12) | 7,73 | 13,8 | 0,607 / 0,227 | 0,469 / 0,187 | 0,190 | 0 |
+| CIRC względem środka (12) | 9,97 | 5,6 | 1,272 / 0,387 | 0,783 / 0,265 | 0,208 | 8 |
+
+„Względem środka” R20 przed limitem (13:24): odchyłka drogi do 6,9 mm i przerwanie na J4 (uchyb 4°); po limicie maks. 2,34 mm, plan
+R20 15 / 40 mm/s wydłużony do 3,7 / 3,4–4,1 s (obrót narzędzia 90° na 31 mm). Najsłabsza oś to nadal J4: uchyb maks. 1,15° (R20 15 mm/s)
+i 1,52° (R100 40 mm/s powrót); 8 korekt dolotu w trybie względem środka. Uchyb na końcu trajektorii PTP/LIN 0,136 mm (bazowo 0,197).
+
+## Seria nastaw regulatora z sekcją CIRC: wyprzedzenie celu i człon całkujący (19.11.2026, 14:40–15:40)
+
+`--tune lookahead_ms=40,60 --tune ki=1,4`, acc 254, wały rozsprzęglone, po 36 ruchów na przebieg (12 PTP/LIN, 24 CIRC), każdy od zerowania MKS.
+Bazowy (25 ms, ki 2): `log/tcp_quality/20261119-143943` (pierwszy przebieg; drugi przerwany ucieczką J2), pozostałe: `log/tcp_quality/20261119-145606`.
+Średnie (odchyłka drogi max/RMS [mm]; uchyb na końcu trajektorii [mm]; błąd końcowy po dolocie [mm]; korekty dolotu):
+
+| Nastawa | PTP/LIN (12) | CIRC stała (12), łuk max/RMS | CIRC względem środka (12), łuk max/RMS | 40 mm/s: odchyłka max | J4 uchyb śr./maks [°] |
+| --- | --- | --- | --- | --- | --- |
+| plik: 25 ms, ki 2 | 0,632/0,219; 0,183; 0,130; 0 | 0,598/0,219, 0,460/0,154 | 1,283/0,382, 0,755/0,275; 4 korekty | 1,102 | 0,256 / 1,88 |
+| wyprzedzenie 40 ms | 0,701/0,247; 0,386; 0,145; 0 | 0,615/0,230, 0,443/0,159 | 1,075/0,408, 0,819/0,313; 7 | 0,983 | 0,220 / 0,89 |
+| wyprzedzenie 60 ms | 0,891/0,303; 0,511; 0,165; 0 | 0,640/0,243, 0,448/0,167 | 1,319/0,432, 0,952/0,327; 10 | 1,290 | 0,309 / 1,39 |
+| ki 1 | 0,638/0,241; 0,338; 0,217; 0 | 0,600/0,229, 0,450/0,164 | 1,076/0,401, 0,773/0,304; 5 | 0,931 | 0,205 / 0,96 |
+| ki 4 | 0,618/0,211; 0,176; 0,275; 0 | 0,550/0,208, 0,422/0,161 | 1,256/0,362, 0,737/0,251; 2 | 1,091 | 0,226 / 1,19 |
+
+Tętnienie prędkości we wszystkich przebiegach 7,2–7,6 mm/s (PTP/LIN), 7,4–8,1 (CIRC stała), 8,4–9,9 (względem środka) — bez wyraźnej różnicy.
+Wnioski: większe wyprzedzenie celu pogarsza odwzorowanie (uchyb na końcu trajektorii PTP/LIN 0,18 → 0,39 → 0,51 mm, RMS drogi rośnie),
+zgodnie z serią z 08.11 — zostaje 25 ms. ki 1 zwiększa opóźnienie (uchyb końca trajektorii 0,34 mm). ki 4 daje najmniejsze RMS drogi
+i odchyłki od łuku (o 3–8 % względem pliku) i najmniej korekt dolotu, ale wyższy błąd końcowy po dolocie (0,22–0,30 wobec 0,07–0,18 mm);
+przy jednym przebiegu i zmienności błędu końcowego między przebiegami (dziś 0,08–0,20 mm przy tych samych nastawach) różnice nie
+rozstrzygają. Nastawy pliku bez zmian. Ucieczki J2/J4 w wolnej pracy osi i uchyb J4 nie zależą wyraźnie od tych nastaw.
+
+## Mnożnik prędkości F5 (ff) a schodki w wolnym ruchu (19.11.2026, 15:52–16:10)
+
+Hipoteza operatora: schodki powstają, bo osie z małą pracą dojeżdżają do celu ramki F5 przed kolejną ramką i stają.
+Test: `--sections ptp_lin --baseline --tune ff=1.1,1.3` (prędkość w F5 o 10/30 % większa niż plan), acc 254, `log/tcp_quality/20261119-155236`.
+
+| Nastawa | Tętnienie śr. [mm/s] | Zatrzymania śr. [%] | Odchyłka drogi max/RMS [mm] | Uchyb końca trajektorii [mm] | 5 mm/s: tętnienie / zatrzymania | 40 mm/s: odchyłka max |
+| --- | --- | --- | --- | --- | --- | --- |
+| plik (ff 1,0) | 7,48 | 6,2 | 0,596 / 0,216 | 0,203 | 6,35 / 12,2 % | 0,636 |
+| ff 1,1 | 7,42 | 6,1 | 0,636 / 0,220 | 0,243 | 5,83 / 11,2 % | 0,811 |
+| ff 1,3 | 7,46 | 6,0 | 0,621 / 0,229 | 0,282 | 5,75 / 11,8 % | 0,804 |
+
+Zatrzymania osi (okno 50 ms, ruchy 400 mm przy 5 i 15 mm/s) wg prędkości wału — plik / ff 1,1 / ff 1,3: 0,3–2 RPM 36 / 26 / 26 %,
+2–4 RPM 31 / 38 / 38 %, 4–8 RPM 18 / 21 / 21 %, 8–15 RPM 3,5 / 6,8 / 6,6 %, > 15 RPM 5,7 / 0,4 / 0,4 %.
+Wniosek: większa prędkość w F5 nie zwiększa zatrzymań (hipoteza „dojazd do celu ramki” niepotwierdzona), pogarsza za to opóźnienie
+i odchyłkę przy 40 mm/s — zostaje ff 1,0. Wcześniejsza analiza widma (przebieg ki 4, 15:29): okres pulsacji prędkości maleje
+odwrotnie do prędkości i odpowiada stałemu kątowi wału ~1,6–1,8°, ~3–3,6° i ~6–7,5° (pełny krok 1,8°, cykl elektryczny 7,2°) —
+pulsacja związana z położeniem wirnika silnika krokowego, nie z rytmem ramek 10 ms. Zatrzymania rosną poniżej ~8 RPM wału.
+
+Uzupełnienie (16:49–17:06, po dopuszczeniu FF < 1): `--sections ptp_lin --baseline --tune ff=0.9,0.8`, `log/tcp_quality/20261119-164859`.
+
+| Nastawa | Tętnienie śr. [mm/s] | Zatrzymania śr. [%] | Odchyłka drogi max/RMS [mm] | 5 mm/s: zatrzymania | 40 mm/s: tętnienie / odchyłka max / uchyb końca traj. |
+| --- | --- | --- | --- | --- | --- |
+| plik (ff 1,0) | 7,42 | 6,1 | 0,616 / 0,219 | 11,7 % | 8,49 / 0,733 / 0,435 |
+| ff 0,9 | 7,13 | 6,3 | 0,797 / 0,373 | 11,6 % | 7,99 / 1,132 / 0,323 |
+| ff 0,8 | 6,91 | 5,8 | 1,091 / 0,658 | 10,7 % | 7,08 / 1,749 / 0,526 |
+
+Łącznie dla ff 0,8–1,3: zatrzymania w wolnym ruchu praktycznie stałe (10,7–12,2 % przy 5 mm/s, 5,8–6,3 % średnio). Niższa prędkość F5
+zmniejsza tętnienie przy 40 mm/s (napęd za referencją wygładza ruch), ale odchyłka drogi rośnie zgodnie z opóźnieniem (1 − ff)·v/Kp
+(RMS 0,22 → 0,66 mm przy ff 0,8). Rozkład zatrzymań na przedziały RPM jest taki sam dla wszystkich ff ≠ 1 i inny w przebiegach bazowych,
+które w obu seriach były pierwsze — prawdopodobnie wpływ kolejności (rozgrzewanie napędów), nie nastawy. Wniosek: ani wyższa, ani niższa
+prędkość w F5 nie usuwa schodków; zostaje ff 1,0. Schodki przy < 8 RPM wału wynikają z napędów (pulsacja co krok silnika 1,8°).
+
+## Próg prędkości osi 2 RPM wału — PTP z wszystkimi osiami w ruchu (19.11.2026, 17:45)
+
+`scripts/axis_speed_floor.py --execute`, `log/axis_speed_floor/20261119-174450`. PTP z 0/0/0/0/45/0° o Δq = +30/+20/+25/+30/−20/+30°
+i z powrotem; proporcje prędkości osi stałe (najwolniejsza = 2/3 najszybszej). Poziom = RPM wału najwolniejszej osi na odcinku stałej
+prędkości (95 % czasu ruchu). Wskaźniki tylko z odcinka stałej prędkości, średnio z ruchu tam i z powrotem:
+
+| Poziom (min RPM) | Osie < 2 RPM | TCP RMS / max [mm] | TCP część zmienna [mm] | Uchyb osi — część zmienna śr. [° wału] | Zatrzymania osi śr. [%] |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 6 | 0,180 / 0,478 | 0,069 | 0,42 | 39,6 |
+| 2,5 | 0 | 0,193 / 0,542 | 0,077 | 0,47 | 27,9 |
+| 5 | 0 | 0,216 / 0,571 | 0,088 | 0,52 | 13,2 |
+| 10 | 0 | 0,236 / 0,680 | 0,099 | 0,54 | 1,6 |
+
+Wniosek: powyżej 2 RPM ruch jest równiejszy w prędkości (zatrzymania 40 → 28 → 13 → 2 %), ale odchyłka położenia od planu nie maleje —
+część zmienna uchybu osi ~0,4–0,55° wału (≈ ¼ pełnego kroku 1,8°; 0,02° przegubu przy przełożeniu 25) niezależnie od prędkości, a stałe
+opóźnienie rośnie z prędkością (TCP RMS 0,18 → 0,24 mm). Schodki to pulsacja prędkości w obrębie kroku silnika przy tym samym paśmie
+położenia. Wyjątki: J6 ma największą część zmienną (0,9–1,0° wału) i zatrzymania także przy 15 RPM (5–13 %); J4 przy 3,8 RPM 41 %.
+
+## Minimalne wyprzedzenie celu F5 — pierwsza próba bez efektu (19.11.2026, 18:13)
+
+`axis_speed_floor.py --execute --min-lead 0,1,2,3`, `log/axis_speed_floor/20261119-181324` (przerwane STOP operatora w serii 3°).
+Wyniki identyczne dla 0/1/2/3° (np. 1 RPM: zatrzymania 40 %, część zmienna 0,42° wału), bo nastawa nie działała: w trybie
+synchronicznym cel F5 jest podawany jawnie z referencji planu, a minimalne wyprzedzenie stosowano tylko bez celu jawnego (zmierzone
+wyprzedzenie celu J2 ~0,3° wału we wszystkich seriach). Poprawka: `minimum_lead_target` także w `synchronized_program.cpp`, test
+`MinimumLead.SynchronizedTargetsKeepMinimumLeadInSlowMotion`. Wynik dla 0° = punkt odniesienia do ponownego testu.
+
+## Kod acc F5 a schodki w wolnym ruchu (19.11.2026, 18:45–19:25)
+
+Pytanie operatora: czy napędy nie reagują za szybko na zmiany prędkości w kolejnych ramkach F5.
+1) Test jakości `--sections ptp_lin --tune acc=0,230,200,160` (`log/tcp_quality/20261119-184513`, `-185405`): acc 0 przerwane ucieczką J3
+(LIN 400 mm 5 mm/s), acc 230 przerwane uchybem śledzenia J6 > 4° w PTP 400 mm 40 mm/s (rampa ~96 RPM/s za wolna dla szybkich ruchów) —
+niższe kody nie nadają się do pełnego testu. 2) Test progu prędkości `axis_speed_floor.py --acc file,0,230,200,160 --levels 1,2.5,5`
+(`log/axis_speed_floor/20261119-190036`, wszystkie ruchy zaliczone). Średnio z ruchu tam i z powrotem:
+
+| acc (zmiana prędkości) | 1 RPM: zmienna / zatrz. | 2,5 RPM: zmienna / zatrz. | 5 RPM: zmienna / zatrz. / TCP max |
+| --- | --- | --- | --- |
+| 254 (~1250 RPM/s, konfiguracja) | 0,42° / 39,8 % | 0,48° / 27,4 % | 0,52° / 13,0 % / 0,57 mm |
+| 0 (bez rampy) | 0,42° / 40,0 % | 0,51° / 30,1 % | 0,54° / 15,1 % / 0,59 mm |
+| 230 (~96 RPM/s) | 0,42° / 40,0 % | 0,50° / 28,5 % | 0,55° / 14,7 % / 0,59 mm |
+| 200 (~45 RPM/s) | 0,43° / 39,9 % | 0,52° / 29,6 % | 0,64° / 13,9 % / 1,16 mm |
+| 160 (~26 RPM/s) | 0,43° / 39,8 % | 0,52° / 29,9 % | 0,69° / 14,2 % / 1,16 mm |
+
+(„zmienna” = część zmienna uchybu osi, ° wału, średnio z 6 osi.) Wniosek: szybkość reakcji napędu na zmianę prędkości nie wpływa na
+schodki (zatrzymania i część zmienna przy 1–2,5 RPM bez zmian); wolniejsze rampy pogarszają odwzorowanie przy 5 RPM (opóźnienie).
+Zostaje 254. Zrzut operatora z Diagnostyki (19:09): wał stoi 60–100 ms i przeskakuje ~1,8–2° (pełny krok) — kierunek dalszych testów:
+tryb pracy napędu (SR_vFOC dobiera prąd do uchybu; bez obciążenia prąd mały, wirnik trzyma pełny krok). Karta testu SR_CLOSE J1:
+`scripts/drive_mode_test.py` (preflight OK 19:25, czeka na zgodę operatora).
+
+## Tryb pracy napędu J1: SR_vFOC → SR_CLOSE (19.11.2026, 19:32)
+
+`scripts/drive_mode_test.py --axis 1 --execute-approved` (zgoda operatora na kartę), `log/drive-mode-20261119-193212-J1`.
+Mechanizm kopii: świeża kopia `pre_test` przed zapisem, zapis `work_mode` = 4 przez kontener `test` przy ENABLE=0 J1, odczyt
+kontrolny i potwierdzenie trybu; powrót do `pre_test` po przerwaniu (`remaining_differences` puste, J1 = SR_vFOC). Sumy SHA-256:
+base = pre_test = `ee4d8086ee8cb02371bc6564148d730976b25d91c170846a21beaea004936391`, test = `6184e4f9279f9a2ebc57f1c2625c6f227462f3f556243cb14f9aa4a0f10c256c`.
+Wcześniejsze próby 19:27–19:31 przerwane przed zapisem lub tuż po nim z przyczyn kolejności (operacja ręczna w toku, maska osi,
+ponowny odczyt napędu po zapisie trybu) — poprawione w skrypcie, bez wpływu na napędy.
+
+| Ocena J1 | Skoki ±2°/±8°: wskaźnik / twarde | Wolne 1 RPM: część zmienna / maks. / zatrzymania | 2,5 RPM | 5 RPM |
+| --- | --- | --- | --- | --- |
+| A1 SR_vFOC | 1,656 / — | 0,435° / 1,09° / 66 % | 0,417° / 50 % | 0,411° / 22 % |
+| B1 SR_CLOSE | 1,473 / — | 0,429° / 1,02° / 64 % (8,8 s do ucieczki) | — | — |
+
+Wynik: SR_CLOSE nie usuwa schodków przy 1 RPM (różnice w granicach szumu); dolot w skokach nieco lepszy. Test przerwany w wolnym
+ruchu powrotnym 1 RPM w SR_CLOSE: ucieczka J1 — wał ruszył w przeciwną stronę niż cel F5 i referencja, rozpędzając się do 67 RPM
+(≈ 80° wału w 2 s), błąd kąta napędu 39h tylko 0,54° wału (napęd „na swoim celu”); korekta Kp zwiększała prędkość w F5 wraz z uchybem,
+co przyspieszało ucieczkę; zatrzymane przez nadzór uchybu śledzenia (> 4° przegubu). SR_CLOSE nie rekomendowany; nastawy J1 w pre_test.
+Uwaga do metryki: w pierwszej wersji wolne odcinki wybierane progiem 95 % maksimum zaszumionej pochodnej referencji (0,3–0,4 s) —
+skrypt poprawiony (okno ±25 % prędkości zadanej); wartości w tabeli liczone tą poprawioną metodą z zapisu wałów.
+
+## Pojedynczy rozkaz F5 bez pętli strumieniowej — J1 (19.11.2026, 19:42)
+
+`scripts/f5_single_command_test.py --execute --speeds 8,3,2,1` (usługa panelu zatrzymana, zgoda operatora), `log/f5_single/20261119-194253`.
+Jedna ramka F5 [prędkość, acc 254, cel ±10° wału] na ruch, potem tylko odczyt 31h co ~10 ms; bez korekt, bez SYNC. Bez zmian nastaw napędu.
+
+| F5 prędkość | Zadana [°wał/s] | Średnia [°wał/s] | Postoje (okno 50 ms) | Odchylenie od ruchu jednostajnego std / maks. | Schodki |
+| --- | --- | --- | --- | --- | --- |
+| 8 jedn. = 1 RPM | 6,00 | 5,71 | 61 % | 0,41° / 1,14° | skok 1,83° co 0,31 s (postój ~0,2 s, skok < 50 ms) |
+| 3 jedn. = 0,375 RPM | 2,25 | 1,29 | 66 % | 1,14° / 4,38° | skok ~1,0–1,1° z cofnięciem 0,2–0,5° |
+| 2 jedn. = 0,25 RPM | 1,50 | 1,48 | 35 % | 0,31° / 1,29° | pełzanie + pojedyncze skoki ~0,6° z cofnięciem |
+| 1 jedn. = 0,125 RPM | 0,75 | 0,47 | 46 % | 1,03° / 3,98° | głównie pełzanie, rzadkie skoki |
+
+Wszystkie ruchy wykonane; napęd zatrzymuje się 22–29 impulsów (0,5–0,6° wału) przed celem F5. Wniosek: schodki co pełny krok (1,8°)
+występują przy JEDNYM stałym rozkazie F5 — to zachowanie napędu MKS (SR_vFOC, 1600 mA, mikrokrok 128, wał bez obciążenia), nie skutek
+rytmu ramek, prędkości ani celu w strumieniu F5. Przy 1 RPM najbardziej regularne (czyste schodki 1,8°); przy 0,125–0,25 RPM ruch częściej
+pełza. Remedium leży po stronie napędu (nastawy przez mechanizm kopii / firmware) i obciążenia mechanicznego — do sprawdzenia po sprzęgnięciu.
+
+## Prąd trzymania i prąd roboczy J1 a schodki (19.11.2026, 19:55–20:12)
+
+`scripts/drive_mode_test.py --axis 1 --set …` (uogólniony: `--set work_mode|work_current_ma|hold_current_ratio`), zgoda operatora;
+mechanizm kopii: świeża `pre_test`, zapis przy ENABLE=0 J1, A/B/A/B, powrót do `pre_test` (różnice: brak). Prąd roboczy 1800 mA
+wskazany przez operatora (≤ znamionowy). Wolne ruchy J1 1 / 2,5 / 5 RPM wału; wartości średnie z 6 ruchów.
+
+| Test | Ocena | Skoki: wskaźnik | Wolne: część zmienna / maks. [° wału] | Zatrzymania |
+| --- | --- | --- | --- | --- |
+| prąd trzymania 30 % → 90 % (`log/drive-mode-20261119-195551-J1`, test `2e9c41bd…`) | A1 / B1 / A2 / B2 | 1,55 / 1,48 / 1,62 / 1,60 | 0,413 / 0,396 / 0,416 / 0,412 ; maks. 1,01 / 0,99 / 1,03 / 1,02 | 47 / 42 / 47 / 47 % |
+| prąd roboczy 1600 → 1800 mA (`log/drive-mode-20261119-200309-J1`, test `2ae1dc64…`) | A1 / B1 / A2 / B2 | 1,66 / 1,64 / 1,40 / 1,54 | 0,411 / 0,409 / 0,415 / 0,411 ; maks. 1,02 / 0,97 / 1,03 / 1,00 | 46 / 46 / 47 / 46 % |
+
+SHA-256 base = pre_test = `ee4d8086ee8cb02371bc6564148d730976b25d91c170846a21beaea004936391`. Bez twardych naruszeń. Wniosek: ani prąd
+trzymania, ani +12,5 % prądu roboczego nie zmieniają schodków (różnice w granicach szumu A1/A2). Wraz z wcześniejszymi testami
+(tryb SR_CLOSE, kody acc, ff, wyprzedzenie celu, pojedynczy F5) schodki co pełny krok wyglądają na właściwość napędu bez obciążenia;
+pozostaje kalibracja enkodera (decyzja operatora) i pomiar po sprzęgnięciu mechaniki. Nastawy J1 bez zmian (SR_vFOC, 1600 mA, 30 %).
+
+## Pojedynczy rozkaz F5 na J1–J6 — porównanie osi (19.11.2026, 20:18–20:24)
+
+`scripts/f5_single_command_test.py --execute --axes … --speeds 8,3,2,1` (usługa zatrzymana, zgoda operatora), te same ramki na każdej osi
+(acc 254, ±10° wału, kierunek: 8 i 2 jedn. „+”, 3 i 1 jedn. „−”). J1–J3: `log/f5_single/20261119-201856`; J4 przerwany zabezpieczeniem
+±12° (przejechanie celu) i powtórzony z zapasem 6° razem z J5–J6: `log/f5_single/20261119-202136`; połączone i wykresy (`scripts/plot_f5_single.py`):
+`log/f5_single/20261119-osie-J1-J6/wykres_*.png`. Wskaźnik końca ruchu poprawiony (najdalsze położenie zamiast celu — wcześniej postój
+po dojeździe przed celem zaniżał średnią prędkość).
+
+| Oś | 1 RPM: postoje / odchylenie std/maks. / koniec względem celu | 0,25 RPM: postoje / odchylenie / koniec | Charakter |
+| --- | --- | --- | --- |
+| J1 | 61 % / 0,49° / 1,00° / −4 imp. | 36 % / 0,43° / 1,00° / −4 | wyraźne schodki 1,8°; przy 0,25 RPM skoki ~1° z cofnięciem |
+| J2 | 47 % / 0,43° / 1,51° / −7 | 28 % / 0,17° / 0,74° / +4 | schodki przy 1 RPM, przy 0,25 RPM prawie płynnie |
+| J3 | 17 % / 0,33° / 1,45° / −22 | 9 % / 0,16° / 1,05° / −14 | najbardziej płynna (pojedyncze skoki) |
+| J4 | 56 % / 0,54° / 1,53° / **+192 (przejechanie 4,2°)** | 34 % / 0,36° / 1,84° / +37 | wyraźne schodki; skoki 1,5–2° z cofnięciem; przejeżdża cel |
+| J5 | 21 % / 0,43° / 0,97° / −12 | 13 % / 0,23° / 0,49° / −3 | płynna z pojedynczymi skokami |
+| J6 | 38 % / 0,66° / 1,53° / +69 | 26 % / 0,61° / 3,35° / −40 | **drgania przy celu ±1,5° (~5 Hz, do ±50 °/s) po dojeździe**, także w trakcie ruchu |
+
+Wniosek: schodki co pełny krok nie są przypadkiem J1 — występują na wszystkich osiach przy tym samym rozkazie, z różnym nasileniem:
+najsilniej J1 i J4, średnio J2 i J6, słabo J3 i J5. J6 ma osobny problem: niestabilne trzymanie pozycji (oscylacja wokół celu
+po dojeździe) — pasuje do największej części zmiennej J6 w testach progu prędkości. J4 przejeżdża cel o kilka stopni wału. Różnice między
+osiami przy identycznych nastawach (SR_vFOC, 1600 mA, mikrokrok 128; prąd trzymania 10–50 %) wskazują na egzemplarze silnik/napęd
+(lub kalibrację enkodera), nie na sterowanie.
+
+## Zakres prędkości PTP/LIN/CIRC — od najniższej do najszybszej (22.11.2026, 16:13–16:37)
+
+Wały rozsprzęglone, acc 254, nastawy wykonania z pliku (Kp 4, wyprzedzenie 25 ms), limity konfiguracji: TCP 100 mm/s i 100 mm/s²,
+przeguby 80 °/s. Każdy przebieg od zerowania MKS. Wyniki: `log/tcp_quality/20261122-zakres-predkosci` (PTP/LIN 1–100 mm/s ×
+20/400 mm, CIRC 1–100 mm/s × R20/R100; 51 z 66 ruchów, przerwane ucieczką J4), `log/tcp_quality/20261122-circ-path-R100`
+(„względem środka” R100, przerwane przy 70 mm/s), `log/tcp_speed_limits/20261122-ptp-ramp` (PTP 130–260 mm/s, 400 mm).
+Planer odrzuca LIN 0,5 mm/s („wygładzona droga przekracza tolerancję TCP”) — najniższa prędkość to 1 mm/s.
+
+| Ruch | Zadane → szczyt TCP [mm/s] | Odchyłka drogi maks./RMS [mm] | Zatrzymania [%] | Uchyb osi maks. [°] | Błąd końcowy [mm] |
+| --- | --- | --- | --- | --- | --- |
+| PTP / LIN 20 mm, 1 mm/s | 0,9 / 1,1 | 0,42 / 0,41 (RMS 0,17) | 1,6–1,8 | 0,06 | 0,08–0,24 |
+| PTP / LIN 20 mm, 5–15 mm/s | 4–15 | 0,55–0,68 | 3–9 | 0,09 | 0,08–0,24 |
+| PTP / LIN 20 mm, 40/70/100 mm/s | 28–36 (limit 100 mm/s²) | 0,44–0,60 | 0–1,7 | 0,10 | 0,08–0,24 |
+| PTP / LIN 400 mm, 5 mm/s | 5,2 / 5,9 | 0,46 / 0,57 | 15–16 | 0,10 | 0,03–0,08 |
+| PTP / LIN 400 mm, 15 mm/s | 16 / 15 | 0,51 / 0,49 | 7–12 | 0,16 | 0,04–0,08 |
+| PTP / LIN 400 mm, 40 mm/s | 41 / 40 | 0,72 / 1,10 | 0,2–0,7 | 0,33 / 0,47 (J6) | 0,02–0,08 |
+| PTP / LIN 400 mm, 70 mm/s | 71 / 70 | 0,92 / 1,86 | 0,1–0,7 | 0,44 / 0,92 (J6) | 0,02–0,08 |
+| PTP / LIN 400 mm, 100 mm/s | 98 / 99,5 | 0,73 / **4,19** | 0 / 2,0 | 0,32 / 1,35 (J4), 2 korekty dolotu | 0,02–0,16 |
+| PTP 400 mm, 130 / 160 / 200 mm/s | 137 / 166 / 204 | 0,85 / 1,15 / 1,36 | 0 | 0,18–0,23 | 0,12 |
+| PTP 400 mm, 260 mm/s (oś 65 °/s, wał 271 RPM) | 252 | 2,66 | 0 | 0,93 (J6) | 0,12 |
+| CIRC stała R20, 1 / 5 / 15 mm/s | 1 / 5 / 15 | 0,35–0,68 (łuk 0,31–0,63) | 12–21 | 0,10 | 0,08 |
+| CIRC stała R20, 40 / 70 / 100 mm/s | 38 / 32–35 / 32–35 (√(a·R) ≈ 45) | 0,54–0,66 (łuk 0,37–0,52) | 0–12 | 0,14 | 0,08 |
+| CIRC stała R100, 5 / 15 mm/s | 5 / 15 | 0,48–0,59 (łuk 0,38–0,51) | 14–25 | 0,10 | 0,08–0,28 |
+| CIRC stała R100, 40 / 70 / 100 mm/s | 40 / 64–65 / 62–69 | 0,61–0,98 (łuk 0,50–0,69) | 0,8–3,7 | 0,32 (J6) | 0,07–0,27 |
+| CIRC wzgl. środka R20, 1 / 5 mm/s | 1–2 / 5–9 | 0,51–0,95 | 0,2–1,9 | 0,41 (J4 83 RPM) | 0,07–0,17 |
+| CIRC wzgl. środka R20, 15 mm/s | 13 | **3,94** / 1,55 (łuk 1,70) | 3 | 1,92 (J4 200 RPM) | 0,08–0,16 |
+| CIRC wzgl. środka R20, 40 mm/s | 20 (limit 100 °/s) | 1,44 tam; **powrót: ucieczka J4** | — | > 4 (J4 ~225 RPM) | — |
+| CIRC wzgl. środka R100, 5 / 15 / 40 mm/s | 5 / 15 / 40 | 0,48–0,74 / 1,36–1,42 przy 40 | 4–14 | — | 0,12–0,28 |
+| CIRC wzgl. środka R100, 70 mm/s | — | **ucieczka J4** (utrata synchronizmu ~135 RPM, cofnięcie ~44° wału w postoju) | — | — | — |
+
+Czas wykonania = plan + ok. 1,1 s (dolot z dwoma pomiarami i potwierdzenie postoju), niezależnie od prędkości. Tętnienie [%] przy
+1–5 mm/s (100–800 %) to głównie szum różniczkowania enkodera względem małej prędkości — porównywać tylko między nastawami.
+
+Wnioski:
+- **Najszybciej:** PTP do ~200 mm/s TCP z oceną „dobry” (odchyłka ≤ 1,4 mm), 252 mm/s „dopuszczalny” (2,7 mm, J6 0,93°). LIN do 70 mm/s
+  z odchyłką < 2 mm; 100 mm/s (limit konfiguracji) osiągane, ale 4,2 mm i korekty dolotu. CIRC „stała”: R100 realnie 62–69 mm/s, R20
+  32–38 mm/s (limit 100 mm/s² → v ≈ √(a·R)). Krótkie ruchy (20 mm) nie przekraczają ~36 mm/s przy 100 mm/s².
+- **Najdokładniej (droga):** 1 mm/s (0,35–0,42 mm) i 20–40 mm/s na krótkich drogach (0,44–0,60 mm); odchyłka rośnie z prędkością osi
+  nadgarstka (LIN: 0,49 → 1,10 → 1,86 → 4,19 mm dla 15/40/70/100 mm/s). Błąd końcowy po dolocie 0,02–0,28 mm we wszystkich prędkościach.
+- **Najgorsza płynność:** 5–15 mm/s (wał 4–25 RPM): zatrzymania 7–25 % — schodki pełnego kroku napędu bez obciążenia (19.11.2026).
+- **Bezpiecznie:** LIN/CIRC „stała” 15–70 mm/s, PTP ≤ 200 mm/s; CIRC „względem środka” tylko na dużych promieniach i ≤ 40 mm/s.
+- **J4 ogranicza ruch:** dwie utraty synchronizmu J4 przy 135–225 RPM wału (pozostałe osie stabilnie do 271 RPM). Diagnoza
+  (`docs/motion_hardware_results.md`, „diagnoza J4”): silnik sprawny; przyczyna — przestoje wątku I/O CAN (grafika i915) i błąd osi
+  czasu SYNC po przesunięciu cyklu (poprawiony w kodzie). Limit prędkości J4 nie jest potrzebny.
+
+## Wyprzedzenie celu 40 ms — test standardowy i krytyczny łuk J4 (22.11.2026, 19:05–19:41)
+
+Wały rozsprzęglone, acc 254, po wdrożeniu `phase_origin_at` i wyłączeniu usypiania grafiki. Krytyczny łuk (CIRC „względem środka” R20
+40 mm/s, 15 + 15 przebiegów naprzemiennie): nastawy z pliku 3/15 przerwań J4, `lookahead_ms=40` 0/15 (szczegóły
+`docs/motion_hardware_results.md`, 22.11.2026 wieczór). Test standardowy `log/tcp_quality/20261122-lookahead40-standard` (`--baseline
+--tune lookahead_ms=40`; przebieg 40 ms przerwany po 6 łukach „względem środka” awarią J1 — brak odpowiedzi przy uzbrajaniu, niezwiązana).
+Średnie z tych samych ruchów, plik → 40 ms:
+
+| Grupa | Droga maks. [mm] | Koniec trajektorii [mm] | Błąd końcowy [mm] | Tętnienie [mm/s] | Zatrzymania [%] |
+| --- | --- | --- | --- | --- | --- |
+| PTP/LIN (12) | 0,568 → 0,688 (+21 %) | 0,223 → 0,310 | 0,143 → 0,148 | 7,29 → 7,02 | 6,6 → 6,2 |
+| CIRC stała (12) | 0,602 → 0,604 | 0,215 → 0,337 | 0,090 → 0,094 | 7,92 → 7,84 | 14,3 → 13,3 |
+| CIRC wzgl. środka R20 (6) | 1,557 → 1,565 | 0,403 → 0,607 | 0,128 → 0,231 | 10,8 → 9,1 | 3,5 → 2,3 |
+
+Wniosek: 40 ms poprawia odporność szybkich osi i płynność, ale pogarsza dokładność drogi wolnych ruchów PTP/LIN i uchyb na końcu
+trajektorii — nie zmieniać globalnie. Kandydat: wydłużone wyprzedzenie w LIN/CIRC tylko dla osi o dużej prędkości szczytowej
+(harmonogram nastaw dziś obejmuje wyłącznie PTP). Nastawy z pliku bez zmian (przywrócone ręcznie po awarii J1; skrypt poprawiony —
+przed przywróceniem czeka na koniec odzyskiwania).
+
+## Weryfikacja przed zapisem na GitHub (22.11.2026, 20:02–20:16)
+
+Stan: poprawka `phase_origin_at` cofnięta (build jak przed sesją), grafika bez usypiania (brak przestojów wątku I/O CAN), nastawy
+z pliku, acc 254, wały rozsprzęglone, start od zerowania MKS.
+- Test standardowy `log/tcp_quality/20261122-weryfikacja-przed-github`: **36/36 ruchów zaliczonych** (PTP/LIN 12: tętnienie 7,07 mm/s,
+  zatrzymania 6,3 %, droga maks./RMS 0,586/0,212 mm, błąd końcowy 0,153 mm; CIRC stała 12: łuk 0,427/0,163 mm, błąd końcowy 0,092 mm;
+  CIRC względem środka 12: droga 1,301/0,385 mm, łuk 0,839/0,283 mm, 3 korekty dolotu). SYNC: odstęp maks. 10,98 ms, spóźnienie maks. 1,05 ms.
+- Przycisk TCP JOG (`scripts/tcp_jog_hardware_trial.mjs`, poza 0/−30/40/0/45/0°, 10 mm/s / 5 °/s, 3 s, układ bazy i narzędzia,
+  `log/tcp_jog_verify/20261122-przed-github`): **24/24 prób bez awarii**, każda zakończona `stopped`, przerwa KEEPALIVE maks. 86 ms,
+  bez nowych błędów/timeoutów CAN; RZ przerwane limitem próby (odchyłka osi > 25° po ~3,4 s — limit karty, nie robota).
+- Uwagi: PTP powrotu po próbach w układzie narzędzia odrzucony przy uzbrajaniu („J6: niepotwierdzony warunek uzbrojenia: potwierdzenie
+  postoju F1=1”, znane drgania J6 w postoju) — 3 kolejne PTP z tej pozy zaliczone. Seria 17 ramek błędu CAN i timeout J5 o 20:02:43
+  (początek testu, bez wpływu) — jak przy awarii J1 o 19:41; do sprawdzenia okablowanie/terminacja magistrali.
