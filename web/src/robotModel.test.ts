@@ -45,3 +45,18 @@ it("siatki członów: w pozycji zerowej leżą jak w złożeniu, poruszają się
     const expected = before.clone().sub(pivot).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2).add(pivot);
     expect(after.distanceTo(expected)).toBeLessThan(1e-9);
 });
+
+it("oś elementu z dopasowania walca: układ pliku w mm, zwrot odwracalny, kierunek jednostkowy", async () => {
+    const { fitCylinder } = await import("./axisFit");
+    const { axisFromFit } = await import("./robotModel");
+    // Czop Ø40 mm, długość 60 mm, oś wzdłuż Y przesunięta o (10, 0, 25) mm — element we własnym układzie pliku.
+    const geometry = new THREE.CylinderGeometry(.02, .02, .06, 64, 1, true).translate(.01, 0, .025).toNonIndexed();
+    const axis = axisFromFit(fitCylinder(geometry, 3));
+    expect(axis.radius_mm).toBeCloseTo(20, 1);
+    expect(Math.abs(axis.direction[1])).toBeCloseTo(1, 6);
+    expect(Math.hypot(...axis.direction)).toBeCloseTo(1, 9);
+    expect(axis.point_mm[0]).toBeCloseTo(10, 3); expect(axis.point_mm[2]).toBeCloseTo(25, 3);
+    expect(axis.coverage_deg).toBeGreaterThan(350);
+    const reversed = axisFromFit(fitCylinder(geometry, 3), true);
+    expect(reversed.direction[1]).toBeCloseTo(-axis.direction[1], 9);
+});

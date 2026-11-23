@@ -45,6 +45,9 @@ export function createConfigurationScene(host: HTMLElement) {
     const safetyMaterial = new THREE.MeshBasicMaterial({color:0xf0a85a, wireframe:true, transparent:true, opacity:.28, depthWrite:false});
     const surfaces: THREE.Mesh[] = [], safeties: THREE.Mesh[] = [];
     let display = {safety:false, primitives:true};
+    // Człony z siatkami modelu — ich bryły zastępcze ukryte; człony bez siatek (np. osie wirtualne) pokazują bryły.
+    let meshLinks = new Set<string>();
+    const showPrimitive = (link: string) => display.primitives || !meshLinks.has(link);
     const primitives = [base, ...joints.flatMap(joint => [joint.body, joint.link])];
     // Nakładka wskazanej osi (linia przez punkt, okrąg promienia dopasowania) i punktu TCP.
     const overlay = new THREE.Group(); overlay.renderOrder = 8; world.add(overlay);
@@ -89,7 +92,7 @@ export function createConfigurationScene(host: HTMLElement) {
             const rpy=originKeys.slice(3).map(key=>rad(Number(values[prefix+key] ?? 0)));
             joint.origin.rotation.set(rpy[0],rpy[1],rpy[2],'ZYX');
             const end=new THREE.Vector3(...(i<5?translations[i+1]:tool));
-            const length=end.length(); joint.link.visible=length>1e-9 && (display.primitives || !surfaces.length);
+            const length=end.length(); joint.link.visible=length>1e-9 && showPrimitive(`link_${i+1}`);
             joint.link.position.copy(end).multiplyScalar(.5); joint.link.scale.set(.045,.045,Math.max(length,.001));
             if(length>1e-9)joint.link.quaternion.setFromUnitVectors(z,end.normalize());
             joint.axes.visible=view==='geometry'; joint.range.visible=view==='limits';
@@ -144,16 +147,18 @@ export function createConfigurationScene(host: HTMLElement) {
         for (const item of items) {
             const surface = new THREE.Mesh(item.geometry, new THREE.MeshStandardMaterial({color: linkColors[links.indexOf(item.link)] ?? 0x8096a3, roughness:.75, metalness:.05, side:THREE.DoubleSide}));
             surface.userData = {name:item.name, link:item.link}; surfaces.push(surface); model.add(surface);
-            if (item.safety) { const safety = new THREE.Mesh(item.safety, safetyMaterial); safety.renderOrder = 3; safeties.push(safety); model.add(safety); }
+            if (item.matrix) { surface.matrixAutoUpdate = false; surface.matrix.copy(item.matrix); }
+            if (item.safety) { const safety = new THREE.Mesh(item.safety, safetyMaterial); safety.renderOrder = 3; safeties.push(safety); model.add(safety);
+                if (item.matrix) { safety.matrixAutoUpdate = false; safety.matrix.copy(item.matrix); } }
         }
+        meshLinks = new Set(items.map(item => item.link));
         applyDisplay(); renderer.domElement.dataset.modelMeshes = String(surfaces.length);
         if (items.length) fit(); dirty = true;
     }
     function applyDisplay() {
         for (const mesh of safeties) mesh.visible = display.safety;
-        for (const object of primitives) object.visible = display.primitives || !surfaces.length;
-        // Pręty łączące przeguby pokazują się tylko z bryłami zastępczymi.
-        if (!display.primitives && surfaces.length) joints.forEach(joint => { joint.link.visible = false; });
+        base.visible = showPrimitive('base');
+        joints.forEach((joint, i) => { const shown = showPrimitive(`link_${i+1}`); joint.body.visible = shown; if (!shown) joint.link.visible = false; });
         dirty = true;
     }
     function setDisplay(next: {safety:boolean; primitives:boolean}) { display = next; applyDisplay(); }

@@ -2,6 +2,49 @@
 
 Przeniesiona 29.10.2026 bez zmian treści, zgodnie z regułą, że AGENTS.md zawiera wyłącznie kontekst ostatniego zapytania. Wpisy od najnowszego.
 
+- 23.11.2026 — **Model 3D: zwrot osi polem wyboru i osie wirtualne.** Oś pliku ma `reversed` (`robot_model.py`
+  `clean_axis`, test), pole „Odwrócony zwrot osi” w `ModelChainBuilder.tsx` / `ElementEditor.tsx` (`reverseAxis`), łukowa
+  strzałka dodatniego obrotu w `chainScene.ts`. Brakujące osie i TCP z konfiguracji jako bryły wirtualne
+  (`frameEdit.continueFrames`, przełącznik, wiersze tabeli); `applyChainFrames` zmienia tylko J1–Jk (dalsze przeguby
+  zachowują wartości względem poprzedniego); podgląd konfiguracji pokazuje bryły zastępcze członów bez siatek. Zero
+  robota: zawsze na osi J1, w najniższym punkcie siatek podstawy. Testy: `test_robot_model.py` 15/15, vitest 244/245
+  (porażka `controlMessages.test.ts` wcześniejsza), przepływ pola zwrotu na tymczasowym API (port 8099). Frontend
+  wdrożony; **backend wymaga restartu `robot-web-status.service`** (bez niego `reversed` nie zapisuje się). Model
+  operatora bez zmian (nic nie przełączono ani nie przeniesiono). Bez ruchu robota.
+- 23.11.2026 — **Model 3D, tryb modułowy — etap 3: kinematyka z łańcucha.** `modelChain.ts` (`chainFrames`, `chainLinks`,
+  `loadChainMeshes`), `frameEdit.ts` (`applyChainFrames`), `ModelChainBuilder.tsx` (tabela „Kinematyka z łańcucha”, przycisk
+  „Przenieś J1–Jk do szkicu konfiguracji”), podglądy konfiguracji i sterowania z łańcucha (`configurationScene.ts`,
+  `robotPreviewScene.ts`, `RobotPreview.tsx`), `RobotModelPanel.tsx` bez dawnego trybu złożenia (zostaje biblioteka
+  plików); `robot_model.py`: usunięcie pliku blokuje tylko łańcuch. Konwencje: element z osią obraca się z nią i zaczyna
+  człon; baza na osi J1 pod podstawą, Y bazy = oś J2. Model operatora (3 osie): J1 Z 65,25; J2 X −59,66 / Z 78,96;
+  J3 Z 206,84 mm (aktywna konfiguracja: 56 / 64 / 250) — nic nie przeniesiono do szkicu ani nie zapisano do ROS.
+  Testy: `test_robot_model.py` 15/15, vitest 243/244 (porażka `controlMessages.test.ts` wcześniejsza; `modelChain` 8/8,
+  m.in. dane operatora); frontend wdrożony (dowiązania `web/dist/assets`); zmiana backendu (usuwanie pliku) wymaga
+  restartu `robot-web-status.service`. Opis `docs/robot_model_3d.md`. Bez ruchu robota (ENABLE 0/6 przy odczycie panelu).
+- 23.11.2026 — **Model 3D, tryb modułowy — etap 2 z interfejsem v2** (makieta `temp/model_3d_kreator/v2_lancuch_elementow.html`,
+  wybrana przez operatora). Łańcuch elementów od podstawy ze spasowaniem walec↔walec (+ opcjonalny styk czół, obrót,
+  przesunięcie, odwrócenie); wstawianie/usuwanie z `needs_parent`; szkic z Cofnij/Ponów do „Zapisz model 3D”; tabela
+  odległości osi. Kod: `robot_model.py` (`chain.json`, `PUT /api/v1/robot/model/chain`), `web/src/ModelChainBuilder.tsx`,
+  `chainScene.ts`, `modelChain.ts` (+ `modelChain.test.ts`), `axisFit.ts` (`fitPlane`), `RobotModelPanel.tsx` (stary tryb
+  zwinięty); opis `docs/robot_model_3d.md`. Testy: `test_robot_model.py` 15/15, vitest 241/242 (porażka
+  `controlMessages.test.ts` wcześniejsza), przepływ w przeglądarce na tymczasowym API (port 8099): podstawa → J1 → kolumna,
+  Cofnij/Ponów, zapis. Frontend wdrożony (dowiązania `web/dist/assets` w `install/stop-recovery-ros/.../web/assets`);
+  backend (etapy 1–2) wymaga restartu `robot-web-status.service`. Następny: etap 3 (kinematyka z łańcucha → „Zapisz do
+  ROS”, podgląd sterowania z łańcucha, usunięcie starego trybu). Bez ruchu robota.
+- 23.11.2026 — **Model 3D w trybie modułowym — etap 1 (status elementu i oś na elemencie).** Decyzja operatora: tryb modułowy
+  (każdy element wgrywany osobno, we własnym układzie pliku) zastąpi tryb „całe złożenie z Fusion”; etapy: 1) status
+  „model osi”/„element konstrukcyjny” + oś wskazana na elemencie, 2) drzewo złożenia ze spasowaniem (położenie względem
+  rodzica), 3) kinematyka liczona z drzewa → „Zapisz do ROS” (wtedy usunięcie starego trybu). Etap 1: `robot_model.py`
+  (`meshes/<id>.element.json` z rewizją, `PUT /api/v1/robot/model/meshes/{id}/element`, `element` w `GET /api/v1/robot/model`),
+  `web/src/ElementEditor.tsx`, `elementScene.ts`, `robotModel.ts` (`axisFromFit`), kolumna „Status elementu” w `RobotModelPanel.tsx`;
+  opis `docs/robot_model_3d.md` („Tryb modułowy”). Testy: `test_robot_model.py` 13/13, vitest `robotModel`+`axisFit` 8/8, `npm run build`.
+  Frontend wdrożony (nowe pliki `web/dist/assets` dowiązane w `install/stop-recovery-ros/.../web/assets`); backend wymaga
+  restartu `robot-web-status.service` (do tego czasu zapis statusu zwraca „Nieznany endpoint API”). Bez ruchu robota.
+- 22.11.2026 — **Dobór wyprzedzenia celu F5 dla każdej osi.** Nowy `scripts/axis_lookahead.py` (PTP jednej osi, wyprzedzenia × prędkości
+  wału, harmonogram wyłączony na czas testu, ślad `.npz` po bloku, nastawy wracają do pliku). Wyniki: `docs/benchmark_results.md`
+  („Wyprzedzenie celu F5 dobierane osobno dla każdej osi”), `log/axis_lookahead/20261122-J1-J6`: optimum zależy od prędkości, mało od osi —
+  ~25 ms do ~120–150 RPM wału, ~40 ms powyżej; 10 ms złe od 60 RPM, 60/80 ms nigdzie lepsze od 40 ms. Kod sterowania i konfiguracja bez
+  zmian (poprawka `phase_origin_at` cofnięta wcześniej). Robot ENABLE=0, nastawy z pliku.
 - 22.11.2026 — **Stan przed zapisem na GitHub.** Poprawka osi czasu SYNC (`phase_origin_at`) cofnięta na życzenie operatora (źródła `mks_servo_can` jak przed sesją, 313/313; binaria w `install/stop-recovery-ros` z kopii `install/deployment-backups/shift-origin-1795368966`; wymaga restartu `robot-web-status.service`). Zostają: wyłączenie usypiania grafiki (udev, brak przestojów wątku I/O CAN), bufor nagrań CAN 6144 MiB (`scripts/start_web_status.sh`), opcje zakresu w `scripts/tcp_motion_quality.py` (i czekanie na koniec odzyskiwania przed przywróceniem nastaw), nowy `scripts/axis_diagnosis.py`, wyniki w `docs/benchmark_results.md` i `docs/motion_hardware_results.md`. Harmonogram nastaw PTP (wcześniejsze zmiany z 18.11) bez zmian. Po restarcie (20:01) weryfikacja: test standardowy 36/36, TCP JOG 24/24 (`docs/benchmark_results.md`, „Weryfikacja przed zapisem na GitHub”). Robot: poza startowa, ENABLE=0.
 - 22.11.2026 (wieczór) — **Weryfikacja poprawek J4** po restarcie usługi (19:01) i `power/control=on` grafiki: przestoje wątku I/O CAN usunięte (brak `io_loop_gap` ≥ 5 ms i przesunięć SYNC), ale J4 nadal zawodzi w CIRC „względem środka” R20 40 mm/s (3/15 przerwań). `lookahead_ms=40` → 0/15 (`docs/motion_hardware_results.md`, „22.11.2026 (wieczór)”); w teście standardowym 40 ms pogarsza drogę PTP/LIN o ~21 % (`docs/benchmark_results.md`, „Wyprzedzenie celu 40 ms”). Przyczyna: harmonogram nastaw (`execution_gain_schedule_*`) obejmuje tylko PTP — LIN/CIRC jadą zawsze na 25 ms. Propozycja (czeka na decyzję operatora): wydłużone wyprzedzenie w LIN/CIRC dla osi o dużej prędkości szczytowej. Osobne: awaria J1 przy uzbrajaniu (nakładanie 0x31/0x32, ramki błędu CAN); cofnięcia wału w trzymaniu (vFOC). `scripts/tcp_motion_quality.py`: przywracanie nastaw po awarii czeka na koniec odzyskiwania. Nastawy z pliku aktywne, robot ENABLE=0.
 - 22.11.2026 — **Diagnoza J4** (opis `docs/motion_hardware_results.md`, „diagnoza J4”): silnik J4 sprawny (ruch samej osi do 245 RPM i PTP wszystkich osi bez awarii); awarie w CIRC „względem środka” = przestoje wątku I/O CAN 7 ms (grafika i915: odpytywanie złączy przy usypianiu, co 22,5 s) + błąd osi czasu SYNC (stary pomiar po `sync_shift` oceniany względem nowej osi → fałszywy uchyb, hamowanie). Kod: `phase_origin_at` (`motion_executor.hpp`, `synchronized_program.cpp`, `program_bus.cpp`), test `PhaseOriginAtMeasurementExcludesLaterShifts`, `mks_servo_can` 314/314; Release (mks_servo_can, robot_motion_planner, robot_can_diagnostics) z `build/shift-origin-ros` w `install/stop-recovery-ros` (kopia `install/deployment-backups/shift-origin-1795368966`). Nagranie CAN: `scripts/start_web_status.sh` domyślnie 6144 MiB (~40 min ruchu). Nowy skrypt `scripts/axis_diagnosis.py`. Wdrożone przez operatora (restart 19:01, grafika `power/control=on`).

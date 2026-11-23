@@ -10,9 +10,19 @@ export type AssemblyTransform = { x: number; y: number; z: number; roll: number;
 export type Assembly = { revision: string; up: "z" | "y"; transform: AssemblyTransform; links: Record<ModelLink, string[]> };
 export type SafetyInfo = { state: "queued" | "processing" | "ready" | "failed"; message?: string; triangles?: number; surface_triangles?: number;
     offset_mm?: number; cell_mm?: number; min_mm?: number; mean_mm?: number; max_mm?: number; coarser_than_surface?: boolean; seconds?: number; simplified_mm?: number; error_mm?: number };
+// Tryb modułowy: każdy element wgrywany osobno, we własnym układzie pliku. Model osi ma oś kinematyczną (punkt [mm],
+// kierunek jednostkowy — zwrot = dodatni obrót wg reguły prawej dłoni); element konstrukcyjny jest sztywny.
+export type ElementRole = "axis" | "structural";
+export const elementRoleLabels: Record<ElementRole, string> = {axis: "Miejsce łożyskowania osi", structural: "Element konstrukcyjny"};
+// reversed — zwrot odwrócony względem wskazanego walca (direction jest już kierunkiem wynikowym).
+export type ElementAxis = { point_mm: number[]; direction: number[]; radius_mm: number; residual_mm: number; faces: number; coverage_deg: number; reversed?: boolean };
+export const reverseAxis = (axis: ElementAxis): ElementAxis => ({...axis, direction: axis.direction.map(value => -value), reversed: !axis.reversed});
+export type ElementDefinition = { revision: string; role: ElementRole | null; axis: ElementAxis | null };
 export type MeshInfo = { id: string; name: string; units: string; size_bytes: number; created_at: string;
-    state: "queued" | "processing" | "ready" | "failed"; message?: string; triangles?: number; bbox_min?: number[]; bbox_max?: number[]; safety: SafetyInfo };
-export type RobotModel = { assembly: Assembly; meshes: MeshInfo[] };
+    state: "queued" | "processing" | "ready" | "failed"; message?: string; triangles?: number; bbox_min?: number[]; bbox_max?: number[]; safety: SafetyInfo;
+    element?: ElementDefinition };
+export const elementOf = (mesh: MeshInfo): ElementDefinition => mesh.element ?? {revision: "initial", role: null, axis: null};
+export type RobotModel = { assembly: Assembly; meshes: MeshInfo[]; chain?: import("./modelChain").ModelChain };
 export const emptyAssembly = (): Assembly => ({revision: "initial", up: "z", transform: {x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0},
     links: Object.fromEntries(modelLinks.map(link => [link, []])) as unknown as Record<ModelLink, string[]>});
 
@@ -28,6 +38,15 @@ export const uploadMesh = async (file: File, units: string): Promise<MeshInfo> =
 export const saveAssembly = async (assembly: Omit<Assembly, "revision">, expected: string): Promise<Assembly> =>
     reply(await fetch("/api/v1/robot/model", {method: "PUT", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({expected_revision: expected, assembly})}));
+export const saveElement = async (id: string, element: Pick<ElementDefinition, "role" | "axis">, expected: string): Promise<ElementDefinition> =>
+    reply(await fetch(`/api/v1/robot/model/meshes/${id}/element`, {method: "PUT", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({expected_revision: expected, element})}));
+// Wynik dopasowania walca (układ pliku, metry) → oś elementu [mm]; reverse odwraca zwrot.
+export function axisFromFit(fit: {point: THREE.Vector3; direction: THREE.Vector3; radius: number; residual: number; faces: number; coverageDeg: number}, reverse = false): ElementAxis {
+    const direction = fit.direction.clone().normalize().multiplyScalar(reverse ? -1 : 1);
+    return {point_mm: fit.point.toArray().map(v => v * 1000), direction: direction.toArray(), radius_mm: fit.radius * 1000,
+        residual_mm: fit.residual * 1000, faces: fit.faces, coverage_deg: fit.coverageDeg, reversed: reverse};
+}
 export const deleteMesh = async (id: string) => reply(await fetch(`/api/v1/robot/model/meshes/${id}`, {method: "DELETE"}));
 
 // Przekształcenie złożenie → baza: najpierw oś „w górę” (Fusion często Y w górę → obrót +90° wokół X), potem
@@ -55,7 +74,8 @@ export function meshGeometry(id: string, kind: "surface" | "safety" = "surface")
     })().catch(error => { geometries.delete(key); throw error; }));
     return geometries.get(key)!;
 }
-export type LoadedLinkMesh = { link: ModelLink; id: string; name: string; geometry: THREE.BufferGeometry; safety?: THREE.BufferGeometry };
+// matrix — położenie w układzie bazy robota (łańcuch trybu modułowego); bez niego — wspólne przekształcenie złożenia.
+export type LoadedLinkMesh = { link: ModelLink; id: string; name: string; geometry: THREE.BufferGeometry; safety?: THREE.BufferGeometry; matrix?: THREE.Matrix4 };
 // Geometrie przypisanych siatek (gotowych); siatka bezpieczeństwa opcjonalnie.
 export async function loadAssemblyMeshes(model: RobotModel, safety = false): Promise<LoadedLinkMesh[]> {
     const ready = new Map(model.meshes.filter(mesh => mesh.state === "ready").map(mesh => [mesh.id, mesh]));

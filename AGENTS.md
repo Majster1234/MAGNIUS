@@ -134,8 +134,12 @@ colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 
 ## Bieżący kontekst
 
-- 22.11.2026 — **Dobór wyprzedzenia celu F5 dla każdej osi.** Nowy `scripts/axis_lookahead.py` (PTP jednej osi, wyprzedzenia × prędkości
-  wału, harmonogram wyłączony na czas testu, ślad `.npz` po bloku, nastawy wracają do pliku). Wyniki: `docs/benchmark_results.md`
-  („Wyprzedzenie celu F5 dobierane osobno dla każdej osi”), `log/axis_lookahead/20261122-J1-J6`: optimum zależy od prędkości, mało od osi —
-  ~25 ms do ~120–150 RPM wału, ~40 ms powyżej; 10 ms złe od 60 RPM, 60/80 ms nigdzie lepsze od 40 ms. Kod sterowania i konfiguracja bez
-  zmian (poprawka `phase_origin_at` cofnięta wcześniej). Robot ENABLE=0, nastawy z pliku.
+- 24.11.2026 — **Model 3D: kierunki osi względem przodu robota.** Diagnoza: X bazy liczony z (przypadkowego) zwrotu J2 wskazywał
+  do tyłu; ręczne J3 yaw 180° w konfiguracji to kompensowało; zapis „J2: Bieżący kąt poza nowymi limitami” — zabezpieczenie.
+  Zmiana (`modelChain.ts` `chainFrames`, `motionLabel`; `ModelChainBuilder.tsx`): X bazy = przód (strona odsunięcia J2 od J1),
+  układy konwencji bez 180°, zwrot z pliku przeciwny → 180° wokół osi poprzecznej z kompensacją dalszej geometrii; pole
+  „Odwrócony kierunek dodatniego obrotu Jn” względem konwencji + opis słowny ruchu członu; kolumna „Dodatni obrót”.
+  Operator: przód = strona J2; J2 „−” pochyla do przodu, J3 „−” podnosi (kalibracja +1). Model: J2 zgodny (odwrócony),
+  J3 niezgodny — do odznaczenia przez operatora; nic nie przeniesiono ani nie zapisano. Aktywna konfiguracja bez zmian
+  (`4dea01ed…`, J2 offset −21°, limity −237…−20°; J3 yaw 180°). Testy: vitest 244/245 (porażka `controlMessages.test.ts`
+  wcześniejsza; `modelChain` 9/9 z danymi operatora). Frontend wdrożony. Bez ruchu robota.

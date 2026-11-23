@@ -118,13 +118,105 @@ def test_store_import_assembly_and_delete(tmp_path):
         store.set_assembly({'links': {'link_1': [bad['id']]}}, assembly['revision'])
     with pytest.raises(ValueError):
         store.set_assembly({'links': {'elbow': []}}, assembly['revision'])
-    with pytest.raises(Conflict):
-        store.delete(meta['id'])  # przypisana do członu
     store.delete(bad['id'])
     assert [item['id'] for item in store.snapshot()['meshes']] == [meta['id']]
     with pytest.raises(ValueError):
         store.begin_upload('model.step', 'mm')
 
+
+
+def test_element_role_and_axis(tmp_path):
+    store = RobotModelStore(tmp_path, start_worker=False, command=command())
+    meta = upload(store, stl_bytes(*cylinder(20, 60, 48)))
+    assert store.snapshot()['meshes'][0]['element'] == {'revision': 'initial', 'role': None, 'axis': None}
+    axis = {'point_mm': [0, 0, 30], 'direction': [0, 0, 2.0005 / 2], 'radius_mm': 20, 'residual_mm': .01, 'faces': 48, 'coverage_deg': 360}
+    with pytest.raises(ValueError):
+        store.set_element(meta['id'], {'role': 'structural', 'axis': axis}, 'initial')  # oś tylko dla modelu osi
+    with pytest.raises(ValueError):
+        store.set_element(meta['id'], {'role': 'axis', 'axis': {**axis, 'direction': [0, 0, 0.5]}}, 'initial')
+    with pytest.raises(ValueError):
+        store.set_element(meta['id'], {'role': 'joint'}, 'initial')
+    element = store.set_element(meta['id'], {'role': 'axis', 'axis': axis}, 'initial')
+    assert element['role'] == 'axis' and element['axis']['direction'] == pytest.approx([0, 0, 1])
+    assert element['axis']['reversed'] is False
+    flipped = store.set_element(meta['id'], {'role': 'axis', 'axis': {**axis, 'direction': [0, 0, -1], 'reversed': True}}, element['revision'])
+    assert flipped['axis']['reversed'] is True and flipped['axis']['direction'] == pytest.approx([0, 0, -1])
+    with pytest.raises(ValueError):
+        store.set_element(meta['id'], {'role': 'axis', 'axis': {**axis, 'reversed': 'tak'}}, flipped['revision'])
+    element = flipped
+    with pytest.raises(Conflict):
+        store.set_element(meta['id'], {'role': 'structural'}, 'initial')  # nieaktualna rewizja
+    element = store.set_element(meta['id'], {'role': 'structural'}, element['revision'])
+    assert element['axis'] is None and store.snapshot()['meshes'][0]['element']['role'] == 'structural'
+    # Ponowny zapis metadanych przez proces importu nie gubi definicji elementu.
+    store.rename(meta['id'], 'tuleja')
+    assert store.snapshot()['meshes'][0]['element']['revision'] == element['revision']
+    with pytest.raises(FileNotFoundError):
+        store.set_element('0' * 32, {'role': 'axis'}, 'initial')
+    store.delete(meta['id'])
+    assert not list(store.meshes.iterdir())
+
+
+def test_element_api(tmp_path):
+    store = RobotModelStore(tmp_path, start_worker=False, command=command())
+    app = create_app(StatusStore('192.168.1.69', 8080, 'wlan0', '192.168.1.0/24'), str(tmp_path), robot_model_store=store)
+    meta = upload(store, stl_bytes(*box([0, 0, 0], [30, 30, 30])))
+    path = f'/api/v1/robot/model/meshes/{meta["id"]}/element'
+    request = json.dumps({'expected_revision': 'initial', 'element': {'role': 'structural'}}).encode()
+    status, body = asyncio.run(call(app, 'PUT', path, request))
+    assert status == 200 and json.loads(body)['role'] == 'structural'
+    status, _ = asyncio.run(call(app, 'PUT', path, request))
+    assert status == 409
+    status, _ = asyncio.run(call(app, 'PUT', f'/api/v1/robot/model/meshes/{"1" * 32}/element', request))
+    assert status == 404
+    status, _ = asyncio.run(call(app, 'PUT', path, b'{"expected_revision": "x", "element": {"role": "axis", "extra": 1}}'))
+    assert status == 422
+
+
+def test_chain_of_elements(tmp_path):
+    store = RobotModelStore(tmp_path, start_worker=False, command=command())
+    base = upload(store, stl_bytes(*box([0, 0, 0], [100, 100, 40])))
+    module = upload(store, stl_bytes(*cylinder(30, 50, 32)))
+    ids = ['a' * 32, 'b' * 32, 'c' * 32]
+    mate = {'parent_point': [50, 50, 40], 'parent_direction': [0, 0, 1], 'element_point': [0, 0, 0], 'element_direction': [0, 0, 1],
+            'flip': False, 'angle_deg': 0, 'offset_mm': 0, 'parent_plane': None, 'element_plane': {'point': [0, 0, 0], 'normal': [0, 0, -1]}}
+    placed = {'x': 50, 'y': 50, 'z': 40, 'roll': 0, 'pitch': 0, 'yaw': 0}
+    chain = {'up': 'y', 'elements': [{'id': ids[0], 'mesh': base['id'], 'mate': None, 'placement': {}},
+                                     {'id': ids[1], 'mesh': module['id'], 'mate': mate, 'placement': placed},
+                                     {'id': ids[2], 'mesh': module['id'], 'mate': {**mate, 'needs_parent': True}, 'placement': placed}]}
+    saved = store.set_chain(chain, 'initial')  # ten sam plik dwa razy
+    assert [item['id'] for item in saved['elements']] == ids and saved['elements'][2]['mate']['needs_parent'] is True
+    assert saved['elements'][1]['mate']['parent_plane'] is None and store.snapshot()['chain']['up'] == 'y'
+    with pytest.raises(Conflict):
+        store.set_chain(chain, 'initial')
+    bad = [
+        {**chain, 'elements': [{**chain['elements'][0], 'placement': {'z': 5}}]},  # podstawa przesunięta
+        {**chain, 'elements': [chain['elements'][0], {**chain['elements'][1], 'id': ids[0]}]},  # powtórzony identyfikator
+        {**chain, 'elements': [chain['elements'][0], {**chain['elements'][1], 'mate': {**mate, 'parent_direction': [0, 0, 3]}}]},
+        {**chain, 'elements': [chain['elements'][0], {**chain['elements'][1], 'mate': {**mate, 'extra': 1}}]},
+        {**chain, 'elements': [{**chain['elements'][0], 'mesh': '0' * 32}]},
+    ]
+    for value in bad:
+        with pytest.raises(ValueError):
+            store.set_chain(value, saved['revision'])
+    with pytest.raises(Conflict):
+        store.delete(module['id'])  # użyta w łańcuchu
+    emptied = store.set_chain({'elements': []}, saved['revision'])
+    store.delete(module['id'])
+    assert emptied['elements'] == [] and emptied['up'] == 'z'
+
+
+def test_chain_api(tmp_path):
+    store = RobotModelStore(tmp_path, start_worker=False, command=command())
+    app = create_app(StatusStore('192.168.1.69', 8080, 'wlan0', '192.168.1.0/24'), str(tmp_path), robot_model_store=store)
+    meta = upload(store, stl_bytes(*box([0, 0, 0], [30, 30, 30])))
+    request = json.dumps({'expected_revision': 'initial', 'chain': {'elements': [{'id': 'd' * 32, 'mesh': meta['id'], 'mate': None, 'placement': {}}]}}).encode()
+    status, body = asyncio.run(call(app, 'PUT', '/api/v1/robot/model/chain', request))
+    assert status == 200 and json.loads(body)['elements'][0]['mesh'] == meta['id']
+    status, _ = asyncio.run(call(app, 'PUT', '/api/v1/robot/model/chain', request))
+    assert status == 409
+    status, body = asyncio.run(call(app, 'GET', '/api/v1/robot/model'))
+    assert json.loads(body)['chain']['elements'][0]['id'] == 'd' * 32
 
 def test_restart_requeues_or_fails_interrupted_jobs(tmp_path):
     store = RobotModelStore(tmp_path, start_worker=False, command=command())

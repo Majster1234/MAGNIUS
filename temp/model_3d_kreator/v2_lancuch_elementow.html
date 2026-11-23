@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model 3D · v2 Łańcuch elementów</title>
+<!-- Szkic kreatora modelu 3D robota (temp/model_3d_kreator/README.md). Samodzielny plik: dane przykładowe, bez API/ROS/CAN,
+     bez zasobów zewnętrznych. Podgląd 3D zastąpiony schematycznym widokiem z boku (SVG). -->
+<style>
+:root{--font:"Ubuntu Condensed","Liberation Sans Narrow","Arial Narrow",sans-serif;--mono:"DejaVu Sans Mono","Noto Sans Mono",monospace;--r:3px;
+  --bg:#07090b;--panel:#0e1114;--raised:#161a1f;--line:#232930;--line-strong:#3a424b;--text:#f2f5f7;--text-2:#aab4bd;--text-3:#6e7983;
+  --ok:#21d07a;--ok-bg:#0b2618;--ok-text:#52f2a0;--plan:#2fa8ff;--plan-bg:#0a2134;--plan-text:#70c6ff;--warn:#ffb020;--warn-bg:#2a1e07;--warn-text:#ffc95c;
+  --danger:#ff3b4e;--danger-text:#ff7d8a;--axis:#ffd166;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+.mock{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:5px 16px;background:#0f0c05;border-bottom:1px dashed #5a4a22;color:#d9bd86;font-size:11px}
+.mock b{border:1px dashed var(--warn);border-radius:3px;padding:0 6px;color:var(--warn);letter-spacing:1px}
+.page{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:48px;padding:6px 16px;border-bottom:1px solid var(--line)}
+.page h1{font-size:18px;margin:0 6px 0 0;font-weight:600}
+.page small{color:var(--text-3)}
+.spacer{flex:1}
+.btn{border:1px solid var(--line-strong);background:var(--raised);border-radius:var(--r);padding:5px 11px;cursor:pointer;white-space:nowrap}
+.btn:hover:not([disabled]){border-color:var(--text-3)}
+.btn.primary{background:var(--ok-bg);border-color:var(--ok);color:var(--ok-text)}
+.btn.plan{background:var(--plan-bg);border-color:var(--plan);color:var(--plan-text)}
+.btn.danger{color:var(--danger-text);border-color:#7a2430}
+.btn.ghost{background:none;border-color:transparent;color:var(--text-2)}
+.btn.sm{padding:2px 8px;font-size:12px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:var(--r);padding:2px 7px;font-size:11px;background:var(--raised);color:var(--text-2);border:1px solid var(--line)}
+.badge.ok{background:var(--ok-bg);color:var(--ok-text);border-color:#1a6b43}.badge.warn{background:var(--warn-bg);color:var(--warn-text);border-color:#7a5410}
+.badge.plan{background:var(--plan-bg);color:var(--plan-text);border-color:#1c5c8a}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r);overflow:hidden}
+.seg button{border:0;background:none;padding:5px 12px;cursor:pointer;color:var(--text-2)}
+.seg button[aria-pressed=true]{background:var(--plan-bg);color:var(--plan-text)}
+.viewport{position:relative;background:#0b0f13;border:1px solid var(--line);border-radius:var(--r);min-height:280px;overflow:hidden}
+.viewport svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.legend{position:absolute;left:8px;bottom:6px;right:8px;font-size:11px;color:var(--text-3);pointer-events:none}
+.hint{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 20px);padding:4px 10px;border:1px solid #e2c27d66;border-radius:var(--r);background:#131b22e6;color:#ecdcb4;font-size:12px;text-align:center;pointer-events:none}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.panel>h2,.panel-head{display:flex;align-items:center;gap:8px;margin:0;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+.eyebrow{font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--text-3)}
+.muted{color:var(--text-2)}.dim{color:var(--text-3)}
+.field{display:grid;gap:3px;font-size:12px;color:var(--text-2)}
+.field input,.field select,select.inline{height:28px;padding:2px 6px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--bg);min-width:0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.tile{display:grid;gap:6px;text-align:left;padding:10px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--raised);cursor:pointer}
+.tile:hover{border-color:var(--text-3)}
+.tile[aria-pressed=true]{border-color:var(--plan);background:var(--plan-bg)}
+.tile strong{font-size:14px}.tile small{color:var(--text-2);font-size:12px;line-height:1.35}
+.tile svg{width:42px;height:42px}
+.pick{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg)}
+.pick.done{border-color:#1a6b43}
+.pick span{font-size:12px}.pick.done span::before{content:"✓ ";color:var(--ok-text)}
+.files{display:grid;gap:4px;max-height:240px;overflow:auto}
+.file{display:flex;gap:8px;align-items:center;padding:5px 8px;border:1px solid var(--line);border-radius:var(--r);cursor:pointer;background:var(--bg)}
+.file[aria-pressed=true]{border-color:var(--plan);background:var(--plan-bg)}
+.file .name{flex:1;font-family:var(--mono);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file small{color:var(--text-3)}
+table.kin{width:100%;border-collapse:collapse;font-size:12px}
+table.kin th{padding:5px 8px;text-align:left;color:var(--text-3);font-weight:500;border-bottom:1px solid var(--line);font-size:11px}
+table.kin td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.kin td.num{text-align:right;font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+table.kin tr.new td{background:#0a2134aa}
+.chip-j{display:inline-block;min-width:26px;padding:0 5px;border-radius:var(--r);background:var(--plan-bg);color:var(--plan-text);border:1px solid #1c5c8a;text-align:center;font-weight:600}
+.chip-s{display:inline-block;padding:0 5px;border-radius:var(--r);background:var(--raised);color:var(--text-2);border:1px solid var(--line-strong)}
+.note{margin:0;padding:6px 9px;border-left:3px solid var(--plan);background:#0a213455;color:var(--text-2);font-size:12px}
+.note.warn{border-left-color:var(--warn);background:#2a1e0755}
+dl.props{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:12px}
+dl.props dt{color:var(--text-3)}dl.props dd{margin:0;overflow-wrap:anywhere}
+</style>
+<style>
+.v2{display:grid;gap:10px;padding:12px 16px}
+.top{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr);gap:10px;min-height:470px}
+.strip{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.node{flex:0 0 auto;width:150px;display:grid;gap:4px;align-content:start;padding:8px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--raised);cursor:pointer;text-align:left}
+.node.axis{border-color:#1c5c8a;background:#0c1a26}
+.node[aria-current=true]{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn)}
+.node.draft{border-style:dashed;border-color:var(--ok);background:var(--ok-bg)}
+.node .head{display:flex;gap:6px;align-items:center}.node svg{width:26px;height:26px;flex:none}
+.node strong{font-size:13px}.node .fname{font-family:var(--mono);font-size:10.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node small{font-size:11px;color:var(--text-3);line-height:1.3}
+.node .grip{margin-left:auto;color:var(--text-3);cursor:grab;letter-spacing:-2px}
+.ins{flex:0 0 auto;width:26px;display:grid;place-items:center;position:relative}
+.ins::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px solid var(--line-strong)}
+.ins button{position:relative;width:20px;height:20px;padding:0;border-radius:50%;border:1px solid var(--line-strong);background:var(--panel);color:var(--text-3);cursor:pointer;font-size:13px;line-height:1;opacity:.55}
+.ins button:hover{opacity:1;border-color:var(--ok);color:var(--ok-text)}
+.next{flex:0 0 auto;width:250px;display:grid;gap:6px;align-content:start;padding:8px 10px;border:1px dashed var(--ok);border-radius:var(--r);background:#0b261855}
+.next.idle{width:150px;place-content:center;justify-items:center;cursor:pointer;border-color:var(--line-strong);background:none;color:var(--text-2)}
+.next .q{font-size:13px;font-weight:600;color:var(--ok-text)}
+.next .opts{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.next .opts button{display:grid;justify-items:center;gap:2px;padding:6px 4px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--raised);cursor:pointer;font-size:12px}
+.next .opts button:hover{border-color:var(--ok)}.next .opts svg{width:28px;height:28px}
+.insp{display:grid;grid-template-rows:auto 1fr auto;min-height:0}
+.insp-body{display:grid;gap:10px;align-content:start;padding:12px;overflow:auto}
+.insp-foot{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);align-items:center}
+.insp h3{margin:0;font-size:15px}
+.drop{display:grid;gap:4px;place-items:center;padding:14px;border:1px dashed var(--line-strong);border-radius:var(--r);color:var(--text-2);font-size:12px;text-align:center}
+.switch{display:inline-flex;gap:8px;align-items:center;cursor:pointer;color:var(--text-2);font-size:12.5px}
+.switch input{appearance:none;width:32px;height:18px;border-radius:9px;background:var(--line-strong);position:relative;cursor:pointer;margin:0}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--text-2);transition:left .15s}
+.switch input:checked{background:var(--ok-bg);box-shadow:inset 0 0 0 1px var(--ok)}.switch input:checked::after{left:16px;background:var(--ok-text)}
+.bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+@media (max-width:900px){.top,.bottom{grid-template-columns:1fr}.viewport{min-height:340px}}
+</style>
+</head><body>
+<div class="mock"><b>MAKIETA v2</b> Łańcuch elementów · „kreator” = pytanie w ostatnim polu łańcucha; budowa i edycja w tym samym widoku · dane przykładowe, bez API</div>
+<header class="page"><h1>Model 3D robota</h1><small>Konfiguracja → Parametry robota</small>
+  <label class="switch" title="Po każdym dodanym elemencie od razu pyta o następny i podpowiada kliknięcia"><input type="checkbox" id="guide" checked>Prowadź krok po kroku</label>
+  <span class="spacer"></span>
+  <button class="btn ghost" id="undo">↶ Cofnij</button><button class="btn ghost" id="redo">↷ Ponów</button>
+  <span class="badge warn">Szkic · niezapisany</span><button class="btn primary">Zapisz model 3D</button><button class="btn plan">Zapisz do ROS…</button>
+</header>
+<main class="v2">
+  <div class="top">
+    <div class="viewport"><svg id="view"></svg><span class="hint" id="hint" hidden></span>
+      <span class="legend">Widok z boku (makieta 2D) · ⊙ oś ⟂ widoku · - - oś w płaszczyźnie · kliknij element, by go wybrać</span></div>
+    <section class="panel insp" id="insp"></section>
+  </div>
+  <nav class="strip" id="strip" aria-label="Łańcuch elementów od podstawy"></nav>
+  <div class="bottom">
+    <section class="panel"><h2>Odległości osi z łańcucha</h2><div id="kin"></div></section>
+    <section class="panel"><h2>Historia zmian <span class="dim" style="font-weight:400">— Cofnij/Ponów działa także na kroki kreatora</span></h2><ol id="log" style="margin:0;padding:8px 12px 10px 30px;font-size:12px;color:var(--text-2);display:grid;gap:3px"></ol></section>
+  </div>
+</main>
+<script>
+// ── Wspólny rdzeń makiety: biblioteka plików, łańcuch elementów, rysunek z boku (SVG), odległości osi. ──
+// Wymiary w mm, przykładowe. Rzut z boku: oś Y prostopadła do widoku (⊙), X/Z w płaszczyźnie (linia przerywana).
+const LIB = [
+  {file:'podstawa_fi180.stl', tri:'41 tys.', len:90, w:180, kind:'base'},
+  {file:'modul_J1_cykloida.stl', tri:'126 tys.', len:80, w:110, axis:'Z', kind:'axis', fit:'walec Ø72 mm (łożysko krzyżowe)'},
+  {file:'kolumna_120.stl', tri:'8 tys.', len:120, w:60, kind:'structural'},
+  {file:'modul_J2_falowy.stl', tri:'98 tys.', len:90, w:100, axis:'Y', kind:'axis', fit:'walec Ø62 mm (gniazdo łożyska)'},
+  {file:'ramie_250.stl', tri:'12 tys.', len:250, w:55, kind:'structural'},
+  {file:'modul_J3_falowy.stl', tri:'88 tys.', len:80, w:90, axis:'Y', kind:'axis', fit:'walec Ø52 mm (gniazdo łożyska)'},
+  {file:'przedluzka_80.stl', tri:'3 tys.', len:80, w:55, kind:'structural'},
+  {file:'przedramie_200.stl', tri:'15 tys.', len:200, w:50, kind:'structural', dir:'right'},
+  {file:'modul_J4_nadgarstek.stl', tri:'64 tys.', len:70, w:70, axis:'X', kind:'axis', fit:'walec Ø40 mm (czop wyjściowy)'},
+  {file:'modul_J5.stl', tri:'52 tys.', len:60, w:70, axis:'Y', kind:'axis', fit:'walec Ø32 mm (otwór łożyska)'},
+  {file:'kolnierz_J6.stl', tri:'21 tys.', len:40, w:60, axis:'X', kind:'axis', fit:'walec Ø25 mm (czop kołnierza)'},
+  {file:'chwytak_rownolegly.stl', tri:'33 tys.', len:90, w:70, kind:'structural'},
+];
+const lib = file => LIB.find(item => item.file === file);
+let uid = 0;
+function make(file, type, opt = {}) {
+  const l = lib(file);
+  return {id: ++uid, file, type, len: l.len, w: l.w, axis: type === 'axis' ? (opt.axis || l.axis || 'Y') : null, dir: opt.dir ?? l.dir ?? null,
+    side: 'output', offset: 0, rot: 0, rev: false, fit: type === 'axis' ? (l.fit || 'walec Ø40 mm') : null,
+    mate: opt.mate || `walec Ø${l.w - 20} mm ↔ czop Ø${l.w - 20} mm, styk czół`};
+}
+let chain = [make('podstawa_fi180.stl', 'base'), make('modul_J1_cykloida.stl', 'axis'), make('kolumna_120.stl', 'structural'),
+  make('modul_J2_falowy.stl', 'axis'), make('ramie_250.stl', 'structural')];
+const usedFiles = () => new Set(chain.map(e => e.file));
+const nextLibFile = () => LIB.find(l => !usedFiles().has(l.file))?.file ?? LIB[2].file;
+
+// Historia zmian (Cofnij / Ponów) — każda zmiana łańcucha przez commit().
+const past = [], future = [];
+function commit(change) { past.push(JSON.stringify(chain)); future.length = 0; change(); refresh(); }
+function undo() { if (!past.length) return; future.push(JSON.stringify(chain)); chain = JSON.parse(past.pop()); refresh(); }
+function redo() { if (!future.length) return; past.push(JSON.stringify(chain)); chain = JSON.parse(future.pop()); refresh(); }
+
+function layout(list) {
+  let x = 0, y = 0, d = [0, 1];
+  return list.map((e, i) => {
+    if (e.dir === 'right') d = [1, 0]; else if (e.dir === 'up') d = [0, 1];
+    const sx = x + d[0] * e.offset, sy = y + d[1] * e.offset, ex = sx + d[0] * e.len, ey = sy + d[1] * e.len;
+    x = ex; y = ey;
+    return {e, i, sx, sy, ex, ey, d: [...d], cx: (sx + ex) / 2, cy: (sy + ey) / 2};
+  });
+}
+function jointNumbers(list) { let n = 0; return list.map(e => e.type === 'axis' ? ++n : null); }
+const axisCount = (list = chain) => list.filter(e => e.type === 'axis').length;
+const typeLabel = e => e.type === 'base' ? 'Podstawa' : e.type === 'axis' ? 'Miejsce łożyskowania osi' : 'Element konstrukcyjny';
+function nameOf(list, i) { const J = jointNumbers(list); const e = list[i]; return e.type === 'base' ? 'Podstawa' : e.type === 'axis' ? `J${J[i]}` : e.file.replace(/\.stl$/, ''); }
+// Element konstrukcyjny liczy się do kinematyki, gdy za nim jest oś; za ostatnią osią przesuwa TCP.
+function roleText(list, i) {
+  const e = list[i];
+  if (e.type !== 'structural') return '';
+  const J = jointNumbers(list), next = J.findIndex((n, k) => k > i && n);
+  return next >= 0 ? `liczy się do kinematyki (odległość do J${J[next]})` : 'za ostatnią osią — przesuwa TCP';
+}
+// Odległości osi: punkt osi = środek modułu osi; TCP = koniec łańcucha.
+function kinematics(list) {
+  const L = layout(list), J = jointNumbers(list), rows = [];
+  let prev = {x: 0, y: 0}, via = [];
+  L.forEach(p => {
+    if (p.e.type === 'axis') { rows.push({name: `J${J[p.i]}`, axis: p.e.axis, x: p.cx, y: p.cy, dx: p.cx - prev.x, dy: p.cy - prev.y, via, id: p.e.id}); prev = {x: p.cx, y: p.cy}; via = []; }
+    else via = [...via, p.e.type === 'base' ? 'podstawa' : p.e.file.replace(/\.stl$/, '')];
+  });
+  const end = L.at(-1);
+  if (end) rows.push({name: 'TCP', x: end.ex, y: end.ey, dx: end.ex - prev.x, dy: end.ey - prev.y, via, tcp: true});
+  return rows;
+}
+const mm = v => `${v > 0.4 ? '+' : v < -0.4 ? '−' : ''}${Math.abs(Math.round(v))}`;
+const vec = r => [Math.abs(r.dx) > .4 ? `X ${mm(r.dx)}` : '', Math.abs(r.dy) > .4 ? `Z ${mm(r.dy)}` : ''].filter(Boolean).join(' · ') || '0';
+
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent) { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); parent?.appendChild(n); return n; }
+// Rysunek łańcucha: sel = indeks zaznaczonego, ghost = {at, e} wstawiany element (przerywany), pickAt = indeks z migającym miejscem spasowania.
+function drawChain(svg, list, {sel = -1, ghost = null, pickAt = null, onSelect = null, compact = false} = {}) {
+  const items = ghost ? [...list.slice(0, ghost.at), {...ghost.e, ghost: true}, ...list.slice(ghost.at)] : list;
+  const L = layout(items), J = jointNumbers(items);
+  let x0 = -130, x1 = 130, y1 = 120;
+  L.forEach(p => { const h = p.e.w / 2 + 30; x0 = Math.min(x0, p.sx - h, p.ex - h); x1 = Math.max(x1, p.sx + h, p.ex + h + 60); y1 = Math.max(y1, p.sy + h, p.ey + h); });
+  const pad = compact ? 30 : 60;
+  svg.replaceChildren();
+  svg.setAttribute('viewBox', `${x0 - pad} ${-(y1 + pad)} ${x1 - x0 + 2 * pad} ${y1 + 2 * pad + 40}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  const grid = el('g', {stroke: '#1a2129', 'stroke-width': 1}, svg);
+  for (let gx = Math.floor((x0 - pad) / 50) * 50; gx < x1 + pad; gx += 50) el('line', {x1: gx, x2: gx, y1: -(y1 + pad), y2: 40 + pad}, grid);
+  for (let gy = 0; gy < y1 + pad; gy += 50) el('line', {x1: x0 - pad, x2: x1 + pad, y1: -gy, y2: -gy}, grid);
+  el('line', {x1: x0 - pad, x2: x1 + pad, y1: 0, y2: 0, stroke: '#3a424b', 'stroke-width': 1.5}, svg);
+  const body = el('g', {}, svg), over = el('g', {}, svg);
+  L.forEach(p => {
+    const e = p.e, h = e.w / 2, vertical = p.d[1] === 1;
+    const r = vertical ? {x: p.sx - h, y: -(p.sy + e.len), width: e.w, height: e.len} : {x: p.sx, y: -(p.sy + h), width: e.len, height: e.w};
+    const fill = e.type === 'base' ? '#2b3138' : e.type === 'axis' ? '#132a3d' : '#1e252c';
+    const stroke = e.ghost ? '#52f2a0' : (list[sel] && list[sel].id === e.id) ? '#ffb020' : e.type === 'axis' ? '#2fa8ff' : '#56636f';
+    const rect = el('rect', {...r, rx: e.type === 'axis' ? 10 : 3, fill: e.ghost ? '#0b261855' : fill, stroke, 'stroke-width': (list[sel] && list[sel].id === e.id) || e.ghost ? 3 : 1.6,
+      'stroke-dasharray': e.ghost ? '9 6' : 'none'}, body);
+    if (onSelect && !e.ghost) { rect.style.cursor = 'pointer'; rect.addEventListener('click', () => onSelect(list.findIndex(x => x.id === e.id))); }
+    // Miejsce spasowania (początek elementu) — kropka na styku.
+    if (p.i > 0) el('circle', {cx: p.sx, cy: -p.sy, r: 4, fill: '#6e7983'}, over);
+    if (e.type === 'axis') {
+      const color = e.ghost ? '#52f2a0' : '#ffd166';
+      if (e.axis === 'Y') {
+        el('circle', {cx: p.cx, cy: -p.cy, r: Math.min(e.w, e.len) * .3, fill: 'none', stroke: color, 'stroke-width': 2}, over);
+        el('circle', {cx: p.cx, cy: -p.cy, r: 4, fill: color}, over);
+        if (e.rev) el('path', {d: `M${p.cx - 6} ${-p.cy - 6}L${p.cx + 6} ${-p.cy + 6}M${p.cx + 6} ${-p.cy - 6}L${p.cx - 6} ${-p.cy + 6}`, stroke: color, 'stroke-width': 2}, over);
+      } else {
+        const v = e.axis === 'Z' ? [0, 1] : [1, 0], s = e.rev ? -1 : 1, half = Math.max(e.len, e.w) / 2 + 45;
+        el('line', {x1: p.cx - v[0] * half, y1: -(p.cy - v[1] * half), x2: p.cx + v[0] * half, y2: -(p.cy + v[1] * half), stroke: color, 'stroke-width': 2, 'stroke-dasharray': '10 5'}, over);
+        const tx = p.cx + s * v[0] * half, ty = p.cy + s * v[1] * half, nx = -v[1], ny = v[0];
+        el('path', {d: `M${tx} ${-ty}L${tx - s * v[0] * 14 + nx * 7} ${-(ty - s * v[1] * 14 + ny * 7)}L${tx - s * v[0] * 14 - nx * 7} ${-(ty - s * v[1] * 14 - ny * 7)}Z`, fill: color}, over);
+      }
+      const t = el('text', {x: p.cx + (vertical ? h + 12 : 0), y: -(p.cy + (vertical ? 0 : h + 12)), fill: e.ghost ? '#52f2a0' : '#70c6ff', 'font-size': 22, 'font-weight': 700, 'dominant-baseline': 'middle', 'font-family': 'Ubuntu Condensed, sans-serif'}, over);
+      t.textContent = `J${J[p.i]}`;
+    }
+    if (pickAt === p.i) {
+      const ring = el('circle', {cx: p.ex, cy: -p.ey, r: 14, fill: 'none', stroke: '#ffb020', 'stroke-width': 3}, over);
+      el('animate', {attributeName: 'r', values: '10;20;10', dur: '1.4s', repeatCount: 'indefinite'}, ring);
+    }
+  });
+  el('path', {d: 'M-10 0L10 0M0 -10L0 10', stroke: '#aab4bd', 'stroke-width': 2}, over);
+  const zero = el('text', {x: 14, y: 22, fill: '#6e7983', 'font-size': 16, 'font-family': 'Ubuntu Condensed, sans-serif'}, over); zero.textContent = 'zero robota';
+  const end = L.at(-1);
+  if (end) {
+    el('path', {d: `M${end.ex - 9} ${-end.ey}L${end.ex + 9} ${-end.ey}M${end.ex} ${-end.ey - 9}L${end.ex} ${-end.ey + 9}`, stroke: '#52f2a0', 'stroke-width': 2.5}, over);
+    const t = el('text', {x: end.ex + 12, y: -end.ey - 10, fill: '#52f2a0', 'font-size': 18, 'font-family': 'Ubuntu Condensed, sans-serif'}, over); t.textContent = 'TCP';
+  }
+}
+// Tabela odległości osi; highlight = identyfikator nowej osi.
+function kinTable(list, highlight = null) {
+  const rows = kinematics(list);
+  return `<table class="kin"><thead><tr><th>Oś</th><th>Od poprzedniej [mm]</th><th>Przez elementy</th></tr></thead><tbody>${rows.map(r =>
+    `<tr class="${r.id && r.id === highlight ? 'new' : ''}"><td>${r.tcp ? '<span class="chip-s">TCP</span>' : `<span class="chip-j">${r.name}</span> <span class="dim">oś ${r.axis}</span>`}</td>
+     <td class="num">${vec(r)}</td><td class="dim">${r.via.join(' + ') || '—'}</td></tr>`).join('')}</tbody></table>`;
+}
+const icon = {
+  structural: '<svg viewBox="0 0 42 42"><rect x="15" y="4" width="12" height="34" rx="2" fill="#1e252c" stroke="#8a97a3" stroke-width="2"/></svg>',
+  axis: '<svg viewBox="0 0 42 42"><rect x="6" y="9" width="30" height="24" rx="6" fill="#132a3d" stroke="#2fa8ff" stroke-width="2"/><circle cx="21" cy="21" r="7" fill="none" stroke="#ffd166" stroke-width="2"/><circle cx="21" cy="21" r="2" fill="#ffd166"/></svg>',
+  base: '<svg viewBox="0 0 42 42"><rect x="4" y="22" width="34" height="14" rx="2" fill="#2b3138" stroke="#8a97a3" stroke-width="2"/></svg>',
+  tool: '<svg viewBox="0 0 42 42"><path d="M21 4v14M13 18h16v6l-4 12h-2l-2-8-2 8h-2l-4-12z" fill="#1e252c" stroke="#52f2a0" stroke-width="2"/></svg>',
+};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+let sel = -1, draft = null; const log = ['Wczytano szkic: podstawa, J1, kolumna_120, J2, ramie_250'];
+const guide = () => document.getElementById('guide').checked;
+document.getElementById('guide').onchange = refresh;
+document.getElementById('undo').onclick = () => { undo(); log.push('Cofnięto ostatnią zmianę'); refresh(); };
+document.getElementById('redo').onclick = () => { redo(); log.push('Ponowiono zmianę'); refresh(); };
+function startDraft(at, type) { draft = {at, type, file: type === 'axis' ? (LIB.find(l => l.kind === 'axis' && !usedFiles().has(l.file))?.file ?? LIB[3].file) : (LIB.find(l => l.kind === 'structural' && !usedFiles().has(l.file))?.file ?? LIB[2].file),
+  side: 'output', picks: 0, axisPicked: false, rev: false}; sel = -1; refresh(); }
+function draftEl() { const e = make(draft.file, draft.type); e.rev = draft.rev; return e; }
+function stripHtml() {
+  const J = jointNumbers(chain), parts = [];
+  const items = draft ? [...chain.slice(0, draft.at), null, ...chain.slice(draft.at)] : chain;
+  let ci = 0;
+  items.forEach((e, k) => {
+    if (k > 0) parts.push(`<div class="ins"><button title="Wstaw element tutaj" data-ins="${draft && k > draft.at ? k - 1 : k}">+</button></div>`);
+    if (!e) { parts.push(`<div class="node draft" role="button"><div class="head">${icon[draft.type]}<strong>${draft.type === 'axis' ? `J${axisCount(chain.slice(0, draft.at)) + 1}` : 'Nowy element'}</strong></div><span class="fname">${esc(draft.file)}</span><small>w trakcie dodawania…</small></div>`); return; }
+    const i = ci++; const len = e.type === 'axis' ? '' : `${e.len} mm`;
+    parts.push(`<div class="node ${e.type === 'axis' ? 'axis' : ''}" role="button" data-i="${i}" aria-current="${i === sel}"><div class="head">${icon[e.type]}<strong>${e.type === 'axis' ? `J${J[i]}` : e.type === 'base' ? 'Podstawa' : 'Konstrukcyjny'}</strong>${e.type !== 'base' ? '<span class="grip" title="Przeciągnij, by przenieść">⋮⋮</span>' : ''}</div>
+      <span class="fname">${esc(e.file)}</span><small>${e.type === 'axis' ? `oś ${e.rev ? '−' : '+'}${e.axis}` : e.type === 'base' ? 'zero pod podstawą' : `${len} · ${roleText(chain, i).replace('liczy się do kinematyki', 'do kinematyki')}`}</small></div>`);
+  });
+  if (!draft) {
+    const last = nameOf(chain, chain.length - 1), n = axisCount() + 1;
+    parts.push('<div class="ins"></div>');
+    parts.push(guide() ? `<div class="next"><span class="q">Co jest za „${esc(last)}”?</span>
+      <div class="opts"><button data-new="structural">${icon.structural}Konstrukcyjny</button><button data-new="axis">${icon.axis}Oś J${n}</button></div>
+      <small class="dim">${n > 6 ? 'Robot ma 6 osi — dalej tylko narzędzie (konstrukcyjny, przesuwa TCP).' : `Osie: ${n - 1}/6. Element konstrukcyjny liczy się do kinematyki, gdy dodasz za nim oś.`}</small></div>`
+      : `<div class="next idle" role="button" data-new="ask"><span style="font-size:20px">+</span>Dodaj element</div>`);
+  }
+  return parts.join('');
+}
+function inspector() {
+  if (draft) {
+    const parentName = nameOf(chain, draft.at - 1), parent = chain[draft.at - 1], l = lib(draft.file), n = axisCount(chain.slice(0, draft.at)) + 1;
+    const steps = ['Wskaż mocowanie na poprzedniku', 'Wskaż pasującą powierzchnię na elemencie', 'Styk płaszczyzn'];
+    const ready = draft.picks >= 3 && (draft.type !== 'axis' || draft.axisPicked);
+    return `<div class="panel-head"><span class="eyebrow">Nowy element</span>${draft.type === 'axis' ? `<span class="chip-j">J${n}</span>` : ''}<span class="spacer"></span><span class="badge">${draft.type === 'axis' ? 'Miejsce łożyskowania osi' : 'Element konstrukcyjny'}</span></div>
+      <div class="insp-body">
+        <div class="drop">⬆ Upuść plik STL/OBJ albo <label class="field" style="display:inline-grid"><select class="inline" data-k="file">${LIB.map(x => `<option ${x.file === draft.file ? 'selected' : ''}>${x.file}</option>`).join('')}</select></label></div>
+        <div class="row"><span class="muted">Dołącz do „${esc(parentName)}”</span>${parent.type === 'axis' ? `<div class="seg"><button data-side="output" aria-pressed="${draft.side === 'output'}">wyjście</button><button data-side="fixed" aria-pressed="${draft.side === 'fixed'}">korpus</button></div>` : ''}</div>
+        ${steps.map((s, i) => `<div class="pick ${draft.picks > i ? 'done' : ''}"><span>${draft.picks > i ? ['kołnierz wyjściowy — walec Ø' + (parent.w - 20) + ' mm', 'czop centrujący — walec Ø' + (parent.w - 20) + ' mm', 'czoło ↔ czoło'][i] : `${i + 1}. ${s}`}</span>${draft.picks === i ? '<button class="btn sm" data-act="pick">Wskaż</button>' : ''}</div>`).join('')}
+        ${draft.type === 'axis' ? `<div class="pick ${draft.axisPicked ? 'done' : ''}"><span>${draft.axisPicked ? `oś J${n}: ${l.fit || 'walec Ø40 mm'} · zwrot ${draft.rev ? '−' : '+'}${l.axis || 'Y'}` : '4. Wskaż walec łożyskowania osi'}</span>${draft.picks >= 3 ? `<button class="btn sm" data-act="${draft.axisPicked ? 'rev' : 'axis'}">${draft.axisPicked ? 'Odwróć zwrot' : 'Wskaż'}</button>` : ''}</div>` : ''}
+        <div class="grid2"><label class="field">Przesunięcie [mm]<input type="number" value="0"></label><label class="field">Obrót [°]<input type="number" value="0"></label></div>
+      </div>
+      <div class="insp-foot"><button class="btn" data-act="cancel">Anuluj</button><span class="spacer"></span><button class="btn primary" data-act="confirm" ${ready ? '' : 'disabled'}>Dodaj do łańcucha</button></div>`;
+  }
+  if (sel < 0) return `<div class="panel-head">Element</div><div class="insp-body muted">Wybierz kartę w łańcuchu albo element na podglądzie.<br><br>Nowy element: pole „Co jest za…?” na końcu łańcucha albo „+” między kartami.</div><div></div>`;
+  const e = chain[sel];
+  return `<div class="panel-head">${e.type === 'axis' ? `<span class="chip-j">${nameOf(chain, sel)}</span>` : `<strong>${esc(nameOf(chain, sel))}</strong>`}<span class="spacer"></span><span class="badge">${typeLabel(e)}</span></div>
+    <div class="insp-body"><dl class="props"><dt>Plik</dt><dd>${esc(e.file)}</dd>${e.type !== 'base' ? `<dt>Spasowanie</dt><dd>${esc(e.mate)}</dd>` : ''}
+      ${e.type === 'structural' ? `<dt>Kinematyka</dt><dd>${roleText(chain, sel)}</dd>` : ''}${e.type === 'axis' ? `<dt>Oś</dt><dd>${esc(e.fit)} · zwrot ${e.rev ? '−' : '+'}${e.axis}</dd>` : ''}</dl>
+      ${e.type !== 'base' ? `<div class="grid2"><label class="field">Przesunięcie [mm]<input type="number" data-e="offset" value="${e.offset}"></label><label class="field">Obrót [°]<input type="number" data-e="rot" value="${e.rot}"></label></div>
+      <div class="row"><button class="btn sm">Spasuj ponownie</button>${e.type === 'axis' ? '<button class="btn sm" data-act="erev">Odwróć zwrot</button>' : ''}<button class="btn sm" data-act="toggle">${e.type === 'axis' ? '→ Konstrukcyjny' : '→ Miejsce osi'}</button></div>
+      <div class="row"><button class="btn sm" data-act="left" ${sel <= 1 ? 'disabled' : ''}>← Przesuń</button><button class="btn sm" data-act="right" ${sel >= chain.length - 1 ? 'disabled' : ''}>Przesuń →</button><button class="btn sm">Zamień plik…</button></div>` : '<p class="note">Podstawa jest początkiem łańcucha — zero robota pod nią, na osi J1.</p>'}
+    </div><div class="insp-foot">${e.type !== 'base' ? '<button class="btn danger sm" data-act="del">Usuń</button>' : ''}<span class="spacer"></span><span class="dim">zmiany od razu w szkicu</span></div>`;
+}
+document.getElementById('strip').addEventListener('click', ev => {
+  const t = ev.target.closest('[data-i],[data-ins],[data-new]'); if (!t) return;
+  if (t.dataset.i) { draft = null; sel = Number(t.dataset.i); }
+  else if (t.dataset.ins) { startDraft(Number(t.dataset.ins), 'structural'); return; }
+  else if (t.dataset.new === 'ask') { document.getElementById('guide').checked = true; }
+  else { startDraft(chain.length, t.dataset.new); return; }
+  refresh();
+});
+const insp = document.getElementById('insp');
+insp.addEventListener('click', ev => {
+  const t = ev.target.closest('[data-act],[data-side]'); if (!t) return;
+  if (t.dataset.side) draft.side = t.dataset.side;
+  const a = t.dataset.act;
+  if (a === 'pick') draft.picks++; else if (a === 'axis') draft.axisPicked = true; else if (a === 'rev') draft.rev = !draft.rev;
+  else if (a === 'cancel') draft = null;
+  else if (a === 'confirm') { const d = draft, e = draftEl(); commit(() => chain.splice(d.at, 0, e)); log.push(`Dodano ${d.type === 'axis' ? 'oś' : 'element konstrukcyjny'} ${d.file}${d.at < chain.length - 1 ? ` (wstawiony na pozycję ${d.at + 1})` : ''}`); draft = null; sel = guide() ? -1 : d.at; }
+  else if (a === 'del') { const i = sel; log.push(`Usunięto ${chain[i].file}`); commit(() => chain.splice(i, 1)); sel = -1; }
+  else if (a === 'erev') { const i = sel; commit(() => { chain[i].rev = !chain[i].rev; }); log.push(`Odwrócono zwrot ${nameOf(chain, i)}`); }
+  else if (a === 'toggle') { const i = sel; commit(() => { const e = chain[i]; e.type = e.type === 'axis' ? 'structural' : 'axis'; e.axis = e.type === 'axis' ? (lib(e.file).axis || 'Y') : null; e.fit = e.type === 'axis' ? (lib(e.file).fit || 'walec — wskaż oś') : null; }); log.push(`Zmieniono rodzaj ${chain[i].file}`); }
+  else if (a === 'left' || a === 'right') { const i = sel, j = i + (a === 'left' ? -1 : 1); commit(() => { [chain[i], chain[j]] = [chain[j], chain[i]]; }); sel = j; log.push(`Przeniesiono ${chain[j].file}`); }
+  refresh();
+});
+insp.addEventListener('change', ev => {
+  const t = ev.target;
+  if (t.dataset.k) { draft.file = t.value; refresh(); }
+  if (t.dataset.e) { const i = sel, k = t.dataset.e; commit(() => { chain[i][k] = Number(t.value) || 0; }); log.push(`Zmieniono ${k === 'offset' ? 'przesunięcie' : 'obrót'} ${chain[i].file}`); refresh(); }
+});
+function refresh() {
+  document.getElementById('undo').disabled = !past.length; document.getElementById('redo').disabled = !future.length;
+  document.getElementById('strip').innerHTML = stripHtml();
+  insp.innerHTML = inspector();
+  const ghost = draft ? {at: draft.at, e: draftEl()} : null;
+  drawChain(document.getElementById('view'), chain, {sel, ghost, pickAt: draft && draft.picks === 0 ? draft.at - 1 : null, onSelect: i => { draft = null; sel = i; refresh(); }});
+  const hint = document.getElementById('hint');
+  const text = draft ? (draft.picks < 3 ? ['Kliknij kołnierz mocowania na poprzedniku (miga)', 'Kliknij czop / otwór na nowym elemencie', 'Kliknij czoło styku'][draft.picks] : draft.type === 'axis' && !draft.axisPicked ? 'Kliknij walec łożyskowania osi' : 'Gotowe — „Dodaj do łańcucha”') :
+    guide() && sel < 0 ? `Wybierz, co jest za „${nameOf(chain, chain.length - 1)}” — pole na końcu łańcucha` : '';
+  hint.hidden = !text; hint.textContent = text;
+  document.getElementById('kin').innerHTML = kinTable(ghost ? [...chain.slice(0, ghost.at), ghost.e, ...chain.slice(ghost.at)] : chain, ghost?.e.id);
+  document.getElementById('log').innerHTML = log.slice(-6).map(x => `<li>${esc(x)}</li>`).join('');
+}
+refresh();
+</script>
+</body></html>

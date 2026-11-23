@@ -30,7 +30,7 @@ export function attachModel(robot: URDFRobot, model: SceneModel) {
         const mesh = new THREE.Mesh(item.geometry, new THREE.MeshStandardMaterial());
         mesh.name = `model_${item.link}`; mesh.userData.modelMesh = item.id;
         mesh.matrixAutoUpdate = false;
-        mesh.matrix.copy(link.matrixWorld.clone().invert().multiply(model.matrix));
+        mesh.matrix.copy(link.matrixWorld.clone().invert().multiply(item.matrix ? model.matrix.clone().multiply(item.matrix) : model.matrix));
         link.add(mesh); attached++;
     }
     return attached;

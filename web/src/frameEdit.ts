@@ -73,6 +73,20 @@ export function applyJointAxis(values: Values, joint: number, point: THREE.Vecto
     return {draft, direction: target, position: point.clone(), snapped: snap.snapped, reversed: reverse, tiltDeg: deg(current.angleTo(target))};
 }
 
+// Układy J1…Jk z łańcucha modelu 3D (układ bazy robota) → pola konfiguracji J1…Jk. Dalsze przeguby i TCP zachowują
+// zapisane wartości (względem poprzedniego przegubu) — jako bryły wirtualne przesuwają się razem z nowym Jk.
+export function applyChainFrames(_values: Values, frames: THREE.Matrix4[]) {
+    const draft: Record<string, string> = {};
+    frames.slice(0, 6).forEach((frame, i) => Object.assign(draft, relative(i ? frameOf(frames[i - 1]) : base, frameOf(frame), originKeys, `joint.${i + 1}.`)));
+    return draft;
+}
+// Pełny łańcuch układów (baza robota): J1…Jk z modelu, dalej przeguby i TCP z konfiguracji (wirtualne).
+export function continueFrames(values: Values, frames: THREE.Matrix4[]) {
+    const joints: THREE.Matrix4[] = [];
+    for (let i = 0; i < 6; i++) joints.push(frames[i]?.clone() ?? (i ? joints[i - 1] : new THREE.Matrix4()).clone().multiply(local(values, originKeys, `joint.${i + 1}.`, demoTranslations[i])));
+    return {joints, tool: joints[5].clone().multiply(local(values, tcpKeys, "tool.", [80, 0, 0]))};
+}
+
 // TCP w punkcie `point` (orientacja narzędzia względem kołnierza bez zmian).
 export function applyTcpPoint(values: Values, point: THREE.Vector3) {
     const {joints} = worldFrames(values);

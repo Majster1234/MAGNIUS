@@ -136,3 +136,27 @@ export function fitCylinder(geometry: THREE.BufferGeometry, face: number, matrix
     return {point: fit.point.clone().applyMatrix4(matrix), direction: fit.direction.clone().applyMatrix3(rotation).normalize(),
         radius, residual, faces: faces.length, coverageDeg: THREE.MathUtils.radToDeg(2 * Math.PI - gap)};
 }
+
+// Płaszczyzna styku (czoło kołnierza, powierzchnia oporowa): region ścian o niemal równoległych normalnych od wskazanego
+// trójkąta, normalna i punkt (środek) ważone polem. Ściana zakrzywiona → komunikat.
+export type PlaneFit = { point: THREE.Vector3; normal: THREE.Vector3; faces: number; flatnessDeg: number };
+export function fitPlane(geometry: THREE.BufferGeometry, face: number, maxStepDeg = 3): PlaneFit {
+    const top = topology(geometry);
+    if (!(face >= 0 && face < top.areas.length)) throw Error("Nie wskazano ściany siatki");
+    const faces = smoothRegion(top, face, maxStepDeg);
+    const normal = new THREE.Vector3(), point = new THREE.Vector3();
+    let total = 0;
+    for (const f of faces) {
+        const w = top.areas[f];
+        normal.x += w * top.normals[f * 3]; normal.y += w * top.normals[f * 3 + 1]; normal.z += w * top.normals[f * 3 + 2];
+        point.x += w * top.centroids[f * 3]; point.y += w * top.centroids[f * 3 + 1]; point.z += w * top.centroids[f * 3 + 2];
+        total += w;
+    }
+    if (!(total > 0) || normal.length() < 1e-12) throw Error("Nie wyznaczono płaszczyzny — wskaż płaską ścianę");
+    normal.normalize(); point.multiplyScalar(1 / total);
+    let worst = 0;
+    for (const f of faces) worst = Math.max(worst, Math.acos(Math.min(1, top.normals[f * 3] * normal.x + top.normals[f * 3 + 1] * normal.y + top.normals[f * 3 + 2] * normal.z)));
+    const flatnessDeg = THREE.MathUtils.radToDeg(worst);
+    if (flatnessDeg > 6) throw Error("Wskazana powierzchnia nie jest płaska — wskaż czoło (płaską ścianę) styku");
+    return {point, normal, faces: faces.length, flatnessDeg};
+}

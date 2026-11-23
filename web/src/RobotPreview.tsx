@@ -70,8 +70,16 @@ export function RobotPreview({ state, usable, pending, physicalJogActive, onNoti
                 try {
                     const { fetchRobotModel, loadAssemblyMeshes, assemblyMatrix } = await import('./robotModel');
                     const stored = await fetchRobotModel();
-                    const items = await loadAssemblyMeshes(stored);
-                    if (items.length) sceneModel = {items, matrix: assemblyMatrix(stored.assembly)};
+                    // Łańcuch elementów (tryb modułowy) — siatki w układzie bazy robota; bez łańcucha — dawne złożenie.
+                    if (stored.chain?.elements.length) {
+                        const { loadChainMeshes } = await import('./modelChain');
+                        const { Matrix4 } = await import('three');
+                        const items = await loadChainMeshes(stored);
+                        if (items.length) sceneModel = {items, matrix: new Matrix4()};
+                    } else {
+                        const items = await loadAssemblyMeshes(stored);
+                        if (items.length) sceneModel = {items, matrix: assemblyMatrix(stored.assembly)};
+                    }
                 } catch { sceneModel = null; }
                 if (closed || !host.current || (input.current.expectedRevision ?? input.current.state?.configuration_revision) !== revisionToLoad) return;
                 try {
