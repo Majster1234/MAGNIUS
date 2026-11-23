@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Programowanie · v2 Bloki</title>
+<!-- Szkic trybu „Programowanie trajektorii” (temp/programowanie_trajektorii/README.md). Samodzielny plik:
+     dane przykładowe, bez API/ROS/CAN. Widok 3D: three.js 0.164.1 z CDN (bez sieci — komunikat zastępczy). -->
+<style>
+:root{--bg-app:#0b1017;--bg-panel:#131b24;--bg-elevated:#192430;--surface:#131b24;--surface-raised:#192430;--border:#283648;--text:#e0e8f0;--muted:#9aaaba;
+  --live:#10b981;--plan:#3b82f6;--prog:#a78bfa;--warn:#f59e0b;--danger:#ef4444;--accent:var(--prog);
+  --c-ruch:#3b82f6;--c-logika:#a78bfa;--c-czas:#f59e0b;--c-io:#10b981;--c-zmienne:#ec6fa8;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg-app);color:var(--text);font:12px/1.4 Inter,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit}code,.mono{font-family:Consolas,"SFMono-Regular",monospace}
+.mockbar{display:flex;gap:10px;align-items:center;padding:6px 14px;background:#0f151d;border-bottom:1px dashed #5a4a22;color:#d9bd86;font-size:10px}
+.mockbar b{border:1px dashed var(--warn);border-radius:3px;padding:1px 6px;color:var(--warn);letter-spacing:1px}
+.sidebar{position:fixed;top:0;bottom:0;left:0;width:226px;background:#101b28;border-right:1px solid var(--border);color:#a3afbd;padding:18px 12px;display:flex;flex-direction:column;gap:4px;z-index:5}
+.brand{display:flex;gap:10px;align-items:center;margin:0 6px 18px}.brand-mark{width:30px;height:30px;border-radius:7px;background:#19312f;display:grid;place-items:center;color:#81dfb6;font-weight:800}
+.brand b{display:block;color:#e0e8f0;letter-spacing:1.5px}.brand small{font-size:9px;letter-spacing:1.4px;color:var(--muted)}
+.nav-label{font-size:9px;letter-spacing:1.8px;color:#6f8090;margin:6px 8px}
+.nav-item{display:flex;gap:10px;align-items:center;padding:11px 12px;border-radius:6px;font-size:12px}.nav-item.sel{color:#c9b8ff;background:#251f3b}
+.with-sidebar{margin-left:226px}
+.page-head{display:flex;align-items:center;gap:10px;height:48px;padding:0 18px;border-bottom:1px solid var(--border)}
+.page-head{white-space:nowrap}.page-head h1{font-size:17px;margin:0 8px 0 0;font-weight:650;letter-spacing:-.3px;white-space:nowrap}.spacer{flex:1}
+.mode-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:10px;font-weight:700;letter-spacing:.6px}
+.mode-chip i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.btn{border-radius:5px;padding:7px 11px;font-size:11px;font-weight:600;border:1px solid var(--border);background:var(--surface);color:#b6c7d4;cursor:pointer}
+.btn:hover{background:var(--bg-elevated)}.btn.primary{background:#1f8060;border-color:#1f8060;color:#fff}.btn.prog{background:#3a2f63;border-color:#6d5bb8;color:#e4dcff}
+.btn[disabled]{opacity:.45;cursor:not-allowed}.btn.sm{padding:4px 8px;font-size:10px}
+.stop{min-height:30px;padding:5px 16px;border:1px solid #ff7580;border-radius:6px;background:#9e2633;color:#fff;font-size:12px;font-weight:750}
+.badge{display:inline-flex;align-items:center;gap:6px;border-radius:4px;padding:3px 7px;font-size:9px;font-weight:600;background:var(--surface-raised);color:var(--muted)}
+.badge.ok{background:#21382f;color:#8ecbb1}.badge.warn{background:#373124;color:#d9bd86}.badge.error{background:#3b292c;color:#e0a29b}.badge.prog{background:#2a2442;color:#c9b8ff}
+.dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.panel{background:var(--bg-panel);border:1px solid var(--border);border-top:2px solid var(--accent);border-radius:8px;display:flex;flex-direction:column;min-height:0}
+.panel-head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;font-weight:650}
+.panel-head small{color:var(--muted);font-weight:500}
+.eyebrow{font-size:9px;letter-spacing:1.8px;color:var(--muted);text-transform:uppercase}
+.viewport{position:relative;background:#131b22;min-height:200px;overflow:hidden}.viewport canvas{display:block}
+.no3d{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:20px;line-height:1.7}
+.scene-labels{position:absolute;inset:0;pointer-events:none}
+.scene-label{position:absolute;left:0;top:0;font-size:9px;color:#c9b8ff;background:#0b1017cc;border:1px solid #3a3160;border-radius:3px;padding:1px 4px;white-space:nowrap;margin:-22px 0 0 6px}
+.scene-label.tcp{color:#3ad6ff;border-color:#1d5466}.scene-label.hl{color:#fff;background:#3a2f63;border-color:var(--prog)}
+.legend{position:absolute;left:10px;bottom:8px;display:flex;gap:12px;font-size:9px;color:var(--muted);pointer-events:none}
+.legend span:before{content:"";display:inline-block;width:16px;height:2px;margin-right:5px;vertical-align:middle;background:var(--c)}
+.simbar{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--border)}
+.simbar .track{flex:1;height:4px;background:var(--bg-elevated);border-radius:2px;position:relative;cursor:pointer}.simbar .fill{position:absolute;inset:0 auto 0 0;background:var(--prog);border-radius:2px}
+.simbar .time{font-size:10px;color:var(--muted);min-width:78px;text-align:right}
+select,input{font:inherit;color:var(--text);background:var(--bg-app);border:1px solid var(--border);border-radius:4px;padding:4px 6px}
+.running{outline:1px solid var(--prog);background:#251f3b !important;box-shadow:inset 3px 0 0 var(--prog)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:11px}.kv span{color:var(--muted)}
+table.pos{width:100%;border-collapse:collapse;font-size:10.5px}table.pos th{font-size:9px;color:var(--muted);font-weight:600;text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}
+table.pos td{padding:5px 6px;border-bottom:1px solid #1d2835}table.pos tr:hover td{background:#16202b}
+.cat-ruch{--c:var(--c-ruch)}.cat-logika{--c:var(--c-logika)}.cat-czas{--c:var(--c-czas)}.cat-io{--c:var(--c-io)}.cat-zmienne{--c:var(--c-zmienne)}
+.stat{display:flex;gap:14px;font-size:10px;color:var(--muted)}.stat b{color:var(--text);font-weight:600}
+.note{font-size:10px;color:var(--muted)}
+.simbar .btn{white-space:nowrap}
+
+/* ===== wariant ===== */
+
+.layout{display:grid;grid-template-columns:230px 1fr 460px;gap:12px;padding:12px 18px;height:calc(100vh - 48px - 27px)}
+.palette{overflow:auto;padding:8px}.palette h4{margin:10px 4px 6px;font-size:9px;letter-spacing:1.6px;color:var(--muted);font-weight:600}
+.pblk{display:block;margin:5px 0;padding:6px 9px;border-radius:6px;background:color-mix(in srgb,var(--c) 26%,#131b24);border-left:4px solid var(--c);font-size:11px;cursor:grab}
+.canvas{position:relative;overflow:auto;flex:1;background-color:#0f161e;background-image:radial-gradient(#1e2a37 1px,transparent 1px);background-size:18px 18px;padding:18px 22px}
+.blk{display:block;width:max-content;max-width:100%;margin:3px 0;padding:7px 10px;border-radius:7px;background:color-mix(in srgb,var(--c) 30%,#131b24);border:1px solid color-mix(in srgb,var(--c) 60%,transparent);
+  font-size:11.5px;box-shadow:0 2px 0 #0007;position:relative}
+.blk:before{content:"";position:absolute;left:14px;top:-4px;width:16px;height:5px;border-radius:0 0 3px 3px;background:inherit}
+.blk.wrap{padding:0;min-width:360px;background:none;border:0;box-shadow:none}.blk.wrap:before{display:none}
+.bh,.bf,.bm{background:color-mix(in srgb,var(--c) 30%,#131b24);border:1px solid color-mix(in srgb,var(--c) 60%,transparent);padding:7px 10px}
+.bh{border-radius:7px 7px 0 0}.bf{border-radius:0 0 7px 7px;font-size:10px;color:var(--muted);width:120px}.bm{font-size:10.5px;width:160px}
+.slot{border-left:14px solid color-mix(in srgb,var(--c) 30%,#131b24);padding:4px 0 4px 8px;min-height:24px}
+.pill{display:inline-block;background:#0b1017aa;border:1px solid #ffffff22;border-radius:999px;padding:0 8px;margin:0 3px;font-weight:600}
+.pill.pos{color:#e4dcff}.hat{display:inline-block;padding:8px 14px;border-radius:14px 14px 7px 7px;background:#2c3f2f;border:1px solid #477467;font-weight:650;margin-bottom:4px}
+.blk.running,.bh.running{outline:2px solid #fff;box-shadow:0 0 0 4px #a78bfa55}
+.ghost{opacity:.55;border-style:dashed}.dropzone{height:4px;margin:2px 0;border-radius:2px;background:#a78bfa;width:220px;box-shadow:0 0 8px #a78bfa}
+.right{display:flex;flex-direction:column;gap:12px;min-height:0}.right .viewport{height:330px}
+.code{font-family:Consolas,monospace;font-size:10.5px;overflow:auto;padding:6px 0;flex:1}.code div{padding:1px 10px;white-space:pre;color:#b6c7d4}
+.trash{position:absolute;right:14px;bottom:12px;color:var(--muted);font-size:10px;border:1px dashed var(--border);border-radius:6px;padding:8px 12px;background:#0b1017cc}
+
+</style>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.164.1/build/three.module.js","three/addons/":"https://unpkg.com/three@0.164.1/examples/jsm/"}}</script>
+</head><body>
+<aside class="sidebar"><div class="brand"><div class="brand-mark">R</div><div><b>ROBOT</b><small>6-DOF / STANOWISKO</small></div></div>
+<div class="nav-label">PRZESTRZEŃ ROBOCZA</div>
+<div class="nav-item">◫ Przegląd systemu</div><div class="nav-item">⇄ Magistrala CAN</div><div class="nav-item">∿ Diagnostyka</div>
+<div class="nav-item">↔ Sterowanie ręczne</div><div class="nav-item sel">⌖ Programowanie</div><div class="nav-item">⚙ Konfiguracja</div><div class="nav-item">⌘ Architektura</div>
+<div style="flex:1"></div><div class="nav-label">PANEL ROBOTA · Dostęp lokalny · CAN</div></aside><div class="with-sidebar"><div class="mockbar"><b>SZKIC</b><span>Wariant 2 — programowanie blokowe (jak Scratch/Blockly): paleta · płótno · 3D i podgląd kodu</span><span class="spacer"></span><span>Dane przykładowe · bez połączenia z robotem · ruch fizyczny wyłączony</span></div>
+<header class="page-head"><h1>Programowanie trajektorii</h1><select><option>Paletyzacja 3×</option></select><span class="badge">widok: bloki</span>
+<span class="seg" style="display:inline-flex;border:1px solid var(--border);border-radius:5px"><button class="btn sm" style="border:0;background:var(--bg-elevated)">Bloki</button><button class="btn sm" style="border:0;background:none">Tekst</button></span>
+<button class="btn">Zapisz</button><span class="spacer"></span><span class="mode-chip"><i></i>PROGRAMOWANIE · symulacja</span><button class="btn" disabled>Wykonaj na robocie</button><button class="stop">STOP</button></header>
+<main class="layout">
+ <div class="panel"><div class="panel-head">Bloki <small>przeciągnij na płótno</small></div><div class="palette">
+  <h4>RUCH</h4><span class="pblk cat-ruch">⤳ jedź PTP do 📍 …</span><span class="pblk cat-ruch">⤳ jedź LIN do 📍 …</span><span class="pblk cat-ruch">⤳ przesuń TCP o Δ X/Y/Z</span><span class="pblk cat-ruch">📍 zapamiętaj bieżącą jako …</span>
+  <h4>LOGIKA</h4><span class="pblk cat-logika">↻ powtórz i od … do …</span><span class="pblk cat-logika">⟳ powtarzaj dopóki …</span><span class="pblk cat-logika">⑂ jeśli … to … inaczej</span><span class="pblk cat-logika">⇥ podprogram …</span>
+  <h4>CZAS</h4><span class="pblk cat-czas">⏱ czekaj … s</span><span class="pblk cat-czas">⏸ pauza do potwierdzenia</span>
+  <h4>WEJŚCIA / WYJŚCIA</h4><span class="pblk cat-io">◉ ustaw wyjście … na …</span><span class="pblk cat-io">⏳ czekaj aż wejście … = …</span>
+  <h4>ZMIENNE</h4><span class="pblk cat-zmienne">x ustaw zmienną … = …</span><span class="pblk cat-zmienne">x zwiększ licznik …</span>
+  <h4>POZYCJE (7)</h4><div id="posp"></div></div></div>
+ <div class="panel"><div class="panel-head">Płótno programu <small>Paletyzacja 3×</small><span class="spacer"></span><button class="btn sm">− 100% +</button><button class="btn sm">Uporządkuj</button></div>
+  <div class="canvas" id="canvas"></div></div>
+ <div class="right"><div class="panel"><div class="panel-head">Symulacja 3D <span class="spacer"></span><span class="badge" id="steplabel">—</span></div><div class="viewport" id="vp"></div><div class="simbar"><button class="btn prog sm" id="play">▶ Symuluj</button><button class="btn sm" id="step" title="Następna instrukcja">⏭ Krok</button>
+<button class="btn sm" id="reset" title="Od początku">⟲</button><select id="speed"><option value=".5">0,5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+<div class="track" id="track"><div class="fill" id="fill"></div></div><span class="time" id="time">0:00 / 0:00</span></div></div>
+  <div class="panel" style="flex:1"><div class="panel-head">Kod wygenerowany z bloków <small>tylko do odczytu</small></div><div class="code" id="code"></div></div></div>
+</main></div>
+<script type="module">
+// ===== Wspólne: dane przykładowe, kinematyka, interpreter i scena 3D (szkic, bez API) =====
+const GEOM=[[0,0,100],[0,0,100],[0,0,250],[220,0,0],[80,0,0],[60,0,0]];   // web/src/configurationData.ts demoTranslations
+const AXES=['z','y','y','x','y','x'];                                        // jointAxes
+const TOOL=[80,0,0];
+const LIMITS=[[-171,171],[-200,30],[-196,57],[-180,180],[-100,100],[-180,180]];
+const POS={
+  'Home':           {q:[0,0,0,0,45,0],      note:'pozycja bazowa'},
+  'Nad_odbiorem':   {q:[30,15,10,0,50,30],  note:'84 mm nad odbiorem'},
+  'Odbiór':         {q:[30,25,15,0,40,30],  note:'chwyt detalu'},
+  'Nad_odkładaniem':{q:[-35,15,10,0,50,-35],note:'nad paletą'},
+  'Odkładanie_1':   {q:[-25,25,15,0,40,-25],note:'gniazdo 1'},
+  'Odkładanie_2':   {q:[-35,25,15,0,40,-35],note:'gniazdo 2'},
+  'Odkładanie_3':   {q:[-45,25,15,0,40,-45],note:'gniazdo 3'},
+};
+const PROGRAM=[
+  {id:1, op:'move', type:'PTP', pos:'Home', v:30, unit:'%'},
+  {id:2, op:'for', var:'i', from:1, to:3, body:[
+    {id:3, op:'move', type:'PTP', pos:'Nad_odbiorem', v:40, unit:'%'},
+    {id:4, op:'move', type:'LIN', pos:'Odbiór', v:50, unit:'mm/s'},
+    {id:5, op:'wait', s:0.5},
+    {id:6, op:'set', out:'OUT1', val:1, note:'chwytak: zamknij'},
+    {id:7, op:'move', type:'LIN', pos:'Nad_odbiorem', v:80, unit:'mm/s'},
+    {id:8, op:'move', type:'PTP', pos:'Nad_odkładaniem', v:40, unit:'%'},
+    {id:9, op:'move', type:'LIN', pos:'Odkładanie_{i}', v:50, unit:'mm/s'},
+    {id:10, op:'set', out:'OUT1', val:0, note:'chwytak: otwórz'},
+    {id:11, op:'waitin', inp:'IN2', val:1, timeout:2, note:'czujnik obecności detalu'},
+    {id:12, op:'if', cond:'i == 3', body:[
+      {id:13, op:'move', type:'PTP', pos:'Home', v:30, unit:'%'}],
+     else:[
+      {id:14, op:'move', type:'LIN', pos:'Nad_odkładaniem', v:80, unit:'mm/s'}]},
+  ]},
+  {id:15, op:'move', type:'PTP', pos:'Home', v:30, unit:'%'},
+];
+const OP_META={move:{icon:'⤳',cat:'ruch',label:'Ruch'},for:{icon:'↻',cat:'logika',label:'Pętla FOR'},if:{icon:'⑂',cat:'logika',label:'Warunek IF'},
+  wait:{icon:'⏱',cat:'czas',label:'Czekaj'},waitin:{icon:'⏳',cat:'io',label:'Czekaj na wejście'},set:{icon:'◉',cat:'io',label:'Ustaw wyjście'}};
+const D2R=Math.PI/180,R2D=180/Math.PI;
+
+// --- kinematyka prosta (mm, °) ---
+function rot(a,q){const c=Math.cos(q),s=Math.sin(q);
+  return a==='x'?[[1,0,0],[0,c,-s],[0,s,c]]:a==='y'?[[c,0,s],[0,1,0],[-s,0,c]]:[[c,-s,0],[s,c,0],[0,0,1]];}
+function mul(A,B){return A.map((r,i)=>B[0].map((_,j)=>r.reduce((s,_,k)=>s+A[i][k]*B[k][j],0)));}
+function fk(q){let R=[[1,0,0],[0,1,0],[0,0,1]],p=[0,0,0];const frames=[[0,0,0]];
+  for(let j=0;j<6;j++){p=p.map((v,i)=>v+R[i][0]*GEOM[j][0]+R[i][1]*GEOM[j][1]+R[i][2]*GEOM[j][2]);frames.push(p.slice());R=mul(R,rot(AXES[j],q[j]*D2R));}
+  p=p.map((v,i)=>v+R[i][0]*TOOL[0]+R[i][1]*TOOL[1]+R[i][2]*TOOL[2]);frames.push(p.slice());
+  return {p,R,frames,rpy:[Math.atan2(R[2][1],R[2][2])*R2D,Math.asin(Math.max(-1,Math.min(1,-R[2][0])))*R2D,Math.atan2(R[1][0],R[0][0])*R2D]};}
+const fmt=(v,d=1)=>(Math.round(v*10**d)/10**d).toFixed(d);
+function posName(name,env){return name.replace('{i}',env.i??'i');}
+
+// --- tekst programu (DSL) ---
+function lineText(n){
+  if(n.op==='move')return `MOVE ${n.type} ${n.pos.replace('{i}','[i]')}  v=${n.v}${n.unit==='%'?'%':' '+n.unit}`;
+  if(n.op==='for')return `FOR ${n.var} = ${n.from} TO ${n.to}`;
+  if(n.op==='if')return `IF ${n.cond} THEN`;
+  if(n.op==='wait')return `WAIT ${n.s} s`;
+  if(n.op==='waitin')return `WAIT ${n.inp} == ${n.val}  TIMEOUT ${n.timeout} s`;
+  if(n.op==='set')return `SET ${n.out} = ${n.val}`;
+  return n.op;}
+function flatLines(nodes=PROGRAM,depth=0,out=[]){
+  for(const n of nodes){out.push({id:n.id,depth,node:n,text:lineText(n),comment:n.note||''});
+    if(n.op==='for'){flatLines(n.body,depth+1,out);out.push({id:n.id+'e',depth,node:n,text:'END FOR',end:true});}
+    if(n.op==='if'){flatLines(n.body,depth+1,out);if(n.else){out.push({id:n.id+'x',depth,node:n,text:'ELSE',end:true});flatLines(n.else,depth+1,out);}out.push({id:n.id+'e',depth,node:n,text:'END IF',end:true});}}
+  return out;}
+
+// --- kompilacja do kroków symulacji (pętle rozwinięte, IF rozstrzygnięty) ---
+function compile(){const steps=[];let q=POS.Home.q.slice();const env={};
+  function run(nodes){for(const n of nodes){
+    if(n.op==='move'){const name=posName(n.pos,env),to=POS[name].q,from=q.slice();
+      let dur;if(n.type==='PTP'){const d=Math.max(...to.map((v,k)=>Math.abs(v-from[k])));dur=d/(80*n.v/100)+.35;}
+      else{const a=fk(from).p,b=fk(to).p;dur=Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])/n.v+.35;}
+      steps.push({line:n.id,kind:'move',type:n.type,from,to,dur:Math.max(.25,dur),label:`${n.type} → ${name}`,i:env.i});q=to.slice();}
+    else if(n.op==='for'){for(let i=n.from;i<=n.to;i++){env[n.var]=i;steps.push({line:n.id,kind:'info',dur:.15,label:`FOR i = ${i}`,from:q,to:q,i});run(n.body);}
+      steps.push({line:n.id+'e',kind:'info',dur:.1,label:'END FOR',from:q,to:q});}
+    else if(n.op==='if'){const ok=env.i===3;steps.push({line:n.id,kind:'info',dur:.15,label:`IF ${n.cond} → ${ok?'tak':'nie'}`,from:q,to:q,i:env.i});run(ok?n.body:(n.else||[]));}
+    else if(n.op==='wait')steps.push({line:n.id,kind:'wait',dur:n.s,label:`WAIT ${n.s} s`,from:q,to:q,i:env.i});
+    else if(n.op==='waitin')steps.push({line:n.id,kind:'wait',dur:.4,label:`${n.inp} == ${n.val} (sym.: spełnione po 0,4 s)`,from:q,to:q,i:env.i});
+    else if(n.op==='set')steps.push({line:n.id,kind:'set',dur:.2,label:`${n.out} = ${n.val}`,out:n.out,val:n.val,from:q,to:q,i:env.i});}}
+  run(PROGRAM);let t=0;for(const s of steps){s.t0=t;t+=s.dur;}return {steps,total:t};}
+const ease=x=>x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+
+// --- symulator: czas, stan, scena 3D (three.js z CDN; bez sieci tylko tekst) ---
+async function createSim(container,hooks={}){
+  const {steps,total}=compile();let t=0,playing=false,speed=1,last=null,out1=0,current=-1;
+  const sample=[];for(const s of steps)if(s.kind==='move')for(let k=0;k<=20;k++){const u=ease(k/20);sample.push(fk(s.from.map((v,j)=>v+(s.to[j]-v)*u)).p);}
+  let scene3d=null;
+  try{scene3d=await buildScene(container,sample);}catch(e){container.innerHTML='<div class="no3d">Widok 3D wymaga połączenia z CDN (three.js 0.164.1).<br>Symulacja programu działa dalej — śledź podświetlenie instrukcji.</div>';}
+  function stepAt(time){let i=steps.findIndex(s=>time<s.t0+s.dur);return i<0?steps.length-1:i;}
+  function qAt(time){const i=stepAt(time),s=steps[i];const u=Math.min(1,Math.max(0,(time-s.t0)/s.dur));return {i,s,q:s.from.map((v,j)=>v+(s.to[j]-v)*ease(u))};}
+  function apply(){const {i,s,q}=qAt(t);out1=0;for(let k=0;k<=i;k++)if(steps[k].kind==='set'&&(k<i||t>=steps[k].t0))out1=steps[k].val;
+    if(i!==current){current=i;hooks.onLine?.(s.line,s);}
+    scene3d?.setPose(q,t/total,out1);hooks.onState?.({t,total,q,step:s,index:i,out1,playing,tcp:fk(q)});}
+  function frame(ts){if(playing){const dt=last==null?0:(ts-last)/1000;t=Math.min(total,t+dt*speed);if(t>=total)playing=false;apply();}last=ts;requestAnimationFrame(frame);}
+  requestAnimationFrame(frame);apply();
+  return {steps,total,play(){if(t>=total)t=0;playing=true;last=null;apply();},pause(){playing=false;apply();},
+    toggle(){playing?this.pause():this.play();},step(){const i=stepAt(t);t=Math.min(total,(steps[i].t0+steps[i].dur)+1e-6);playing=false;apply();},
+    reset(){t=0;playing=false;current=-1;apply();},seek(f){t=Math.max(0,Math.min(total,f*total));apply();},setSpeed(x){speed=x;},
+    showPosition(name){scene3d?.highlight(name);},get playing(){return playing;}};
+}
+async function buildScene(container,sample){
+  const THREE=await import('three');const {OrbitControls}=await import('three/addons/controls/OrbitControls.js');
+  const w=container.clientWidth||600,h=container.clientHeight||400;
+  const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(2,devicePixelRatio));renderer.setSize(w,h);renderer.setClearColor(0x131b22);
+  container.innerHTML='';container.appendChild(renderer.domElement);
+  const labels=document.createElement('div');labels.className='scene-labels';container.appendChild(labels);
+  const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera(36,w/h,.01,20);camera.up.set(0,0,1);camera.position.set(1.05,-1.0,.75);
+  const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(.22,0,.22);controls.update();
+  scene.add(new THREE.HemisphereLight(0xdbe8f0,0x364940,2));const dl=new THREE.DirectionalLight(0xffffff,2);dl.position.set(1,-2,3);scene.add(dl);
+  const grid=new THREE.GridHelper(2,20,0x40574f,0x25313a);grid.rotation.x=Math.PI/2;scene.add(grid);
+  const linkMat=new THREE.MeshStandardMaterial({color:0x8096a3,metalness:.25,roughness:.55}),jointMat=new THREE.MeshStandardMaterial({color:0x77c8a7,roughness:.5}),baseMat=new THREE.MeshStandardMaterial({color:0x4b616c});
+  const S=1/1000;const base=new THREE.Mesh(new THREE.CylinderGeometry(.09,.1,.1,32),baseMat);base.rotation.x=Math.PI/2;base.position.z=.05;scene.add(base);
+  const axisVec={x:new THREE.Vector3(1,0,0),y:new THREE.Vector3(0,1,0),z:new THREE.Vector3(0,0,1)};
+  function cyl(a,b,r,mat){const va=new THREE.Vector3(...a),vb=new THREE.Vector3(...b),len=va.distanceTo(vb);const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,20),mat);
+    m.position.copy(va).add(vb).multiplyScalar(.5);m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),vb.clone().sub(va).normalize());return m;}
+  let parent=scene;const pivots=[];
+  for(let j=0;j<6;j++){const g=new THREE.Group();g.position.set(GEOM[j][0]*S,GEOM[j][1]*S,GEOM[j][2]*S);parent.add(g);const piv=new THREE.Group();g.add(piv);pivots.push(piv);
+    const jm=new THREE.Mesh(new THREE.CylinderGeometry(.032,.032,.075,24),jointMat);jm.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),axisVec[AXES[j]]);piv.add(jm);
+    const next=j<5?GEOM[j+1]:TOOL;piv.add(cyl([0,0,0],[next[0]*S,next[1]*S,next[2]*S],j<3?.024:.018,linkMat));parent=piv;}
+  const tool=new THREE.Group();tool.position.set(TOOL[0]*S,0,0);parent.add(tool);
+  const grip=new THREE.Mesh(new THREE.BoxGeometry(.03,.05,.05),new THREE.MeshStandardMaterial({color:0x4b616c}));tool.add(grip);tool.add(new THREE.AxesHelper(.06));
+  const fingerMat=new THREE.MeshStandardMaterial({color:0xa78bfa});const f1=new THREE.Mesh(new THREE.BoxGeometry(.03,.008,.01),fingerMat),f2=f1.clone();f1.position.set(.025,.018,0);f2.position.set(.025,-.018,0);tool.add(f1,f2);
+  const toV=p=>new THREE.Vector3(p[0]*S,p[1]*S,p[2]*S);
+  const plan=new THREE.Line(new THREE.BufferGeometry().setFromPoints(sample.map(toV)),new THREE.LineBasicMaterial({color:0x4da3ff,transparent:true,opacity:.75}));scene.add(plan);
+  const doneGeo=new THREE.BufferGeometry().setFromPoints(sample.map(toV));const done=new THREE.Line(doneGeo,new THREE.LineBasicMaterial({color:0xffc857}));scene.add(done);
+  const markers={};let k=1;for(const [name,p] of Object.entries(POS)){const c=fk(p.q).p;const m=new THREE.Mesh(new THREE.SphereGeometry(.009,16,12),new THREE.MeshBasicMaterial({color:0xa78bfa}));m.position.copy(toV(c));scene.add(m);
+    const el=document.createElement('span');el.className='scene-label';el.textContent=`P${k++} ${name}`;labels.appendChild(el);markers[name]={m,el,pos:m.position.clone()};}
+  const tcpEl=document.createElement('span');tcpEl.className='scene-label tcp';tcpEl.textContent='TCP';labels.appendChild(tcpEl);
+  const tcpDot=new THREE.Mesh(new THREE.SphereGeometry(.006,12,10),new THREE.MeshBasicMaterial({color:0x3ad6ff}));scene.add(tcpDot);
+  let highlighted=null;
+  function resize(){const W=container.clientWidth,H=container.clientHeight;if(!W||!H)return;renderer.setSize(W,H);camera.aspect=W/H;camera.updateProjectionMatrix();}
+  new ResizeObserver(resize).observe(container);
+  function place(el,v){const p=v.clone().project(camera);const W=container.clientWidth,H=container.clientHeight;el.style.transform=`translate(${(p.x*.5+.5)*W}px,${(-p.y*.5+.5)*H}px)`;el.style.display=p.z<1?'':'none';}
+  (function loop(){requestAnimationFrame(loop);controls.update();for(const n in markers)place(markers[n].el,markers[n].pos);place(tcpEl,tcpDot.position);renderer.render(scene,camera);})();
+  return {setPose(q,frac,out1){q.forEach((v,j)=>{pivots[j].rotation.set(0,0,0);pivots[j].rotateOnAxis(axisVec[AXES[j]],v*D2R);});
+      tcpDot.position.copy(toV(fk(q).p));doneGeo.setDrawRange(0,Math.round(frac*sample.length));const g=out1?.008:.018;f1.position.y=g;f2.position.y=-g;},
+    highlight(name){if(highlighted)highlighted.m.scale.setScalar(1),highlighted.el.classList.remove('hl');highlighted=markers[name];if(highlighted){highlighted.m.scale.setScalar(1.9);highlighted.el.classList.add('hl');}}};
+}
+// pomocnicze dla UI
+function highlightLine(id){document.querySelectorAll('[data-line]').forEach(e=>e.classList.toggle('running',e.dataset.line===String(id)));
+  const el=document.querySelector(`[data-line="${id}"]`);el?.scrollIntoView({block:'nearest'});}
+function fmtTime(s){return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;}
+function posRows(){return Object.entries(POS).map(([name,p],k)=>{const f=fk(p.q);return {k:k+1,name,note:p.note,q:p.q,p:f.p,rpy:f.rpy};});}
+
+// ===== wariant =====
+
+function wireSim(sim){const play=document.getElementById('play');
+  play.onclick=()=>sim.toggle();document.getElementById('step').onclick=()=>sim.step();document.getElementById('reset').onclick=()=>sim.reset();
+  document.getElementById('speed').onchange=e=>sim.setSpeed(+e.target.value);
+  const track=document.getElementById('track');track.onclick=e=>{const r=track.getBoundingClientRect();sim.seek((e.clientX-r.left)/r.width);};}
+function simState(s){document.getElementById('fill').style.width=(s.t/s.total*100)+'%';document.getElementById('time').textContent=`${fmtTime(s.t)} / ${fmtTime(s.total)}`;
+  document.getElementById('play').textContent=s.playing?'⏸ Pauza':'▶ Symuluj';}
+
+const pos=n=>n.replace('{i}','[i]');
+function block(n){
+  if(n.op==='for')return `<div class="blk wrap cat-logika"><div class="bh" data-line="${n.id}">↻ powtórz <span class="pill">${n.var}</span> od <span class="pill">${n.from}</span> do <span class="pill">${n.to}</span></div><div class="slot">${n.body.map(block).join('')}</div><div class="bf" data-line="${n.id}e">koniec pętli</div></div>`;
+  if(n.op==='if')return `<div class="blk wrap cat-logika"><div class="bh" data-line="${n.id}">⑂ jeśli <span class="pill">${n.cond}</span> to</div><div class="slot">${n.body.map(block).join('')}</div><div class="bm" data-line="${n.id}x">w przeciwnym razie</div><div class="slot">${(n.else||[]).map(block).join('')}</div><div class="bf" data-line="${n.id}e">koniec warunku</div></div>`;
+  if(n.op==='move')return `<div class="blk cat-ruch" data-line="${n.id}">⤳ jedź <span class="pill">${n.type}</span> do <span class="pill pos">📍 ${pos(n.pos)}</span> z prędkością <span class="pill">${n.v} ${n.unit}</span></div>`;
+  if(n.op==='wait')return `<div class="blk cat-czas" data-line="${n.id}">⏱ czekaj <span class="pill">${n.s}</span> s</div>`;
+  if(n.op==='set')return `<div class="blk cat-io" data-line="${n.id}">◉ ustaw <span class="pill">${n.out}</span> na <span class="pill">${n.val}</span> <span class="note">${n.note}</span></div>`;
+  return `<div class="blk cat-io" data-line="${n.id}">⏳ czekaj aż <span class="pill">${n.inp}</span> = <span class="pill">${n.val}</span> maks. <span class="pill">${n.timeout} s</span></div>`;}
+document.getElementById('canvas').innerHTML=`<div class="hat">▶ Start · Paletyzacja 3×</div>`+PROGRAM.map(block).join('')+
+ `<div style="margin-top:22px" class="note">Przeciąganie (podgląd): blok „⏱ czekaj” nad linią wstawienia</div><div class="dropzone"></div><div class="blk cat-czas ghost">⏱ czekaj <span class="pill">1</span> s</div><div class="trash">🗑 upuść, aby usunąć</div>`;
+document.getElementById('posp').innerHTML=posRows().map(r=>`<span class="pblk cat-zmienne" style="--c:#a78bfa" data-pos="${r.name}">📍 ${r.name}</span>`).join('');
+document.getElementById('code').innerHTML=flatLines().map(l=>`<div data-line="${l.id}">${'  '.repeat(l.depth)}${l.text}${l.comment?'   // '+l.comment:''}</div>`).join('');
+const sim=await createSim(document.getElementById('vp'),{onLine:(id,s)=>{highlightLine(id);document.getElementById('steplabel').textContent=s.label;},onState:simState});
+wireSim(sim);document.getElementById('vp').insertAdjacentHTML('beforeend',`<div class="legend"><span style="--c:#4da3ff">plan programu</span><span style="--c:#ffc857">przebyta droga</span><span style="--c:#3ad6ff">TCP</span><span style="--c:#a78bfa">pozycje</span></div>`);
+document.getElementById('posp').onclick=e=>{const p=e.target.closest('[data-pos]');if(p)sim.showPosition(p.dataset.pos);};
+
+</script>
+</body></html>

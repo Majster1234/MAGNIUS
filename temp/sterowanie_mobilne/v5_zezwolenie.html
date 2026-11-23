@@ -1,0 +1,427 @@
+<!doctype html>
+<!-- Makieta: Sterowanie mobilne — v5 przycisk zezwolenia — temp/sterowanie_mobilne (dane przykładowe, bez połączenia z API/ROS/CAN; opis w README.md) -->
+<html lang="pl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#0c1218">
+<title>Sterowanie mobilne — v5 przycisk zezwolenia</title>
+<style>
+:root { --bg:#0c1218; --panel:#131b24; --panel2:#18222d; --line:#26364a; --text:#e0e8f0; --muted:#8193a6; --accent:#6f93b3; --live:#3fd08f;
+  --warn:#ffca45; --danger:#ff4b5c; --tcp:#5bb8ff; --joint:#c48bff; color-scheme:dark; }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.3 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  overflow:hidden; overscroll-behavior:none; touch-action:manipulation; user-select:none; -webkit-user-select:none; font-variant-numeric:tabular-nums; }
+button { font:inherit; color:inherit; cursor:pointer; touch-action:manipulation; }
+.app { position:fixed; inset:0; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+/* widok 3D */
+.v3d { position:relative; overflow:hidden; background:radial-gradient(ellipse at 50% 40%,#17222c,#0c1218 70%); }
+.v3d canvas { display:block; touch-action:none; }
+.v3d-labels { position:absolute; inset:0; pointer-events:none; }
+.v3d-limit { position:absolute; left:0; top:0; padding:2px 5px; border:1px solid currentColor; border-radius:4px; background:#0c1218e6; color:var(--warn); font-size:10px; font-weight:600; white-space:nowrap; }
+.v3d-limit[data-level="danger"], .v3d-limit[data-level="exceeded"] { color:#ff6676; } .v3d-limit[data-level="exceeded"] { font-weight:800; }
+.v3d-tcp { position:absolute; left:0; top:0; font-size:9px; color:var(--tcp); font-weight:700; letter-spacing:.5px; }
+.v3d-off { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:var(--muted); font-size:12px; padding:20px; }
+/* drążki */
+.stick { position:relative; border-radius:50%; touch-action:none; background:radial-gradient(circle,#1b2734 0 55%,#141d27 56% 100%); border:1px solid var(--line);
+  box-shadow:inset 0 0 0 6px #0f1720, inset 0 0 22px #0008; }
+.stick::before, .stick::after { content:""; position:absolute; background:#2a3a4d; left:50%; top:12%; bottom:12%; width:1px; }
+.stick::after { left:12%; right:12%; top:50%; bottom:auto; width:auto; height:1px; }
+.stick .knob { position:absolute; left:50%; top:50%; width:42%; aspect-ratio:1; border-radius:50%; transform:translate(-50%,-50%); transition:transform .14s ease-out;
+  background:radial-gradient(circle at 35% 30%,#7f97ab,#3b4f62 70%); box-shadow:0 4px 12px #000a, inset 0 1px 0 #ffffff40; z-index:1; }
+.stick.held .knob { transition:none; background:radial-gradient(circle at 35% 30%,#9fd9ff,var(--tcp) 70%); }
+body.joint .stick.held .knob { background:radial-gradient(circle at 35% 30%,#e8cfff,var(--joint) 70%); }
+.stick.lever { border-radius:999px; background:linear-gradient(#141d27,#1b2734 50%,#141d27); }
+.stick.lever::after { display:none; } .stick.lever .knob { width:76%; }
+.stick.hlever { border-radius:999px; } .stick.hlever::before { display:none; } .stick.hlever .knob { height:76%; width:auto; }
+.stick .ax { position:absolute; font-size:10px; font-weight:700; color:var(--muted); pointer-events:none; }
+.ax.t { top:5%; left:50%; transform:translateX(-50%); } .ax.b { bottom:5%; left:50%; transform:translateX(-50%); }
+.ax.l { left:6%; top:50%; transform:translateY(-50%); } .ax.r { right:6%; top:50%; transform:translateY(-50%); }
+.stick.disabled { opacity:.35; filter:grayscale(.8); }
+/* przyciski i segmenty */
+.seg { display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; background:#0f1720; }
+.seg button { border:0; background:none; padding:7px 11px; color:var(--muted); font-weight:650; min-height:34px; }
+.seg button.on { background:#22344b; color:#dceaf6; } body.joint .seg.mode button.on { background:#3a2a4d; color:#f0e2ff; }
+.chip { border:1px solid var(--line); background:#111a24; border-radius:8px; padding:6px 9px; color:#c6d2de; font-weight:650; min-height:32px; }
+.chip.on { border-color:var(--tcp); background:#16314a; color:#fff; } body.joint .chip.on { border-color:var(--joint); background:#2e2140; }
+.stop { border:0; border-radius:12px; background:radial-gradient(circle at 40% 35%,#ff6b74,#c4141f 70%); color:#fff; font-weight:900; letter-spacing:1px;
+  box-shadow:0 0 0 3px #3a0d12, 0 6px 18px #000a; min-width:64px; min-height:44px; }
+body.stopped .stop { background:#2d3a48; box-shadow:none; }
+.iconbtn { display:inline-grid; place-items:center; border:1px solid var(--line); background:#111a24cc; border-radius:9px; min-width:36px; min-height:34px; color:#cfdbe6; }
+.badge { display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:999px; font-size:10.5px; font-weight:700; border:1px solid var(--line); background:#0f1720cc; white-space:nowrap; }
+.badge i { width:7px; height:7px; border-radius:50%; background:var(--live); } .badge.sim i { background:var(--warn); }
+.mode-tag { color:var(--tcp); } body.joint .mode-tag { color:var(--joint); }
+.speed { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:11px; } .speed input { accent-color:var(--accent); width:100%; }
+/* paski osi */
+.jb { display:grid; grid-template-columns:24px 1fr 52px auto; align-items:center; gap:6px; padding:2px 0; font-size:11px; }
+.jn { font-weight:800; color:#9fb1c7; } .jv { text-align:right; } .jr { font-size:9px; color:var(--muted); }
+.jbar { position:relative; height:6px; border-radius:3px; background:#1d2a38; overflow:visible; }
+.jbar i { position:absolute; top:0; bottom:0; background:#5c4a24; } .jbar .zl { left:0; border-radius:3px 0 0 3px; } .jbar .zh { right:0; border-radius:0 3px 3px 0; }
+.jbar b { position:absolute; top:-3px; width:4px; height:12px; margin-left:-2px; border-radius:2px; background:#dfe8f1; box-shadow:0 0 0 1px #0c1218; }
+.jb[data-level="warning"] .jv { color:var(--warn); } .jb[data-level="danger"] .jv, .jb[data-level="exceeded"] .jv { color:#ff6676; font-weight:800; }
+.jb[data-level="danger"] .jbar b, .jb[data-level="exceeded"] .jbar b { background:var(--danger); }
+.jb.focus .jn { color:var(--joint); } .jb.focus { background:#2a1f3a55; border-radius:5px; }
+.tc { display:flex; flex-direction:column; align-items:center; min-width:0; } .tc span { font-size:9px; color:var(--muted); font-weight:700; } .tc b { font-size:12px; }
+.warnline { font-size:11px; font-weight:650; padding:4px 9px; border-radius:7px; background:#2a2620; color:#e8c97c; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.warnline[data-level="danger"], .warnline[data-level="exceeded"] { background:#3b1c22; color:#ffb1b8; } .warnline:empty { display:none; }
+/* nakładka pionowa */
+#rotate { display:none; position:fixed; inset:0; z-index:100; background:#0c1218; flex-direction:column; align-items:center; justify-content:center; gap:12px; text-align:center; padding:24px; }
+#rotate .rot-icon { font-size:48px; animation:rot 2s ease-in-out infinite; } #rotate span { color:var(--muted); max-width:260px; }
+#rotate .fs-btn { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--accent); background:#192535; border-radius:10px; padding:12px 16px; font-weight:700; }
+@keyframes rot { 0%,30% { transform:rotate(0); } 60%,100% { transform:rotate(-90deg); } }
+@media (orientation:portrait) { #rotate { display:flex; } }
+#toast { position:fixed; left:50%; top:10px; transform:translate(-50%,-250%); z-index:90; padding:8px 14px; border-radius:9px; background:#21382f; color:#bff0d8; font-weight:650; transition:transform .2s; max-width:80vw; text-align:center; }
+#toast.show { transform:translate(-50%,0); } #toast.error { background:#3b1c22; color:#ffb1b8; }
+body.stopped .stick { opacity:.35; pointer-events:none; }
+
+/* ---------- wariant ---------- */
+.v5 .v3d { position:absolute; inset:0; }
+.deadman { position:absolute; left:10px; top:54px; bottom:86px; width:min(18vw,96px); z-index:3; border-radius:18px; border:2px solid #3a4c60; touch-action:none;
+  background:repeating-linear-gradient(45deg,#1a2430 0 10px,#151e28 10px 20px); color:#9fb1c7; font-weight:900; font-size:12px; letter-spacing:1px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; text-align:center; }
+.deadman .dm-icon { font-size:28px; } body.enabled .deadman { border-color:var(--live); background:#173326; color:#bff0d8; box-shadow:0 0 18px #3fd08f55; }
+.top { position:absolute; left:10px; right:10px; top:8px; display:flex; gap:6px; align-items:center; z-index:2; } .spacer { flex:1; }
+.bigwarn { position:absolute; left:50%; top:52px; transform:translateX(-50%); z-index:2; font-size:13px; padding:7px 14px; }
+.right { position:absolute; right:10px; top:50px; bottom:10px; width:min(44vw,300px); z-index:2; display:grid; grid-template-columns:auto 1fr; grid-template-rows:auto 1fr auto; gap:8px; }
+.right .seg.mode { grid-column:1 / -1; justify-self:end; }
+.chips { display:flex; flex-direction:column; gap:6px; justify-content:center; } .chips .chip { min-width:68px; }
+.stickwrap { display:grid; place-items:center; min-height:0; } .stickwrap .stick { height:min(100%,210px); aspect-ratio:1; background:radial-gradient(circle,#1b2734d9 0 55%,#141d27c0 56% 100%); }
+.presets { grid-column:1 / -1; display:flex; gap:6px; justify-content:flex-end; align-items:center; }
+.bl { position:absolute; left:10px; bottom:10px; z-index:3; display:flex; gap:8px; align-items:center; }
+.jstrip { display:flex; gap:4px; padding:4px 6px; border-radius:9px; background:#0c1218b8; border:1px solid #ffffff12; }
+.jv6 { width:26px; text-align:center; font-size:9px; font-weight:700; color:var(--muted); }
+.jv6 .bar { position:relative; height:34px; width:8px; margin:2px auto; border-radius:4px; background:#1d2a38; overflow:hidden; }
+.jv6 .bar i { position:absolute; left:0; right:0; height:3px; background:#e8f0f8; } .jv6[data-level="warning"] { color:var(--warn); } .jv6[data-level="danger"], .jv6[data-level="exceeded"] { color:#ff6676; }
+.jv6[data-level="danger"] .bar, .jv6[data-level="exceeded"] .bar { background:#4a1c24; }
+body:not(.enabled) .stickwrap .stick { opacity:.45; }
+</style>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.164.1/build/three.module.js","three/addons/":"https://unpkg.com/three@0.164.1/examples/jsm/"}}</script>
+</head><body>
+<div class="app v5">
+  <section class="v3d" id="view"></section>
+  <div class="top"><span class="badge sim"><i></i>SYMULACJA</span><span class="badge mode-tag" id="modeTag">TCP · baza</span><span class="badge" id="enTag">⛔ JOG zablokowany</span>
+    <span class="spacer"></span><div class="seg"><button data-f="base" class="on">Baza</button><button data-f="tool">Narz.</button></div>
+    <button class="iconbtn" id="cam">⟲</button><button class="iconbtn fs-btn" title="Pełny ekran"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
+  <div class="warnline bigwarn" id="warn"></div>
+  <div class="deadman" id="deadman"><span class="dm-icon">✋</span>ZEZWOLENIE<small>trzymaj kciukiem</small></div>
+  <div class="right">
+    <div class="seg mode"><button data-mode="tcp" class="on">TCP</button><button data-mode="joint">Osie</button></div>
+    <div class="chips" id="chips"></div>
+    <div class="stickwrap"><div class="stick" id="stick"><span class="ax t" id="axT"></span><span class="ax b" id="axB"></span><span class="ax l" id="axL"></span><span class="ax r" id="axR"></span><div class="knob"></div></div></div>
+    <div class="presets"><span class="speed">Prędkość</span><button class="chip" data-speed="10">Wolno</button><button class="chip on" data-speed="30">Średnio</button><button class="chip" data-speed="60">Szybko</button></div>
+  </div>
+  <div class="bl"><button class="stop" id="stop">STOP</button><div class="jstrip" id="jstrip"></div></div>
+</div>
+<script type="module">
+// ===================== Wspólny rdzeń makiet (dane przykładowe, bez API/ROS/CAN) =====================
+// Model: geometria demonstracyjna robota (web/src/configurationData.ts: demoTranslations, jointAxes, TCP 80 mm),
+// zakresy osi jak w aktywnej konfiguracji. JOG TCP: odwrotna kinematyka numeryczna (DLS), zatrzymanie na limicie.
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const LINKS = [[0, 0, 100], [0, 0, 100], [0, 0, 250], [220, 0, 0], [80, 0, 0], [60, 0, 0]], TOOL = [80, 0, 0];
+const AXES = [[0, 0, 1], [0, 1, 0], [0, 1, 0], [1, 0, 0], [0, 1, 0], [1, 0, 0]];
+const LIMITS = [[-171, 171], [-200, 30], [-196, 57], [-180, 180], [-100, 100], [-180, 180]];
+const HOME = [10, -30, 45, 0, 50, 0];
+const SPEED = { linear: 100, angular: 30, joint: 18 };   // mm/s, °/s TCP, °/s osi (100 %)
+
+function rot(axis, a) {
+    const [x, y, z] = axis, c = Math.cos(a), s = Math.sin(a), t = 1 - c;
+    return [[t * x * x + c, t * x * y - s * z, t * x * z + s * y], [t * x * y + s * z, t * y * y + c, t * y * z - s * x], [t * x * z - s * y, t * y * z + s * x, t * z * z + c]];
+}
+const mm = (A, B) => A.map(r => [0, 1, 2].map(j => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+const mv = (A, v) => A.map(r => r[0] * v[0] + r[1] * v[1] + r[2] * v[2]);
+const tr = A => [0, 1, 2].map(i => [0, 1, 2].map(j => A[j][i]));
+function fk(q) {
+    let R = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], p = [0, 0, 0];
+    for (let i = 0; i < 6; i++) { const o = mv(R, LINKS[i]); p = p.map((v, k) => v + o[k]); R = mm(R, rot(AXES[i], q[i] * D2R)); }
+    const o = mv(R, TOOL); return { p: p.map((v, k) => v + o[k]), R };
+}
+function rotvec(R) {
+    const c = Math.max(-1, Math.min(1, (R[0][0] + R[1][1] + R[2][2] - 1) / 2)), a = Math.acos(c);
+    if (a < 1e-9) return [0, 0, 0];
+    const k = a / (2 * Math.sin(a)); return [(R[2][1] - R[1][2]) * k, (R[0][2] - R[2][0]) * k, (R[1][0] - R[0][1]) * k];
+}
+const rpy = R => [Math.atan2(R[2][1], R[2][2]) * R2D, Math.asin(-Math.max(-1, Math.min(1, R[2][0]))) * R2D, Math.atan2(R[1][0], R[0][0]) * R2D];
+function solve(A, b) {
+    const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+    for (let c = 0; c < n; c++) {
+        let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+        [M[c], M[p]] = [M[p], M[c]]; const d = M[c][c] || 1e-12;
+        for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / d; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+    }
+    return M.map((r, i) => r[n] / (r[i] || 1e-12));
+}
+
+function createSim() {
+    const q = [...HOME];
+    const sim = { q, limits: LIMITS, blocked: new Set(), stopped: false };
+    const clamp = dq => {
+        sim.blocked.clear();
+        for (let j = 0; j < 6; j++) {
+            const [lo, hi] = LIMITS[j]; let v = q[j] + dq[j];
+            if (v <= lo) { v = lo; if (dq[j] < 0) sim.blocked.add(j); }
+            if (v >= hi) { v = hi; if (dq[j] > 0) sim.blocked.add(j); }
+            q[j] = v;
+        }
+    };
+    sim.jogJoints = (rates, dt) => clamp(rates.map(r => r * dt));
+    // v [mm/s], w [°/s] w układzie bazy albo narzędzia; wiersze obrotu ważone ramieniem 200 mm.
+    sim.jogTcp = (v, w, frame, dt) => {
+        const base = fk(q), J = Array.from({ length: 6 }, () => Array(6).fill(0)), e = 1e-3;
+        for (let j = 0; j < 6; j++) {
+            const qq = [...q]; qq[j] += e; const f = fk(qq), dr = rotvec(mm(f.R, tr(base.R)));
+            for (let k = 0; k < 3; k++) { J[k][j] = (f.p[k] - base.p[k]) / (e * D2R); J[k + 3][j] = dr[k] / (e * D2R) * 200; }
+        }
+        const vb = frame === "tool" ? mv(base.R, v) : v, wb = frame === "tool" ? mv(base.R, w) : w;
+        const t = [...vb, ...wb.map(x => x * D2R * 200)].map(x => x * dt);
+        const JJt = J.map((r, i) => J.map((s, k) => r.reduce((a, x, m) => a + x * s[m], 0) + (i === k ? 64 : 0)));
+        const y = solve(JJt, t);
+        clamp([0, 1, 2, 3, 4, 5].map(j => J.reduce((a, r, i) => a + r[j] * y[i], 0) * R2D));
+    };
+    sim.tcp = () => { const f = fk(q); return { p: f.p, rpy: rpy(f.R) }; };
+    sim.wristSingular = () => Math.abs(q[4]) < 4;
+    // Wskaźniki limitów jak w sterowaniu ręcznym: ≤ 15° ostrzeżenie, ≤ 5° niebezpiecznie, na limicie — LIMIT!
+    sim.indicators = () => LIMITS.map(([lo, hi], j) => {
+        const out = [];
+        for (const side of ["lower", "upper"]) {
+            const lim = side === "lower" ? lo : hi, d = side === "lower" ? q[j] - lo : hi - q[j];
+            if (d <= 15) out.push({ side, lim, d, level: d <= .05 ? "exceeded" : d <= 5 ? "danger" : "warning" });
+        }
+        return out;
+    });
+    sim.warnings = () => {
+        const list = [];
+        sim.indicators().forEach((ind, j) => ind.forEach(i => list.push({ j, ...i })));
+        list.sort((a, b) => a.d - b.d);
+        return list;
+    };
+    sim.home = () => HOME.forEach((v, j) => q[j] = v);
+    return sim;
+}
+
+// ---------- widok 3D (three.js z unpkg; bez internetu — komunikat, reszta działa) ----------
+async function createView(host, sim) {
+    let THREE, OrbitControls;
+    try { THREE = await import("three"); ({ OrbitControls } = await import("three/addons/controls/OrbitControls.js")); }
+    catch { host.insertAdjacentHTML("beforeend", '<div class="v3d-off">Widok 3D wymaga internetu (three.js 0.164.1 z unpkg.com).<br>Sterowanie i odczyty działają.</div>'); return { render() {}, reset() {} }; }
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+    host.appendChild(renderer.domElement);
+    const labels = document.createElement("div"); labels.className = "v3d-labels"; host.appendChild(labels);
+    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(38, 1, .01, 20);
+    camera.up.set(0, 0, 1); const home = new THREE.Vector3(.95, -.85, .62); camera.position.copy(home);
+    const controls = new OrbitControls(camera, renderer.domElement); controls.target.set(.2, 0, .25); controls.enableDamping = false; controls.update();
+    scene.add(new THREE.HemisphereLight(0xdbe8f0, 0x2a3640, 2.1)); const sun = new THREE.DirectionalLight(0xffffff, 1.8); sun.position.set(1, -2, 3); scene.add(sun);
+    const grid = new THREE.GridHelper(2, 20, 0x3c5249, 0x1f2a32); grid.rotation.x = Math.PI / 2; scene.add(grid);
+    const linkMat = new THREE.MeshStandardMaterial({ color: 0x8aa0ad, metalness: .3, roughness: .5 });
+    const jointMat = new THREE.MeshStandardMaterial({ color: 0x6fc4a2, roughness: .45 });
+    const hotMat = new THREE.MeshStandardMaterial({ color: 0xff4b5c, emissive: 0x551018, roughness: .45 });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(.09, .105, .1, 32), new THREE.MeshStandardMaterial({ color: 0x46596a })); base.rotation.x = Math.PI / 2; base.position.z = .05; scene.add(base);
+    const cyl = (a, b, r, mat) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, Math.max(1e-4, a.distanceTo(b)), 20), mat);
+        m.position.copy(a).add(b).multiplyScalar(.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); return m; };
+    // Tekstura poświaty (jak previewLimitGlow).
+    const cv = document.createElement("canvas"); cv.width = cv.height = 64; const cx = cv.getContext("2d");
+    const g = cx.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,255,255,.95)"); g.addColorStop(.25, "rgba(255,255,255,.55)"); g.addColorStop(1, "rgba(255,255,255,0)");
+    cx.fillStyle = g; cx.fillRect(0, 0, 64, 64); const glowTex = new THREE.CanvasTexture(cv);
+    const pivots = [], joints = [], markers = [], sectors = [];
+    let parent = new THREE.Group(); scene.add(parent);
+    for (let i = 0; i < 6; i++) {
+        const frame = new THREE.Group(); frame.position.set(...LINKS[i].map(v => v / 1000)); parent.add(frame);
+        const axis = new THREE.Vector3(...AXES[i]);
+        // Płaszczyzna obrotu: z = oś, x = kierunek następnego członu przy kącie 0 (rzut), y = z × x.
+        const next = new THREE.Vector3(...(i < 5 ? LINKS[i + 1] : TOOL)); let x = next.clone().sub(axis.clone().multiplyScalar(next.dot(axis)));
+        if (x.length() < 1e-6) x = Math.abs(axis.z) > .9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1); x.normalize();
+        const plane = new THREE.Group(); plane.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, axis.clone().cross(x), axis)); frame.add(plane);
+        const pivot = new THREE.Group(); frame.add(pivot); pivots.push(pivot);
+        const jm = new THREE.Mesh(new THREE.CylinderGeometry(.033, .033, .078, 24), jointMat); jm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis); pivot.add(jm); joints.push(jm);
+        pivot.add(cyl(new THREE.Vector3(), next.clone().multiplyScalar(.001), i < 3 ? .025 : .019, linkMat));
+        // Zakres osi (sektor) i wskazówka kąta — widoczne dla sterowanej osi.
+        const [lo, hi] = LIMITS[i];
+        const sector = new THREE.Mesh(new THREE.RingGeometry(.055, .1, 64, 1, lo * D2R, (hi - lo) * D2R),
+            new THREE.MeshBasicMaterial({ color: 0x3fd08f, transparent: true, opacity: .16, side: THREE.DoubleSide, depthWrite: false }));
+        const edge = (deg, color) => { const m = new THREE.Mesh(new THREE.RingGeometry(.05, .108, 2, 1, deg * D2R - .012, .024), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: .9, depthWrite: false })); return m; };
+        const needle = new THREE.Mesh(new THREE.RingGeometry(.03, .115, 2, 1, -.01, .02), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: false }));
+        const sectorGroup = new THREE.Group(); sectorGroup.add(sector, edge(lo, 0xff6676), edge(hi, 0xff6676), needle); sectorGroup.visible = false; plane.add(sectorGroup);
+        sectors.push({ group: sectorGroup, needle });
+        for (const side of ["lower", "upper"]) {
+            const p = new THREE.Group(); p.rotation.z = (side === "lower" ? lo : hi) * D2R; p.visible = false; plane.add(p);
+            const arc = new THREE.Mesh(new THREE.RingGeometry(.045, .088, 24, 1, -Math.PI / 6, Math.PI / 3),
+                new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+            arc.renderOrder = 4; p.add(arc);
+            const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending }));
+            glow.position.x = .066; glow.scale.setScalar(.11); glow.renderOrder = 5; p.add(glow);
+            const label = document.createElement("span"); label.className = "v3d-limit"; label.hidden = true; labels.appendChild(label);
+            markers.push({ j: i, side, p, arc, glow, label, point: new THREE.Vector3() });
+        }
+        parent = pivot;
+    }
+    const tool = new THREE.Group(); tool.position.set(...TOOL.map(v => v / 1000)); parent.add(tool); tool.add(new THREE.AxesHelper(.07));
+    // Ślad TCP
+    const trailGeo = new THREE.BufferGeometry(), trailPts = new Float32Array(600 * 3); trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPts, 3));
+    const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0x5bb8ff, transparent: true, opacity: .7 })); scene.add(trail); let trailN = 0;
+    const tcpLabel = document.createElement("span"); tcpLabel.className = "v3d-tcp"; tcpLabel.textContent = "TCP"; labels.appendChild(tcpLabel);
+    const resize = () => { const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); renderer.domElement.style.width = w + "px"; renderer.domElement.style.height = h + "px"; camera.aspect = w / h; camera.updateProjectionMatrix(); };
+    new ResizeObserver(resize).observe(host); resize();
+    const v = new THREE.Vector3();
+    return {
+        reset() { camera.position.copy(home); controls.target.set(.2, 0, .25); controls.update(); },
+        render(focus = [], now = performance.now()) {
+            pivots.forEach((p, i) => p.quaternion.setFromAxisAngle(new THREE.Vector3(...AXES[i]), sim.q[i] * D2R));
+            const ind = sim.indicators();
+            joints.forEach((m, i) => m.material = ind[i].some(x => x.level !== "warning") ? hotMat : jointMat);
+            sectors.forEach((s, i) => { s.group.visible = focus.includes(i); s.needle.rotation.z = sim.q[i] * D2R; });
+            const w = host.clientWidth, h = host.clientHeight;
+            scene.updateMatrixWorld();
+            for (const m of markers) {
+                const it = ind[m.j].find(x => x.side === m.side);
+                m.p.visible = !!it; if (!it) { m.label.hidden = true; continue; }
+                const color = it.level === "warning" ? 0xffca45 : 0xff354c, pulse = it.level === "exceeded" ? .55 + .45 * (.5 + .5 * Math.sin(now / 160)) : 1;
+                m.arc.material.color.setHex(color); m.glow.material.color.setHex(color);
+                m.arc.material.opacity = (it.level === "warning" ? .22 : .34) * pulse; m.glow.material.opacity = (it.level === "warning" ? .7 : .95) * pulse;
+                m.glow.scale.setScalar(it.d <= 1 ? .14 : .11);
+                m.point.set(.13, 0, 0); m.p.localToWorld(m.point).project(camera);
+                m.label.hidden = m.point.z > 1; m.label.dataset.level = it.level;
+                m.label.textContent = `J${m.j + 1} ${m.side === "lower" ? "−" : "+"} LIMIT${it.level === "exceeded" ? "!" : ` ${it.d.toFixed(0)}°`}`;
+                m.label.style.transform = `translate(${(m.point.x + 1) * w / 2}px,${(1 - m.point.y) * h / 2}px) translate(-50%,-50%)`;
+            }
+            tool.getWorldPosition(v);
+            if (trailN === 0 || v.distanceTo(new THREE.Vector3(trailPts[(trailN - 1) * 3], trailPts[(trailN - 1) * 3 + 1], trailPts[(trailN - 1) * 3 + 2])) > .002) {
+                if (trailN === 600) { trailPts.copyWithin(0, 3); trailN--; }
+                trailPts.set([v.x, v.y, v.z], trailN * 3); trailN++; trailGeo.setDrawRange(0, trailN); trailGeo.attributes.position.needsUpdate = true;
+            }
+            const t = v.clone().project(camera); tcpLabel.style.transform = `translate(${(t.x + 1) * w / 2}px,${(1 - t.y) * h / 2}px) translate(8px,-150%)`;
+            renderer.render(scene, camera);
+        },
+    };
+}
+
+// ---------- drążek (hold-to-run: puszczenie = 0) ----------
+class Stick {
+    constructor(el, { axes = "xy", dead = .12 } = {}) {
+        this.el = el; this.axes = axes; this.dead = dead; this.x = 0; this.y = 0; this.active = false;
+        this.knob = el.querySelector(".knob"); this.enabled = true;
+        const move = e => {
+            const r = el.getBoundingClientRect(), rad = Math.min(r.width, r.height) / 2 - (this.knob?.offsetWidth ?? 40) / 2 + 6;
+            let dx = axes === "y" ? 0 : (e.clientX - (r.left + r.width / 2)) / rad, dy = axes === "x" ? 0 : -(e.clientY - (r.top + r.height / 2)) / rad;
+            const n = Math.hypot(dx, dy); if (n > 1) { dx /= n; dy /= n; }
+            this.knob && (this.knob.style.transform = `translate(calc(-50% + ${dx * rad}px), calc(-50% + ${-dy * rad}px))`);
+            const shape = v => { const a = Math.abs(v); return a < dead ? 0 : Math.sign(v) * ((a - dead) / (1 - dead)) ** 1.6; };
+            this.x = shape(dx); this.y = shape(dy);
+        };
+        el.addEventListener("pointerdown", e => { if (!this.enabled) return; this.active = true; el.setPointerCapture(e.pointerId); el.classList.add("held"); move(e); });
+        el.addEventListener("pointermove", e => { if (this.active) move(e); });
+        const up = () => { this.active = false; this.x = this.y = 0; el.classList.remove("held"); this.knob && (this.knob.style.transform = "translate(-50%,-50%)"); };
+        el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up); el.addEventListener("lostpointercapture", up);
+        this.release = up;
+    }
+}
+
+// ---------- wspólne elementy interfejsu ----------
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+async function goFullscreen() {
+    const el = document.documentElement;
+    try { if (!document.fullscreenElement) await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: "hide" }) : el.webkitRequestFullscreen?.()); } catch { toast("Pełny ekran niedostępny w tej przeglądarce — dodaj stronę do ekranu głównego"); }
+    try { await screen.orientation?.lock?.("landscape"); } catch { /* iOS / przeglądarki bez blokady orientacji */ }
+}
+function toast(text, tone = "") {
+    let el = $("#toast"); if (!el) { el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); }
+    el.textContent = text; el.className = `show ${tone}`; clearTimeout(el._t); el._t = setTimeout(() => el.className = "", 2200);
+}
+function portraitGuard() {
+    document.body.insertAdjacentHTML("beforeend", `<div id="rotate"><div class="rot-icon">📱↻</div><b>Obróć telefon poziomo</b>
+        <span>Sterowanie robotem działa tylko w orientacji poziomej.</span><button class="fs-btn"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg> Pełny ekran — poziomo</button></div>`);
+    $$(".fs-btn").forEach(b => b.addEventListener("click", goFullscreen));
+}
+const fmt = (v, d = 1) => (v >= 0 ? " " : "") + v.toFixed(d);
+// Paski osi z zakresem i strefami limitów (15° / 5°).
+function jointBars(container, { compact = false, onPick } = {}) {
+    container.innerHTML = LIMITS.map(([lo, hi], j) => `<div class="jb" data-j="${j}"><span class="jn">J${j + 1}</span>
+        <span class="jbar"><i class="zl" style="width:${15 / (hi - lo) * 100}%"></i><i class="zh" style="width:${15 / (hi - lo) * 100}%"></i><b></b></span>
+        <span class="jv">0.0°</span>${compact ? "" : `<span class="jr">${lo}…${hi}</span>`}</div>`).join("");
+    const rows = [...container.querySelectorAll(".jb")];
+    if (onPick) rows.forEach(r => r.addEventListener("click", () => onPick(+r.dataset.j)));
+    return (q, ind, focus = []) => rows.forEach((r, j) => {
+        const [lo, hi] = LIMITS[j]; r.querySelector("b").style.left = `${(q[j] - lo) / (hi - lo) * 100}%`;
+        r.querySelector(".jv").textContent = `${q[j].toFixed(1)}°`;
+        const lvl = ind[j].reduce((a, x) => x.level === "exceeded" ? "exceeded" : x.level === "danger" && a !== "exceeded" ? "danger" : a || x.level, "");
+        r.dataset.level = lvl; r.classList.toggle("focus", focus.includes(j));
+    });
+}
+function tcpReadout(container) {
+    container.innerHTML = ["X", "Y", "Z", "Rx", "Ry", "Rz"].map(n => `<div class="tc"><span>${n}</span><b>0</b></div>`).join("");
+    const cells = [...container.querySelectorAll("b")];
+    return t => [...t.p, ...t.rpy].forEach((v, i) => cells[i].textContent = v.toFixed(i < 3 ? 1 : 1) + (i < 3 ? "" : "°"));
+}
+function warningText(sim) {
+    const w = sim.warnings()[0]; const parts = [];
+    if (w) parts.push(w.level === "exceeded" ? `J${w.j + 1}: osiągnięty limit ${w.side === "lower" ? "−" : "+"} (${w.lim}°)` : `J${w.j + 1}: ${w.d.toFixed(1)}° do limitu ${w.side === "lower" ? "−" : "+"}`);
+    if (sim.wristSingular()) parts.push("blisko osobliwości nadgarstka (J5 ≈ 0)");
+    return { text: parts.join(" · "), level: w?.level ?? (parts.length ? "warning" : "") };
+}
+// Pętla: polecenie z elementów sterujących → symulacja → widok i odczyty.
+function startLoop(sim, view, command, onFrame) {
+    let last = performance.now();
+    const step = now => {
+        const dt = Math.min(.05, (now - last) / 1000); last = now;
+        const c = sim.stopped ? null : command();
+        if (c?.mode === "tcp" && (c.v.some(Boolean) || c.w.some(Boolean))) sim.jogTcp(c.v, c.w, c.frame, dt);
+        else if (c?.mode === "joint" && c.rates.some(Boolean)) sim.jogJoints(c.rates, dt);
+        const moving = !!c && ((c.mode === "tcp" && (c.v.some(Boolean) || c.w.some(Boolean))) || (c.mode === "joint" && c.rates.some(Boolean)));
+        document.body.classList.toggle("moving", moving);
+        view.render(c?.focus ?? [], now); onFrame?.(c, moving);
+        requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+}
+function stopAll(sim, sticks) { sim.stopped = true; sticks.forEach(s => s.release()); document.body.classList.add("stopped"); toast("STOP — ruch zatrzymany (symulacja). Dotknij ▶ aby odblokować", "error"); }
+function unstop(sim) { sim.stopped = false; document.body.classList.remove("stopped"); toast("Odblokowano JOG"); }
+
+// ===================== Wariant: Sterowanie mobilne — v5 przycisk zezwolenia =====================
+portraitGuard();
+const sim = createSim();
+const view = await createView($("#view"), sim);
+const ui = { mode: "tcp", frame: "base", kind: "move", speed: 30 };
+const setMode = m => { ui.mode = m; document.body.classList.toggle("joint", m === "joint"); $$("[data-mode]").forEach(b => b.classList.toggle("on", b.dataset.mode === m)); refreshLabels?.(); };
+$$("[data-mode]").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+$$("[data-f]").forEach(b => b.addEventListener("click", () => { ui.frame = b.dataset.f; $$("[data-f]").forEach(x => x.classList.toggle("on", x === b)); refreshLabels?.(); }));
+$$("[data-k]").forEach(b => b.addEventListener("click", () => { ui.kind = b.dataset.k; $$("[data-k]").forEach(x => x.classList.toggle("on", x === b)); refreshLabels?.(); }));
+$$(".fs-btn").forEach(b => b.addEventListener("click", goFullscreen));
+$("#cam")?.addEventListener("click", () => view.reset());
+const speedInput = $("#speed"); speedInput?.addEventListener("input", () => { ui.speed = +speedInput.value; $("#speedV").textContent = ui.speed + "%"; });
+$$("[data-speed]").forEach(b => b.addEventListener("click", () => { ui.speed = +b.dataset.speed; $$("[data-speed]").forEach(x => x.classList.toggle("on", x === b)); }));
+const lin = v => v * SPEED.linear * ui.speed / 100, ang = v => v * SPEED.angular * ui.speed / 100, jnt = v => v * SPEED.joint * ui.speed / 100;
+const modeText = () => ui.mode === "joint" ? "Osie" : `TCP · ${ui.frame === "base" ? "baza" : "narzędzie"}${ui.kind === "rot" ? " · obrót" : ""}`;
+
+// Ruch tylko przy wciśniętym zezwoleniu (deadman); puszczenie zezwolenia zatrzymuje JOG jak STOP kategorii „zwolnij”.
+const TCP_PAIRS = [[0, 1, "X", "Y"], [2, 5, "Z", "Rz"], [3, 4, "Rx", "Ry"]], JOINT_PAIRS = [[0, 1], [2, 3], [4, 5]];
+let sel = 0, enabled = false; const stick = new Stick($("#stick"));
+const dm = $("#deadman");
+dm.addEventListener("pointerdown", e => { if (sim.stopped) return; enabled = true; dm.setPointerCapture(e.pointerId); document.body.classList.add("enabled"); $("#enTag").textContent = "✅ zezwolenie"; });
+const release = () => { enabled = false; stick.release(); document.body.classList.remove("enabled"); $("#enTag").textContent = "⛔ JOG zablokowany"; };
+dm.addEventListener("pointerup", release); dm.addEventListener("pointercancel", release); dm.addEventListener("lostpointercapture", release);
+$("#stick").addEventListener("pointerdown", () => { if (!enabled) toast("Przytrzymaj ZEZWOLENIE lewym kciukiem"); });
+function buildChips() {
+    $("#chips").innerHTML = (ui.mode === "joint" ? JOINT_PAIRS.map(p => `J${p[0] + 1}·J${p[1] + 1}`) : TCP_PAIRS.map(p => `${p[2]}·${p[3]}`))
+        .map((t, k) => `<button class="chip${k === sel ? " on" : ""}" data-sel="${k}">${t}</button>`).join("");
+    $$("[data-sel]").forEach(b => b.addEventListener("click", () => { sel = +b.dataset.sel; buildChips(); refreshLabels(); }));
+}
+function refreshLabels() {
+    const [a, b] = ui.mode === "joint" ? JOINT_PAIRS[sel].map(i => `J${i + 1}`) : TCP_PAIRS[sel].slice(2);
+    [$("#axT").textContent, $("#axB").textContent, $("#axL").textContent, $("#axR").textContent] = [`${b}+`, `${b}−`, `${a}−`, `${a}+`];
+    $("#modeTag").textContent = modeText();
+}
+$$("[data-mode]").forEach(b => b.addEventListener("click", () => { sel = 0; buildChips(); refreshLabels(); }));
+buildChips(); refreshLabels();
+$("#stop").addEventListener("click", () => { if (sim.stopped) unstop(sim); else { release(); stopAll(sim, [stick]); } });
+$("#jstrip").innerHTML = LIMITS.map((_, j) => `<div class="jv6" data-j="${j}">J${j + 1}<div class="bar"><i></i></div><span>0</span></div>`).join("");
+const strips = $$(".jv6");
+startLoop(sim, view, () => {
+    if (!enabled) return { mode: ui.mode, rates: [0, 0, 0, 0, 0, 0], v: [0, 0, 0], w: [0, 0, 0], frame: ui.frame, focus: ui.mode === "joint" ? JOINT_PAIRS[sel] : [] };
+    if (ui.mode === "joint") { const [a, b] = JOINT_PAIRS[sel], rates = [0, 0, 0, 0, 0, 0]; rates[a] = jnt(stick.x); rates[b] = jnt(stick.y); return { mode: "joint", rates, focus: [a, b] }; }
+    const t = [0, 0, 0, 0, 0, 0], p = TCP_PAIRS[sel]; t[p[0]] = stick.x; t[p[1]] = stick.y;
+    return { mode: "tcp", frame: ui.frame, v: t.slice(0, 3).map(lin), w: t.slice(3).map(ang) };
+}, () => {
+    const ind = sim.indicators();
+    strips.forEach((s, j) => { const [lo, hi] = LIMITS[j]; s.querySelector("i").style.bottom = `${(sim.q[j] - lo) / (hi - lo) * 100}%`; s.querySelector("span").textContent = sim.q[j].toFixed(0);
+        s.dataset.level = ind[j].reduce((a, x) => x.level === "warning" ? a || "warning" : x.level, ""); });
+    const w = warningText(sim); $("#warn").textContent = w.text; $("#warn").dataset.level = w.level;
+});
+</script>
+</body></html>

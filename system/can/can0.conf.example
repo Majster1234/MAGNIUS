@@ -1,2 +1,5 @@
-# Bitrate potwierdzony przez użytkownika dla napędów MKS SERVO42D CAN.
-BITRATE=500000
+# Profil streaming 6 osi/100 Hz. WSZYSTKIE napędy muszą mieć CanRate=1M,
+# CanRSP=Disable oraz SR_vFOC (CR_vFOC jest trybem wejścia impulsowego).
+# Obecny fizyczny can0 ma 500000; ten szablon nie zmienia go automatycznie.
+BITRATE=1000000
+TX_QUEUE_LEN=1000

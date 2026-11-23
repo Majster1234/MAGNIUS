@@ -7,6 +7,31 @@
   <maintainer email="maintainer@example.com">Project maintainer (TODO)</maintainer>
   <license>TODO</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>robot_motion_planner</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>robot_system_monitor</exec_depend>
+  <exec_depend>robot_can_diagnostics</exec_depend>
+  <exec_depend>robot_web_bridge</exec_depend>
+  <exec_depend>robot_configuration</exec_depend>
+  <exec_depend>robot_hardware</exec_depend>
+  <exec_depend>robot_description</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>control_msgs</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>sensor_msgs</test_depend>
+  <test_depend>tf2_msgs</test_depend>
+  <test_depend>python3-yaml</test_depend>
   <export>
     <build_type>ament_cmake</build_type>
   </export>

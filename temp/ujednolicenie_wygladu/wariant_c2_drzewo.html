@@ -1,0 +1,1491 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ujednolicenie wyglądu · C2</title>
+<style>
+/* ===== Baza wspólna: układ i komponenty wyłącznie na tokenach. Wygląd nadaje plik wariantu. ===== */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:var(--fs-3)/1.45 var(--font);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+h1,h2,h3,p{margin:0}
+[hidden]{display:none!important}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-size:.95em}
+.muted{color:var(--text-2)}
+.meta{color:var(--text-3);font-size:var(--fs-2);white-space:nowrap}
+.meta b{color:var(--text-2);font-weight:600}
+.push{margin-left:auto}
+.ico{width:1.15em;height:1.15em;fill:none;stroke:currentColor;stroke-width:var(--ico-stroke);stroke-linecap:round;stroke-linejoin:round;flex:none}
+.lbl{font-size:var(--fs-1);color:var(--text-3);text-transform:var(--label-case);letter-spacing:var(--label-track);font-weight:600;white-space:nowrap}
+.count{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--neutral-bg);color:var(--text-2);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* ----- Rama aplikacji ----- */
+.app{display:grid;grid-template-columns:var(--nav-w) minmax(0,1fr);grid-template-rows:var(--top-h) minmax(0,1fr);grid-template-areas:"nav top" "nav content";height:100vh}
+.app.collapsed{--nav-w:var(--nav-w-collapsed)}
+.nav{grid-area:nav;display:flex;flex-direction:column;gap:var(--gap);padding:var(--pad);background:var(--nav-bg);border-right:1px solid var(--line);overflow:hidden;min-width:0}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;color:var(--text)}
+.brand .ico{width:28px;height:28px;color:var(--brand)}
+.brand-text{display:flex;flex-direction:column;line-height:1.15;white-space:nowrap}
+.brand-text b{font-size:var(--fs-4);letter-spacing:.1em}
+.brand-text small{font-size:var(--fs-1);color:var(--text-3);text-transform:uppercase;letter-spacing:.1em}
+.nav-links{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.nav-link{display:flex;align-items:center;gap:12px;padding:0 12px;height:var(--nav-item-h);border-radius:var(--r-md);color:var(--text-2);white-space:nowrap;cursor:pointer;font-size:var(--fs-3)}
+.nav-link:hover{background:var(--raised);color:var(--text)}
+.nav-link.active{background:var(--nav-active-bg);color:var(--nav-active-text)}
+.nav-link .ico{width:20px;height:20px}
+.nav-sep{height:1px;background:var(--line);margin:8px 4px}
+.nav-collapse{display:flex;align-items:center;gap:12px;height:36px;padding:0 12px;background:none;border:1px solid var(--line);border-radius:var(--r-md);color:var(--text-2);cursor:pointer;white-space:nowrap}
+.nav-collapse:hover{color:var(--text);background:var(--raised)}
+.app.collapsed .brand-text,.app.collapsed .nav-link span,.app.collapsed .nav-collapse span{display:none}
+.app.collapsed .nav-collapse .ico{transform:scaleX(-1)}
+.top{grid-area:top;display:flex;align-items:center;gap:16px;padding:0 var(--pad-x);border-bottom:1px solid var(--line);background:var(--top-bg);min-width:0}
+.crumbs{display:flex;gap:8px;align-items:center;color:var(--text-3);font-size:var(--fs-2);white-space:nowrap}
+.crumbs b{color:var(--text);font-weight:600}
+.pulse{display:flex;align-items:center;gap:14px;margin:0 auto;padding:4px 12px;border:1px solid var(--line);border-radius:var(--r-md);font-size:var(--fs-1);font-weight:700;letter-spacing:.06em;color:var(--text-2);white-space:nowrap}
+.pulse span{display:flex;align-items:center;gap:6px}
+.pulse i{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.pulse .drives{gap:3px}
+.pulse .drives em{width:7px;height:11px;border-radius:1px;background:var(--ok)}
+.top-right{display:flex;align-items:center;gap:10px}
+.content{grid-area:content;overflow:auto;padding:var(--pad-y) var(--pad-x) calc(var(--pad-y) + 40px)}
+.screen{display:none;flex-direction:column;gap:var(--gap)}
+.screen.active{display:flex}
+
+/* ----- Nagłówek strony (jedna linia) ----- */
+.ph{display:flex;align-items:center;gap:14px;min-height:var(--ph-h);flex-wrap:wrap}
+.ph-title{display:flex;align-items:center;gap:10px}
+.ph-title h1{font-size:var(--fs-5);font-weight:var(--h-weight);letter-spacing:var(--h-track);text-transform:var(--h-case);line-height:1.1;white-space:nowrap}
+.ph-title>.ico{width:22px;height:22px;color:var(--text-3)}
+.ph-state{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ph-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.btn-row{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.btn-group{display:inline-flex}
+.btn-group .btn{border-radius:0}
+.btn-group .btn:first-child{border-radius:var(--r-md) 0 0 var(--r-md)}
+.btn-group .btn:last-child{border-radius:0 var(--r-md) var(--r-md) 0;margin-left:-1px}
+.select-wrap{display:inline-flex;align-items:center;gap:4px}
+
+/* ----- Podpowiedź ⓘ ----- */
+.info{position:relative;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--line-strong);color:var(--text-3);font-size:11px;font-weight:700;font-style:normal;cursor:help;flex:none;text-transform:none;letter-spacing:0}
+.info:hover,.info:focus{color:var(--text);border-color:var(--text-2);outline:none}
+.info:hover::after,.info:focus::after{content:attr(data-tip);position:absolute;left:-8px;top:calc(100% + 8px);z-index:40;width:max-content;max-width:340px;padding:8px 11px;background:var(--tip-bg);color:var(--tip-text);border:1px solid var(--line-strong);border-radius:var(--r-md);font-size:var(--fs-2);font-weight:400;line-height:1.45;box-shadow:var(--shadow);white-space:normal;font-family:var(--font)}
+
+/* ----- Przyciski: główny / zwykły / niebezpieczny / STOP ----- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:var(--ctl-h);padding:0 14px;border-radius:var(--r-md);border:1px solid var(--btn-border);background:var(--btn-bg);color:var(--btn-text);font-size:var(--fs-2);font-weight:var(--btn-weight);letter-spacing:var(--btn-track);text-transform:var(--btn-case);cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s}
+.btn:hover{background:var(--btn-hover)}
+.btn:focus-visible,.tab:focus-visible,.seg button:focus-visible,.switch:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.btn.primary{background:var(--primary-bg);border-color:var(--primary-border);color:var(--primary-text)}
+.btn.primary:hover{background:var(--primary-hover)}
+.btn.danger{background:var(--danger-btn-bg);border-color:var(--danger-border);color:var(--danger-text)}
+.btn.danger:hover{background:var(--danger-bg)}
+.btn.stop{background:var(--stop-bg);border-color:var(--stop-border);color:#fff;font-weight:800;letter-spacing:.1em;min-width:var(--stop-w);height:var(--stop-h);box-shadow:var(--stop-shadow);text-transform:uppercase}
+.btn.stop:hover{filter:brightness(1.12);background:var(--stop-bg)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:disabled:hover{background:var(--btn-bg)}
+.btn.primary:disabled:hover{background:var(--primary-bg)}
+.btn.sm{height:calc(var(--ctl-h) - 8px);padding:0 10px;font-size:var(--fs-1)}
+.btn.icon{width:var(--ctl-h);padding:0}
+.btn.icon.sm{width:calc(var(--ctl-h) - 8px)}
+
+/* ----- Plakietki: ok / plan / warn / danger / neutralna ----- */
+.badge{display:inline-flex;align-items:center;gap:6px;height:var(--badge-h);padding:0 9px;border-radius:var(--r-badge);font-size:var(--fs-1);font-weight:700;white-space:nowrap;background:var(--neutral-bg);color:var(--text-2);border:1px solid var(--badge-border);letter-spacing:var(--badge-track);text-transform:var(--badge-case)}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.badge.sm{height:calc(var(--badge-h) - 4px);padding:0 7px;font-size:10px}
+.badge.ok{background:var(--ok-bg);color:var(--ok-text);border-color:var(--ok-border)}
+.badge.plan{background:var(--plan-bg);color:var(--plan-text);border-color:var(--plan-border)}
+.badge.warn{background:var(--warn-bg);color:var(--warn-text);border-color:var(--warn-border)}
+.badge.danger{background:var(--danger-bg);color:var(--danger-text);border-color:var(--danger-border)}
+
+/* ----- Zakładki (jeden wzór) ----- */
+.tabs{display:flex;gap:var(--tab-gap);border-bottom:1px solid var(--line);padding:0 var(--tabs-pad);flex-wrap:wrap}
+.tab{display:inline-flex;align-items:center;gap:7px;height:var(--tab-h);padding:0 14px;background:none;border:0;border-bottom:var(--tab-line) solid transparent;margin-bottom:-1px;color:var(--text-2);font-size:var(--fs-2);font-weight:700;cursor:pointer;white-space:nowrap;text-transform:var(--tab-case);letter-spacing:var(--tab-track);border-radius:var(--tab-radius)}
+.tab:hover{color:var(--text)}
+.tab[aria-selected="true"]{color:var(--text);border-bottom-color:var(--tab-accent);background:var(--tab-on-bg)}
+.tab:disabled{opacity:.45;cursor:not-allowed}
+.inline-tabs{border-bottom:0;padding:0;margin-left:8px}
+.inline-tabs .tab{height:calc(var(--card-h) - 2px);margin-bottom:calc(var(--card-pad-y) * -1 - 1px);margin-top:calc(var(--card-pad-y) * -1)}
+
+/* ----- Przełącznik segmentowy ----- */
+.seg{display:inline-flex;padding:2px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--seg-bg);gap:2px}
+.seg button{display:inline-flex;align-items:center;gap:6px;height:calc(var(--ctl-h) - 6px);padding:0 12px;border:0;border-radius:calc(var(--r-md) - 1px);background:none;color:var(--text-2);font-size:var(--fs-2);font-weight:700;cursor:pointer;white-space:nowrap;text-transform:var(--btn-case);letter-spacing:var(--btn-track)}
+.seg button:hover{color:var(--text)}
+.seg button[aria-pressed="true"]{background:var(--seg-on-bg);color:var(--seg-on-text);box-shadow:var(--seg-on-shadow)}
+.seg button .ico{width:15px;height:15px}
+.seg.sm button{height:calc(var(--ctl-h) - 14px);padding:0 9px;font-size:var(--fs-1)}
+.seg .dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.5}
+.seg.mode button[data-mode="live"][aria-pressed="true"]{background:var(--ok-bg);color:var(--ok-text);box-shadow:inset 0 0 0 1px var(--ok)}
+.seg.mode button[data-mode="plan"][aria-pressed="true"]{background:var(--plan-bg);color:var(--plan-text);box-shadow:inset 0 0 0 1px var(--plan)}
+.seg.mode button[aria-pressed="true"] .dot{opacity:1}
+
+/* ----- Przełącznik włącz/wyłącz ----- */
+.switch{position:relative;width:var(--sw-w);height:var(--sw-h);border-radius:var(--sw-radius);border:1px solid var(--line-strong);background:var(--sw-off);cursor:pointer;flex:none;padding:0}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:calc(var(--sw-h) - 6px);height:calc(var(--sw-h) - 6px);border-radius:var(--sw-radius);background:var(--sw-knob-off);transition:transform .15s}
+.switch[aria-checked="true"]{background:var(--sw-on);border-color:var(--sw-on)}
+.switch[aria-checked="true"]::after{transform:translateX(calc(var(--sw-w) - var(--sw-h)));background:var(--sw-knob-on)}
+.inline{display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-2);color:var(--text-2);white-space:nowrap}
+
+/* ----- Pola ----- */
+.field{display:inline-flex;align-items:center;height:var(--ctl-h);border:1px solid var(--input-border);border-radius:var(--r-sm);background:var(--input-bg);overflow:hidden;flex:none}
+.field input{border:0;background:none;color:var(--text);font-variant-numeric:tabular-nums;padding:0 9px;width:var(--w,80px);height:100%;outline:none;text-align:right;font-size:var(--fs-2)}
+.field.text input{text-align:left}
+.field .unit{padding:0 9px;color:var(--text-3);font-size:var(--fs-1);border-left:1px solid var(--line);height:100%;display:flex;align-items:center;background:var(--raised);white-space:nowrap}
+.field:focus-within,.select:focus,.cell-in:focus{border-color:var(--focus);box-shadow:0 0 0 3px var(--focus-ring);outline:none}
+.field.sm{height:calc(var(--ctl-h) - 8px)}
+.select{height:var(--ctl-h);padding:0 10px;border:1px solid var(--input-border);border-radius:var(--r-sm);background:var(--input-bg);color:var(--text);font-size:var(--fs-2);min-width:120px}
+.select option{background:var(--panel);color:var(--text)}
+.range{display:inline-flex;align-items:center;gap:10px;font-size:var(--fs-2);color:var(--text-2)}
+.range input{accent-color:var(--text-2);width:150px}
+.fieldwrap{display:inline-flex;align-items:center;gap:8px}
+.chk{display:inline-flex;align-items:center;gap:7px;font-size:var(--fs-2);color:var(--text-2);cursor:pointer;white-space:nowrap}
+.chk input{accent-color:var(--text-2);margin:0}
+.lg{display:inline-block;width:18px;height:0;border-top:2px solid var(--text-2)}
+.lg.dash{border-top-style:dashed}.lg.dot{border-top-style:dotted}.lg.grey{border-top-color:var(--text-3);border-top-width:6px;opacity:.5}
+
+/* ----- Karty ----- */
+.card{background:var(--panel);border:1px solid var(--card-border);border-radius:var(--r-lg);box-shadow:var(--card-shadow);min-width:0;display:flex;flex-direction:column}
+.card-h{display:flex;align-items:center;gap:10px;padding:var(--card-pad-y) var(--card-pad-x);border-bottom:1px solid var(--line);min-height:var(--card-h);flex-wrap:wrap}
+.card-h h2{font-size:var(--fs-3);font-weight:700;text-transform:var(--h2-case);letter-spacing:var(--h2-track)}
+.card-h .sub{color:var(--text-3);font-size:var(--fs-1)}
+.card-h .end{margin-left:auto;display:flex;gap:8px;align-items:center}
+.card-b{padding:var(--card-pad-x);display:flex;flex-direction:column;gap:10px}
+.card-f{padding:8px var(--card-pad-x);border-top:1px solid var(--line);color:var(--text-3);font-size:var(--fs-1);margin-top:auto}
+.stack{display:flex;flex-direction:column;gap:var(--gap);min-width:0}
+.grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap)}
+.grid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap)}
+.grid-2.start{align-items:start}
+.empty{border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:22px;text-align:center;color:var(--text-3);font-size:var(--fs-2)}
+.note{color:var(--text-3);font-size:var(--fs-1)}
+.fold summary{display:flex;align-items:center;gap:8px;padding:var(--card-pad-y) var(--card-pad-x);min-height:var(--card-h);cursor:pointer;font-weight:700;font-size:var(--fs-3);list-style:none}
+.fold summary::-webkit-details-marker{display:none}
+.fold[open] summary .ico{transform:rotate(180deg)}
+
+/* ----- Przegląd ----- */
+.kv{display:flex;justify-content:space-between;gap:12px;font-size:var(--fs-2)}
+.kv span{color:var(--text-2)}
+.kv b{font-weight:600;text-align:right}
+.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.metrics.three{grid-template-columns:repeat(3,1fr)}
+.metric small{display:block;color:var(--text-3);font-size:var(--fs-1);text-transform:var(--label-case);letter-spacing:var(--label-track);font-weight:600}
+.metric b{font-size:var(--fs-5);font-weight:700;font-family:var(--num-font);letter-spacing:-.01em}
+.metric em,.strip em{font-style:normal;color:var(--text-3);font-size:var(--fs-2);margin-left:3px}
+.axis-boxes{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.axbox{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0;border:1px solid var(--line-strong);border-top:3px solid var(--c);border-radius:var(--r-sm);font-size:var(--fs-1)}
+.okdot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+
+/* ----- Kolory osi ----- */
+.j1{--c:var(--j1)}.j2{--c:var(--j2)}.j3{--c:var(--j3)}.j4{--c:var(--j4)}.j5{--c:var(--j5)}.j6{--c:var(--j6)}
+.ax{display:inline-flex;align-items:center;gap:6px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ax::before{content:"";width:10px;height:10px;border-radius:var(--ax-shape);background:var(--c);flex:none}
+
+/* ----- CAN ----- */
+.strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}
+.strip>div{display:flex;flex-wrap:wrap;align-items:baseline;align-content:flex-start;gap:6px 4px;padding:12px var(--card-pad-x);border-right:1px solid var(--line)}
+.strip .lbl{flex-basis:100%}
+.strip>div:last-child{border-right:0}
+.big{font-size:var(--fs-5);font-weight:700;font-family:var(--num-font);line-height:1}
+.table{width:100%;border-collapse:collapse;font-size:var(--fs-2)}
+.table th{text-align:left;font-size:var(--fs-1);color:var(--text-3);font-weight:700;text-transform:var(--label-case);letter-spacing:var(--label-track);padding:8px 12px;border-bottom:1px solid var(--line);background:var(--th-bg);white-space:nowrap}
+.table td{padding:var(--td-pad) 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.table tbody tr:last-child td{border-bottom:0}
+.table tbody tr:not(.group-row):hover td{background:var(--row-hover)}
+.table .n{text-align:right;font-variant-numeric:tabular-nums}
+.group-row td{color:var(--text-3);font-size:var(--fs-1);font-weight:700;letter-spacing:.1em;text-transform:uppercase;background:var(--raised);padding-top:6px;padding-bottom:6px}
+.table-scroll{overflow-x:auto}
+
+/* ----- Diagnostyka ----- */
+.toolbar{flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px;padding:10px var(--card-pad-x)}
+.toolbar .div{width:1px;height:24px;background:var(--line)}
+.chart-card{padding-bottom:6px}
+.chart-h{display:flex;align-items:center;gap:10px;padding:10px var(--card-pad-x)}
+.chart-h .val{margin-left:auto;font-size:var(--fs-4);font-weight:700;font-family:var(--num-font)}
+.deg{color:var(--text-3);margin-left:-6px}
+.chart{position:relative;height:150px;margin:4px var(--card-pad-x) 22px 62px}
+.chart svg{width:100%;height:100%;display:block;overflow:visible}
+.chart .gl{stroke:var(--grid-line);stroke-width:1;vector-effect:non-scaling-stroke}
+.chart .ln{fill:none;stroke:var(--c);stroke-width:var(--chart-stroke);vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.chart .ref{fill:none;stroke:var(--c);stroke-width:1;stroke-dasharray:5 4;opacity:.45;vector-effect:non-scaling-stroke}
+.chart .yl{position:absolute;left:-58px;width:50px;text-align:right;transform:translateY(-50%);font-size:10px;color:var(--text-3)}
+.chart .xl{position:absolute;left:0;right:0;bottom:-18px;display:flex;justify-content:space-between;font-size:10px;color:var(--text-3)}
+
+/* ----- Sterowanie ręczne ----- */
+.manual{display:grid;grid-template-columns:minmax(0,1fr) minmax(620px,1.25fr);gap:var(--gap);align-items:stretch}
+.screen[data-mode="live"]{--mode:var(--ok)}
+.screen[data-mode="plan"]{--mode:var(--plan)}
+.view{overflow:hidden}
+.manual .view{border-top:3px solid var(--mode)}
+.view-legend{display:flex;gap:16px;align-items:center;padding:8px var(--card-pad-x);font-size:var(--fs-1);color:var(--text-2);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.leg{display:inline-flex;align-items:center;gap:7px}
+.leg::before{content:"";width:18px;height:0;border-top:2px solid}
+.leg.plan::before{border-top:2px dashed var(--plan)}
+.leg.done::before{border-color:var(--ok)}
+.view-body{position:relative;flex:1;min-height:440px;background:var(--view-bg)}
+.view.small .view-body{min-height:250px}
+.view-tools{position:absolute;top:10px;right:10px;display:flex;gap:6px;z-index:2}
+.mode-badge{background:var(--panel);color:var(--mode);border-color:var(--mode)}
+.scene{position:absolute;inset:0;width:100%;height:100%}
+.floor path{stroke:var(--grid-line);stroke-width:1;fill:none}
+.r-link{stroke:var(--robot-link);stroke-linecap:round}
+.r-tool{stroke:var(--robot-joint);stroke-linecap:round}
+.r-joint{fill:var(--robot-joint);stroke:var(--view-bg);stroke-width:2}
+.r-base{fill:var(--robot-joint)}
+.r-base-top{fill:var(--robot-link)}
+.screen[data-mode="plan"] .r-link{stroke:var(--plan);opacity:.75}
+.path-plan{fill:none;stroke:var(--plan);stroke-width:2;stroke-dasharray:7 5}
+.path-done{fill:none;stroke:var(--ok);stroke-width:2.5}
+.tcp-axes line{stroke-width:2}
+.ax-x{stroke:#e5484d}.ax-y{stroke:#2fbf71}.ax-z{stroke:#4c8dff}
+.r-tag rect{fill:var(--robot-label-bg);stroke:var(--c);stroke-width:1.5;rx:var(--tag-r)}
+.r-tag text{fill:var(--text);font:700 11px var(--font);text-anchor:middle}
+.r-tag.tcp rect{stroke:var(--text-3)}
+.pos-marks{display:none}
+.show-pos .pos-marks{display:block}
+.pos-marks circle{fill:var(--plan);stroke:var(--view-bg);stroke-width:2}
+.pos-marks rect{fill:var(--robot-label-bg);stroke:var(--line-strong);rx:var(--tag-r)}
+.pos-marks text{fill:var(--text-2);font:600 10px var(--font);text-anchor:middle}
+.axrow{display:grid;grid-template-columns:104px minmax(170px,1fr) 84px 82px 82px 92px;align-items:center;gap:10px;padding:8px var(--card-pad-x);border-bottom:1px solid var(--line)}
+#axisRows .axrow:last-child{border-bottom:0}
+.axhead{font-size:var(--fs-1);color:var(--text-3);font-weight:700;text-transform:var(--label-case);letter-spacing:var(--label-track);background:var(--th-bg);padding-top:7px;padding-bottom:7px}
+.ax-id{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:center}
+.ax-id small{color:var(--text-3);font-size:10px}
+.ax-id .badge{grid-column:1/-1;justify-self:start}
+.jog{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
+.jog-val{text-align:center;min-width:0}
+.jog-val b{font-size:var(--fs-4);font-weight:700;font-family:var(--num-font)}
+.jog-val .deg{margin-left:1px}
+.track{position:relative;height:4px;background:var(--line-strong);border-radius:2px;margin:6px 4px 0}
+.track i{position:absolute;top:50%;width:12px;height:12px;border-radius:50%;background:var(--c);transform:translate(-50%,-50%);border:2px solid var(--panel)}
+.track .zero{position:absolute;top:-4px;width:1px;height:12px;background:var(--text-3)}
+.lims{display:flex;justify-content:space-between;font-size:10px;color:var(--text-3);margin-top:3px}
+.tcp{display:grid;grid-template-columns:auto 1fr;gap:28px;padding:16px var(--card-pad-x);align-items:center}
+.pad{display:grid;grid-template-columns:repeat(3,var(--pad-btn));grid-auto-rows:var(--pad-btn);gap:6px}
+.pad .btn{width:100%;height:100%;padding:0;font-size:var(--fs-3)}
+.pad-c{border-radius:50%;background:var(--raised);border:1px solid var(--line-strong);margin:12px}
+.opts{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;align-items:center;justify-items:start}
+.opts.wide{grid-column:1/-1}
+.alert{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:12px 14px;border:1px solid var(--line);border-left:4px solid var(--line-strong);border-radius:var(--r-md)}
+.alert .ico{width:20px;height:20px;grid-row:span 3}
+.alert h3{font-size:var(--fs-3)}
+.alert p{font-size:var(--fs-2);color:var(--text-2)}
+.alert.warn{background:var(--warn-bg);border-color:var(--warn-border);border-left-color:var(--warn)}
+.alert.warn .ico{color:var(--warn)}
+.log{display:flex;flex-direction:column;font-size:var(--fs-2)}
+.log div{display:grid;grid-template-columns:130px 1fr;gap:10px;padding:5px 0;border-bottom:1px dashed var(--line)}
+.log div:last-child{border-bottom:0}
+.log span{color:var(--text-3)}
+
+/* ----- Programowanie ----- */
+.prog{display:grid;grid-template-columns:290px minmax(0,1fr) 360px;gap:var(--gap);align-items:start}
+.pal{display:flex;flex-direction:column;gap:6px;padding:12px}
+.pal-cat{font-size:var(--fs-1);color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin:8px 0 2px}
+.pal-cat:first-child{margin-top:0}
+.pal-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid var(--line);border-left:3px solid var(--c);border-radius:var(--r-sm);background:var(--raised);font-size:var(--fs-2);cursor:grab}
+.pal-item:hover{border-color:var(--line-strong);border-left-color:var(--c)}
+.pal-item .ico{color:var(--c)}
+.pos{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--raised)}
+.pos-name{display:flex;align-items:center;gap:6px;font-weight:700;min-width:0}
+.pos-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pos-name .ico{color:var(--plan)}
+.pos-actions{display:flex;gap:4px}
+.pos-j{grid-column:1/-1;font-family:var(--mono);font-size:var(--fs-1);color:var(--text-2)}
+.pos-m{grid-column:1/-1;font-size:var(--fs-1);color:var(--text-3)}
+.flow{display:flex;flex-direction:column;align-items:center;padding:28px 16px 36px;min-height:520px;background:var(--canvas-bg)}
+.link{display:block;width:2px;height:18px;background:var(--flow-line)}
+.term{display:inline-flex;align-items:center;gap:8px;padding:8px 20px;border-radius:999px;font-weight:700;background:var(--raised);border:1px solid var(--line-strong)}
+.term .ico{color:var(--text-2)}
+.term.end .ico{color:var(--danger)}
+.loop{display:flex;flex-direction:column;align-items:center;padding:12px 18px 10px;border:1px solid var(--line-strong);border-left:3px solid var(--cat-petle);border-radius:var(--r-md);background:var(--loop-bg)}
+.blk-head{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--raised)}
+.blk-head .ico{color:var(--c)}
+.blk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line-strong);border-left:3px solid var(--c);border-radius:var(--r-md);background:var(--raised);min-width:340px;font-size:var(--fs-2)}
+.blk>.ico{color:var(--c)}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--r-sm);background:var(--chip-bg);font-weight:700}
+.chip .ico{width:13px;height:13px;color:var(--plan)}
+.loop-back{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:var(--fs-1);color:var(--text-3)}
+.code{font-family:var(--mono);font-size:var(--fs-2);line-height:1.8;padding:14px 0;counter-reset:ln;min-height:520px;background:var(--canvas-bg)}
+.code>div{display:block;white-space:pre}
+.code>div::before{counter-increment:ln;content:counter(ln);display:inline-block;width:48px;box-sizing:border-box;color:var(--text-3);text-align:right;padding-right:16px;opacity:.7}
+.code .c{color:var(--text-3);font-style:italic}
+.code .k{color:var(--code-kw);font-weight:700}
+.code .f{color:var(--code-fn);font-weight:700}
+.code .n{color:var(--code-num)}
+.fixnote{display:flex;align-items:center;gap:8px;margin:18px 16px 0 64px;font-family:var(--font);font-size:var(--fs-1);color:var(--text-3)}
+.fixnote code{font-family:var(--mono);color:var(--danger-text)}
+.okline{display:flex;align-items:center;gap:8px;font-size:var(--fs-2);color:var(--text-2)}
+.okline .ico{color:var(--ok)}
+.zoom{gap:4px}
+.card-b.btn-row{flex-direction:row;align-items:center}
+.prog .tabs .tab{padding:0 11px}
+
+/* ----- Konfiguracja ----- */
+.setrow{display:flex;align-items:center;gap:16px;padding:12px var(--card-pad-x);border-bottom:1px solid var(--line);min-height:56px}
+.setrow:last-child{border-bottom:0}
+.setrow .lab{flex:1;display:flex;align-items:center;gap:8px;font-size:var(--fs-3)}
+.card-h .eyebrow+h2{flex-basis:100%;margin-top:-6px}
+.metrics.three .metric b{font-size:var(--fs-4)}
+.mtable td{padding:5px 8px}
+.mtable th{padding:8px}
+.cell-in{width:100%;min-width:70px;height:30px;padding:0 8px;border:1px solid var(--input-border);border-radius:var(--r-sm);background:var(--input-bg);color:var(--text);font-variant-numeric:tabular-nums;text-align:right;font-size:var(--fs-2)}
+
+/* ----- Architektura ----- */
+.bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;padding:12px var(--card-pad-x)}
+.bar{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;font-size:var(--fs-2)}
+.meter{position:relative;height:8px;background:var(--line);border-radius:var(--r-sm)}
+.meter i{position:absolute;inset:0 auto 0 0;width:var(--v);background:var(--meter-fill);border-radius:var(--r-sm)}
+.meter .lim{position:absolute;top:-4px;bottom:-4px;width:2px;left:var(--l);background:var(--warn)}
+
+/* ----- System wizualny ----- */
+.swatches{gap:12px}
+.swatch{display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:center}
+.swatch b{display:block;font-size:var(--fs-3)}
+.swatch small{color:var(--text-2);font-size:var(--fs-2)}
+.sw{height:40px;border-radius:var(--r-md)}
+.neutrals{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:4px}
+.neutrals span{width:30px;height:24px;border-radius:var(--r-sm);border:1px solid var(--line-strong)}
+.neutrals small{color:var(--text-3);font-size:var(--fs-1);margin-left:8px}
+.axis-lines{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 24px}
+.axis-lines div{display:flex;align-items:center;gap:12px}
+.axis-lines i{flex:1;height:0;border-top:calc(var(--chart-stroke) * 1px) solid var(--c)}
+.demo-rows>div{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ts div{display:flex;align-items:baseline;gap:16px;padding:3px 0;border-bottom:1px dashed var(--line);white-space:nowrap;overflow:hidden}
+.ts code{width:64px;color:var(--text-3);font-size:11px;font-family:var(--mono);flex:none}
+.tabular-demo{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+.tabular-demo div{padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md)}
+.tabular-demo small{display:block;color:var(--text-3);font-size:var(--fs-1)}
+.tabular-demo b{font-size:var(--fs-5);font-family:var(--font)}
+.tabular-demo .prop{font-variant-numeric:proportional-nums}
+.radii{display:flex;gap:12px}
+.radii div{width:84px;height:48px;border:1px solid var(--line-strong);background:var(--raised);display:grid;place-items:center;font-size:11px;font-family:var(--mono);color:var(--text-2)}
+.icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;margin-top:6px}
+.icon-cell{display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 2px;border:1px solid var(--line);border-radius:var(--r-sm)}
+.icon-cell .ico{width:22px;height:22px}
+.icon-cell small{font-size:10px;color:var(--text-3)}
+.ph-demo{display:flex;gap:6px;font-size:var(--fs-1)}
+.ph-demo span{padding:10px;border:1px dashed var(--line-strong);border-radius:var(--r-sm);color:var(--text-2)}
+.ph-demo-b{flex:1}
+
+/* ----- STOP i przełącznik wariantów (makieta) ----- */
+.stopbar{position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:60;display:none;align-items:center;gap:12px;padding:8px 8px 8px 16px;background:var(--stop-bg);color:#fff;border-radius:var(--r-md);box-shadow:var(--shadow);font-weight:700}
+.stopbar .ico{width:20px;height:20px}
+body.stopped .stopbar{display:flex}
+.mock-switch{position:fixed;right:14px;bottom:14px;z-index:50;display:flex;align-items:center;gap:4px;padding:4px 4px 4px 12px;background:var(--panel);border:1px solid var(--line-strong);border-radius:var(--r-md);box-shadow:var(--shadow);font-size:var(--fs-1);color:var(--text-3)}
+.mock-switch a{padding:5px 10px;border-radius:var(--r-sm);color:var(--text-2);font-weight:700}
+.mock-switch a:hover{background:var(--raised);color:var(--text)}
+.mock-switch a.on{background:var(--primary-bg);color:var(--primary-text)}
+
+/* ----- Responsywność ----- */
+@media (max-width:1500px){.prog{grid-template-columns:250px minmax(0,1fr)}.prog .runcol{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:1300px){.manual{grid-template-columns:1fr}.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}.bars{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:900px){.app{--nav-w:var(--nav-w-collapsed)}.brand-text,.nav-link span,.nav-collapse span{display:none}.pulse{display:none}.grid-2,.grid-3{grid-template-columns:1fr}.prog,.prog .runcol{grid-template-columns:1fr}.strip{grid-template-columns:repeat(2,1fr)}.axrow{grid-template-columns:1fr 1fr;row-gap:6px}.axhead{display:none}.tcp{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ===== Wariant C — Sterownia: czarny pulpit HMI, wysoki kontrast, duże pola dotykowe, pasek ikon i pasek stanu na dole ===== */
+:root{
+  --font:"Ubuntu Condensed","Liberation Sans Narrow","Arial Narrow",sans-serif; --mono:"DejaVu Sans Mono","Noto Sans Mono",monospace; --num-font:var(--mono);
+  --fs-1:12px; --fs-2:14px; --fs-3:16px; --fs-4:19px; --fs-5:25px; --fs-6:34px;
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-badge:2px; --tag-r:1px; --ax-shape:0; --sw-radius:2px;
+
+  --bg:#07090b; --panel:#0e1114; --raised:#161a1f; --line:#232930; --line-strong:#3a424b;
+  --text:#f2f5f7; --text-2:#aab4bd; --text-3:#6e7983;
+  --nav-bg:#0a0c0f; --top-bg:#0a0c0f; --brand:#f2f5f7; --th-bg:#0a0c0f; --row-hover:#13171b;
+  --view-bg:#090c0f; --canvas-bg:#0a0d10; --grid-line:#1a222a; --robot-link:#b9c3cc; --robot-joint:#5b6670; --robot-label-bg:#07090b;
+
+  --ok:#21d07a; --ok-bg:#0b2618; --ok-text:#52f2a0; --ok-border:#1a6b43;
+  --plan:#2fa8ff; --plan-bg:#0a2134; --plan-text:#70c6ff; --plan-border:#1c5c8a;
+  --warn:#ffb020; --warn-bg:#2a1e07; --warn-text:#ffc95c; --warn-border:#7a5410;
+  --danger:#ff3b4e; --danger-bg:#2f0c12; --danger-text:#ff7d8a; --danger-border:#a3202f; --danger-btn-bg:transparent;
+  --neutral-bg:#161a1f; --badge-border:#3a424b;
+
+  --primary-bg:#f2f5f7; --primary-text:#07090b; --primary-border:#f2f5f7; --primary-hover:#ffffff;
+  --btn-bg:transparent; --btn-border:#4a535d; --btn-text:#f2f5f7; --btn-hover:#1b2026; --btn-weight:700; --btn-track:.07em; --btn-case:uppercase;
+  --stop-bg:#e0102a; --stop-border:#ff4b5e; --stop-shadow:0 0 0 3px #07090b,0 0 0 5px #e0102a; --stop-w:148px; --stop-h:46px;
+
+  --j1:#19e3f0; --j2:#a493ff; --j3:#f07cf5; --j4:#ff6fa8; --j5:#c8f03a; --j6:#d6dde3;
+  --cat-ruch:#4f86c6; --cat-czas:#b0904a; --cat-logika:#8b7fd0; --cat-mat:#3fb0a2; --cat-petle:#b06cc8;
+
+  --gap:10px; --pad:8px; --pad-x:18px; --pad-y:14px; --top-h:40px; --nav-w:100px; --nav-w-collapsed:64px; --nav-item-h:70px;
+  --ctl-h:42px; --badge-h:24px; --tab-h:46px; --tab-gap:0; --tabs-pad:0; --tab-line:3px; --tab-case:uppercase; --tab-track:.08em; --tab-radius:0; --tab-accent:#f2f5f7; --tab-on-bg:#161a1f;
+  --ph-h:52px; --card-h:44px; --card-pad-x:14px; --card-pad-y:8px; --td-pad:12px; --pad-btn:58px;
+  --sw-w:54px; --sw-h:28px; --sw-off:#161a1f; --sw-on:#f2f5f7; --sw-knob-off:#6e7983; --sw-knob-on:#07090b;
+  --input-bg:#07090b; --input-border:#3a424b; --focus:#f2f5f7; --focus-ring:rgba(242,245,247,.16);
+  --seg-bg:#07090b; --seg-on-bg:#f2f5f7; --seg-on-text:#07090b; --seg-on-shadow:none;
+  --card-border:#232930; --card-shadow:none; --shadow:0 14px 34px rgba(0,0,0,.75);
+  --tip-bg:#f2f5f7; --tip-text:#07090b;
+  --nav-active-bg:#161a1f; --nav-active-text:#ffffff;
+  --h-weight:700; --h-track:.05em; --h-case:uppercase; --h2-case:uppercase; --h2-track:.08em;
+  --label-case:uppercase; --label-track:.12em; --badge-case:uppercase; --badge-track:.06em;
+  --ico-stroke:2; --chart-stroke:2;
+  --flow-line:#3a424b; --loop-bg:transparent; --chip-bg:#1b2026;
+  --code-kw:#a493ff; --code-fn:#f2f5f7; --code-num:#19e3f0; --meter-fill:#aab4bd;
+}
+/* Pasek ikon z podpisami po lewej, pasek stanu na dole */
+.app{grid-template-rows:minmax(0,1fr) var(--top-h);grid-template-areas:"nav content" "nav top"}
+.nav{padding:10px 8px;gap:6px}
+.brand{justify-content:center;padding:6px 0 14px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.brand-text{display:none}
+.nav-link{flex-direction:column;justify-content:center;gap:6px;padding:0 4px;border-radius:var(--r-md);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;text-align:center;white-space:normal;line-height:1.1}
+.nav-link .ico{width:24px;height:24px}
+.nav-link.active{box-shadow:inset 3px 0 0 var(--text);background:var(--raised)}
+.app.collapsed .nav-link{height:56px}
+.nav-collapse{justify-content:center;padding:0;font-size:10px;text-transform:uppercase}
+.nav-collapse span{display:none}
+.top{border-bottom:0;border-top:1px solid var(--line);font-size:var(--fs-1)}
+.pulse{border:0;padding:0;margin:0 auto}
+.pulse i{border-radius:0}
+.crumbs{text-transform:uppercase;letter-spacing:.08em;font-size:var(--fs-1)}
+/* Nagłówek strony jako pas sterowniczy */
+.ph{padding:0 0 10px;border-bottom:1px solid var(--line)}
+.ph-title h1{font-size:var(--fs-5)}
+.ph-title>.ico{color:var(--text)}
+/* Karty płaskie, nagłówki jak etykiety pulpitu */
+.card-h{background:var(--th-bg)}
+.card-h h2{font-size:var(--fs-2)}
+.card-h .eyebrow+h2{margin-top:-2px}
+.tabs{background:var(--th-bg)}
+.tab{border-right:1px solid var(--line)}
+.btn.stop{border:4px solid transparent;border-image:repeating-linear-gradient(-45deg,#ffb020 0 7px,#07090b 7px 14px) 4;box-shadow:none;font-size:var(--fs-3);letter-spacing:.16em}
+.btn.stop.sm{font-size:var(--fs-1)}
+.badge{font-size:11px}
+.badge .dot{border-radius:0}
+.seg{border-radius:var(--r-md)}
+.big,.metric b,.jog-val b,.chart-h .val{letter-spacing:-.02em}
+.axbox{border-top-width:4px;background:var(--raised)}
+.pal-item,.blk{border-left-width:4px}
+.term{border-radius:var(--r-md)}
+.r-tag text{font-family:var(--mono);font-size:10px}
+.chart .ln{filter:drop-shadow(0 0 3px color-mix(in srgb,var(--c) 55%,transparent))}
+.manual .view{border-top-width:4px}
+.view-tools .mode-badge{box-shadow:0 0 0 1px var(--mode),0 0 14px color-mix(in srgb,var(--mode) 35%,transparent)}
+.stopbar{border-radius:0;border:4px solid transparent;border-image:repeating-linear-gradient(-45deg,#ffb020 0 7px,#07090b 7px 14px) 4}
+.mock-switch{bottom:54px}
+
+/* ===== Warstwa „gęsta” dla C1–C3: styl C, mniejsze odstępy, ekrany dopasowane do okna (przewijają się tylko listy) ===== */
+:root{
+  --fs-1:11px; --fs-2:13px; --fs-3:14px; --fs-4:17px; --fs-5:22px; --fs-6:28px;
+  --gap:8px; --pad-x:14px; --pad-y:10px; --top-h:36px; --nav-item-h:60px;
+  --ctl-h:34px; --badge-h:22px; --tab-h:36px; --ph-h:40px; --card-h:36px; --card-pad-x:12px; --card-pad-y:5px; --td-pad:6px; --pad-btn:46px;
+  --stop-h:38px; --stop-w:132px; --sw-w:46px; --sw-h:24px;
+}
+/* ----- Dopasowanie do okna ----- */
+.content{display:flex;flex-direction:column;padding:var(--pad-y) var(--pad-x)}
+.screen.active{flex:1 0 auto}
+.screen.fit.active{flex:1 1 0;min-height:0;overflow:hidden}
+.fill{flex:1 1 0;min-height:0}
+.scroll{overflow:auto;min-height:0;flex:1 1 0}
+.grow{flex:1 1 0;min-height:0}
+.card{min-height:0}
+.ph{padding:0 0 8px;min-height:var(--ph-h)}
+.btn.stop{font-size:var(--fs-2)}
+
+/* pasek stanu: przełącznik makiety wbudowany */
+.top .mock-switch{position:static;box-shadow:none;border:0;background:none;padding:0 0 0 8px;border-left:1px solid var(--line);border-radius:0;margin-left:4px}
+.top .mock-switch a{padding:3px 8px}
+
+/* ----- Przegląd ----- */
+.ov-bottom{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:var(--gap)}
+.ov-bottom>.card{overflow:hidden}
+.ov-bottom .view-body{min-height:0}
+.ov-axes{display:grid;grid-template-rows:repeat(6,minmax(0,1fr));flex:1 1 0;min-height:0}
+.ova{display:grid;grid-template-columns:56px 74px 14px minmax(0,1fr) 70px;align-items:center;gap:8px;padding:0 var(--card-pad-x);border-bottom:1px solid var(--line)}
+.ova:last-child{border-bottom:0}
+.ova b{font-size:var(--fs-5);font-family:var(--num-font);text-align:right}
+.ova .track{margin:0}
+.ova .muted{font-size:var(--fs-1);text-align:right}
+.tile .card-b{gap:6px}
+.tile{overflow:hidden}
+.tile .card-b{flex:1;overflow:hidden}
+.card-f{display:flex;align-items:center}
+.card-f .more{margin-left:auto;color:var(--text-2);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.card-f .more:hover{color:var(--text)}
+
+/* ----- Sterowanie ręczne: siatka obszarów (układ w pliku wariantu) ----- */
+.manual.fill{display:grid;gap:var(--gap)}
+.manual .view{grid-area:view;display:flex;flex-direction:column}
+.manual .view-body{min-height:0}
+.axes-card{grid-area:axes;overflow:hidden}
+.jog-card{grid-area:jog;overflow:hidden}
+.msgs-card{grid-area:msgs;overflow:hidden}
+.msgs-card .card-b{overflow:auto;flex:1 1 0;min-height:0}
+.axrow{padding:5px var(--card-pad-x);grid-template-columns:100px minmax(150px,1fr) 78px 80px 64px 88px;gap:8px}
+.axhead{padding-top:5px;padding-bottom:5px}
+.tcp{padding:10px var(--card-pad-x);gap:16px}
+.opts{gap:6px 12px}
+.range input{width:110px}
+.range span{white-space:nowrap}
+.alert{padding:8px 12px}
+.log div{padding:3px 0}
+
+/* ----- Programowanie ----- */
+.prog.fill{align-items:stretch;grid-template-rows:minmax(0,1fr)}
+.prog>.card{overflow:hidden}
+.prog .pal{overflow:auto;flex:1 1 0;min-height:0;padding:8px}
+.prog .pal-item{padding:6px 10px}
+.prog .flow,.prog .code{flex:1 1 0;min-height:0;overflow:auto}
+.prog .runcol{min-height:0}
+.prog .runcol .view-body{min-height:140px}
+@media (max-width:1500px){.prog.fill{grid-template-columns:240px minmax(0,1fr) 300px}.prog.fill .runcol{grid-column:auto;display:flex}}
+
+/* ----- Konfiguracja ----- */
+.grid-2.start.fill{align-content:start;overflow:auto}
+.setrow{min-height:46px;padding:8px var(--card-pad-x)}
+.stack.fill>.view{flex:1 1 0;min-height:180px}
+.stack.fill .view-body{min-height:0}
+
+/* ----- Diagnostyka: elementy wspólne ----- */
+.kpis{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));flex:none}
+.kpi{display:flex;flex-direction:column;gap:3px;padding:6px 12px;border-right:1px solid var(--line);min-width:0}
+.kpi:last-child{border-right:0}
+.kpi-v{white-space:nowrap}
+.kpi-v b{font-size:var(--fs-4);font-weight:700;font-family:var(--num-font)}
+.kpi-v em{font-style:normal;color:var(--text-3);font-size:var(--fs-1);margin-left:4px}
+.kpi .meter{height:4px}
+.toolbar.slim{padding:6px var(--card-pad-x);gap:8px;border-bottom:1px solid var(--line);flex:none;border-radius:0}
+.chart-grid{display:grid;flex:1 1 0;min-height:0;gap:1px;background:var(--line);grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+.chart-grid.two{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr))}
+.chart-card{display:flex;flex-direction:column;background:var(--panel);min-height:0;min-width:0}
+.chart-card .chart-h{padding:5px 10px;gap:8px}
+.chart-card .chart{flex:1 1 0;height:auto;min-height:36px;margin:4px 10px 10px 54px}
+.chart-card .chart:not([data-mini]){margin-bottom:22px}
+.chart[data-mini] .yl{font-size:9.5px}
+.hl{outline:2px solid var(--text);outline-offset:-2px}
+tr.hl td{background:var(--raised)}
+.table.dense{font-size:var(--fs-2)}
+.table.dense td{padding:4px 8px}
+.table.dense td.mono{white-space:nowrap}
+.toolbar.slim .chk{margin-right:4px}
+.toolbar.slim .chk .lg{margin-left:2px}
+.table.dense th{padding:5px 8px;position:sticky;top:0;z-index:1}
+.table .ell{max-width:0;width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.events{display:flex;flex-direction:column}
+.ev-now{display:flex;align-items:center;gap:8px;padding:6px var(--card-pad-x);color:var(--ok-text);font-size:var(--fs-2);font-weight:700}
+.ev{display:grid;grid-template-columns:58px 8px 110px minmax(0,1fr) auto;gap:8px;align-items:center;padding:5px var(--card-pad-x);border-top:1px solid var(--line);font-size:var(--fs-2)}
+.ev-t{color:var(--text-3)}
+.ev-dot{width:8px;height:8px;background:var(--text-3)}
+.ev.warn .ev-dot{background:var(--warn)}
+.ev.plan .ev-dot{background:var(--plan)}
+.ev-src{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev-txt{color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev-st{color:var(--text-3);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.events.big .ev{grid-template-columns:76px 8px 180px minmax(0,1fr) auto;padding:8px var(--card-pad-x)}
+.sect{padding:8px var(--card-pad-x) 6px;font-size:var(--fs-1);font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em}
+.kv-grid{display:flex;flex-direction:column;padding:2px var(--card-pad-x);overflow:auto;flex:1 1 0;min-height:0}
+.kv-grid .kv{padding:4px 0;border-bottom:1px dashed var(--line)}
+.kv-grid .kv:last-child{border-bottom:0}
+
+/* ----- Awaryjnie: mały ekran → zwykłe przewijanie strony ----- */
+@media (max-width:1250px),(max-height:740px){
+  .content{display:block;overflow:auto}
+  .screen.fit.active{overflow:visible}
+  .fill{flex:none}
+  .manual.fill{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:none!important;grid-template-areas:"view" "axes" "jog" "msgs"!important}
+  .manual .view-body{min-height:380px}
+  .diag1,.diag2,.dock{grid-template-columns:minmax(0,1fr)!important}
+  .diag3{grid-template-rows:auto auto!important}
+  .chart-grid,.strips{min-height:620px}
+  .scroll{max-height:420px}
+}
+
+/* ===== C2 — Drzewo: stała mapa po lewej, szczegóły w zakładkach po prawej ===== */
+.diag2{display:grid;grid-template-columns:300px minmax(0,1fr);gap:var(--gap)}
+.tree-card,.main-card{overflow:hidden}
+.res{display:flex;flex-direction:column;gap:6px;padding:8px var(--card-pad-x);border-bottom:1px solid var(--line);flex:none}
+.res .bar{grid-template-columns:40px minmax(0,1fr) auto auto;gap:8px}
+.res em{font-style:normal;color:var(--text-3);font-size:var(--fs-1)}
+.tree{padding:2px 0 6px}
+.tgroup{display:flex;align-items:center;gap:8px;padding:9px var(--card-pad-x) 3px;font-size:var(--fs-1);font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em}
+.tgroup .tm{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400}
+.tnode{display:flex;align-items:center;gap:8px;width:100%;padding:3px var(--card-pad-x) 3px 20px;background:none;border:0;border-left:3px solid transparent;color:var(--text);cursor:pointer;text-align:left}
+.tnode:hover{background:var(--raised)}
+.tnode.sel{background:var(--raised);border-left-color:var(--text)}
+.tdot{width:8px;height:8px;flex:none;background:var(--ok)}
+.tdot.off{background:var(--text-3)}
+.tl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12px}
+.tl .ax{font-family:var(--font);font-size:var(--fs-2)}
+.tm{color:var(--text-3);font-size:var(--fs-1);white-space:nowrap}
+.main-card>.tabs{flex:none}
+.main-card .pane{display:flex;flex-direction:column;flex:1 1 0;min-height:0}
+.strip.inner{flex:none;border-bottom:1px solid var(--line)}
+.pane-split{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);flex:1 1 0;min-height:0;gap:1px;background:var(--line)}
+.pane-split>div{background:var(--panel)}
+/* Sterowanie: 3D nad komunikatami po lewej; osie nad JOG TCP po prawej */
+.manual.fill{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto minmax(0,1fr) 200px;grid-template-areas:"view axes" "view jog" "msgs jog"}
+/* ----- Menu: rozwinięte 236 px (statusy + CPU/RAM/CAN) / zwinięte 100 px (pasek ikon + pionowy wskaźnik stanu) ----- */
+:root{--nav-w:236px;--nav-w-collapsed:100px}
+.nav{gap:4px}
+.nav-links{flex:0 0 auto}
+.app:not(.collapsed) .brand{justify-content:flex-start;padding:6px 8px 12px}
+.app:not(.collapsed) .brand-text{display:flex}
+.app:not(.collapsed) .nav-link{flex-direction:row;justify-content:flex-start;gap:12px;height:40px;padding:0 12px;font-size:12px;letter-spacing:.06em;text-align:left;white-space:nowrap}
+.app:not(.collapsed) .nav-link .ico{width:20px;height:20px}
+.app.collapsed .nav-link{height:var(--nav-item-h)}
+.app.collapsed .nav-link span{display:inline}
+.app:not(.collapsed) .nav-collapse{justify-content:flex-start;padding:0 12px;gap:10px}
+.app:not(.collapsed) .nav-collapse span{display:inline}
+.nav-status{margin-top:auto;border-top:1px solid var(--line);padding:10px 0 4px}
+.ns-full{display:flex;flex-direction:column;gap:9px;padding:0 4px}
+.app.collapsed .ns-full{display:none}
+.ns-compact{display:none;flex-direction:column;align-items:center;gap:7px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--text-2)}
+.app.collapsed .ns-compact{display:flex}
+.ns-compact>span:not(.ns-drives){display:flex;align-items:center;gap:7px;width:52px}
+.ns-compact i,.ns-chips i{width:8px;height:8px;background:var(--ok);flex:none}
+.ns-compact .ns-drives{display:flex;flex-direction:column;gap:3px;margin-top:3px}
+.ns-compact .ns-drives em{width:24px;height:5px;background:var(--ok)}
+.ns-compact b{font-size:var(--fs-1);color:var(--text)}
+.ns-head{display:flex;align-items:center;justify-content:space-between}
+.ns-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.ns-chips span{display:flex;align-items:center;justify-content:center;gap:5px;height:24px;border:1px solid var(--line-strong);font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--text-2)}
+.ns-drv{display:flex;align-items:center;gap:8px}
+.ns-drv .lbl{width:52px}
+.ns-drv .ns-drives{display:flex;gap:3px;flex:1}
+.ns-drv .ns-drives em{width:10px;height:12px;background:var(--ok)}
+.ns-drv b{font-size:var(--fs-2)}
+.ns-row{display:flex;align-items:baseline;gap:6px}
+.ns-row .lbl{width:34px}
+.ns-row b{font-size:var(--fs-4);font-family:var(--num-font);font-weight:700}
+.ns-row em{font-style:normal;font-size:var(--fs-1);color:var(--text-3);white-space:nowrap}
+.ns-gauge .meter{display:block;margin-top:5px;height:6px}
+.ns-gauge[data-gauge="can"]{--l:60%}
+.ns-cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:5px}
+.core{display:flex;flex-direction:column;align-items:center;gap:2px}
+.core-bar{position:relative;width:100%;height:40px;background:var(--line)}
+.core-bar i{position:absolute;left:0;right:0;bottom:0;height:var(--v);background:var(--meter-fill);transition:height .4s}
+.core small{font-size:10px;color:var(--text-2);line-height:1.1}
+.core small.core-n{color:var(--text-3)}
+.top-right{margin-left:auto}
+@media (prefers-reduced-motion:reduce){.core-bar i{transition:none}}
+
+</style>
+</head>
+<body class="variant-c2_drzewo">
+<!-- Zestaw ikon SVG (jeden styl obrysu, grubość z tokenu --ico-stroke) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-robot" viewBox="0 0 24 24"><path d="M5 21h14M8 21v-3h8v3M12 18v-4.5M13.4 11.6l3.2-3.2M18.4 6.6L20 5"/><circle cx="12" cy="12" r="2"/><circle cx="17.5" cy="7.5" r="1.5"/></symbol>
+  <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+  <symbol id="i-can" viewBox="0 0 24 24"><path d="M3 12h18M6 12V7M12 12v5M18 12V7"/><circle cx="6" cy="5" r="1.6"/><circle cx="12" cy="19" r="1.6"/><circle cx="18" cy="5" r="1.6"/></symbol>
+  <symbol id="i-diag" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></symbol>
+  <symbol id="i-manual" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></symbol>
+  <symbol id="i-program" viewBox="0 0 24 24"><rect x="4" y="3" width="10" height="5" rx="1"/><rect x="10" y="10" width="10" height="5" rx="1"/><rect x="4" y="17" width="10" height="4" rx="1"/><path d="M9 8v2.5h1M15 15v2h-1"/></symbol>
+  <symbol id="i-config" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-arch" viewBox="0 0 24 24"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="4"/><rect x="3" y="13" width="8" height="8" rx="1"/><path d="M13 21l4-8 4 8z"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><path d="M8 2.5h8l5.5 5.5v8L16 21.5H8L2.5 16V8z"/><rect x="9" y="9" width="6" height="6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5l12 7.5-12 7.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5l4.5 4.5L19.5 6.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.5 17h-19z"/><path d="M12 10v4.5M12 17.5v.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M5 9l7 7 7-7"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5.5 9v12h13V9"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M4 20h16"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M11 6l-6 6 6 6M19 6l-6 6 6 6"/></symbol>
+  <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M8 8a5.7 5.7 0 0 0 0 8M16 8a5.7 5.7 0 0 1 0 8M5.2 5.2a9.6 9.6 0 0 0 0 13.6M18.8 5.2a9.6 9.6 0 0 1 0 13.6"/></symbol>
+  <symbol id="i-zoomin" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16 16l5 5M11 8v6M8 11h6"/></symbol>
+  <symbol id="i-zoomout" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16 16l5 5M8 11h6"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3M4 5v14M20 5v14"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 0 1-3 3H4"/></symbol>
+  <symbol id="i-ptp" viewBox="0 0 24 24"><path d="M3 17c3.5-9 7-9 8.5-4.5S17 17 21 7"/></symbol>
+  <symbol id="i-lin" viewBox="0 0 24 24"><path d="M5 18L19 6"/><circle cx="5" cy="18" r="1.8"/><circle cx="19" cy="6" r="1.8"/></symbol>
+  <symbol id="i-rel" viewBox="0 0 24 24"><path d="M4 18h9M13 18V8M10 11l3-3 3 3"/><circle cx="4" cy="18" r="1.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11M11 10V4.5a1.5 1.5 0 0 1 3 0V10M14 10V5.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7 6 6 0 0 1-6-6v-2.5a1.5 1.5 0 0 1 3 0V14"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><path d="M12 3l8.5 9-8.5 9-8.5-9z"/></symbol>
+  <symbol id="i-var" viewBox="0 0 24 24"><path d="M8 4c-2 0-3 1-3 3v2.5C5 11 4 12 3 12c1 0 2 1 2 2.5V17c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2.5c0 1.5 1 2.5 2 2.5-1 0-2 1-2 2.5V17c0 2-1 3-3 3"/></symbol>
+  <symbol id="i-calc" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="1.5"/><path d="M8 7h8M8 12h2M14 12h2M8 16h2M14 16h2"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-log" viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></symbol>
+</svg>
+
+<!-- Wspólny model robota (wklejany przez JS do każdego podglądu) -->
+<template id="tplRobot">
+  <svg class="scene" viewBox="20 70 620 380" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Podgląd robota (makieta)">
+    <g class="floor"></g>
+    <path class="path-plan" d="M548 252 C 520 310, 430 336, 372 304"/>
+    <path class="path-done" d="M548 252 C 566 226, 574 204, 562 172"/>
+    <path class="r-base" d="M246 300 L246 336 A54 16 0 0 0 354 336 L354 300 Z"/>
+    <ellipse class="r-base-top" cx="300" cy="300" rx="54" ry="16"/>
+    <line class="r-link" x1="300" y1="296" x2="300" y2="172" stroke-width="30"/>
+    <line class="r-link" x1="300" y1="170" x2="420" y2="130" stroke-width="26"/>
+    <line class="r-link" x1="420" y1="130" x2="500" y2="190" stroke-width="20"/>
+    <line class="r-link" x1="500" y1="190" x2="528" y2="226" stroke-width="14"/>
+    <line class="r-tool" x1="528" y1="226" x2="548" y2="252" stroke-width="7"/>
+    <circle class="r-joint" cx="300" cy="170" r="20"/>
+    <circle class="r-joint" cx="420" cy="130" r="17"/>
+    <circle class="r-joint" cx="460" cy="160" r="11"/>
+    <circle class="r-joint" cx="500" cy="190" r="12"/>
+    <circle class="r-joint" cx="528" cy="226" r="9"/>
+    <g class="tcp-axes"><line x1="548" y1="252" x2="580" y2="262" class="ax-x"/><line x1="548" y1="252" x2="556" y2="284" class="ax-y"/><line x1="548" y1="252" x2="548" y2="220" class="ax-z"/></g>
+    <g class="r-tag" style="--c:var(--j1)" transform="translate(316 318)"><rect width="30" height="18"/><text x="15" y="13">J1</text></g>
+    <g class="r-tag" style="--c:var(--j2)" transform="translate(252 160)"><rect width="30" height="18"/><text x="15" y="13">J2</text></g>
+    <g class="r-tag" style="--c:var(--j3)" transform="translate(405 96)"><rect width="30" height="18"/><text x="15" y="13">J3</text></g>
+    <g class="r-tag" style="--c:var(--j4)" transform="translate(462 128)"><rect width="30" height="18"/><text x="15" y="13">J4</text></g>
+    <g class="r-tag" style="--c:var(--j5)" transform="translate(456 196)"><rect width="30" height="18"/><text x="15" y="13">J5</text></g>
+    <g class="r-tag" style="--c:var(--j6)" transform="translate(488 232)"><rect width="30" height="18"/><text x="15" y="13">J6</text></g>
+    <g class="r-tag tcp" transform="translate(562 236)"><rect width="36" height="18"/><text x="18" y="13">TCP</text></g>
+    <g class="pos-marks">
+      <circle cx="372" cy="304" r="5"/><circle cx="562" cy="172" r="5"/><circle cx="430" cy="356" r="5"/>
+      <g transform="translate(300 312)"><rect width="66" height="20"/><text x="33" y="14">Pozycja_1</text></g>
+      <g transform="translate(570 150)"><rect width="66" height="20"/><text x="33" y="14">bez_osobl.</text></g>
+      <g transform="translate(440 364)"><rect width="66" height="20"/><text x="33" y="14">Pozycja_3</text></g>
+    </g>
+  </svg>
+</template>
+
+<div class="app" id="app">
+  <nav class="nav" aria-label="Nawigacja aplikacji">
+    <a class="brand" href="#overview" data-go="overview"><svg class="ico"><use href="#i-robot"/></svg><span class="brand-text"><b>ROBOT</b><small>6-DOF · stanowisko</small></span></a>
+    <div class="nav-links">
+      <a class="nav-link" href="#overview" data-go="overview" title="Przegląd systemu"><svg class="ico"><use href="#i-overview"/></svg><span>Przegląd systemu</span></a>
+      <a class="nav-link" href="#diagnostics" data-go="diagnostics" title="Diagnostyka"><svg class="ico"><use href="#i-diag"/></svg><span>Diagnostyka</span></a>
+      <a class="nav-link" href="#manual" data-go="manual" title="Sterowanie ręczne"><svg class="ico"><use href="#i-manual"/></svg><span>Sterowanie ręczne</span></a>
+      <a class="nav-link" href="#programming" data-go="programming" title="Programowanie"><svg class="ico"><use href="#i-program"/></svg><span>Programowanie</span></a>
+      <a class="nav-link" href="#config" data-go="config" title="Konfiguracja"><svg class="ico"><use href="#i-config"/></svg><span>Konfiguracja</span></a>
+      <span class="nav-sep"></span>
+      <a class="nav-link mock-only" href="#system" data-go="system" title="System wizualny (tylko makieta)"><svg class="ico"><use href="#i-palette"/></svg><span>System wizualny</span></a>
+    </div>
+    <div class="nav-status" aria-label="Stan systemu">
+      <div class="ns-compact" title="Stan warstw systemu i napędów — rozwiń menu, aby zobaczyć zużycie CPU, RAM i CAN">
+        <span><i></i>SYS</span><span><i></i>ROS</span><span><i></i>API</span><span><i></i>WEB</span>
+        <span class="ns-drives"><em></em><em></em><em></em><em></em><em></em><em></em></span><b class="num">6/6</b>
+      </div>
+      <div class="ns-full">
+        <div class="ns-head"><span class="lbl">Stan systemu</span><span class="badge ok sm"><i class="dot"></i>OK</span></div>
+        <div class="ns-chips"><span><i></i>SYS</span><span><i></i>ROS</span><span><i></i>API</span><span><i></i>WEB</span></div>
+        <div class="ns-drv"><span class="lbl">Napędy</span><span class="ns-drives"><em></em><em></em><em></em><em></em><em></em><em></em></span><b class="num">6/6</b></div>
+        <div class="ns-gauge" data-gauge="cpu"><div class="ns-row"><span class="lbl">CPU</span><b class="num">35</b><em>% · 4 wątki</em></div>
+          <div class="ns-cores" data-fill="cores"></div></div>
+        <div class="ns-gauge" data-gauge="ram"><div class="ns-row"><span class="lbl">RAM</span><b class="num">34</b><em>% · 2,6 / 7,6 G</em></div><span class="meter"><i></i></span></div>
+        <div class="ns-gauge" data-gauge="can"><div class="ns-row"><span class="lbl">CAN</span><b class="num">10,6</b><em>% · limit 60 %</em></div><span class="meter"><i></i><span class="lim" title="Limit pasma 60 %"></span></span></div>
+      </div>
+    </div>
+    <button class="nav-collapse" type="button" data-act="collapse" title="Zwiń / rozwiń menu"><svg class="ico"><use href="#i-collapse"/></svg><span>Zwiń menu</span></button>
+  </nav>
+
+  <header class="top">
+    <div class="crumbs"><span>Stanowisko robota</span><span class="crumb-sep">/</span><b id="crumb">Przegląd systemu</b></div>
+    <div class="top-right">
+      <span class="badge ok"><i class="dot"></i>Połączono · 20 Hz</span>
+      <button class="btn sm" type="button"><svg class="ico"><use href="#i-phone"/></svg>Teach pendant</button>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- ===================== PRZEGLĄD ===================== -->
+    <section class="screen fit" data-screen="overview">
+      <div class="ph">
+        <div class="ph-title"><svg class="ico"><use href="#i-overview"/></svg><h1>Przegląd systemu</h1><i class="info" tabindex="0" data-tip="Stan połączeń i podzespołów w jednym miejscu. Pomiar co 1 s.">i</i></div>
+        <div class="ph-state"><span class="badge ok"><i class="dot"></i>Diagnostyka dostępna</span><span class="badge warn"><i class="dot"></i>Gotowość napędów niepotwierdzona</span></div>
+        <div class="ph-actions"><span class="meta">Wiek danych: <b class="num">0 s</b></span></div>
+      </div>
+      <div class="grid-3">
+        <article class="card tile">
+          <div class="card-h"><span class="lbl num">01</span><h2>Backend API</h2><span class="end"><span class="badge ok"><i class="dot"></i>Aktywny</span></span></div>
+          <div class="card-b"><p class="muted">Backend odpowiada</p>
+            <div class="kv"><span>Adres panelu</span><b class="mono">http://192.168.1.69:8080</b></div>
+            <div class="kv"><span>Interfejs LAN</span><b class="mono">enp2s0</b></div></div>
+          <div class="card-f">Pomiar 19:34:21<a class="more" href="#diagnostics" data-go="diagnostics">Diagnostyka →</a></div>
+        </article>
+        <article class="card tile">
+          <div class="card-h"><span class="lbl num">02</span><h2>ROS 2 Humble</h2><span class="end"><span class="badge ok"><i class="dot"></i>Aktywny</span></span></div>
+          <div class="card-b"><p class="muted">Łączność z węzłem diagnostycznym potwierdzona</p>
+            <div class="kv"><span>Źródło danych</span><b class="mono">/robot/system_status</b></div>
+            <div class="kv"><span>Komunikacja ROS</span><b>lokalna</b></div></div>
+          <div class="card-f">Pomiar 19:34:21<a class="more" href="#diagnostics" data-go="diagnostics">Diagnostyka →</a></div>
+        </article>
+        <article class="card tile">
+          <div class="card-h"><span class="lbl num">03</span><h2>Komputer robota</h2><span class="end"><span class="badge ok"><i class="dot"></i>Aktywny</span></span></div>
+          <div class="card-b"><p class="muted">Zużycie CPU, RAM i CAN: panel stanu w menu</p>
+            <div class="kv"><span>Procesor</span><b>Intel i5-7500T · 4 wątki</b></div>
+            <div class="kv"><span>System</span><b>Ubuntu 22.04.5 LTS · 6.8.0-138</b></div>
+            <div class="kv"><span>Czas pracy</span><b class="num">6 h 54 min</b></div></div>
+          <div class="card-f">Pomiar 19:34:21<a class="more" href="#diagnostics" data-go="diagnostics">Diagnostyka →</a></div>
+        </article>
+        <article class="card tile">
+          <div class="card-h"><span class="lbl num">04</span><h2>Magistrala CAN</h2><span class="end"><span class="badge ok"><i class="dot"></i>Aktywny</span></span></div>
+          <div class="card-b">
+            <div class="kv"><span>Interfejs / stan</span><b class="mono">can0 · ERROR-ACTIVE</b></div>
+            <div class="kv"><span>Bitrate</span><b class="num">1 000 000 bit/s</b></div>
+            <div class="metrics three">
+              <div class="metric"><small>Ramki RX</small><b class="num" data-live="18389818,180,0" data-inc>18 389 818</b></div>
+              <div class="metric"><small>Ramki TX</small><b class="num" data-live="9258974,90,0" data-inc>9 258 974</b></div>
+              <div class="metric"><small>Błędy</small><b class="num">0</b></div></div></div>
+          <div class="card-f">Pomiar 19:34:21<a class="more" href="#diagnostics" data-go="diagnostics">Diagnostyka →</a></div>
+        </article>
+        <article class="card tile">
+          <div class="card-h"><span class="lbl num">05</span><h2>Kontrolery ruchu</h2><span class="end"><span class="badge"><i class="dot"></i>Nieuruchomione</span></span></div>
+          <div class="card-b"><div class="empty">Lista pojawi się po uruchomieniu ros2_control.</div></div>
+          <div class="card-f">Pomiar 19:34:21<a class="more" href="#diagnostics" data-go="diagnostics">Diagnostyka →</a></div>
+        </article>
+        <article class="card tile">
+          <div class="card-h"><span class="lbl num">06</span><h2>Napędy · 6 osi</h2><span class="end"><span class="badge ok"><i class="dot"></i>6/6 dostępnych</span></span></div>
+          <div class="card-b"><p class="muted">Dostępność z diagnostyki CAN; ENABLE potwierdzany osobno.</p>
+            <div class="axis-boxes"><span class="axbox j1"><b>J1</b><i class="okdot"></i></span><span class="axbox j2"><b>J2</b><i class="okdot"></i></span><span class="axbox j3"><b>J3</b><i class="okdot"></i></span><span class="axbox j4"><b>J4</b><i class="okdot"></i></span><span class="axbox j5"><b>J5</b><i class="okdot"></i></span><span class="axbox j6"><b>J6</b><i class="okdot"></i></span></div></div>
+          <div class="card-f">Pomiar 19:34:22<a class="more" href="#diagnostics" data-go="diagnostics">Diagnostyka →</a></div>
+        </article>
+      </div>
+      <div class="ov-bottom fill">
+        <article class="card view">
+          <div class="card-h"><h2>Robot</h2><span class="badge ok"><i class="dot"></i>LIVE · pozycja zmierzona</span><span class="end"><a class="btn sm" href="#manual" data-go="manual"><svg class="ico"><use href="#i-manual"/></svg>Sterowanie</a></span></div>
+          <div class="view-body" data-robot></div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Pozycje osi</h2><span class="sub">kąt przegubu · prędkość</span></div>
+          <div class="ov-axes" data-fill="ovaxes"></div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Zdarzenia</h2><span class="end"><a class="btn sm" href="#diagnostics" data-go="diagnostics">Diagnostyka →</a></span></div>
+          <div class="scroll"><div class="events" data-fill="events"></div></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===================== DIAGNOSTYKA — C2 DRZEWO: stała mapa systemu + zakładki szczegółów ===================== -->
+    <section class="screen fit" data-screen="diagnostics">
+      <div class="ph">
+        <div class="ph-title"><svg class="ico"><use href="#i-diag"/></svg><h1>Diagnostyka</h1><i class="info" tabindex="0" data-tip="Po lewej stała mapa systemu (warstwy, magistrala, napędy). Kliknięcie elementu otwiera jego szczegóły w zakładce po prawej. Dawniej: Diagnostyka, Magistrala CAN, Architektura.">i</i></div>
+        <div class="ph-state"><span class="badge ok"><i class="dot"></i>Źródło połączone</span><span class="badge ok"><i class="dot"></i>Zapis ciągły</span><span class="badge ok"><i class="dot"></i>Problemy: 0</span></div>
+        <div class="ph-actions"><button class="btn" type="button"><svg class="ico"><use href="#i-download"/></svg>CSV</button><span class="div"></span><button class="btn" type="button"><svg class="ico"><use href="#i-power"/></svg>Reset CAN</button><button class="btn primary" type="button"><svg class="ico"><use href="#i-scan"/></svg>Skanuj</button></div>
+      </div>
+      <div class="diag2 fill">
+        <aside class="card tree-card">
+          <div class="card-h"><h2>Mapa systemu</h2><span class="end"><span class="badge ok"><i class="dot"></i>17/18 OK</span></span></div>
+          <div class="tree scroll" data-fill="tree"></div>
+        </aside>
+        <article class="card main-card">
+          <div class="tabs" data-tabs="dg"><button class="tab" type="button" data-tab="tr" aria-selected="true"><svg class="ico"><use href="#i-diag"/></svg>Przebiegi</button><button class="tab" type="button" data-tab="can" aria-selected="false"><svg class="ico"><use href="#i-can"/></svg>Magistrala CAN</button><button class="tab" type="button" data-tab="proc" aria-selected="false"><svg class="ico"><use href="#i-arch"/></svg>Procesy</button><button class="tab" type="button" data-tab="ev" aria-selected="false"><svg class="ico"><use href="#i-alert"/></svg>Zdarzenia <span class="count">0</span></button></div>
+          <div class="pane" data-panel="dg:tr">
+            <div class="toolbar slim">
+  <span class="field" style="--w:40px"><input value="10" aria-label="Okno czasu"><span class="unit">s</span></span>
+  <span class="btn-row"><button class="btn icon sm" title="Przybliż"><svg class="ico"><use href="#i-zoomin"/></svg></button><button class="btn icon sm" title="Oddal"><svg class="ico"><use href="#i-zoomout"/></svg></button><button class="btn icon sm" title="Wstecz"><svg class="ico"><use href="#i-left"/></svg></button><button class="btn icon sm" title="Naprzód"><svg class="ico"><use href="#i-right"/></svg></button></span>
+  <span class="seg sm"><button type="button" aria-pressed="false"><svg class="ico"><use href="#i-pause"/></svg>Pauza</button><button type="button" aria-pressed="true"><svg class="ico"><use href="#i-live"/></svg>Na żywo</button></span>
+  <span class="div"></span>
+  <label class="chk"><input type="checkbox" checked><i class="lg dash"></i>Referencja</label>
+  <label class="chk"><input type="checkbox"><i class="lg dot"></i>Cel F5</label>
+  <label class="chk"><input type="checkbox"><i class="lg grey"></i>RPM F5</label>
+  <span class="div"></span>
+  <span class="inline">Auto Y <button class="switch" role="switch" aria-checked="true" aria-label="Auto Y"></button></span>
+  <span class="meta push">Bufor 20 MB/oś · <span class="num">357 069</span> próbek · utraty 0</span>
+</div>
+
+            <div class="chart-grid two" data-fill="charts"></div>
+          </div>
+          <div class="pane" data-panel="dg:can" hidden>
+            <div class="strip inner" data-fill="canstats"></div>
+            <div class="pane-split">
+              <div class="scroll"><div class="sect">Urządzenia bieżącej sesji</div><table class="table dense"><thead><tr><th>CAN ID</th><th>Oś</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th class="n">RTT ms</th><th class="n">Błędy</th></tr></thead><tbody data-fill="can" data-cols="full"></tbody></table></div>
+              <div class="scroll"><div class="sect">Szczegóły komunikacji</div><table class="table dense"><thead><tr><th>Oś</th><th class="n">Ramki RX/s</th><th class="n">TX/s</th><th class="n">Odczyt Hz</th><th class="n">Timeouty</th><th class="n">Ost. odp.</th></tr></thead><tbody data-fill="cancomm"></tbody></table></div>
+            </div>
+          </div>
+          <div class="pane" data-panel="dg:proc" hidden>
+            <div class="scroll"><table class="table dense"><thead><tr><th>Stan</th><th>Nazwa</th><th class="c-typ">Typ</th><th class="n c-pid">PID</th><th class="n">CPU %</th><th class="n c-ram">RAM</th><th class="n c-up">Czas pracy</th><th>Komunikat</th></tr></thead><tbody data-fill="proc" data-cols="full"></tbody></table></div>
+          </div>
+          <div class="pane" data-panel="dg:ev" hidden>
+            <div class="scroll"><div class="events big" data-fill="events"></div></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+
+    <!-- ===================== STEROWANIE RĘCZNE ===================== -->
+    <section class="screen fit" data-screen="manual" data-mode="live">
+      <div class="ph">
+        <div class="ph-title"><svg class="ico"><use href="#i-manual"/></svg><h1>Sterowanie ręczne</h1><i class="info" tabindex="0" data-tip="JOG osi i TCP, ENABLE i zerowanie wałów. Tryb LIVE steruje robotem fizycznym, Planowanie tylko modelem.">i</i></div>
+        <div class="ph-state">
+          <span class="seg mode"><button type="button" data-mode="live" aria-pressed="true"><i class="dot"></i>LIVE · robot fizyczny</button><button type="button" data-mode="plan" aria-pressed="false"><i class="dot"></i>Planowanie</button></span>
+          <span class="badge warn"><i class="dot"></i>Napędy wyłączone</span>
+        </div>
+        <div class="ph-actions">
+          <span class="btn-group"><button class="btn" type="button"><svg class="ico"><use href="#i-power"/></svg>Załącz wszystkie</button><button class="btn danger" type="button">Wyłącz wszystkie</button></span>
+          <button class="btn" type="button">Reset CAN</button>
+          <button class="btn stop" type="button"><svg class="ico"><use href="#i-stop"/></svg>STOP</button>
+        </div>
+      </div>
+      <div class="manual fill">
+        <article class="card view">
+          <div class="card-h"><h2>Wizualizacja robota</h2><span class="badge"><i class="dot"></i>Geometria konfiguracji</span><span class="end"><span class="badge plan"><i class="dot"></i>Nagrywanie diagnostyki</span></span></div>
+          <div class="view-legend"><span class="leg plan">Plan PTP/LIN</span><span class="leg done">Wykonane</span><span class="inline">Ślad TCP <button class="switch" role="switch" aria-checked="false" aria-label="Ślad TCP"></button></span><span class="push meta">Pozycja <b class="num">6/6</b> osi</span><button class="btn sm" disabled>Wyczyść ślad</button></div>
+          <div class="view-body" data-robot>
+            <div class="view-tools"><span class="badge mode-badge"><i class="dot"></i><span data-mode-label data-live-text="LIVE · pozycja zmierzona" data-plan-text="Planowanie · model">LIVE · pozycja zmierzona</span></span><button class="btn icon sm" title="Widok domyślny"><svg class="ico"><use href="#i-home"/></svg></button></div>
+          </div>
+        </article>
+          <article class="card axes-card">
+            <div class="axhead axrow"><span>Oś</span><span>JOG · pozycja</span><span>Ruch</span><span>ENABLE</span><span>Zero wału</span><span>Prędkość</span></div>
+            <div id="axisRows"></div>
+          </article>
+          <article class="card jog-card">
+            <div class="tabs" data-tabs="jog"><button class="tab" type="button" data-tab="tcp" aria-selected="true">TCP · LIVE</button><button class="tab" type="button" data-tab="ptp" aria-selected="false">PTP / LIN</button><button class="tab" type="button" data-tab="lock" aria-selected="false" disabled><svg class="ico"><use href="#i-lock"/></svg>Program</button></div>
+            <div class="tcp" data-panel="jog:tcp">
+              <div class="pad">
+                <button class="btn" type="button">Z+</button><button class="btn" type="button">Y+</button><span></span>
+                <button class="btn" type="button">X−</button><span class="pad-c"></span><button class="btn" type="button">X+</button>
+                <button class="btn" type="button">Z−</button><button class="btn" type="button">Y−</button><span></span>
+              </div>
+              <div class="opts">
+                <span class="lbl">Ruch</span><span class="seg"><button type="button" aria-pressed="true">Przesuw</button><button type="button" aria-pressed="false">Obrót</button></span>
+                <span class="lbl">Układ</span><span class="seg"><button type="button" aria-pressed="true">Baza</button><button type="button" aria-pressed="false">Narzędzie</button></span>
+                <span class="lbl">Tryb</span><span class="seg"><button type="button" aria-pressed="true">Ciągły</button><button type="button" aria-pressed="false">Impuls</button></span>
+                <span class="lbl">Prędkość</span><span class="field" style="--w:64px"><input value="20" aria-label="Prędkość TCP"><span class="unit">mm/s</span></span>
+                <span class="lbl">Impuls</span><span class="range"><input type="range" min="0" max="4" value="1" aria-label="Impuls"><span class="num">1 mm / 1°</span></span>
+              </div>
+            </div>
+            <div class="tcp" data-panel="jog:ptp" hidden>
+              <div class="opts wide">
+                <span class="lbl">Cel</span><select class="select"><option>Pozycja_1</option><option>bez_osobliwosci</option></select>
+                <span class="lbl">Ruch</span><span class="seg"><button type="button" aria-pressed="true">PTP</button><button type="button" aria-pressed="false">LIN</button></span>
+                <span class="lbl">Prędkość</span><span class="field" style="--w:56px"><input value="30" aria-label="Prędkość PTP"><span class="unit">%</span></span>
+                <span></span><span class="btn-row"><button class="btn" type="button">Przelicz</button><button class="btn primary" type="button" disabled><svg class="ico"><use href="#i-play"/></svg>Wykonaj</button></span>
+              </div>
+            </div>
+          </article>
+          <article class="card msgs-card">
+            <div class="card-h"><h2>Komunikaty</h2><span class="end"><span class="badge warn"><i class="dot"></i>1 uwaga</span></span></div>
+            <div class="card-b scroll">
+              <div class="alert warn"><svg class="ico"><use href="#i-alert"/></svg><h3>Napędy nie są załączone</h3><p>ENABLE wyłączony lub nieznany: J1–J6. Wyłączone osie nie wykonają ruchu fizycznego.</p><p><b>Co zrobić:</b> sprawdź gotowość napędów i świadomie załącz wymagane osie.</p></div>
+              <div class="log">
+                <div><span>Połączenie</span>Nawiązano połączenie z panelem sterowania.</div>
+                <div><span>JOG TCP LIVE</span>Przytrzymaj kierunek TCP. Puszczenie hamuje, także w trybie impulsowym.</div>
+                <div><span>Robot fizyczny</span>Program · oczekiwanie na przygotowanie</div>
+              </div>
+            </div>
+          </article>
+      </div>
+    </section>
+
+    <!-- ===================== PROGRAMOWANIE ===================== -->
+    <section class="screen fit" data-screen="programming">
+      <div class="ph">
+        <div class="ph-title"><svg class="ico"><use href="#i-program"/></svg><h1>Programowanie</h1><i class="info" tabindex="0" data-tip="Program blokowy z widokiem tekstowym. Wykonanie ruchu wymaga zatwierdzenia rewizji przez operatora.">i</i></div>
+        <div class="ph-state">
+          <span class="select-wrap"><select class="select" aria-label="Program"><option>Pati</option><option>Paletyzacja 3×</option></select><button class="btn icon sm" title="Zmień nazwę"><svg class="ico"><use href="#i-edit"/></svg></button></span>
+          <span class="badge ok"><i class="dot"></i>Zapisano 21:28</span>
+          <span class="badge ok"><i class="dot"></i>Zatwierdzony · rew. 7</span>
+        </div>
+        <div class="ph-actions">
+          <span class="btn-row"><button class="btn icon" title="Cofnij"><svg class="ico"><use href="#i-undo"/></svg></button><button class="btn icon" title="Ponów"><svg class="ico"><use href="#i-redo"/></svg></button></span>
+          <span class="btn-row"><button class="btn icon" type="button" title="Nowy program"><svg class="ico"><use href="#i-plus"/></svg></button><button class="btn icon" type="button" title="Duplikuj program"><svg class="ico"><use href="#i-copy"/></svg></button><button class="btn icon" type="button" title="Usuń program"><svg class="ico"><use href="#i-trash"/></svg></button></span>
+          <button class="btn primary" type="button" disabled><svg class="ico"><use href="#i-save"/></svg>Zapisz</button>
+          <button class="btn" type="button">Cofnij zatwierdzenie</button>
+          <button class="btn stop" type="button"><svg class="ico"><use href="#i-stop"/></svg>STOP</button>
+        </div>
+      </div>
+      <div class="prog fill">
+        <article class="card">
+          <div class="tabs" data-tabs="pal"><button class="tab" type="button" data-tab="blocks" aria-selected="true">Bloki</button><button class="tab" type="button" data-tab="vars" aria-selected="false">Zmienne <span class="count">0</span></button><button class="tab" type="button" data-tab="pos" aria-selected="false">Pozycje <span class="count">3</span></button></div>
+          <div class="pal" data-panel="pal:blocks">
+            <div class="pal-cat">Ruchowe</div>
+            <div class="pal-item" style="--c:var(--cat-ruch)"><svg class="ico"><use href="#i-ptp"/></svg>PTP do … v … ⌀ …</div>
+            <div class="pal-item" style="--c:var(--cat-ruch)"><svg class="ico"><use href="#i-lin"/></svg>LIN do … v … ⌀ …</div>
+            <div class="pal-item" style="--c:var(--cat-ruch)"><svg class="ico"><use href="#i-rel"/></svg>LIN o ΔX ΔY ΔZ …</div>
+            <div class="pal-cat">Czasowe</div>
+            <div class="pal-item" style="--c:var(--cat-czas)"><svg class="ico"><use href="#i-clock"/></svg>czekaj … s</div>
+            <div class="pal-item" style="--c:var(--cat-czas)"><svg class="ico"><use href="#i-hand"/></svg>czekaj na operatora</div>
+            <div class="pal-cat">Logiczne</div>
+            <div class="pal-item" style="--c:var(--cat-logika)"><svg class="ico"><use href="#i-branch"/></svg>jeśli …</div>
+            <div class="pal-item" style="--c:var(--cat-logika)"><svg class="ico"><use href="#i-branch"/></svg>wybierz wg …</div>
+            <div class="pal-cat">Matematyczne</div>
+            <div class="pal-item" style="--c:var(--cat-mat)"><svg class="ico"><use href="#i-var"/></svg>przypisz … := …</div>
+            <div class="pal-item" style="--c:var(--cat-mat)"><svg class="ico"><use href="#i-calc"/></svg>oblicz … := …</div>
+            <div class="pal-cat">Pętle i skoki</div>
+            <div class="pal-item" style="--c:var(--cat-petle)"><svg class="ico"><use href="#i-repeat"/></svg>powtórz … razy</div>
+            <div class="pal-item" style="--c:var(--cat-petle)"><svg class="ico"><use href="#i-repeat"/></svg>dla … od … do …</div>
+          </div>
+          <div class="pal" data-panel="pal:vars" hidden><div class="empty">Brak zmiennych programu.</div><button class="btn" type="button"><svg class="ico"><use href="#i-plus"/></svg>Nowa zmienna</button></div>
+          <div class="pal" data-panel="pal:pos" hidden>
+            <button class="btn primary" type="button"><svg class="ico"><use href="#i-pin"/></svg>Zapamiętaj bieżącą pozycję</button>
+            <button class="btn" type="button"><svg class="ico"><use href="#i-plus"/></svg>Dodaj ręcznie (J1–J6)</button>
+            <div class="pos"><div class="pos-name"><svg class="ico"><use href="#i-pin"/></svg><span>bez_osobliwosci</span></div><div class="pos-actions"><button class="btn icon sm" title="Edytuj"><svg class="ico"><use href="#i-edit"/></svg></button><button class="btn icon sm" title="Usuń"><svg class="ico"><use href="#i-x"/></svg></button></div><div class="pos-j num">J 0 / 0 / 0 / 0 / 45 / 0°</div><div class="pos-m">ręcznie · użyta 1×</div></div>
+            <div class="pos"><div class="pos-name"><svg class="ico"><use href="#i-pin"/></svg><span>Pozycja_1</span></div><div class="pos-actions"><button class="btn icon sm" title="Edytuj"><svg class="ico"><use href="#i-edit"/></svg></button><button class="btn icon sm" title="Usuń"><svg class="ico"><use href="#i-x"/></svg></button></div><div class="pos-j num">J 0 / 0 / 0 / 0 / 0 / 0°</div><div class="pos-m">ręcznie · użyta 1×</div></div>
+            <div class="pos"><div class="pos-name"><svg class="ico"><use href="#i-pin"/></svg><span>Pozycja_3</span></div><div class="pos-actions"><button class="btn icon sm" title="Edytuj"><svg class="ico"><use href="#i-edit"/></svg></button><button class="btn icon sm" title="Usuń"><svg class="ico"><use href="#i-x"/></svg></button></div><div class="pos-j num">J 50 / 10 / 10 / 0 / 45 / 0°</div><div class="pos-m">ręcznie · użyta 0×</div></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Program</h2><span class="tabs inline-tabs" data-tabs="view"><button class="tab" type="button" data-tab="blocks" aria-selected="true">Bloki</button><button class="tab" type="button" data-tab="text" aria-selected="false">Tekst</button></span><span class="end"><span class="badge"><i class="dot"></i><span class="num">3</span> bloki</span><span class="btn-row zoom"><button class="btn icon sm" title="Oddal">−</button><span class="meta num">100%</span><button class="btn icon sm" title="Przybliż">+</button></span></span></div>
+          <div class="flow" data-panel="view:blocks">
+            <div class="term"><svg class="ico"><use href="#i-play"/></svg>Start · Pati</div><i class="link"></i>
+            <div class="loop"><div class="blk-head" style="--c:var(--cat-petle)"><svg class="ico"><use href="#i-repeat"/></svg>powtórz <span class="chip num">3</span> razy</div><i class="link"></i>
+              <div class="blk" style="--c:var(--cat-ruch)"><svg class="ico"><use href="#i-ptp"/></svg><b>PTP</b> do <span class="chip"><svg class="ico"><use href="#i-pin"/></svg>Pozycja_1</span> v <span class="chip num">30 %</span> ⌀ <span class="chip num">0 mm</span><span class="badge">postój</span></div><i class="link"></i>
+              <div class="blk" style="--c:var(--cat-ruch)"><svg class="ico"><use href="#i-ptp"/></svg><b>PTP</b> do <span class="chip"><svg class="ico"><use href="#i-pin"/></svg>bez_osobliwosci</span> v <span class="chip num">30 %</span> ⌀ <span class="chip num">0 mm</span><span class="badge">postój</span></div>
+              <div class="loop-back"><svg class="ico"><use href="#i-repeat"/></svg>powrót</div>
+            </div><i class="link"></i>
+            <div class="term end"><svg class="ico"><use href="#i-stop"/></svg>Koniec</div>
+          </div>
+          <div class="code" data-panel="view:text" hidden>
+            <div><span class="k">VAR</span></div>
+            <div><span class="k">END_VAR</span></div>
+            <div><span class="c">// Pozycje (J1–J6 °):</span></div>
+            <div><span class="c">//   bez_osobliwosci = [0, 0, 0, 0, 45, 0]</span></div>
+            <div><span class="c">//   Pozycja_1 = [0, 0, 0, 0, 0, 0]</span></div>
+            <div><span class="c">//   Pozycja_3 = [50, 10, 10, 0, 45, 0]</span></div>
+            <div> </div>
+            <div><span class="k">REPEAT_TIMES</span>(<span class="n">3</span>) <span class="k">DO</span></div>
+            <div>    <span class="f">MOVE_PTP</span>(Pozycja_1, v=<span class="n">30</span>%, r=<span class="n">0</span> mm)</div>
+            <div>    <span class="f">MOVE_PTP</span>(bez_osobliwosci, v=<span class="n">30</span>%, r=<span class="n">0</span> mm)</div>
+            <div><span class="k">END_REPEAT</span></div>
+            <p class="fixnote"><span class="badge ok"><i class="dot"></i>pkt 27</span> Jednostki bez podwojenia (dziś: <code>v=30%%</code>, <code>r=0 mm mm</code>).</p>
+          </div>
+        </article>
+        <div class="stack runcol">
+          <article class="card">
+            <div class="card-h"><h2>Wykonanie</h2><span class="sub">kursory: ◆ robot · ▷ program</span></div>
+            <div class="card-b btn-row"><button class="btn" type="button"><svg class="ico"><use href="#i-check"/></svg>Sprawdź</button><button class="btn primary" type="button"><svg class="ico"><use href="#i-play"/></svg>Uruchom</button><span class="meta push">Czas ze sprawdzenia: <b class="num">14,2 s</b></span></div>
+          </article>
+          <article class="card view small grow">
+            <div class="card-h"><h2>Podgląd 3D</h2><span class="sub">pozycja bez_osobliwosci</span></div>
+            <div class="view-body show-pos" data-robot></div>
+          </article>
+          <article class="card">
+            <div class="card-h"><h2>Zmienne i sprawdzenie</h2></div>
+            <table class="table"><thead><tr><th>Zmienna</th><th>Typ</th><th class="n">Wartość</th></tr></thead><tbody><tr><td colspan="3" class="muted">Brak zmiennych programu</td></tr></tbody></table>
+            <div class="card-b"><div class="okline"><svg class="ico"><use href="#i-check"/></svg>Wszystkie pola uzupełnione, odwołania poprawne</div></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== KONFIGURACJA ===================== -->
+    <section class="screen fit" data-screen="config">
+      <div class="ph">
+        <div class="ph-title"><svg class="ico"><use href="#i-config"/></svg><h1>Konfiguracja</h1><i class="info" tabindex="0" data-tip="Opcje planowania, wykonania ruchu i zabezpieczeń oraz parametry maszynowe J1–J6. Zmiany trafiają do ROS po zapisie.">i</i></div>
+        <div class="ph-state"><span class="badge"><i class="dot"></i>Bez zmian w szkicu</span></div>
+        <div class="ph-actions"><button class="btn" type="button"><svg class="ico"><use href="#i-log"/></svg>Dziennik <span class="count">2</span></button><button class="btn primary" type="button" disabled><svg class="ico"><use href="#i-save"/></svg>Zapisz do ROS</button></div>
+      </div>
+      <div class="tabs" data-tabs="cfg"><button class="tab" type="button" data-tab="sys" aria-selected="true">Ustawienia systemowe</button><button class="tab" type="button" data-tab="robot" aria-selected="false">Parametry robota</button></div>
+      <div class="grid-2 start fill" data-panel="cfg:sys">
+        <div class="stack">
+          <article class="card">
+            <div class="card-h"><span class="lbl eyebrow">Planowanie i wykonanie</span><h2>Dostępność napędów</h2></div>
+            <div class="setrow"><span class="lab">Ignoruj brak sterowników — tylko planowanie <i class="info" tabindex="0" data-tip="Planer działa mimo braku odpowiedzi napędów.">i</i></span><button class="switch" role="switch" aria-checked="true" aria-label="Ignoruj brak sterowników"></button></div>
+            <div class="setrow"><span class="lab">Zezwalaj na ruch bez wszystkich silników <i class="info" tabindex="0" data-tip="Ruch osi dostępnych, gdy część napędów nie odpowiada.">i</i></span><button class="switch" role="switch" aria-checked="true" aria-label="Ruch bez wszystkich silników"></button></div>
+          </article>
+          <article class="card">
+            <div class="card-h"><span class="lbl eyebrow">Wygląd</span><h2>Interfejs</h2></div>
+            <div class="setrow"><span class="lab">Wyłącz animacje interfejsu <i class="info" tabindex="0" data-tip="Wyłącza animacje przejść i pulsowania.">i</i></span><button class="switch" role="switch" aria-checked="false" aria-label="Wyłącz animacje"></button></div>
+          </article>
+        </div>
+        <article class="card">
+          <div class="card-h"><span class="lbl eyebrow">Sterowanie robotem</span><h2>Wykonanie i zabezpieczenia</h2></div>
+          <div class="setrow"><span class="lab">Wyłącz ENABLE wszystkich silników przy awarii krytycznej <i class="info" tabindex="0" data-tip="Tylko najcięższe awarie. Pozostałe kończą się łagodnym zatrzymaniem.">i</i></span><button class="switch" role="switch" aria-checked="true" aria-label="ENABLE przy awarii"></button></div>
+          <div class="setrow"><span class="lab">Sposób wysyłania PTP/LIN <i class="info" tabindex="0" data-tip="Streaming albo tryb synchroniczny.">i</i></span><span class="seg"><button type="button" aria-pressed="false">Streaming</button><button type="button" aria-pressed="true">Synchroniczny</button></span></div>
+          <div class="setrow"><span class="lab">Korekcja całkująca uchybu (PI) <i class="info" tabindex="0" data-tip="Korekcja uchybu położenia w czasie ruchu.">i</i></span><button class="switch" role="switch" aria-checked="true" aria-label="Korekcja PI"></button></div>
+          <div class="setrow"><span class="lab">Minimalny dithering prędkości F5 <i class="info" tabindex="0" data-tip="≥ 1 jednostka MKS; F5 speed=0 to STOP.">i</i></span><span class="field" style="--w:72px"><input value="0,125" aria-label="Dithering"><span class="unit">RPM</span></span></div>
+          <div class="setrow"><span class="lab">Przyspieszenie F5 (acc) <i class="info" tabindex="0" data-tip="Kod przyspieszenia MKS.">i</i></span><span class="field" style="--w:72px"><input value="254" aria-label="Przyspieszenie F5"><span class="unit">kod</span></span></div>
+        </article>
+      </div>
+      <div class="stack fill" data-panel="cfg:robot" hidden>
+        <div class="card toolbar">
+          <span class="field text" style="--w:160px"><input placeholder="Nazwa snapshotu" aria-label="Nazwa snapshotu"></span>
+          <button class="btn" type="button"><svg class="ico"><use href="#i-save"/></svg>Zapisz snapshot</button>
+          <select class="select" aria-label="Snapshot"><option>2026-11-08 10:31 · 8.11</option></select>
+          <button class="btn" type="button">Wczytaj</button>
+          <span class="div"></span>
+          <button class="btn" type="button">Import JSON</button><button class="btn" type="button">Eksport JSON</button>
+          <span class="meta push">Pola różniące się od ROS są oznaczone</span>
+        </div>
+        <article class="card">
+          <div class="card-h"><h2>Dane maszynowe</h2><span class="end"><span class="seg"><button type="button" aria-pressed="true">Geometria</button><button type="button" aria-pressed="false">Przełożenia i ograniczenia</button></span></span></div>
+          <div class="table-scroll"><table class="table mtable"><thead><tr><th>Parametr</th><th>Jedn.</th><th><span class="ax j1">J1</span></th><th><span class="ax j2">J2</span></th><th><span class="ax j3">J3</span></th><th><span class="ax j4">J4</span></th><th><span class="ax j5">J5</span></th><th><span class="ax j6">J6</span></th></tr></thead><tbody id="machineRows"></tbody></table></div>
+          <div class="card-f">Translacja i rotacja względem poprzedniego członu.</div>
+        </article>
+        <article class="card view">
+          <div class="card-h"><h2>Model konfiguracji</h2><span class="badge plan"><i class="dot"></i>Geometria szkicu</span><span class="end"><span class="meta">X czerwony · Y zielony · Z niebieski</span></span></div>
+          <div class="view-body" data-robot></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ===================== SYSTEM WIZUALNY (tylko makieta) ===================== -->
+    <section class="screen" data-screen="system">
+      <div class="ph">
+        <div class="ph-title"><svg class="ico"><use href="#i-palette"/></svg><h1>System wizualny</h1><i class="info" tabindex="0" data-tip="Ekran tylko w makiecie: zestaw tokenów i kontrolek etapu 1. W aplikacji te same tokeny w :root i wspólne komponenty.">i</i></div>
+        <div class="ph-state"><span class="badge plan"><i class="dot"></i>Etap 1 · makieta</span><span class="meta">C2 — Drzewo (mapa systemu + zakładki, statusy w menu)</span></div>
+      </div>
+      <div class="grid-2 start">
+        <article class="card">
+          <div class="card-h"><h2>Kolory znaczeniowe</h2><span class="sub">pkt 1–2 · każdy kolor ma jedno znaczenie</span></div>
+          <div class="card-b swatches">
+            <div class="swatch"><span class="sw" style="background:var(--ok)"></span><div><b>OK · LIVE</b><small>Stan poprawny, robot fizyczny. Nigdy na zwykłych przyciskach.</small></div></div>
+            <div class="swatch"><span class="sw" style="background:var(--plan)"></span><div><b>Planowanie</b><small>Symulacja, plan ruchu, podgląd, nagrywanie.</small></div></div>
+            <div class="swatch"><span class="sw" style="background:var(--warn)"></span><div><b>Ostrzeżenie</b><small>Wymaga uwagi; ruch nadal możliwy.</small></div></div>
+            <div class="swatch"><span class="sw" style="background:var(--danger)"></span><div><b>Awaria · STOP</b><small>Błąd, zatrzymanie, operacje nieodwracalne.</small></div></div>
+            <div class="neutrals"><span style="background:var(--bg)" title="--bg"></span><span style="background:var(--panel)" title="--panel"></span><span style="background:var(--raised)" title="--raised"></span><span style="background:var(--line-strong)" title="--line-strong"></span><span style="background:var(--text-3)" title="--text-3"></span><span style="background:var(--text-2)" title="--text-2"></span><span style="background:var(--text)" title="--text"></span><small>Neutralne: tło → panel → podniesiony → ramka → tekst</small></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Kolory osi J1–J6</h2><span class="sub">pkt 3 · poza barwami stanów</span></div>
+          <div class="card-b">
+            <div class="axis-lines"><div class="j1"><span class="ax j1">J1</span><i></i></div><div class="j2"><span class="ax j2">J2</span><i></i></div><div class="j3"><span class="ax j3">J3</span><i></i></div><div class="j4"><span class="ax j4">J4</span><i></i></div><div class="j5"><span class="ax j5">J5</span><i></i></div><div class="j6"><span class="ax j6">J6</span><i></i></div></div>
+            <p class="muted">Te same barwy na wykresach, w tabeli osi, w pendancie i na etykietach 3D. Oś zawsze z podpisem „J1…J6”, kolor tylko pomaga.</p>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Przyciski</h2><span class="sub">pkt 6, 8 · 4 warianty</span></div>
+          <div class="card-b demo-rows">
+            <div><button class="btn primary"><svg class="ico"><use href="#i-scan"/></svg>Główny</button><button class="btn">Zwykły</button><button class="btn danger">Niebezpieczny</button><button class="btn stop"><svg class="ico"><use href="#i-stop"/></svg>STOP</button></div>
+            <div><button class="btn primary" disabled>Główny</button><button class="btn" disabled>Zwykły</button><button class="btn danger" disabled>Niebezpieczny</button><button class="btn sm">Mały</button><button class="btn icon" title="Ikona"><svg class="ico"><use href="#i-home"/></svg></button><span class="btn-group"><button class="btn">Grupa</button><button class="btn">przycisków</button></span></div>
+            <p class="muted">Główny jest neutralny, nie zielony. STOP zawsze pełną czerwienią, w prawym górnym rogu ekranów ruchu.</p>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Plakietki stanu</h2><span class="sub">pkt 6 · 4 warianty + neutralna</span></div>
+          <div class="card-b demo-rows">
+            <div><span class="badge ok"><i class="dot"></i>Aktywny</span><span class="badge plan"><i class="dot"></i>Planowanie</span><span class="badge warn"><i class="dot"></i>1 uwaga</span><span class="badge danger"><i class="dot"></i>Awaria</span><span class="badge"><i class="dot"></i>Nieuruchomione</span></div>
+            <div class="alert warn"><svg class="ico"><use href="#i-alert"/></svg><h3>Komunikat ostrzegawczy</h3><p>Ten sam wzór dla uwag w Sterowaniu, Programowaniu i Konfiguracji.</p></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Zakładki i pola</h2><span class="sub">pkt 6 · jeden wzór zakładek</span></div>
+          <div class="tabs" data-tabs="demo"><button class="tab" type="button" data-tab="a" aria-selected="true">Bloki</button><button class="tab" type="button" data-tab="b" aria-selected="false">Zmienne <span class="count">0</span></button><button class="tab" type="button" data-tab="c" aria-selected="false">Pozycje <span class="count">3</span></button><button class="tab" type="button" data-tab="d" aria-selected="false" disabled><svg class="ico"><use href="#i-lock"/></svg>Zablokowana</button></div>
+          <div class="card-b demo-rows">
+            <div><span class="seg"><button type="button" aria-pressed="true">Baza</button><button type="button" aria-pressed="false">Narzędzie</button></span><button class="switch" role="switch" aria-checked="true" aria-label="Przełącznik"></button><button class="switch" role="switch" aria-checked="false" aria-label="Przełącznik"></button></div>
+            <div><span class="field" style="--w:64px"><input value="7,19" aria-label="Prędkość"><span class="unit">°/s</span></span><span class="field" style="--w:64px"><input value="0,125" aria-label="RPM"><span class="unit">RPM</span></span><select class="select" aria-label="Wybór"><option>Pozycja_1</option></select></div>
+            <p class="muted">Przełącznik = włącz/wyłącz opcję. Wybór jednej z kilku wartości = przełącznik segmentowy. Widoki = zakładki.</p>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Typografia i liczby</h2><span class="sub">pkt 4 · 6 rozmiarów, cyfry o stałej szerokości</span></div>
+          <div class="card-b">
+            <div class="ts">
+              <div style="font-size:var(--fs-6)"><code>--fs-6</code>Wartość</div>
+              <div style="font-size:var(--fs-5)"><code>--fs-5</code>Tytuł strony</div>
+              <div style="font-size:var(--fs-4)"><code>--fs-4</code>Wartość osi</div>
+              <div style="font-size:var(--fs-3)"><code>--fs-3</code>Tekst podstawowy</div>
+              <div style="font-size:var(--fs-2)"><code>--fs-2</code>Kontrolki, tabele</div>
+              <div style="font-size:var(--fs-1)"><code>--fs-1</code>Etykiety, podpisy</div>
+            </div>
+            <div class="tabular-demo"><div><small>proporcjonalne (skacze)</small><b class="prop" data-live="1458.92,7,2">1458,92</b></div><div><small>tabelaryczne (stoi)</small><b class="num" data-live="1458.92,7,2">1458,92</b></div></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Zaokrąglenia i ikony</h2><span class="sub">pkt 4–5</span></div>
+          <div class="card-b">
+            <div class="radii"><div style="border-radius:var(--r-sm)">--r-sm</div><div style="border-radius:var(--r-md)">--r-md</div><div style="border-radius:var(--r-lg)">--r-lg</div></div>
+            <div class="icons" id="iconGrid"></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-h"><h2>Nagłówek strony</h2><span class="sub">pkt 7 · jedna linia na każdej stronie</span></div>
+          <div class="card-b">
+            <div class="ph-demo"><span class="ph-demo-a">ikona + tytuł + ⓘ</span><span class="ph-demo-b">stan (plakietki, tryb)</span><span class="ph-demo-c">akcje → STOP</span></div>
+            <p class="muted">Opis strony przeniesiony do podpowiedzi ⓘ. Wysokość nagłówka taka sama we wszystkich modułach.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="stopbar" role="alert"><svg class="ico"><use href="#i-stop"/></svg><span>STOP wysłany — ruch zatrzymany (makieta)</span><button class="btn sm" type="button" id="stopRelease">Zamknij</button></div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const fmt = (v, d) => v.toLocaleString("pl-PL", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const ico = (id) => `<svg class="ico"><use href="#${id}"/></svg>`;
+  const badge = (cls, text, sm) => `<span class="badge ${cls}${sm ? " sm" : ""}"><i class="dot"></i>${text}</span>`;
+
+  // ---------- Dane przykładowe (wspólne dla C1–C3) ----------
+  const axes = [
+    { j: 1, val: -10.1, min: -171, max: 171, shaft: -253.70, rtt: 1.17, rx: 412, tx: 206, hz: 50, to: 0, last: 4 },
+    { j: 2, val: 4.5, min: -200, max: 30, shaft: 113.82, rtt: 0.68, rx: 410, tx: 205, hz: 50, to: 0, last: 6 },
+    { j: 3, val: -6.5, min: -196, max: 57, shaft: -161.26, rtt: 1.00, rx: 411, tx: 205, hz: 50, to: 0, last: 3 },
+    { j: 4, val: 36.1, min: -180, max: 180, shaft: 903.21, rtt: 0.70, rx: 409, tx: 204, hz: 50, to: 1, last: 5 },
+    { j: 5, val: 58.3, min: -100, max: 100, shaft: 1458.92, rtt: 1.30, rx: 412, tx: 206, hz: 50, to: 0, last: 4 },
+    { j: 6, val: -44.6, min: -180, max: 180, shaft: -1115.38, rtt: 0.98, rx: 410, tx: 205, hz: 50, to: 0, last: 7 },
+  ];
+  // [grupa, stan, nazwa, typ, pid, cpu(live base), ram, czas pracy, komunikat]
+  const procs = [
+    ["System", "ok", "mk-OptiPlex-3050", "host", "—", 35, "2,6G", "6 h 55 min", "Ubuntu 22.04.5 LTS · 6.8.0-138-generic"],
+    ["System", "ok", "robot-web-status.service", "systemd", "48629", null, "—", "—", "active (running)"],
+    ["System", "ok", "robot-can@can0.service", "systemd", "—", null, "—", "—", "active (exited)"],
+    ["System", "ok", "can0 / gs_usb", "SocketCAN", "—", null, "—", "—", "ERROR-ACTIVE · 1 Mbit/s · błędy 0/0 · bus-off 0"],
+    ["ROS 2", "ok", "can_diagnostics", "robot_can_diagnostics", "48672", 11.1, "38M", "1 h 26 min", "install/stop-recovery-ros"],
+    ["ROS 2", "ok", "configuration", "robot_configuration", "48676", 9.1, "61M", "1 h 26 min", "install/robot_configuration"],
+    ["ROS 2", "ok", "fault_snapshot", "robot_web_bridge", "48680", 0.5, "55M", "1 h 26 min", "install/stop-recovery-ros"],
+    ["ROS 2", "ok", "monitor", "robot_system_monitor", "48670", 0.5, "59M", "1 h 26 min", "install/robot_system_monitor"],
+    ["ROS 2", "ok", "planner", "robot_motion_planner", "48678", 0.5, "39M", "1 h 26 min", "install/stop-recovery-ros"],
+    ["ROS 2", "ok", "state_publisher", "robot_state_publisher", "48684", 1.4, "27M", "1 h 26 min", "/opt/ros/humble"],
+    ["ROS 2", "ok", "Diagnostyka CAN", "mks_servo_can", "—", null, "—", "—", "Skanowanie zakończone"],
+    ["ROS 2", "off", "ros2_control", "kontrolery", "—", null, "—", "—", "Kontrolery nieuruchomione"],
+    ["ROS 2", "ok", "Graf ROS", "węzły", "—", null, "—", "—", "7 węzłów"],
+    ["Backend", "ok", "robot_web_bridge", "FastAPI", "48674", 25, "184M", "1 h 26 min", "uvicorn http://192.168.1.69:8080"],
+    ["Backend", "ok", "Klienci WebSocket", "WebSocket", "—", null, "—", "—", "status 2 · CAN 2 · ręczne 0"],
+    ["Backend", "ok", "Snapshot statusu", "REST/WS", "—", null, "—", "—", "wiek 0,2 s"],
+    ["Frontend", "ok", "Build panelu", "web/dist", "—", null, "—", "—", "c192281+dirty"],
+    ["Frontend", "ok", "Ta karta", "przeglądarka", "—", null, "—", "—", "status połączony · CAN połączony"],
+  ];
+  const events = [
+    ["19:31:02", "warn", "J4 · CAN 4", "Przekroczony czas odczytu pozycji (1×)", "rozwiązane"],
+    ["18:05:44", "plan", "can0", "Restart interfejsu (Reset CAN z panelu)", "info"],
+    ["17:40:10", "plan", "robot-web-status", "Restart usługi po aktualizacji", "info"],
+    ["15:35:43", "plan", "Diagnostyka", "Start ciągłego zapisu przebiegów", "info"],
+  ];
+  const kpis = [
+    ["CPU", "35,0", "%", 35, null, "35,4,1"], ["RAM", "2,6", "/ 7,6 G", 34], ["CAN", "10,6", "/ 60 %", 17.7, 100, "10.6,0.4,1"],
+    ["RTT", "9,9", "/ 24 ms", 41, null, "9.9,0.6,1"], ["Ramki/s", "2 464", "RX", null, null, "2464,30,0"], ["Błędy CAN", "0", "RX/TX", null],
+    ["Napędy", "6/6", "odpowiada", null], ["Procesy", "17/18", "OK", null],
+  ];
+  const pct = (v, a) => ((v - a.min) / (a.max - a.min) * 100).toFixed(1) + "%";
+  const signed = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v);
+  const fill = (name, fn) => $$(`[data-fill="${name}"]`).forEach((el) => { el.innerHTML = fn(el); });
+
+  // ---------- Sterowanie ręczne: wiersze osi ----------
+  const axisRows = $("#axisRows");
+  if (axisRows) axisRows.innerHTML = axes.map((a) => `
+    <div class="axrow">
+      <div class="ax-id"><span class="ax j${a.j}">J${a.j}</span><small>CAN ${a.j}</small><span class="badge ok sm"><i class="dot"></i>Połączony</span></div>
+      <div class="jog">
+        <button class="btn icon" type="button" title="JOG J${a.j} −">${ico("i-left")}</button>
+        <div class="jog-val"><b class="num" data-live="${a.val},0.04,1">${fmt(a.val, 1)}</b><span class="deg">°</span>
+          <div class="track" style="--c:var(--j${a.j})"><span class="zero" style="left:${pct(0, a)}"></span><i style="left:${pct(a.val, a)}"></i></div>
+          <div class="lims num"><span>${signed(a.min)}°</span><span>${signed(a.max)}°</span></div></div>
+        <button class="btn icon" type="button" title="JOG J${a.j} +">${ico("i-right")}</button>
+      </div>
+      <div><span class="badge"><i class="dot"></i>nieznany</span></div>
+      <div><span class="seg sm"><button type="button" aria-pressed="true">Wył</button><button type="button" aria-pressed="false">Zał</button></span></div>
+      <div><button class="btn sm" type="button" disabled>Zeruj</button></div>
+      <div><span class="field sm" style="--w:46px"><input value="7,19" aria-label="Prędkość J${a.j}"><span class="unit">°/s</span></span></div>
+    </div>`).join("");
+
+  // ---------- Diagnostyka: wskaźniki ----------
+  fill("kpis", () => kpis.map(([l, v, u, m, lim, live]) => `
+    <div class="kpi"><span class="lbl">${l}</span><span class="kpi-v"><b class="num"${live ? ` data-live="${live}"` : ""}>${v}</b><em>${u}</em></span>
+    ${m != null ? `<span class="meter" style="--v:${m}%${l === "CAN" ? ";--l:100%" : ""}"><i></i></span>` : ""}</div>`).join(""));
+  fill("resources", () => kpis.slice(0, 4).map(([l, v, u, m, , live]) => `
+    <div class="bar"><span class="lbl">${l}</span><span class="meter" style="--v:${m}%"><i></i></span><b class="num"${live ? ` data-live="${live}"` : ""}>${v}</b><em>${u.replace("/ ", "/")}</em></div>`).join(""));
+
+  // ---------- Diagnostyka: urządzenia CAN ----------
+  fill("can", (el) => axes.map((a) => el.dataset.cols === "full"
+    ? `<tr data-axis-row="${a.j}"><td class="mono">${a.j}</td><td><span class="ax j${a.j}">J${a.j}</span></td><td>MKS SERVO42D CAN</td><td>${badge("ok", "Odpowiada", 1)}</td><td>${badge("", "Zatrzymany", 1)}</td><td>${badge("", "Wyłączony", 1)}</td><td class="n" data-live="${a.rtt},0.15,2">${fmt(a.rtt, 2)}</td><td class="n">${a.to}</td></tr>`
+    : `<tr data-axis-row="${a.j}"><td><span class="ax j${a.j}">J${a.j}</span></td><td>${badge("ok", "OK", 1)}</td><td>${badge("", "Wył", 1)}</td><td class="muted">Zatrz.</td><td class="n" data-live="${a.rtt},0.15,2">${fmt(a.rtt, 2)}</td><td class="n">${a.to}</td></tr>`).join(""));
+  fill("cancomm", () => axes.map((a) => `<tr><td><span class="ax j${a.j}">J${a.j}</span></td><td class="n" data-live="${a.rx},6,0">${a.rx}</td><td class="n" data-live="${a.tx},3,0">${a.tx}</td><td class="n">${a.hz}</td><td class="n">${a.to}</td><td class="n"><span data-live="${a.last},3,0">${a.last}</span> ms temu</td></tr>`).join(""));
+  const canStats = [["Interfejs", badge("ok", "can0 · aktywny", 1)], ["Bitrate", `<b class="big num">1 000 000</b><em>bit/s</em>`], ["Obciążenie", `<b class="big num" data-live="10.6,0.4,1">10,6</b><em>/ 60 %</em>`], ["Obieg odczytu", `<b class="big num" data-live="2.1,0.2,1">2,1</b><em>ms</em>`], ["Błędy · bus-off", `<b class="big num">0 · 0</b>`]];
+  fill("canstats", () => canStats.map(([l, v]) => `<div><span class="lbl">${l}</span>${v}</div>`).join(""));
+  const canKv = [["Stan", "ERROR-ACTIVE"], ["Bitrate", "1 Mbit/s"], ["Obciążenie", `<span data-live="10.6,0.4,1">10,6</span> / 60 %`], ["Obieg odczytu", `<span data-live="2.1,0.2,1">2,1</span> ms`], ["Ramki RX", `<span data-live="18389818,180,0" data-inc>18 389 818</span>`], ["Ramki TX", `<span data-live="9258974,90,0" data-inc>9 258 974</span>`], ["Błędy RX/TX", "0 / 0"], ["Bus-off", "0"], ["Urządzenia", "6 · MKS SERVO42D"]];
+  fill("cankv", () => canKv.map(([k, v]) => `<div class="kv"><span>${k}</span><b class="num">${v}</b></div>`).join(""));
+
+  // ---------- Diagnostyka: procesy (tabela pogrupowana) ----------
+  fill("proc", (el) => {
+    const cols = el.dataset.cols || "full";
+    let group = "", html = "";
+    procs.forEach(([g, st, name, type, pid, cpu, ram, up, msg]) => {
+      if (g !== group) { group = g; html += `<tr class="group-row" data-group="${g}"><td colspan="8">${g === "Backend" ? "Backend Python" : g}</td></tr>`; }
+      const cpuCell = cpu == null ? "—" : `<span data-live="${cpu},${Math.max(0.2, cpu * 0.12).toFixed(2)},${cpu >= 20 ? 0 : 1}">${fmt(cpu, cpu >= 20 ? 0 : 1)}</span>`;
+      const stb = st === "ok" ? badge("ok", "OK", 1) : badge("", "OFF", 1);
+      if (cols === "compact") html += `<tr data-group="${g}" data-proc="${name}"><td>${stb}</td><td class="mono">${name}</td><td class="n">${cpuCell}</td><td class="muted ell">${msg}</td></tr>`;
+      else html += `<tr data-group="${g}" data-proc="${name}"><td>${stb}</td><td class="mono">${name}</td><td class="c-typ">${type}</td><td class="n c-pid">${pid}</td><td class="n">${cpuCell}</td><td class="n c-ram">${ram}</td>${cols === "full" ? `<td class="n c-up">${up}</td>` : ""}<td class="ell">${msg}</td></tr>`;
+    });
+    return html;
+  });
+
+  // ---------- Menu: panel stanu (CPU per wątek, RAM, CAN) ----------
+  const cores = [42, 28, 39, 31];
+  fill("cores", () => cores.map((v, i) => `<div class="core"><span class="core-bar"><i style="--v:${v}%"></i></span><small class="num">${v}</small><small class="core-n">W${i}</small></div>`).join(""));
+  const gauges = { ram: [34, 0.3, 0], can: [10.6, 0.4, 1] };
+  function tickGauges() {
+    const now = cores.map((b) => Math.max(2, Math.min(98, b + (Math.random() * 2 - 1) * 9)));
+    $$(".core").forEach((el, i) => { $("i", el).style.setProperty("--v", now[i].toFixed(0) + "%"); $("small", el).textContent = now[i].toFixed(0); });
+    $$('[data-gauge="cpu"] .ns-row b').forEach((b) => { b.textContent = fmt(now.reduce((x, y) => x + y, 0) / now.length, 0); });
+    Object.entries(gauges).forEach(([k, [base, amp, dec]]) => {
+      const v = base + (Math.random() * 2 - 1) * amp;
+      $$(`[data-gauge="${k}"]`).forEach((g) => { $(".ns-row b", g).textContent = fmt(v, dec); g.style.setProperty("--v", v.toFixed(1) + "%"); });
+    });
+  }
+
+  // ---------- Przegląd: pozycje osi ----------
+  fill("ovaxes", () => axes.map((a) => `<div class="ova j${a.j}"><span class="ax j${a.j}">J${a.j}</span><b class="num" data-live="${a.val},0.04,1">${fmt(a.val, 1)}</b><span class="deg">°</span>
+    <div class="track" style="--c:var(--j${a.j})"><span class="zero" style="left:${pct(0, a)}"></span><i style="left:${pct(a.val, a)}"></i></div><span class="muted num">0,0 °/s</span></div>`).join(""));
+
+  // ---------- Diagnostyka: zdarzenia ----------
+  fill("events", (el) => {
+    const lim = +el.dataset.limit || events.length;
+    return `<div class="ev-now">${ico("i-check")}Brak aktywnych problemów</div>` + events.slice(0, lim).map(([t, cls, src, txt, state]) =>
+      `<div class="ev ${cls}"><span class="num ev-t">${t}</span><i class="ev-dot"></i><span class="ev-src">${src}</span><span class="ev-txt">${txt}</span><span class="ev-st">${state}</span></div>`).join("");
+  });
+
+  // ---------- Diagnostyka: wykresy (siatka) i paski osi (oscyloskop) ----------
+  fill("charts", (el) => axes.map((a) => `
+    <article class="chart-card" data-chart-card="${a.j}">
+      <div class="chart-h"><span class="ax j${a.j}">J${a.j}</span><small class="muted">CAN ${a.j}</small>
+        <b class="val num" data-live="${a.shaft},0.01,2">${fmt(a.shaft, 2)}</b><span class="deg">°</span>
+        ${badge("ok", "Świeże", 1)}<button class="btn icon sm" type="button" title="Odepnij oś do okna">${ico("i-pin")}</button></div>
+      <div class="chart" data-axis="${a.j}"${el.hasAttribute("data-mini") ? " data-mini" : ""} style="--c:var(--j${a.j})"></div>
+    </article>`).join(""));
+  fill("strips", () => axes.map((a) => `
+    <div class="srow j${a.j}" data-chart-card="${a.j}">
+      <div class="s-info">
+        <div class="s-top"><span class="ax j${a.j}">J${a.j}</span><small>CAN ${a.j}</small><b class="val num" data-live="${a.shaft},0.01,2">${fmt(a.shaft, 2)}</b><span class="deg">°</span></div>
+        <div class="s-badges">${badge("ok", "Odpowiada", 1)}${badge("", "ENABLE wył", 1)}${badge("", "Zatrzymany", 1)}</div>
+        <div class="s-meta num">RTT <b data-live="${a.rtt},0.15,2">${fmt(a.rtt, 2)}</b> ms · odczyt ${a.hz} Hz · timeouty ${a.to}</div>
+      </div>
+      <div class="chart" data-axis="${a.j}" data-mini data-strip style="--c:var(--j${a.j})"></div>
+      <div class="s-act"><button class="btn icon sm" type="button" title="Odepnij oś do okna">${ico("i-pin")}</button><button class="btn icon sm" type="button" title="CSV osi">${ico("i-download")}</button></div>
+    </div>`).join(""));
+
+  // ---------- Diagnostyka: mapa systemu (drzewo) ----------
+  fill("tree", () => {
+    const node = (target, st, label, meta) => `<button class="tnode" type="button" data-target="${target}"><i class="tdot ${st}"></i><span class="tl">${label}</span><span class="tm num">${meta || ""}</span></button>`;
+    let h = `<div class="tgroup">${ico("i-can")}Magistrala can0<span class="tm num">RTT <span data-live="9.9,0.6,1">9,9</span> ms</span></div>` + node("tab:can", "ok", "can0 / gs_usb", "ERROR-ACTIVE");
+    h += axes.map((a) => node(`chart:${a.j}`, "ok", `<span class="ax j${a.j}">J${a.j}</span> MKS SERVO42D`, `<span data-live="${a.rtt},0.15,2">${fmt(a.rtt, 2)}</span> ms`)).join("");
+    let group = "";
+    procs.forEach(([g, st, name, , , cpu]) => {
+      if (g !== group) { group = g; h += `<div class="tgroup">${ico(g === "System" ? "i-overview" : g === "ROS 2" ? "i-arch" : g === "Backend" ? "i-config" : "i-palette")}${g === "Backend" ? "Backend Python" : g}</div>`; }
+      h += node(`proc:${name}`, st, name, cpu == null ? "" : `${fmt(cpu, cpu >= 20 ? 0 : 1)} %`);
+    });
+    return h;
+  });
+
+  // ---------- Konfiguracja, System wizualny ----------
+  const machine = [
+    ["Translacja X", "mm", [0, 0, 0, 220, 80, 60]], ["Translacja Y", "mm", [0, 0, 0, 0, 0, 0]],
+    ["Translacja Z", "mm", [100, 100, 250, 0, 0, 0]], ["Rotacja X (roll)", "°", [0, 0, 0, 0, 0, 0]],
+    ["Rotacja Y (pitch)", "°", [0, 0, 0, 0, 0, 0]], ["Rotacja Z (yaw)", "°", [0, 0, 0, 0, 0, 0]],
+  ];
+  const mrows = $("#machineRows");
+  if (mrows) mrows.innerHTML = machine.map(([n, u, v]) =>
+    `<tr><td>${n}</td><td class="muted">${u}</td>${v.map((x, i) => `<td><input class="cell-in" value="${x}" aria-label="${n} J${i + 1}"></td>`).join("")}</tr>`).join("");
+  const iconGrid = $("#iconGrid");
+  if (iconGrid) iconGrid.innerHTML = $$("symbol").map((s) => `<span class="icon-cell">${ico(s.id)}<small>${s.id.slice(2)}</small></span>`).join("");
+
+  // ---------- Podglądy 3D ----------
+  const tpl = $("#tplRobot");
+  $$("[data-robot]").forEach((host) => {
+    host.prepend(tpl.content.cloneNode(true));
+    const L = [40, 330], F = [320, 430], R = [620, 320], B = [340, 236];
+    const lerp = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+    let d = "";
+    for (let i = 0; i <= 10; i++) {
+      const t = i / 10, a = lerp(L, B, t), b = lerp(F, R, t), c = lerp(L, F, t), e = lerp(B, R, t);
+      d += `M${a[0]} ${a[1]}L${b[0]} ${b[1]}M${c[0]} ${c[1]}L${e[0]} ${e[1]}`;
+    }
+    $(".floor", host).innerHTML = `<path d="${d}"/>`;
+  });
+
+  // ---------- Wykresy: budowa i odświeżanie ----------
+  const N = 200, series = {};
+  const sample = (a, i) => a.shaft + ((a.j === 1 || a.j === 5) ? (Math.random() < 0.5 ? 0 : 0.02) : 0) + Math.sin(i / 25) * 0.003;
+  axes.forEach((a) => { series[a.j] = Array.from({ length: N }, (_, i) => sample(a, i)); });
+  const chartEls = $$(".chart[data-axis]");
+  chartEls.forEach((c) => {
+    const a = axes[c.dataset.axis - 1], mini = c.hasAttribute("data-mini");
+    const ys = mini ? [0.05, 0, -0.05] : [0.05, 0.025, 0, -0.025, -0.05];
+    const step = 120 / (ys.length - 1);
+    c.innerHTML = ys.map((o, i) => `<span class="yl num" style="top:${(i * 100 / (ys.length - 1)).toFixed(1)}%">${fmt(a.shaft + o, 2)}</span>`).join("") +
+      `<svg viewBox="0 0 400 120" preserveAspectRatio="none">${ys.map((_, i) => `<line class="gl" x1="0" x2="400" y1="${i * step}" y2="${i * step}"/>`).join("")}
+       <polyline class="ref" points="0,60 400,60"/><polyline class="ln"/></svg>` +
+      (mini ? "" : `<div class="xl num"><span>0 s</span><span>2,5 s</span><span>5 s</span><span>7,5 s</span><span>10 s</span></div>`);
+  });
+  function drawCharts() {
+    chartEls.forEach((c) => {
+      if (!c.offsetParent) return;
+      const a = axes[c.dataset.axis - 1], s = series[a.j], lo = a.shaft - 0.06, hi = a.shaft + 0.06;
+      $("polyline.ln", c).setAttribute("points", s.map((v, i) => `${(i / (N - 1) * 400).toFixed(1)},${(120 - (v - lo) / (hi - lo) * 120).toFixed(1)}`).join(" "));
+    });
+  }
+  let t = N;
+  if (!reduce) setInterval(() => { axes.forEach((a) => { series[a.j].shift(); series[a.j].push(sample(a, t)); }); t++; drawCharts(); }, 250);
+
+  // ---------- Nawigacja ----------
+  const app = $("#app"), titles = {};
+  $$(".nav-link").forEach((a) => { titles[a.dataset.go] = a.textContent.trim(); });
+  function go(id) {
+    if (!$(`.screen[data-screen="${id}"]`)) id = "overview";
+    $$(".screen").forEach((s) => s.classList.toggle("active", s.dataset.screen === id));
+    $$(".nav-link").forEach((a) => a.classList.toggle("active", a.dataset.go === id));
+    // Jak w aplikacji: menu zwinięte na ekranach ruchu, rozwinięte na pozostałych (przycisk zmienia do zmiany strony).
+    app.classList.toggle("collapsed", id === "manual" || id === "programming");
+    $("#crumb").textContent = titles[id];
+    if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
+    $$(".mock-switch a").forEach((a) => { a.href = a.dataset.file + "#" + id; });
+    requestAnimationFrame(drawCharts);
+  }
+  $$("[data-go]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); go(a.dataset.go); }));
+  addEventListener("hashchange", () => go(location.hash.slice(1)));
+  $("[data-act=collapse]").addEventListener("click", () => app.classList.toggle("collapsed"));
+
+  // ---------- Zakładki ----------
+  function selectTab(group, tab) {
+    const name = group.dataset.tabs;
+    $$(".tab", group).forEach((x) => x.setAttribute("aria-selected", String(x === tab)));
+    $$(`[data-panel^="${name}:"]`).forEach((p) => { p.hidden = p.dataset.panel !== `${name}:${tab.dataset.tab}`; });
+    requestAnimationFrame(drawCharts);
+  }
+  $$("[data-tabs]").forEach((group) => $$(".tab", group).forEach((tab) => tab.addEventListener("click", () => { if (!tab.disabled) selectTab(group, tab); })));
+
+  // Filtr grup procesów
+  $$("[data-proc-filter]").forEach((group) => $$(".tab", group).forEach((tab) => tab.addEventListener("click", () => {
+    $$(".tab", group).forEach((x) => x.setAttribute("aria-selected", String(x === tab)));
+    const g = tab.dataset.group;
+    $$("tr[data-group]", group.closest(".card")).forEach((tr) => { tr.hidden = g !== "all" && tr.dataset.group !== g; });
+  })));
+
+  // Mapa systemu → szczegóły
+  $$(".tnode").forEach((n) => n.addEventListener("click", () => {
+    $$(".tnode").forEach((x) => x.classList.toggle("sel", x === n));
+    const [kind, id] = n.dataset.target.split(":");
+    const tabs = $('[data-tabs="dg"]');
+    const pick = (t) => selectTab(tabs, $(`.tab[data-tab="${t}"]`, tabs));
+    $$(".hl").forEach((x) => x.classList.remove("hl"));
+    if (kind === "chart") { pick("tr"); $(`[data-panel="dg:tr"] [data-chart-card="${id}"]`).classList.add("hl"); }
+    else if (kind === "proc") { pick("proc"); const row = $(`[data-panel="dg:proc"] tr[data-proc="${id}"]`); row.classList.add("hl"); row.scrollIntoView({ block: "nearest" }); }
+    else pick(id);
+  }));
+
+  // ---------- Kontrolki ----------
+  $$(".seg").forEach((seg) => $$("button", seg).forEach((b) => b.addEventListener("click", () => {
+    $$("button", seg).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    if (b.dataset.mode) {
+      const screen = b.closest(".screen");
+      screen.dataset.mode = b.dataset.mode;
+      $$("[data-mode-label]", screen).forEach((el) => { el.textContent = b.dataset.mode === "live" ? el.dataset.liveText : el.dataset.planText; });
+    }
+  })));
+  $$(".switch").forEach((s) => s.addEventListener("click", () => s.setAttribute("aria-checked", String(s.getAttribute("aria-checked") !== "true"))));
+  $$(".btn.stop").forEach((b) => b.addEventListener("click", () => document.body.classList.add("stopped")));
+  $("#stopRelease").addEventListener("click", () => document.body.classList.remove("stopped"));
+
+  // ---------- Wartości na żywo ----------
+  const live = $$("[data-live]").map((el) => {
+    const [base, amp, dec] = el.dataset.live.split(",").map(Number);
+    return { el, base, amp, dec, inc: el.hasAttribute("data-inc") };
+  });
+  function tick() {
+    live.forEach((o) => {
+      if (o.inc) o.base += o.amp * (0.6 + Math.random() * 0.8);
+      const v = o.inc ? o.base : o.base + (Math.random() * 2 - 1) * o.amp;
+      o.el.textContent = fmt(v, o.dec);
+    });
+  }
+  tick(); tickGauges();
+  if (!reduce) { setInterval(tick, 500); setInterval(tickGauges, 1000); }
+
+  go(location.hash.slice(1) || "overview");
+})();
+
+</script>
+</body>
+</html>

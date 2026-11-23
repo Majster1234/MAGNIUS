@@ -1,0 +1,13 @@
+uint8 START=0
+uint8 KEEPALIVE=1
+uint8 STOP=2
+uint8 action
+uint8 axis
+int8 direction
+uint16 rpm
+string session
+uint64 sequence
+uint64 issued_monotonic_ns
+---
+bool accepted
+string message

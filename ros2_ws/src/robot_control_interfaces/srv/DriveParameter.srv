@@ -1,0 +1,15 @@
+# Odczyt/zapis jednej nastawy napędu MKS z katalogu kopii zapasowych (mks_servo_can/drive_parameters.hpp).
+# Zapis tylko bez sterowania i przy potwierdzonym ENABLE=0 osi; kody tylko do odczytu odrzucane w C++.
+uint8 READ=0
+uint8 WRITE=1
+uint8 operation
+uint16 address
+uint8 code
+int16 sub -1
+uint8[] value
+---
+bool success
+# false: parametr bez obsługi odczytu w firmware (odpowiedź FFh FFh)
+bool supported
+string message
+uint8[] value

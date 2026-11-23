@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model 3D · v3 Drzewo i przewodnik</title>
+<!-- Szkic kreatora modelu 3D robota (temp/model_3d_kreator/README.md). Samodzielny plik: dane przykładowe, bez API/ROS/CAN,
+     bez zasobów zewnętrznych. Podgląd 3D zastąpiony schematycznym widokiem z boku (SVG). -->
+<style>
+:root{--font:"Ubuntu Condensed","Liberation Sans Narrow","Arial Narrow",sans-serif;--mono:"DejaVu Sans Mono","Noto Sans Mono",monospace;--r:3px;
+  --bg:#07090b;--panel:#0e1114;--raised:#161a1f;--line:#232930;--line-strong:#3a424b;--text:#f2f5f7;--text-2:#aab4bd;--text-3:#6e7983;
+  --ok:#21d07a;--ok-bg:#0b2618;--ok-text:#52f2a0;--plan:#2fa8ff;--plan-bg:#0a2134;--plan-text:#70c6ff;--warn:#ffb020;--warn-bg:#2a1e07;--warn-text:#ffc95c;
+  --danger:#ff3b4e;--danger-text:#ff7d8a;--axis:#ffd166;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--text);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+.mock{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:5px 16px;background:#0f0c05;border-bottom:1px dashed #5a4a22;color:#d9bd86;font-size:11px}
+.mock b{border:1px dashed var(--warn);border-radius:3px;padding:0 6px;color:var(--warn);letter-spacing:1px}
+.page{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:48px;padding:6px 16px;border-bottom:1px solid var(--line)}
+.page h1{font-size:18px;margin:0 6px 0 0;font-weight:600}
+.page small{color:var(--text-3)}
+.spacer{flex:1}
+.btn{border:1px solid var(--line-strong);background:var(--raised);border-radius:var(--r);padding:5px 11px;cursor:pointer;white-space:nowrap}
+.btn:hover:not([disabled]){border-color:var(--text-3)}
+.btn.primary{background:var(--ok-bg);border-color:var(--ok);color:var(--ok-text)}
+.btn.plan{background:var(--plan-bg);border-color:var(--plan);color:var(--plan-text)}
+.btn.danger{color:var(--danger-text);border-color:#7a2430}
+.btn.ghost{background:none;border-color:transparent;color:var(--text-2)}
+.btn.sm{padding:2px 8px;font-size:12px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:var(--r);padding:2px 7px;font-size:11px;background:var(--raised);color:var(--text-2);border:1px solid var(--line)}
+.badge.ok{background:var(--ok-bg);color:var(--ok-text);border-color:#1a6b43}.badge.warn{background:var(--warn-bg);color:var(--warn-text);border-color:#7a5410}
+.badge.plan{background:var(--plan-bg);color:var(--plan-text);border-color:#1c5c8a}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r);overflow:hidden}
+.seg button{border:0;background:none;padding:5px 12px;cursor:pointer;color:var(--text-2)}
+.seg button[aria-pressed=true]{background:var(--plan-bg);color:var(--plan-text)}
+.viewport{position:relative;background:#0b0f13;border:1px solid var(--line);border-radius:var(--r);min-height:280px;overflow:hidden}
+.viewport svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.legend{position:absolute;left:8px;bottom:6px;right:8px;font-size:11px;color:var(--text-3);pointer-events:none}
+.hint{position:absolute;left:50%;top:8px;transform:translateX(-50%);max-width:calc(100% - 20px);padding:4px 10px;border:1px solid #e2c27d66;border-radius:var(--r);background:#131b22e6;color:#ecdcb4;font-size:12px;text-align:center;pointer-events:none}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);min-width:0}
+.panel>h2,.panel-head{display:flex;align-items:center;gap:8px;margin:0;padding:8px 12px;border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+.eyebrow{font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--text-3)}
+.muted{color:var(--text-2)}.dim{color:var(--text-3)}
+.field{display:grid;gap:3px;font-size:12px;color:var(--text-2)}
+.field input,.field select,select.inline{height:28px;padding:2px 6px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--bg);min-width:0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.tile{display:grid;gap:6px;text-align:left;padding:10px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--raised);cursor:pointer}
+.tile:hover{border-color:var(--text-3)}
+.tile[aria-pressed=true]{border-color:var(--plan);background:var(--plan-bg)}
+.tile strong{font-size:14px}.tile small{color:var(--text-2);font-size:12px;line-height:1.35}
+.tile svg{width:42px;height:42px}
+.pick{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg)}
+.pick.done{border-color:#1a6b43}
+.pick span{font-size:12px}.pick.done span::before{content:"✓ ";color:var(--ok-text)}
+.files{display:grid;gap:4px;max-height:240px;overflow:auto}
+.file{display:flex;gap:8px;align-items:center;padding:5px 8px;border:1px solid var(--line);border-radius:var(--r);cursor:pointer;background:var(--bg)}
+.file[aria-pressed=true]{border-color:var(--plan);background:var(--plan-bg)}
+.file .name{flex:1;font-family:var(--mono);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file small{color:var(--text-3)}
+table.kin{width:100%;border-collapse:collapse;font-size:12px}
+table.kin th{padding:5px 8px;text-align:left;color:var(--text-3);font-weight:500;border-bottom:1px solid var(--line);font-size:11px}
+table.kin td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.kin td.num{text-align:right;font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+table.kin tr.new td{background:#0a2134aa}
+.chip-j{display:inline-block;min-width:26px;padding:0 5px;border-radius:var(--r);background:var(--plan-bg);color:var(--plan-text);border:1px solid #1c5c8a;text-align:center;font-weight:600}
+.chip-s{display:inline-block;padding:0 5px;border-radius:var(--r);background:var(--raised);color:var(--text-2);border:1px solid var(--line-strong)}
+.note{margin:0;padding:6px 9px;border-left:3px solid var(--plan);background:#0a213455;color:var(--text-2);font-size:12px}
+.note.warn{border-left-color:var(--warn);background:#2a1e0755}
+dl.props{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:12px}
+dl.props dt{color:var(--text-3)}dl.props dd{margin:0;overflow-wrap:anywhere}
+</style>
+<style>
+.v3{display:grid;grid-template-columns:280px minmax(0,1fr) 330px;gap:10px;padding:12px 16px;min-height:calc(100vh - 110px)}
+.tree{display:grid;grid-template-rows:auto 1fr auto;min-height:0}
+.tree ul{list-style:none;margin:0;padding:6px 0;overflow:auto}
+.grp{padding:6px 10px 2px;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)}
+.grp .chip-j{font-size:12px}
+.it{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;cursor:pointer;font-size:12.5px;position:relative}
+.it:hover{background:var(--raised)}
+.it[aria-current=true]{background:var(--warn-bg);color:var(--warn-text)}
+.it svg{width:16px;height:16px;flex:none}
+.it .fn{flex:1;font-family:var(--mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it .tag{font-size:10.5px;color:var(--text-3)}
+.it .more{border:0;background:none;color:var(--text-3);cursor:pointer;padding:0 4px;font-size:15px}
+.menu{position:absolute;right:8px;top:24px;z-index:5;display:grid;min-width:170px;padding:4px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--raised);box-shadow:0 8px 24px #000a}
+.menu button{border:0;background:none;text-align:left;padding:5px 8px;cursor:pointer;border-radius:var(--r);font-size:12.5px;color:var(--text)}
+.menu button:hover{background:var(--line)}.menu button.d{color:var(--danger-text)}
+.tree-foot{display:grid;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+.center{display:grid;grid-template-rows:1fr auto;gap:10px;min-height:0}
+.props-panel .body{display:grid;gap:8px;padding:10px 12px}
+.side{display:grid;gap:10px;align-content:start}
+.check{display:grid;gap:4px;padding:8px 12px;font-size:12px}
+.check div::before{content:"✓ ";color:var(--ok-text)}.check div.x::before{content:"• ";color:var(--warn-text)}
+/* Przewodnik (okno) */
+.overlay{position:fixed;inset:0;background:#000b;display:grid;place-items:center;z-index:20;padding:16px}
+.overlay[hidden]{display:none}
+.dlg{width:min(760px,100%);max-height:calc(100vh - 32px);display:grid;grid-template-rows:auto auto 1fr auto;border:1px solid var(--line-strong);border-radius:6px;background:var(--panel);box-shadow:0 20px 60px #000}
+.dlg-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.dlg-head h2{margin:0;font-size:16px}
+.prog{display:flex;gap:6px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dot{display:grid;place-items:center;min-width:30px;height:22px;padding:0 6px;border-radius:11px;font-size:11.5px;border:1px solid var(--line-strong);color:var(--text-3)}
+.dot.done{border-color:#1c5c8a;color:var(--plan-text);background:var(--plan-bg)}.dot.cur{border-color:var(--ok);color:var(--ok-text);background:var(--ok-bg)}
+.dlg-body{display:grid;gap:12px;padding:16px;overflow:auto;align-content:start}
+.dlg-body h3{margin:0;font-size:20px;font-weight:600}
+.dlg-body .lead{margin:0;color:var(--text-2)}
+.big .tile{padding:14px}.big .tile strong{font-size:16px}.big .tile svg{width:54px;height:54px}
+.filegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.ftile{display:grid;gap:4px;padding:8px;border:1px solid var(--line-strong);border-radius:var(--r);background:var(--raised);cursor:pointer;text-align:left}
+.ftile[aria-pressed=true]{border-color:var(--plan);background:var(--plan-bg)}
+.ftile .thumb{height:56px;display:grid;place-items:center;background:#0b0f13;border-radius:2px}
+.ftile .thumb i{display:block;background:#1e252c;border:1.5px solid #56636f;border-radius:2px}
+.ftile .n{font-family:var(--mono);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ftile small{font-size:10.5px;color:var(--text-3)}
+.matebox{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:12px}
+.mini{position:relative;height:300px;background:#0b0f13;border:1px solid var(--line);border-radius:var(--r)}
+.mini svg{position:absolute;inset:0;width:100%;height:100%}
+.dlg-foot{display:flex;gap:8px;align-items:center;padding:12px 16px;border-top:1px solid var(--line)}
+@media (max-width:1100px){.v3{grid-template-columns:1fr}.viewport{min-height:340px}.matebox{grid-template-columns:1fr}}
+</style>
+</head><body>
+<div class="mock"><b>MAKIETA v3</b> Drzewo członów + przewodnik w oknie (jedno pytanie na ekran) · po zamknięciu edycja w drzewie (⋯) · dane przykładowe, bez API</div>
+<header class="page"><h1>Model 3D robota</h1><small>Konfiguracja → Parametry robota</small>
+  <button class="btn plan" id="openWizard">▶ Przewodnik budowy</button>
+  <span class="spacer"></span>
+  <button class="btn ghost" id="undo">↶ Cofnij</button><button class="btn ghost" id="redo">↷ Ponów</button>
+  <span class="badge warn">Szkic · niezapisany</span><button class="btn primary">Zapisz model 3D</button><button class="btn plan">Zapisz do ROS…</button>
+</header>
+<main class="v3">
+  <section class="panel tree"><h2>Struktura robota <span class="spacer"></span><span class="dim" style="font-weight:400" id="axcount"></span></h2><ul id="tree"></ul>
+    <div class="tree-foot"><button class="btn" id="addEnd">+ Dodaj element na końcu</button><span class="dim" style="font-size:11px">Człon = oś + elementy za nią aż do następnej osi. ⋯ przy elemencie: edycja, wstawianie, zamiana, usuwanie.</span></div></section>
+  <div class="center">
+    <div class="viewport"><svg id="view"></svg><span class="legend">Widok z boku (makieta 2D) · ⊙ oś ⟂ widoku · - - oś w płaszczyźnie · kliknij element</span></div>
+    <section class="panel props-panel" id="props"></section>
+  </div>
+  <aside class="side">
+    <section class="panel"><h2>Kinematyka</h2><div id="kin"></div></section>
+    <section class="panel"><h2>Kompletność</h2><div class="check" id="check"></div></section>
+  </aside>
+</main>
+<div class="overlay" id="overlay" hidden><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" id="dlg"></div></div>
+<script>
+// ── Wspólny rdzeń makiety: biblioteka plików, łańcuch elementów, rysunek z boku (SVG), odległości osi. ──
+// Wymiary w mm, przykładowe. Rzut z boku: oś Y prostopadła do widoku (⊙), X/Z w płaszczyźnie (linia przerywana).
+const LIB = [
+  {file:'podstawa_fi180.stl', tri:'41 tys.', len:90, w:180, kind:'base'},
+  {file:'modul_J1_cykloida.stl', tri:'126 tys.', len:80, w:110, axis:'Z', kind:'axis', fit:'walec Ø72 mm (łożysko krzyżowe)'},
+  {file:'kolumna_120.stl', tri:'8 tys.', len:120, w:60, kind:'structural'},
+  {file:'modul_J2_falowy.stl', tri:'98 tys.', len:90, w:100, axis:'Y', kind:'axis', fit:'walec Ø62 mm (gniazdo łożyska)'},
+  {file:'ramie_250.stl', tri:'12 tys.', len:250, w:55, kind:'structural'},
+  {file:'modul_J3_falowy.stl', tri:'88 tys.', len:80, w:90, axis:'Y', kind:'axis', fit:'walec Ø52 mm (gniazdo łożyska)'},
+  {file:'przedluzka_80.stl', tri:'3 tys.', len:80, w:55, kind:'structural'},
+  {file:'przedramie_200.stl', tri:'15 tys.', len:200, w:50, kind:'structural', dir:'right'},
+  {file:'modul_J4_nadgarstek.stl', tri:'64 tys.', len:70, w:70, axis:'X', kind:'axis', fit:'walec Ø40 mm (czop wyjściowy)'},
+  {file:'modul_J5.stl', tri:'52 tys.', len:60, w:70, axis:'Y', kind:'axis', fit:'walec Ø32 mm (otwór łożyska)'},
+  {file:'kolnierz_J6.stl', tri:'21 tys.', len:40, w:60, axis:'X', kind:'axis', fit:'walec Ø25 mm (czop kołnierza)'},
+  {file:'chwytak_rownolegly.stl', tri:'33 tys.', len:90, w:70, kind:'structural'},
+];
+const lib = file => LIB.find(item => item.file === file);
+let uid = 0;
+function make(file, type, opt = {}) {
+  const l = lib(file);
+  return {id: ++uid, file, type, len: l.len, w: l.w, axis: type === 'axis' ? (opt.axis || l.axis || 'Y') : null, dir: opt.dir ?? l.dir ?? null,
+    side: 'output', offset: 0, rot: 0, rev: false, fit: type === 'axis' ? (l.fit || 'walec Ø40 mm') : null,
+    mate: opt.mate || `walec Ø${l.w - 20} mm ↔ czop Ø${l.w - 20} mm, styk czół`};
+}
+let chain = [make('podstawa_fi180.stl', 'base'), make('modul_J1_cykloida.stl', 'axis'), make('kolumna_120.stl', 'structural'),
+  make('modul_J2_falowy.stl', 'axis'), make('ramie_250.stl', 'structural')];
+const usedFiles = () => new Set(chain.map(e => e.file));
+const nextLibFile = () => LIB.find(l => !usedFiles().has(l.file))?.file ?? LIB[2].file;
+
+// Historia zmian (Cofnij / Ponów) — każda zmiana łańcucha przez commit().
+const past = [], future = [];
+function commit(change) { past.push(JSON.stringify(chain)); future.length = 0; change(); refresh(); }
+function undo() { if (!past.length) return; future.push(JSON.stringify(chain)); chain = JSON.parse(past.pop()); refresh(); }
+function redo() { if (!future.length) return; past.push(JSON.stringify(chain)); chain = JSON.parse(future.pop()); refresh(); }
+
+function layout(list) {
+  let x = 0, y = 0, d = [0, 1];
+  return list.map((e, i) => {
+    if (e.dir === 'right') d = [1, 0]; else if (e.dir === 'up') d = [0, 1];
+    const sx = x + d[0] * e.offset, sy = y + d[1] * e.offset, ex = sx + d[0] * e.len, ey = sy + d[1] * e.len;
+    x = ex; y = ey;
+    return {e, i, sx, sy, ex, ey, d: [...d], cx: (sx + ex) / 2, cy: (sy + ey) / 2};
+  });
+}
+function jointNumbers(list) { let n = 0; return list.map(e => e.type === 'axis' ? ++n : null); }
+const axisCount = (list = chain) => list.filter(e => e.type === 'axis').length;
+const typeLabel = e => e.type === 'base' ? 'Podstawa' : e.type === 'axis' ? 'Miejsce łożyskowania osi' : 'Element konstrukcyjny';
+function nameOf(list, i) { const J = jointNumbers(list); const e = list[i]; return e.type === 'base' ? 'Podstawa' : e.type === 'axis' ? `J${J[i]}` : e.file.replace(/\.stl$/, ''); }
+// Element konstrukcyjny liczy się do kinematyki, gdy za nim jest oś; za ostatnią osią przesuwa TCP.
+function roleText(list, i) {
+  const e = list[i];
+  if (e.type !== 'structural') return '';
+  const J = jointNumbers(list), next = J.findIndex((n, k) => k > i && n);
+  return next >= 0 ? `liczy się do kinematyki (odległość do J${J[next]})` : 'za ostatnią osią — przesuwa TCP';
+}
+// Odległości osi: punkt osi = środek modułu osi; TCP = koniec łańcucha.
+function kinematics(list) {
+  const L = layout(list), J = jointNumbers(list), rows = [];
+  let prev = {x: 0, y: 0}, via = [];
+  L.forEach(p => {
+    if (p.e.type === 'axis') { rows.push({name: `J${J[p.i]}`, axis: p.e.axis, x: p.cx, y: p.cy, dx: p.cx - prev.x, dy: p.cy - prev.y, via, id: p.e.id}); prev = {x: p.cx, y: p.cy}; via = []; }
+    else via = [...via, p.e.type === 'base' ? 'podstawa' : p.e.file.replace(/\.stl$/, '')];
+  });
+  const end = L.at(-1);
+  if (end) rows.push({name: 'TCP', x: end.ex, y: end.ey, dx: end.ex - prev.x, dy: end.ey - prev.y, via, tcp: true});
+  return rows;
+}
+const mm = v => `${v > 0.4 ? '+' : v < -0.4 ? '−' : ''}${Math.abs(Math.round(v))}`;
+const vec = r => [Math.abs(r.dx) > .4 ? `X ${mm(r.dx)}` : '', Math.abs(r.dy) > .4 ? `Z ${mm(r.dy)}` : ''].filter(Boolean).join(' · ') || '0';
+
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent) { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); parent?.appendChild(n); return n; }
+// Rysunek łańcucha: sel = indeks zaznaczonego, ghost = {at, e} wstawiany element (przerywany), pickAt = indeks z migającym miejscem spasowania.
+function drawChain(svg, list, {sel = -1, ghost = null, pickAt = null, onSelect = null, compact = false} = {}) {
+  const items = ghost ? [...list.slice(0, ghost.at), {...ghost.e, ghost: true}, ...list.slice(ghost.at)] : list;
+  const L = layout(items), J = jointNumbers(items);
+  let x0 = -130, x1 = 130, y1 = 120;
+  L.forEach(p => { const h = p.e.w / 2 + 30; x0 = Math.min(x0, p.sx - h, p.ex - h); x1 = Math.max(x1, p.sx + h, p.ex + h + 60); y1 = Math.max(y1, p.sy + h, p.ey + h); });
+  const pad = compact ? 30 : 60;
+  svg.replaceChildren();
+  svg.setAttribute('viewBox', `${x0 - pad} ${-(y1 + pad)} ${x1 - x0 + 2 * pad} ${y1 + 2 * pad + 40}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  const grid = el('g', {stroke: '#1a2129', 'stroke-width': 1}, svg);
+  for (let gx = Math.floor((x0 - pad) / 50) * 50; gx < x1 + pad; gx += 50) el('line', {x1: gx, x2: gx, y1: -(y1 + pad), y2: 40 + pad}, grid);
+  for (let gy = 0; gy < y1 + pad; gy += 50) el('line', {x1: x0 - pad, x2: x1 + pad, y1: -gy, y2: -gy}, grid);
+  el('line', {x1: x0 - pad, x2: x1 + pad, y1: 0, y2: 0, stroke: '#3a424b', 'stroke-width': 1.5}, svg);
+  const body = el('g', {}, svg), over = el('g', {}, svg);
+  L.forEach(p => {
+    const e = p.e, h = e.w / 2, vertical = p.d[1] === 1;
+    const r = vertical ? {x: p.sx - h, y: -(p.sy + e.len), width: e.w, height: e.len} : {x: p.sx, y: -(p.sy + h), width: e.len, height: e.w};
+    const fill = e.type === 'base' ? '#2b3138' : e.type === 'axis' ? '#132a3d' : '#1e252c';
+    const stroke = e.ghost ? '#52f2a0' : (list[sel] && list[sel].id === e.id) ? '#ffb020' : e.type === 'axis' ? '#2fa8ff' : '#56636f';
+    const rect = el('rect', {...r, rx: e.type === 'axis' ? 10 : 3, fill: e.ghost ? '#0b261855' : fill, stroke, 'stroke-width': (list[sel] && list[sel].id === e.id) || e.ghost ? 3 : 1.6,
+      'stroke-dasharray': e.ghost ? '9 6' : 'none'}, body);
+    if (onSelect && !e.ghost) { rect.style.cursor = 'pointer'; rect.addEventListener('click', () => onSelect(list.findIndex(x => x.id === e.id))); }
+    // Miejsce spasowania (początek elementu) — kropka na styku.
+    if (p.i > 0) el('circle', {cx: p.sx, cy: -p.sy, r: 4, fill: '#6e7983'}, over);
+    if (e.type === 'axis') {
+      const color = e.ghost ? '#52f2a0' : '#ffd166';
+      if (e.axis === 'Y') {
+        el('circle', {cx: p.cx, cy: -p.cy, r: Math.min(e.w, e.len) * .3, fill: 'none', stroke: color, 'stroke-width': 2}, over);
+        el('circle', {cx: p.cx, cy: -p.cy, r: 4, fill: color}, over);
+        if (e.rev) el('path', {d: `M${p.cx - 6} ${-p.cy - 6}L${p.cx + 6} ${-p.cy + 6}M${p.cx + 6} ${-p.cy - 6}L${p.cx - 6} ${-p.cy + 6}`, stroke: color, 'stroke-width': 2}, over);
+      } else {
+        const v = e.axis === 'Z' ? [0, 1] : [1, 0], s = e.rev ? -1 : 1, half = Math.max(e.len, e.w) / 2 + 45;
+        el('line', {x1: p.cx - v[0] * half, y1: -(p.cy - v[1] * half), x2: p.cx + v[0] * half, y2: -(p.cy + v[1] * half), stroke: color, 'stroke-width': 2, 'stroke-dasharray': '10 5'}, over);
+        const tx = p.cx + s * v[0] * half, ty = p.cy + s * v[1] * half, nx = -v[1], ny = v[0];
+        el('path', {d: `M${tx} ${-ty}L${tx - s * v[0] * 14 + nx * 7} ${-(ty - s * v[1] * 14 + ny * 7)}L${tx - s * v[0] * 14 - nx * 7} ${-(ty - s * v[1] * 14 - ny * 7)}Z`, fill: color}, over);
+      }
+      const t = el('text', {x: p.cx + (vertical ? h + 12 : 0), y: -(p.cy + (vertical ? 0 : h + 12)), fill: e.ghost ? '#52f2a0' : '#70c6ff', 'font-size': 22, 'font-weight': 700, 'dominant-baseline': 'middle', 'font-family': 'Ubuntu Condensed, sans-serif'}, over);
+      t.textContent = `J${J[p.i]}`;
+    }
+    if (pickAt === p.i) {
+      const ring = el('circle', {cx: p.ex, cy: -p.ey, r: 14, fill: 'none', stroke: '#ffb020', 'stroke-width': 3}, over);
+      el('animate', {attributeName: 'r', values: '10;20;10', dur: '1.4s', repeatCount: 'indefinite'}, ring);
+    }
+  });
+  el('path', {d: 'M-10 0L10 0M0 -10L0 10', stroke: '#aab4bd', 'stroke-width': 2}, over);
+  const zero = el('text', {x: 14, y: 22, fill: '#6e7983', 'font-size': 16, 'font-family': 'Ubuntu Condensed, sans-serif'}, over); zero.textContent = 'zero robota';
+  const end = L.at(-1);
+  if (end) {
+    el('path', {d: `M${end.ex - 9} ${-end.ey}L${end.ex + 9} ${-end.ey}M${end.ex} ${-end.ey - 9}L${end.ex} ${-end.ey + 9}`, stroke: '#52f2a0', 'stroke-width': 2.5}, over);
+    const t = el('text', {x: end.ex + 12, y: -end.ey - 10, fill: '#52f2a0', 'font-size': 18, 'font-family': 'Ubuntu Condensed, sans-serif'}, over); t.textContent = 'TCP';
+  }
+}
+// Tabela odległości osi; highlight = identyfikator nowej osi.
+function kinTable(list, highlight = null) {
+  const rows = kinematics(list);
+  return `<table class="kin"><thead><tr><th>Oś</th><th>Od poprzedniej [mm]</th><th>Przez elementy</th></tr></thead><tbody>${rows.map(r =>
+    `<tr class="${r.id && r.id === highlight ? 'new' : ''}"><td>${r.tcp ? '<span class="chip-s">TCP</span>' : `<span class="chip-j">${r.name}</span> <span class="dim">oś ${r.axis}</span>`}</td>
+     <td class="num">${vec(r)}</td><td class="dim">${r.via.join(' + ') || '—'}</td></tr>`).join('')}</tbody></table>`;
+}
+const icon = {
+  structural: '<svg viewBox="0 0 42 42"><rect x="15" y="4" width="12" height="34" rx="2" fill="#1e252c" stroke="#8a97a3" stroke-width="2"/></svg>',
+  axis: '<svg viewBox="0 0 42 42"><rect x="6" y="9" width="30" height="24" rx="6" fill="#132a3d" stroke="#2fa8ff" stroke-width="2"/><circle cx="21" cy="21" r="7" fill="none" stroke="#ffd166" stroke-width="2"/><circle cx="21" cy="21" r="2" fill="#ffd166"/></svg>',
+  base: '<svg viewBox="0 0 42 42"><rect x="4" y="22" width="34" height="14" rx="2" fill="#2b3138" stroke="#8a97a3" stroke-width="2"/></svg>',
+  tool: '<svg viewBox="0 0 42 42"><path d="M21 4v14M13 18h16v6l-4 12h-2l-2-8-2 8h-2l-4-12z" fill="#1e252c" stroke="#52f2a0" stroke-width="2"/></svg>',
+};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+let sel = -1, menu = -1, wiz = null;
+const groups = () => { const J = jointNumbers(chain), out = [{title: 'Podstawa (nieruchoma)', items: []}]; chain.forEach((e, i) => { if (e.type === 'axis') out.push({title: `J${J[i]}`, axis: e.axis, items: [i]}); else out.at(-1).items.push(i); }); return out; };
+function treeHtml() {
+  return groups().map((g, gi) => `<li class="grp">${gi ? `<span class="chip-j">${g.title}</span> człon ${gi} · oś ${g.axis}` : g.title}</li>` + g.items.map(i => {
+    const e = chain[i];
+    return `<li class="it" data-i="${i}" aria-current="${i === sel}">${icon[e.type]}<span class="fn">${esc(e.file)}</span><span class="tag">${e.type === 'axis' ? 'oś' : e.type === 'base' ? '' : `${e.len} mm`}</span>
+      <button class="more" data-menu="${i}" aria-label="Akcje elementu">⋯</button>${menu === i ? `<div class="menu"><button data-m="edit">Edytuj spasowanie…</button><button data-m="before" ${e.type === 'base' ? 'disabled' : ''}>Wstaw przed…</button><button data-m="after">Wstaw za…</button><button data-m="swap">Zamień plik…</button>${e.type !== 'base' ? `<button data-m="toggle">${e.type === 'axis' ? 'Zmień na konstrukcyjny' : 'Zmień na miejsce osi'}</button><button class="d" data-m="del">Usuń</button>` : ''}</div>` : ''}</li>`;
+  }).join('')).join('');
+}
+function propsHtml() {
+  if (sel < 0) return `<h2>Właściwości</h2><div class="body muted">Wybierz element w drzewie lub na podglądzie.</div>`;
+  const e = chain[sel];
+  return `<h2>${e.type === 'axis' ? `<span class="chip-j">${nameOf(chain, sel)}</span>` : ''} ${esc(e.file)}<span class="spacer"></span><span class="badge">${typeLabel(e)}</span></h2><div class="body">
+    <dl class="props">${e.type !== 'base' ? `<dt>Dołączony do</dt><dd>${esc(nameOf(chain, sel - 1))} · ${esc(e.mate)}</dd>` : '<dt>Położenie</dt><dd>zero robota pod podstawą</dd>'}
+    ${e.type === 'structural' ? `<dt>Kinematyka</dt><dd>${roleText(chain, sel)}</dd>` : ''}${e.type === 'axis' ? `<dt>Oś</dt><dd>${esc(e.fit)} · zwrot ${e.rev ? '−' : '+'}${e.axis} <button class="btn sm" data-p="rev">Odwróć</button></dd>` : ''}</dl>
+    ${e.type !== 'base' ? `<div class="row"><label class="field">Przesunięcie [mm]<input type="number" data-e="offset" value="${e.offset}" style="width:110px"></label><label class="field">Obrót [°]<input type="number" data-e="rot" value="${e.rot}" style="width:110px"></label></div>` : ''}</div>`;
+}
+function checkHtml() {
+  const n = axisCount(), withAxis = chain.filter(e => e.type === 'axis').length, last = chain.at(-1);
+  return [[n === 6, `Osie: ${n}/6`], [true, 'Wszystkie elementy spasowane'], [withAxis === n, 'Każdy model osi ma wskazaną oś'], [n < 6 || last.type !== 'axis', n === 6 ? 'Narzędzie za J6 (opcjonalne)' : 'Narzędzie — po J6']]
+    .map(([ok, t]) => `<div class="${ok ? '' : 'x'}">${t}</div>`).join('');
+}
+// ── Przewodnik: pytania „co dalej?” → plik → spasowanie → oś. ──
+function openWizard(at = chain.length) { wiz = {at, q: 'what', type: null, file: null, picks: 0, axis: false, rev: false}; refresh(); }
+function wizElement() { const e = make(wiz.file || LIB[2].file, wiz.type === 'tool' ? 'structural' : wiz.type); e.rev = wiz.rev; return e; }
+function dlgHtml() {
+  const n = axisCount(chain.slice(0, wiz.at)), parentName = nameOf(chain, wiz.at - 1), parent = chain[wiz.at - 1];
+  const dots = ['Podstawa', 'J1', 'J2', 'J3', 'J4', 'J5', 'J6', 'Narzędzie'].map((t, i) => `<span class="dot ${i <= n ? 'done' : ''} ${i === n + 1 && wiz.type === 'axis' ? 'cur' : ''}">${t}</span>`).join('');
+  const Q = ['what', 'file', 'mate', ...(wiz.type === 'axis' ? ['axis'] : [])], qi = Q.indexOf(wiz.q);
+  let body = '';
+  if (wiz.q === 'what') body = `<h3>Co jest zamontowane za „${esc(parentName)}”?</h3><p class="lead">${parent.type === 'axis' ? `Na wyjściu osi ${parentName} — element obróci się razem z nią.` : 'Element zostanie przykręcony do poprzednika na sztywno.'}</p>
+    <div class="tiles big"><button class="tile" data-t="structural" aria-pressed="${wiz.type === 'structural'}">${icon.structural}<strong>Element konstrukcyjny</strong><small>Rura, wspornik, przedłużenie, adapter. Wydłuża ramię, gdy za nim dojdzie oś.</small></button>
+    <button class="tile" data-t="axis" aria-pressed="${wiz.type === 'axis'}" ${n >= 6 ? 'disabled' : ''}>${icon.axis}<strong>Miejsce łożyskowania osi J${n + 1}</strong><small>Moduł przegubu: korpus tutaj, wyjście obraca dalszą część robota.</small></button>
+    <button class="tile" data-t="tool" aria-pressed="${wiz.type === 'tool'}" ${n < 6 ? 'disabled' : ''}>${icon.tool}<strong>Narzędzie — koniec</strong><small>${n < 6 ? `Dostępne po J6 (brakuje ${6 - n} osi).` : 'Chwytak, uchwyt, końcówka — wyznacza TCP.'}</small></button></div>`;
+  if (wiz.q === 'file') body = `<h3>Który plik to ten element?</h3><p class="lead">Wgrany osobno, we własnym układzie. Pliki użyte w modelu oznaczone — ten sam moduł można wstawić kilka razy.</p>
+    <div class="filegrid">${LIB.filter(l => l.kind !== 'base').map(l => `<button class="ftile" data-f="${l.file}" aria-pressed="${wiz.file === l.file}"><span class="thumb"><i style="width:${Math.min(80, l.w * .5)}px;height:${Math.min(48, l.len * .25)}px;${l.kind === 'axis' ? 'border-color:#2fa8ff;border-radius:6px' : ''}"></i></span><span class="n">${l.file}</span><small>${l.tri} trójk.${usedFiles().has(l.file) ? ' · w modelu' : ''}</small></button>`).join('')}
+    <button class="ftile"><span class="thumb" style="font-size:22px;color:var(--text-3)">⬆</span><span class="n">Wgraj plik…</span><small>STL / OBJ</small></button></div>`;
+  if (wiz.q === 'mate') body = `<h3>Jak „${esc(wiz.file)}” łączy się z „${esc(parentName)}”?</h3>
+    <div class="matebox"><div class="mini"><svg id="mini"></svg></div><div style="display:grid;gap:8px;align-content:start">
+    ${['Kołnierz na poprzedniku', 'Czop / otwór na elemencie', 'Styk płaszczyzn'].map((s, i) => `<div class="pick ${wiz.picks > i ? 'done' : ''}"><span>${wiz.picks > i ? ['kołnierz — walec Ø' + (parent.w - 20) + ' mm', 'czop — walec Ø' + (parent.w - 20) + ' mm', 'czoło ↔ czoło'][i] : `${i + 1}. ${s}`}</span>${wiz.picks === i ? '<button class="btn sm" data-a="pick">Wskaż</button>' : ''}</div>`).join('')}
+    <label class="field">Przesunięcie wzdłuż osi [mm]<input type="number" value="0"></label><label class="field">Obrót wokół osi [°]<input type="number" value="0"></label></div></div>`;
+  if (wiz.q === 'axis') body = `<h3>Gdzie jest łożyskowanie osi J${n + 1}?</h3><p class="lead">Kliknij walec łożyska, czop wyjściowy albo otwór osi. Strzałka pokaże zwrot dodatniego obrotu.</p>
+    <div class="matebox"><div class="mini"><svg id="mini"></svg></div><div style="display:grid;gap:8px;align-content:start">
+    <div class="pick ${wiz.axis ? 'done' : ''}"><span>${wiz.axis ? `${lib(wiz.file).fit || 'walec Ø40 mm'} · zasięg 360°` : 'Wskaż walec osi'}</span><button class="btn sm" data-a="axis">${wiz.axis ? 'Ponownie' : 'Wskaż'}</button></div>
+    ${wiz.axis ? `<div class="row"><span class="muted">Zwrot:</span><b>${wiz.rev ? '−' : '+'}${lib(wiz.file).axis || 'Y'}</b><button class="btn sm" data-a="rev">Odwróć</button></div>` : ''}</div></div>`;
+  const ok = wiz.q === 'what' ? !!wiz.type : wiz.q === 'file' ? !!wiz.file : wiz.q === 'mate' ? wiz.picks >= 3 : wiz.axis, last = qi === Q.length - 1;
+  return `<div class="dlg-head"><span class="eyebrow">Przewodnik</span><h2 id="dlgTitle">Budowa robota od podstawy</h2><span class="spacer"></span><button class="btn ghost" data-a="close">Dokończę w drzewie ✕</button></div>
+    <div class="prog">${dots}<span class="spacer"></span><span class="dim">pytanie ${qi + 1}/${Q.length}</span></div>
+    <div class="dlg-body">${body}</div>
+    <div class="dlg-foot"><button class="btn" data-a="back" ${qi === 0 ? 'disabled' : ''}>← Wstecz</button><span class="spacer"></span>
+      <button class="btn ${last ? 'primary' : 'plan'}" data-a="${last ? 'add' : 'next'}" ${ok ? '' : 'disabled'}>${last ? (wiz.type === 'tool' || axisCount() >= 5 && wiz.type === 'axis' && axisCount(chain.slice(0, wiz.at)) === 5 ? 'Dodaj' : 'Dodaj i dalej →') : 'Dalej →'}</button></div>`;
+}
+document.getElementById('dlg').addEventListener('click', ev => {
+  const t = ev.target.closest('[data-t],[data-f],[data-a]'); if (!t || t.disabled) return;
+  const Q = ['what', 'file', 'mate', ...(wiz.type === 'axis' ? ['axis'] : [])];
+  if (t.dataset.t) { wiz.type = t.dataset.t; wiz.file = null; }
+  else if (t.dataset.f) wiz.file = t.dataset.f;
+  else { const a = t.dataset.a;
+    if (a === 'close') wiz = null;
+    else if (a === 'next') { if (wiz.q === 'what' && !wiz.file) wiz.file = LIB.find(l => (wiz.type === 'axis' ? l.kind === 'axis' : l.kind === 'structural') && !usedFiles().has(l.file))?.file ?? null; wiz.q = Q[Q.indexOf(wiz.q) + 1]; }
+    else if (a === 'back') wiz.q = Q[Q.indexOf(wiz.q) - 1];
+    else if (a === 'pick') wiz.picks++; else if (a === 'axis') wiz.axis = true; else if (a === 'rev') wiz.rev = !wiz.rev;
+    else if (a === 'add') { const at = wiz.at, e = wizElement(), end = at === chain.length, tool = wiz.type === 'tool'; commit(() => chain.splice(at, 0, e)); sel = at;
+      wiz = end && !tool && axisCount() <= 6 ? {at: chain.length, q: 'what', type: null, file: null, picks: 0, axis: false, rev: false} : null; }
+  }
+  refresh();
+});
+document.getElementById('tree').addEventListener('click', ev => {
+  const m = ev.target.closest('[data-m]'), more = ev.target.closest('[data-menu]'), it = ev.target.closest('[data-i]');
+  if (m) { const i = menu, a = m.dataset.m; menu = -1;
+    if (a === 'before') openWizard(i); else if (a === 'after') openWizard(i + 1); else if (a === 'del') { commit(() => chain.splice(i, 1)); sel = -1; }
+    else if (a === 'toggle') commit(() => { const e = chain[i]; e.type = e.type === 'axis' ? 'structural' : 'axis'; e.axis = e.type === 'axis' ? (lib(e.file).axis || 'Y') : null; e.fit = e.type === 'axis' ? (lib(e.file).fit || 'walec — wskaż oś') : null; });
+    else if (a === 'swap') commit(() => { const f = nextLibFile(); Object.assign(chain[i], {file: f, len: lib(f).len, w: lib(f).w}); });
+    else sel = i; }
+  else if (more) { menu = menu === Number(more.dataset.menu) ? -1 : Number(more.dataset.menu); }
+  else if (it) { sel = Number(it.dataset.i); menu = -1; }
+  refresh();
+});
+document.getElementById('props').addEventListener('click', ev => { if (ev.target.closest('[data-p=rev]')) { const i = sel; commit(() => { chain[i].rev = !chain[i].rev; }); } });
+document.getElementById('props').addEventListener('change', ev => { const t = ev.target; if (t.dataset.e) { const i = sel; commit(() => { chain[i][t.dataset.e] = Number(t.value) || 0; }); } });
+document.getElementById('openWizard').onclick = () => openWizard();
+document.getElementById('addEnd').onclick = () => openWizard();
+document.getElementById('undo').onclick = undo; document.getElementById('redo').onclick = redo;
+function refresh() {
+  document.getElementById('undo').disabled = !past.length; document.getElementById('redo').disabled = !future.length;
+  document.getElementById('tree').innerHTML = treeHtml();
+  document.getElementById('axcount').textContent = `osie ${axisCount()}/6`;
+  document.getElementById('props').innerHTML = propsHtml();
+  document.getElementById('check').innerHTML = checkHtml();
+  const ghost = wiz && wiz.type && wiz.q !== 'what' ? {at: wiz.at, e: wizElement()} : null;
+  drawChain(document.getElementById('view'), chain, {sel, ghost, onSelect: i => { sel = i; menu = -1; refresh(); }});
+  document.getElementById('kin').innerHTML = kinTable(ghost ? [...chain.slice(0, ghost.at), ghost.e, ...chain.slice(ghost.at)] : chain, ghost?.e.id);
+  const overlay = document.getElementById('overlay'); overlay.hidden = !wiz;
+  if (wiz) { document.getElementById('dlg').innerHTML = dlgHtml(); const mini = document.getElementById('mini'); if (mini) drawChain(mini, chain, {ghost, pickAt: wiz.q === 'mate' && wiz.picks === 0 ? wiz.at - 1 : null, compact: true}); }
+}
+openWizard();
+</script>
+</body></html>

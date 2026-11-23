@@ -1,0 +1,21 @@
+[Unit]
+Description=Panel robota ROS 2 Humble
+Wants=network-online.target
+After=network-online.target robot-can@can0.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=~
+Environment=@HOME_ENV@
+ExecStart=/usr/bin/bash @START_SCRIPT@
+# Launch może zakończyć się kodem 0 także po utracie backendu.
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

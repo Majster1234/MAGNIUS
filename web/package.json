@@ -1,0 +1,34 @@
+{
+    "name": "robot-status-panel",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "engines": {
+        "node": ">=22.12.0"
+    },
+    "scripts": {
+        "dev": "vite --host 127.0.0.1",
+        "typecheck": "tsc --noEmit",
+        "build": "npm run typecheck && vite build",
+        "test": "vitest run",
+        "test:tcp-live": "node test/tcp-live.browser.cjs",
+        "test:tcp-panel-ros": "node test/tcp-panel-ros.browser.cjs",
+        "test:tcp-settings": "node test/tcp-settings.browser.cjs",
+        "test:browser": "node test/shell.browser.cjs && node test/diagnostics.browser.cjs && node test/manual.browser.cjs && node test/planning.browser.cjs && node test/cartesian.browser.cjs && node test/motion.browser.cjs && node test/control-center.browser.cjs && node test/trails.browser.cjs && node test/tcp.browser.cjs && node test/tcp-live.browser.cjs && node test/tcp-settings.browser.cjs && node test/configuration.browser.cjs && node test/configuration-snapshots.browser.cjs"
+    },
+    "dependencies": {
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "three": "0.164.1",
+        "urdf-loader": "0.13.1"
+    },
+    "devDependencies": {
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "@types/three": "0.164.1",
+        "playwright": "1.64.1",
+        "typescript": "~5.9.3",
+        "vite": "^7.3.0",
+        "vitest": "^3.2.0"
+    }
+}

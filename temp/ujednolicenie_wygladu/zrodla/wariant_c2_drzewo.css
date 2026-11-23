@@ -1,0 +1,68 @@
+/* ===== C2 — Drzewo: stała mapa po lewej, szczegóły w zakładkach po prawej ===== */
+.diag2{display:grid;grid-template-columns:300px minmax(0,1fr);gap:var(--gap)}
+.tree-card,.main-card{overflow:hidden}
+.res{display:flex;flex-direction:column;gap:6px;padding:8px var(--card-pad-x);border-bottom:1px solid var(--line);flex:none}
+.res .bar{grid-template-columns:40px minmax(0,1fr) auto auto;gap:8px}
+.res em{font-style:normal;color:var(--text-3);font-size:var(--fs-1)}
+.tree{padding:2px 0 6px}
+.tgroup{display:flex;align-items:center;gap:8px;padding:9px var(--card-pad-x) 3px;font-size:var(--fs-1);font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em}
+.tgroup .tm{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400}
+.tnode{display:flex;align-items:center;gap:8px;width:100%;padding:3px var(--card-pad-x) 3px 20px;background:none;border:0;border-left:3px solid transparent;color:var(--text);cursor:pointer;text-align:left}
+.tnode:hover{background:var(--raised)}
+.tnode.sel{background:var(--raised);border-left-color:var(--text)}
+.tdot{width:8px;height:8px;flex:none;background:var(--ok)}
+.tdot.off{background:var(--text-3)}
+.tl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12px}
+.tl .ax{font-family:var(--font);font-size:var(--fs-2)}
+.tm{color:var(--text-3);font-size:var(--fs-1);white-space:nowrap}
+.main-card>.tabs{flex:none}
+.main-card .pane{display:flex;flex-direction:column;flex:1 1 0;min-height:0}
+.strip.inner{flex:none;border-bottom:1px solid var(--line)}
+.pane-split{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);flex:1 1 0;min-height:0;gap:1px;background:var(--line)}
+.pane-split>div{background:var(--panel)}
+/* Sterowanie: 3D nad komunikatami po lewej; osie nad JOG TCP po prawej */
+.manual.fill{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto minmax(0,1fr) 200px;grid-template-areas:"view axes" "view jog" "msgs jog"}
+/* ----- Menu: rozwinięte 236 px (statusy + CPU/RAM/CAN) / zwinięte 100 px (pasek ikon + pionowy wskaźnik stanu) ----- */
+:root{--nav-w:236px;--nav-w-collapsed:100px}
+.nav{gap:4px}
+.nav-links{flex:0 0 auto}
+.app:not(.collapsed) .brand{justify-content:flex-start;padding:6px 8px 12px}
+.app:not(.collapsed) .brand-text{display:flex}
+.app:not(.collapsed) .nav-link{flex-direction:row;justify-content:flex-start;gap:12px;height:40px;padding:0 12px;font-size:12px;letter-spacing:.06em;text-align:left;white-space:nowrap}
+.app:not(.collapsed) .nav-link .ico{width:20px;height:20px}
+.app.collapsed .nav-link{height:var(--nav-item-h)}
+.app.collapsed .nav-link span{display:inline}
+.app:not(.collapsed) .nav-collapse{justify-content:flex-start;padding:0 12px;gap:10px}
+.app:not(.collapsed) .nav-collapse span{display:inline}
+.nav-status{margin-top:auto;border-top:1px solid var(--line);padding:10px 0 4px}
+.ns-full{display:flex;flex-direction:column;gap:9px;padding:0 4px}
+.app.collapsed .ns-full{display:none}
+.ns-compact{display:none;flex-direction:column;align-items:center;gap:7px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--text-2)}
+.app.collapsed .ns-compact{display:flex}
+.ns-compact>span:not(.ns-drives){display:flex;align-items:center;gap:7px;width:52px}
+.ns-compact i,.ns-chips i{width:8px;height:8px;background:var(--ok);flex:none}
+.ns-compact .ns-drives{display:flex;flex-direction:column;gap:3px;margin-top:3px}
+.ns-compact .ns-drives em{width:24px;height:5px;background:var(--ok)}
+.ns-compact b{font-size:var(--fs-1);color:var(--text)}
+.ns-head{display:flex;align-items:center;justify-content:space-between}
+.ns-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.ns-chips span{display:flex;align-items:center;justify-content:center;gap:5px;height:24px;border:1px solid var(--line-strong);font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--text-2)}
+.ns-drv{display:flex;align-items:center;gap:8px}
+.ns-drv .lbl{width:52px}
+.ns-drv .ns-drives{display:flex;gap:3px;flex:1}
+.ns-drv .ns-drives em{width:10px;height:12px;background:var(--ok)}
+.ns-drv b{font-size:var(--fs-2)}
+.ns-row{display:flex;align-items:baseline;gap:6px}
+.ns-row .lbl{width:34px}
+.ns-row b{font-size:var(--fs-4);font-family:var(--num-font);font-weight:700}
+.ns-row em{font-style:normal;font-size:var(--fs-1);color:var(--text-3);white-space:nowrap}
+.ns-gauge .meter{display:block;margin-top:5px;height:6px}
+.ns-gauge[data-gauge="can"]{--l:60%}
+.ns-cores{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:5px}
+.core{display:flex;flex-direction:column;align-items:center;gap:2px}
+.core-bar{position:relative;width:100%;height:40px;background:var(--line)}
+.core-bar i{position:absolute;left:0;right:0;bottom:0;height:var(--v);background:var(--meter-fill);transition:height .4s}
+.core small{font-size:10px;color:var(--text-2);line-height:1.1}
+.core small.core-n{color:var(--text-3)}
+.top-right{margin-left:auto}
+@media (prefers-reduced-motion:reduce){.core-bar i{transition:none}}

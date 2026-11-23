@@ -1,0 +1,12 @@
+{
+  "name": "Teach pendant · Robot 6-DOF",
+  "short_name": "Pendant",
+  "description": "Sterowanie JOG robota z telefonu (TCP / osie, zezwolenie, model 3D z limitami).",
+  "start_url": "/?fs=1#pendant",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0c1218",
+  "theme_color": "#0c1218",
+  "icons": [{ "src": "/robot.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

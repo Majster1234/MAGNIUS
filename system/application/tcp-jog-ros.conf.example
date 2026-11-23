@@ -1,0 +1,4 @@
+# Drop-in dla robot-web-status.service. Wymaga zbudowanej nakładki.
+# Nie włącza fizycznego JOG TCP; domyślne tcp_jog_enabled pozostaje false.
+[Service]
+Environment="ROBOT_OVERLAY_SETUP=/home/mk/Desktop/Projekty/install/tcp-jog-ros/setup.bash"

@@ -1,0 +1,34 @@
+    <!-- ===================== DIAGNOSTYKA — C2 DRZEWO: stała mapa systemu + zakładki szczegółów ===================== -->
+    <section class="screen fit" data-screen="diagnostics">
+      <div class="ph">
+        <div class="ph-title"><svg class="ico"><use href="#i-diag"/></svg><h1>Diagnostyka</h1><i class="info" tabindex="0" data-tip="Po lewej stała mapa systemu (warstwy, magistrala, napędy). Kliknięcie elementu otwiera jego szczegóły w zakładce po prawej. Dawniej: Diagnostyka, Magistrala CAN, Architektura.">i</i></div>
+        <div class="ph-state"><span class="badge ok"><i class="dot"></i>Źródło połączone</span><span class="badge ok"><i class="dot"></i>Zapis ciągły</span><span class="badge ok"><i class="dot"></i>Problemy: 0</span></div>
+        <div class="ph-actions"><button class="btn" type="button"><svg class="ico"><use href="#i-download"/></svg>CSV</button><span class="div"></span><button class="btn" type="button"><svg class="ico"><use href="#i-power"/></svg>Reset CAN</button><button class="btn primary" type="button"><svg class="ico"><use href="#i-scan"/></svg>Skanuj</button></div>
+      </div>
+      <div class="diag2 fill">
+        <aside class="card tree-card">
+          <div class="card-h"><h2>Mapa systemu</h2><span class="end"><span class="badge ok"><i class="dot"></i>17/18 OK</span></span></div>
+          <div class="tree scroll" data-fill="tree"></div>
+        </aside>
+        <article class="card main-card">
+          <div class="tabs" data-tabs="dg"><button class="tab" type="button" data-tab="tr" aria-selected="true"><svg class="ico"><use href="#i-diag"/></svg>Przebiegi</button><button class="tab" type="button" data-tab="can" aria-selected="false"><svg class="ico"><use href="#i-can"/></svg>Magistrala CAN</button><button class="tab" type="button" data-tab="proc" aria-selected="false"><svg class="ico"><use href="#i-arch"/></svg>Procesy</button><button class="tab" type="button" data-tab="ev" aria-selected="false"><svg class="ico"><use href="#i-alert"/></svg>Zdarzenia <span class="count">0</span></button></div>
+          <div class="pane" data-panel="dg:tr">
+            {{TOOLBAR}}
+            <div class="chart-grid two" data-fill="charts"></div>
+          </div>
+          <div class="pane" data-panel="dg:can" hidden>
+            <div class="strip inner" data-fill="canstats"></div>
+            <div class="pane-split">
+              <div class="scroll"><div class="sect">Urządzenia bieżącej sesji</div><table class="table dense"><thead><tr><th>CAN ID</th><th>Oś</th><th>Model</th><th>Łączność</th><th>Stan napędu</th><th>ENABLE</th><th class="n">RTT ms</th><th class="n">Błędy</th></tr></thead><tbody data-fill="can" data-cols="full"></tbody></table></div>
+              <div class="scroll"><div class="sect">Szczegóły komunikacji</div><table class="table dense"><thead><tr><th>Oś</th><th class="n">Ramki RX/s</th><th class="n">TX/s</th><th class="n">Odczyt Hz</th><th class="n">Timeouty</th><th class="n">Ost. odp.</th></tr></thead><tbody data-fill="cancomm"></tbody></table></div>
+            </div>
+          </div>
+          <div class="pane" data-panel="dg:proc" hidden>
+            <div class="scroll"><table class="table dense"><thead><tr><th>Stan</th><th>Nazwa</th><th class="c-typ">Typ</th><th class="n c-pid">PID</th><th class="n">CPU %</th><th class="n c-ram">RAM</th><th class="n c-up">Czas pracy</th><th>Komunikat</th></tr></thead><tbody data-fill="proc" data-cols="full"></tbody></table></div>
+          </div>
+          <div class="pane" data-panel="dg:ev" hidden>
+            <div class="scroll"><div class="events big" data-fill="events"></div></div>
+          </div>
+        </article>
+      </div>
+    </section>

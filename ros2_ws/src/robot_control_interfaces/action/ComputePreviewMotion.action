@@ -1,0 +1,16 @@
+uint8 PTP=0
+uint8 LIN=1
+robot_control_interfaces/PlanningContext context
+uint8 motion_type
+float64[6] target_positions
+# LIN: m/s, m/s² i rad/s. Trzy zera zachowują dotychczasowy profil złączy.
+float64 tcp_velocity
+float64 tcp_acceleration
+float64 tcp_angular_velocity
+---
+bool success
+string message
+robot_control_interfaces/CartesianPlan plan
+---
+float32 progress
+string phase

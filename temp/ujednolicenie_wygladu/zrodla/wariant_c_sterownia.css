@@ -1,0 +1,79 @@
+/* ===== Wariant C — Sterownia: czarny pulpit HMI, wysoki kontrast, duże pola dotykowe, pasek ikon i pasek stanu na dole ===== */
+:root{
+  --font:"Ubuntu Condensed","Liberation Sans Narrow","Arial Narrow",sans-serif; --mono:"DejaVu Sans Mono","Noto Sans Mono",monospace; --num-font:var(--mono);
+  --fs-1:12px; --fs-2:14px; --fs-3:16px; --fs-4:19px; --fs-5:25px; --fs-6:34px;
+  --r-sm:2px; --r-md:3px; --r-lg:4px; --r-badge:2px; --tag-r:1px; --ax-shape:0; --sw-radius:2px;
+
+  --bg:#07090b; --panel:#0e1114; --raised:#161a1f; --line:#232930; --line-strong:#3a424b;
+  --text:#f2f5f7; --text-2:#aab4bd; --text-3:#6e7983;
+  --nav-bg:#0a0c0f; --top-bg:#0a0c0f; --brand:#f2f5f7; --th-bg:#0a0c0f; --row-hover:#13171b;
+  --view-bg:#090c0f; --canvas-bg:#0a0d10; --grid-line:#1a222a; --robot-link:#b9c3cc; --robot-joint:#5b6670; --robot-label-bg:#07090b;
+
+  --ok:#21d07a; --ok-bg:#0b2618; --ok-text:#52f2a0; --ok-border:#1a6b43;
+  --plan:#2fa8ff; --plan-bg:#0a2134; --plan-text:#70c6ff; --plan-border:#1c5c8a;
+  --warn:#ffb020; --warn-bg:#2a1e07; --warn-text:#ffc95c; --warn-border:#7a5410;
+  --danger:#ff3b4e; --danger-bg:#2f0c12; --danger-text:#ff7d8a; --danger-border:#a3202f; --danger-btn-bg:transparent;
+  --neutral-bg:#161a1f; --badge-border:#3a424b;
+
+  --primary-bg:#f2f5f7; --primary-text:#07090b; --primary-border:#f2f5f7; --primary-hover:#ffffff;
+  --btn-bg:transparent; --btn-border:#4a535d; --btn-text:#f2f5f7; --btn-hover:#1b2026; --btn-weight:700; --btn-track:.07em; --btn-case:uppercase;
+  --stop-bg:#e0102a; --stop-border:#ff4b5e; --stop-shadow:0 0 0 3px #07090b,0 0 0 5px #e0102a; --stop-w:148px; --stop-h:46px;
+
+  --j1:#19e3f0; --j2:#a493ff; --j3:#f07cf5; --j4:#ff6fa8; --j5:#c8f03a; --j6:#d6dde3;
+  --cat-ruch:#4f86c6; --cat-czas:#b0904a; --cat-logika:#8b7fd0; --cat-mat:#3fb0a2; --cat-petle:#b06cc8;
+
+  --gap:10px; --pad:8px; --pad-x:18px; --pad-y:14px; --top-h:40px; --nav-w:100px; --nav-w-collapsed:64px; --nav-item-h:70px;
+  --ctl-h:42px; --badge-h:24px; --tab-h:46px; --tab-gap:0; --tabs-pad:0; --tab-line:3px; --tab-case:uppercase; --tab-track:.08em; --tab-radius:0; --tab-accent:#f2f5f7; --tab-on-bg:#161a1f;
+  --ph-h:52px; --card-h:44px; --card-pad-x:14px; --card-pad-y:8px; --td-pad:12px; --pad-btn:58px;
+  --sw-w:54px; --sw-h:28px; --sw-off:#161a1f; --sw-on:#f2f5f7; --sw-knob-off:#6e7983; --sw-knob-on:#07090b;
+  --input-bg:#07090b; --input-border:#3a424b; --focus:#f2f5f7; --focus-ring:rgba(242,245,247,.16);
+  --seg-bg:#07090b; --seg-on-bg:#f2f5f7; --seg-on-text:#07090b; --seg-on-shadow:none;
+  --card-border:#232930; --card-shadow:none; --shadow:0 14px 34px rgba(0,0,0,.75);
+  --tip-bg:#f2f5f7; --tip-text:#07090b;
+  --nav-active-bg:#161a1f; --nav-active-text:#ffffff;
+  --h-weight:700; --h-track:.05em; --h-case:uppercase; --h2-case:uppercase; --h2-track:.08em;
+  --label-case:uppercase; --label-track:.12em; --badge-case:uppercase; --badge-track:.06em;
+  --ico-stroke:2; --chart-stroke:2;
+  --flow-line:#3a424b; --loop-bg:transparent; --chip-bg:#1b2026;
+  --code-kw:#a493ff; --code-fn:#f2f5f7; --code-num:#19e3f0; --meter-fill:#aab4bd;
+}
+/* Pasek ikon z podpisami po lewej, pasek stanu na dole */
+.app{grid-template-rows:minmax(0,1fr) var(--top-h);grid-template-areas:"nav content" "nav top"}
+.nav{padding:10px 8px;gap:6px}
+.brand{justify-content:center;padding:6px 0 14px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.brand-text{display:none}
+.nav-link{flex-direction:column;justify-content:center;gap:6px;padding:0 4px;border-radius:var(--r-md);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;text-align:center;white-space:normal;line-height:1.1}
+.nav-link .ico{width:24px;height:24px}
+.nav-link.active{box-shadow:inset 3px 0 0 var(--text);background:var(--raised)}
+.app.collapsed .nav-link{height:56px}
+.nav-collapse{justify-content:center;padding:0;font-size:10px;text-transform:uppercase}
+.nav-collapse span{display:none}
+.top{border-bottom:0;border-top:1px solid var(--line);font-size:var(--fs-1)}
+.pulse{border:0;padding:0;margin:0 auto}
+.pulse i{border-radius:0}
+.crumbs{text-transform:uppercase;letter-spacing:.08em;font-size:var(--fs-1)}
+/* Nagłówek strony jako pas sterowniczy */
+.ph{padding:0 0 10px;border-bottom:1px solid var(--line)}
+.ph-title h1{font-size:var(--fs-5)}
+.ph-title>.ico{color:var(--text)}
+/* Karty płaskie, nagłówki jak etykiety pulpitu */
+.card-h{background:var(--th-bg)}
+.card-h h2{font-size:var(--fs-2)}
+.card-h .eyebrow+h2{margin-top:-2px}
+.tabs{background:var(--th-bg)}
+.tab{border-right:1px solid var(--line)}
+.btn.stop{border:4px solid transparent;border-image:repeating-linear-gradient(-45deg,#ffb020 0 7px,#07090b 7px 14px) 4;box-shadow:none;font-size:var(--fs-3);letter-spacing:.16em}
+.btn.stop.sm{font-size:var(--fs-1)}
+.badge{font-size:11px}
+.badge .dot{border-radius:0}
+.seg{border-radius:var(--r-md)}
+.big,.metric b,.jog-val b,.chart-h .val{letter-spacing:-.02em}
+.axbox{border-top-width:4px;background:var(--raised)}
+.pal-item,.blk{border-left-width:4px}
+.term{border-radius:var(--r-md)}
+.r-tag text{font-family:var(--mono);font-size:10px}
+.chart .ln{filter:drop-shadow(0 0 3px color-mix(in srgb,var(--c) 55%,transparent))}
+.manual .view{border-top-width:4px}
+.view-tools .mode-badge{box-shadow:0 0 0 1px var(--mode),0 0 14px color-mix(in srgb,var(--mode) 35%,transparent)}
+.stopbar{border-radius:0;border:4px solid transparent;border-image:repeating-linear-gradient(-45deg,#ffb020 0 7px,#07090b 7px 14px) 4}
+.mock-switch{bottom:54px}

@@ -8,9 +8,11 @@ ConditionPathExists=/etc/robot-can/%i.conf
 Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=/etc/robot-can/%i.conf
+Environment=TX_QUEUE_LEN=1000
 # Configure only an interface actually handled by the U2C-compatible gs_usb driver.
 ExecCondition=/bin/sh -c 'test "$(basename "$(readlink -f /sys/class/net/%i/device/driver)")" = gs_usb'
 ExecStart=/usr/sbin/ip link set dev %i type can bitrate ${BITRATE}
+ExecStart=/usr/sbin/ip link set dev %i txqueuelen ${TX_QUEUE_LEN}
 ExecStart=/usr/sbin/ip link set dev %i up
 ExecStop=-/usr/sbin/ip link set dev %i down
 

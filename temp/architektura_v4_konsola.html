@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architektura — wariant 4: Konsola inżynierska</title>
+<!-- Makieta statyczna: dane przykładowe, brak skryptów i połączeń z API/ROS/CAN. -->
+<style>
+:root {
+    --bg-app:#0b1017; --bg-panel:#131b24; --bg-elevated:#192430; --border:#283648;
+    --text:#e0e8f0; --muted:#9aaaba; --live:#10b981; --plan:#3b82f6; --warn:#f59e0b; --danger:#ef4444; --code:#8ec9ec;
+    /* Ta sama czcionka co w aplikacji (web/src/style.css); cyfry tabelaryczne zamiast monospace. */
+    color-scheme:dark; font-family:Inter,"Segoe UI",system-ui,sans-serif; font-synthesis:none; font-variant-numeric:tabular-nums;
+    color:var(--text); background:var(--bg-app); line-height:1.45; font-size:12px;
+}
+* { box-sizing:border-box; }
+body { margin:0; padding:0 20px 40px; }
+h1,h2,p { margin:0; }
+code { font-family:"SFMono-Regular",Consolas,monospace; font-size:11px; color:var(--code); }
+.mock { display:inline-block; margin-top:14px; padding:3px 9px; border:1px dashed var(--warn); border-radius:4px; color:var(--warn); font-size:11px; }
+.page-title { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; padding:20px 0; }
+.eyebrow { font-size:9px; font-weight:650; letter-spacing:1.8px; color:var(--muted); margin-bottom:6px; }
+.page-title h1 { font-size:26px; font-weight:700; letter-spacing:-.7px; }
+.page-title p { font-size:12px; color:var(--muted); margin-top:6px; }
+.top { display:flex; flex-wrap:wrap; gap:8px 28px; align-items:baseline; padding:10px 14px; border:1px solid var(--border); background:var(--bg-panel); border-radius:6px; margin-bottom:12px; }
+.top span { color:var(--muted); font-size:11px; }
+.top b { color:var(--text); font-weight:500; }
+
+/* Puls pracy: pakiety przebiegają po łączach, gdy dane są świeże; łącze nieświeże stoi. */
+.pulse { display:flex; align-items:center; padding:10px 16px; border:1px solid var(--border); background:var(--bg-panel); border-radius:8px; min-width:0; }
+.pulse .n { display:flex; align-items:center; gap:7px; padding:5px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg-elevated); font-size:11px; white-space:nowrap; }
+.pulse .n i { width:7px; height:7px; border-radius:50%; background:var(--live); box-shadow:0 0 0 0 rgba(16,185,129,.6); animation:beat 2s ease-out infinite; }
+.pulse .n.warn { border-color:#735324; } .pulse .n.warn i { background:var(--warn); animation:none; }
+.pulse .l { position:relative; flex:1 1 34px; min-width:26px; height:2px; background:#22303f; overflow:hidden; }
+.pulse .l::after { content:""; position:absolute; top:0; left:-30%; width:30%; height:100%; background:linear-gradient(90deg,transparent,var(--live),transparent); animation:flow 1.6s linear infinite; }
+.pulse .l.d2::after { animation-delay:.4s; } .pulse .l.d3::after { animation-delay:.8s; } .pulse .l.d4::after { animation-delay:1.2s; }
+.pulse .l.warn::after { background:linear-gradient(90deg,transparent,var(--warn),transparent); animation-duration:3.2s; }
+@keyframes flow { to { left:100%; } }
+@keyframes beat { 0% { box-shadow:0 0 0 0 rgba(16,185,129,.6); } 70%,100% { box-shadow:0 0 0 6px rgba(16,185,129,0); } }
+.top .live i { display:inline-block; width:6px; height:6px; margin-right:5px; border-radius:50%; background:var(--live); animation:blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity:.25; } }
+@media (prefers-reduced-motion:reduce) { .pulse .l::after, .pulse .n i, .top .live i { animation:none; } .pulse .l { background:var(--live); opacity:.5; } }
+.meters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px 24px; padding:10px 14px; border:1px solid var(--border); background:var(--bg-panel); border-radius:6px; margin-bottom:12px; }
+.m { display:grid; grid-template-columns:70px 1fr 74px; gap:8px; align-items:center; }
+.m label { color:var(--code); }
+.m .track { height:10px; background:#0e151d; border:1px solid #1d2835; position:relative; }
+.m .track i { position:absolute; inset:0 auto 0 0; background:var(--live); }
+.m .track i.warn { background:var(--warn); }
+.m .track s { position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--warn); }
+.m output { text-align:right; color:var(--muted); }
+
+.split { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:12px; align-items:start; }
+.box { border:1px solid var(--border); background:var(--bg-panel); border-radius:6px; overflow:hidden; }
+.box-title { display:flex; justify-content:space-between; padding:7px 12px; background:var(--bg-elevated); border-bottom:1px solid var(--border); color:var(--muted); letter-spacing:.08em; }
+.box-title b { color:var(--text); font-weight:400; }
+.tabs { display:flex; gap:2px; padding:6px 8px 0; background:var(--bg-panel); border-bottom:1px solid var(--border); }
+.tabs span { padding:5px 12px; color:var(--muted); border:1px solid transparent; border-bottom:0; border-radius:4px 4px 0 0; }
+.tabs span.on { color:var(--text); background:var(--bg-elevated); border-color:var(--border); }
+.scroll { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; min-width:720px; }
+th { text-align:left; padding:6px 10px; color:var(--muted); background:var(--bg-elevated); border-bottom:1px solid var(--border); font-size:10px; letter-spacing:.08em; font-weight:600; position:sticky; top:0; }
+td { padding:3px 10px; white-space:nowrap; }
+td.r, th.r { text-align:right; }
+tr.group td { padding-top:9px; color:var(--code); background:#0f161f; letter-spacing:.1em; border-top:1px solid var(--border); }
+tr:not(.group):hover td { background:#1a2633; }
+tr.sel td { background:rgba(59,130,246,.18); }
+.ok { color:var(--live); } .warn { color:var(--warn); } .err { color:var(--danger); } .off { color:#6f8296; }
+
+.log { padding:8px 12px; display:grid; gap:3px; max-height:none; }
+.log div { display:grid; grid-template-columns:64px 52px 1fr; gap:8px; }
+.log time { color:var(--muted); }
+.drives { width:100%; border-collapse:collapse; min-width:0; }
+.drives th { background:var(--bg-elevated); color:var(--muted); font-weight:400; }
+.drives td { padding:4px 10px; border-bottom:1px solid #1d2835; }
+.keys { margin-top:12px; padding:6px 12px; background:var(--bg-panel); border:1px solid var(--border); border-radius:6px; color:var(--muted); display:flex; flex-wrap:wrap; gap:4px 18px; }
+.keys kbd { color:#0b1017; background:var(--code); padding:0 5px; border-radius:2px; font:inherit; margin-right:4px; }
+@media (max-width:1100px) { .split { grid-template-columns:1fr; } .meters { grid-template-columns:repeat(2,1fr); } }
+</style>
+</head>
+<body>
+<div class="mock">MAKIETA · dane przykładowe · brak połączenia z systemem</div>
+
+<header class="page-title">
+    <div>
+        <div class="eyebrow">TOPOLOGIA SYSTEMU</div>
+        <h1>Architektura</h1>
+        <p>Procesy, połączenia i bieżące problemy czterech warstw systemu.</p>
+    </div>
+    <div class="pulse" aria-label="Przepływ danych">
+        <span class="n"><i></i>Frontend</span><span class="l"></span>
+        <span class="n"><i></i>Backend :8080</span><span class="l d2"></span>
+        <span class="n warn"><i></i>ROS 2</span><span class="l warn d3"></span>
+        <span class="n"><i></i>can0</span><span class="l d4"></span>
+        <span class="n"><i></i>MKS 6/6</span>
+    </div>
+</header>
+
+<div class="top">
+    <span class="live"><i></i><b>NA ŻYWO</b></span>
+    <span>host <b>Ubuntu 22.04 · 6.8.0-138</b></span>
+    <span>uptime <b>2 d 04:11</b></span>
+    <span>ros <b>humble · install/stop-recovery-ros</b></span>
+    <span>api <b>:8080</b></span>
+    <span>web <b>ccb1fbc+dirty</b></span>
+    <span>snapshot <b class="ok">0,4 s</b></span>
+    <span>problemy <b class="warn">3 aktywne</b></span>
+</div>
+
+<div class="meters">
+    <div class="m"><label>CPU</label><div class="track"><i style="width:23%"></i></div><output>23,0%</output></div>
+    <div class="m"><label>RAM</label><div class="track"><i style="width:33%"></i></div><output>5,1/15,5G</output></div>
+    <div class="m"><label>can0</label><div class="track"><i style="width:31%"></i><s style="left:60%"></s></div><output>31% /60</output></div>
+    <div class="m"><label>RX t/o</label><div class="track"><i class="warn" style="width:80%"></i></div><output>19,1/24ms</output></div>
+</div>
+
+<div class="split">
+    <section class="box">
+        <div class="tabs"><span class="on">Wszystkie</span><span>System</span><span>ROS</span><span>Backend</span><span>Frontend</span><span>Tylko problemy</span></div>
+        <div class="scroll">
+        <table>
+            <tr><th>STAN</th><th>NAZWA</th><th>TYP</th><th class="r">PID</th><th class="r">CPU%</th><th class="r">RAM</th><th class="r">Hz / RTT</th><th>KOMUNIKAT</th></tr>
+            <tr class="group"><td colspan="8">▾ SYSTEM</td></tr>
+            <tr><td class="ok">● OK</td><td>autostart ROS 2</td><td>systemd</td><td class="r">47062</td><td class="r">0,1</td><td class="r">12M</td><td class="r">—</td><td>active (running)</td></tr>
+            <tr><td class="ok">● OK</td><td>socketcan can0</td><td>systemd</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td>exited 0 · 1 Mbit/s · txqueuelen 1000</td></tr>
+            <tr><td class="ok">● OK</td><td>can0 / gs_usb</td><td>link</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td>ERROR-ACTIVE · rx_err 0 · tx_err 0 · bus-off 0</td></tr>
+            <tr class="group"><td colspan="8">▾ ROS 2</td></tr>
+            <tr class="sel"><td class="warn">▲ WARN</td><td>controller_manager</td><td>node C++</td><td class="r">47071</td><td class="r">11,4</td><td class="r">96M</td><td class="r">100 Hz</td><td>SYNC: odblokowanie wyjątkiem (J4 niezaliczony)</td></tr>
+            <tr><td class="ok">● OK</td><td>robot_motion_planner</td><td>node C++</td><td class="r">47080</td><td class="r">2,0</td><td class="r">74M</td><td class="r">—</td><td>tryb synchronized · idle</td></tr>
+            <tr><td class="ok">● OK</td><td>robot_state_publisher</td><td>node C++</td><td class="r">47074</td><td class="r">0,3</td><td class="r">21M</td><td class="r">100 Hz</td><td>/tf</td></tr>
+            <tr><td class="warn">▲ WARN</td><td>robot_can_diagnostics</td><td>node C++</td><td class="r">47077</td><td class="r">1,2</td><td class="r">18M</td><td class="r">—</td><td>zapas czasu odczytu 20%</td></tr>
+            <tr><td class="ok">● OK</td><td>robot_system_monitor</td><td>node Python</td><td class="r">47083</td><td class="r">0,4</td><td class="r">48M</td><td class="r">1 Hz</td><td>/robot/system_status</td></tr>
+            <tr><td class="ok">● OK</td><td>joint_state_broadcaster</td><td>controller</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">100 Hz</td><td>active</td></tr>
+            <tr><td class="off">○ OFF</td><td>joint_trajectory_controller</td><td>controller</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td>inactive</td></tr>
+            <tr class="group"><td colspan="8">▾ BACKEND PYTHON</td></tr>
+            <tr><td class="ok">● OK</td><td>robot_web_bridge</td><td>FastAPI</td><td class="r">47118</td><td class="r">3,1</td><td class="r">142M</td><td class="r">—</td><td>uvicorn 0.0.0.0:8080 · 9 wątków</td></tr>
+            <tr><td class="ok">● OK</td><td>/ws/status</td><td>WebSocket</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">4 Hz</td><td>2 klientów</td></tr>
+            <tr><td class="ok">● OK</td><td>/api/v1/*</td><td>REST</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">p95 18 ms</td><td>38 żądań/min · 5xx 0</td></tr>
+            <tr class="group"><td colspan="8">▾ FRONTEND</td></tr>
+            <tr><td class="warn">▲ WARN</td><td>web/dist</td><td>build</td><td class="r">—</td><td class="r">—</td><td class="r">2,4M</td><td class="r">—</td><td>ccb1fbc+dirty · 29.10 15:41 · TS 144/145</td></tr>
+            <tr><td class="ok">● OK</td><td>192.168.1.20</td><td>Chromium</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">RTT 3 ms</td><td>Architektura (ta karta)</td></tr>
+            <tr><td class="ok">● OK</td><td>192.168.1.34</td><td>Firefox</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td class="r">RTT 5 ms</td><td>Sterowanie ręczne · 12 min</td></tr>
+        </table>
+        </div>
+    </section>
+
+    <div style="display:grid;gap:12px">
+        <section class="box">
+            <div class="box-title"><span>AKTYWNE PROBLEMY</span><b class="warn">3</b></div>
+            <div class="log">
+                <div><time>14:02</time><span class="warn">WARN</span><span>ROS/SYNC: execution_staged_reset_verified=true wyjątkiem operatora</span></div>
+                <div><time>13:20</time><span class="warn">WARN</span><span>ROS/CAN: odczyt max 19,1 ms, timeout 24 ms</span></div>
+                <div><time>15:41</time><span class="off">INFO</span><span>WEB: controlMessages.test.ts nie przechodzi</span></div>
+            </div>
+        </section>
+        <section class="box">
+            <div class="box-title"><span>NAPĘDY MKS · can0</span><b class="ok">6/6</b></div>
+            <table class="drives">
+                <tr><th>OŚ</th><th class="r">ID</th><th>ON</th><th class="r">EN</th><th class="r">RPM</th><th class="r">SYNC</th><th class="r">WIEK</th></tr>
+                <tr><td>J1</td><td class="r">1</td><td class="ok">●</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">24 ms</td></tr>
+                <tr><td>J2</td><td class="r">2</td><td class="ok">●</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">26 ms</td></tr>
+                <tr><td>J3</td><td class="r">3</td><td class="ok">●</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">23 ms</td></tr>
+                <tr><td class="warn">J4</td><td class="r">4</td><td class="ok">●</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">25 ms</td></tr>
+                <tr><td>J5</td><td class="r">5</td><td class="ok">●</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">24 ms</td></tr>
+                <tr><td>J6</td><td class="r">6</td><td class="ok">●</td><td class="r">0</td><td class="r">0</td><td class="r">0</td><td class="r">27 ms</td></tr>
+            </table>
+        </section>
+        <section class="box">
+            <div class="box-title"><span>SZCZEGÓŁY · controller_manager</span><b>PID 47071</b></div>
+            <div class="log">
+                <div><span class="off">hw</span><span></span><span>CanSystem · mks_servo_can · 6 osi</span></div>
+                <div><span class="off">sync</span><span></span><span>synchronized · lookahead 85 ms · 4B co 10 ms</span></div>
+                <div><span class="off">stan</span><span></span><span>idle_disabled · fault=false · busy=false · maska 0</span></div>
+                <div><span class="off">stop</span><span></span><span>odstępy 6 ms · ACK odzyskiwania 120 ms</span></div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<div class="keys"><span><kbd>/</kbd>szukaj</span><span><kbd>1–4</kbd>sekcja</span><span><kbd>P</kbd>tylko problemy</span><span><kbd>↵</kbd>szczegóły</span><span>Widok tylko do odczytu · bez poleceń do napędów</span></div>
+</body>
+</html>

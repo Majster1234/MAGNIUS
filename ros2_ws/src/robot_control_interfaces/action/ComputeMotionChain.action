@@ -1,0 +1,19 @@
+# Ciąg ruchów PTP/LIN z przejściami (promień na torze TCP) i postojami, jako jedna trajektoria.
+PlanningContext context
+MotionSegment[] segments
+# Maksymalny czas planu [s], (0, 200]; ciąg dłuższy jest ucinany na postoju (planned_segments).
+float64 max_duration
+---
+bool success
+string message
+# motion_type "CHAIN", chain_segments = czasy kolejnych ruchów.
+CartesianPlan plan
+# Liczba ruchów ujętych w planie (< len(segments): ucięcie na postoju przez max_duration).
+uint32 planned_segments
+# "segment|kod|tekst": blend_reduced, blend_not_possible, chain_end, no_motion.
+string[] warnings
+# -1 albo indeks ruchu, którego dotyczy błąd.
+int32 failed_segment
+---
+float32 progress
+string phase

@@ -1,0 +1,2 @@
+string revision
+bool allow_missing_motion
