@@ -134,10 +134,8 @@ colcon test --packages-select <nazwa_pakietu> && colcon test-result --verbose
 
 ## Bieżący kontekst
 
-- 22.11.2026 — **Stan przed zapisem na GitHub.** Poprawka osi czasu SYNC (`phase_origin_at`) cofnięta na życzenie operatora (źródła
-  `mks_servo_can` jak przed sesją, 313/313; binaria w `install/stop-recovery-ros` z kopii `install/deployment-backups/shift-origin-1795368966`;
-  wymaga restartu `robot-web-status.service`). Zostają: wyłączenie usypiania grafiki (udev, brak przestojów wątku I/O CAN), bufor nagrań
-  CAN 6144 MiB (`scripts/start_web_status.sh`), opcje zakresu w `scripts/tcp_motion_quality.py` (i czekanie na koniec odzyskiwania przed
-  przywróceniem nastaw), nowy `scripts/axis_diagnosis.py`, wyniki w `docs/benchmark_results.md` i `docs/motion_hardware_results.md`.
-  Harmonogram nastaw PTP (wcześniejsze zmiany z 18.11) bez zmian. Po restarcie (20:01) weryfikacja: test standardowy 36/36, TCP JOG 24/24
-  (`docs/benchmark_results.md`, „Weryfikacja przed zapisem na GitHub”). Robot: poza startowa, ENABLE=0.
+- 22.11.2026 — **Dobór wyprzedzenia celu F5 dla każdej osi.** Nowy `scripts/axis_lookahead.py` (PTP jednej osi, wyprzedzenia × prędkości
+  wału, harmonogram wyłączony na czas testu, ślad `.npz` po bloku, nastawy wracają do pliku). Wyniki: `docs/benchmark_results.md`
+  („Wyprzedzenie celu F5 dobierane osobno dla każdej osi”), `log/axis_lookahead/20261122-J1-J6`: optimum zależy od prędkości, mało od osi —
+  ~25 ms do ~120–150 RPM wału, ~40 ms powyżej; 10 ms złe od 60 RPM, 60/80 ms nigdzie lepsze od 40 ms. Kod sterowania i konfiguracja bez
+  zmian (poprawka `phase_origin_at` cofnięta wcześniej). Robot ENABLE=0, nastawy z pliku.

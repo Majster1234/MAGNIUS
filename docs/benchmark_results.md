@@ -2131,3 +2131,27 @@ z pliku, acc 254, wały rozsprzęglone, start od zerowania MKS.
 - Uwagi: PTP powrotu po próbach w układzie narzędzia odrzucony przy uzbrajaniu („J6: niepotwierdzony warunek uzbrojenia: potwierdzenie
   postoju F1=1”, znane drgania J6 w postoju) — 3 kolejne PTP z tej pozy zaliczone. Seria 17 ramek błędu CAN i timeout J5 o 20:02:43
   (początek testu, bez wpływu) — jak przy awarii J1 o 19:41; do sprawdzenia okablowanie/terminacja magistrali.
+
+## Wyprzedzenie celu F5 dobierane osobno dla każdej osi (22.11.2026, 20:50–21:34)
+
+`scripts/axis_lookahead.py --axes 1,2,3,4,5,6 --execute`, `log/axis_lookahead/20261122-J1-J6` (`summary.md` — pełne tabele).
+PTP jednej osi (pozostałe w postoju), tam i z powrotem, 200 °/s², skok 6–70° przegubu; wyprzedzenie 10/25/40/60/80 ms × 5/20/60/120/180/240 RPM
+wału, kolejność przeplatana; harmonogram nastaw wyłączony, Kp 4 (plik); wały rozsprzęglone, każda oś od zerowania MKS; 360 ruchów testowych,
+1 nieudany (J2 240 RPM / 60 ms: uchyb śledzenia 4,06°). Ocena = uchyb maks. + 2·część zmienna + przestrzał [° wału] (średnio tam/powrót).
+
+| Oś | 5–20 RPM | 60 RPM | 120 RPM | 180 RPM | 240 RPM | Jedna wartość |
+| --- | --- | --- | --- | --- | --- | --- |
+| J1 | 25 / 10 ms | 40 (≈25) | 40 | 40 | 40 | 40 ms |
+| J2 | 10 ms | 25 | 25 | 25 (≈40) | 40 | 25 ms (40 ms: 1,29 vs 1,22) |
+| J3 | 40 / 25 ms | 25 | 25 | 40 (≈25) | 40 | 40 ms |
+| J4 | 10 ms | 25 | 25 | 25 (≈40) | 40 | 40 ms (≈25 ms) |
+| J5 | 25 ms | 25 | 25 | 40 | 80 (≈40, 60) | 40 ms |
+| J6 | 10 ms | 40 | 25 | 40 | 40 | 40 ms |
+
+Uchyb maks. [° wału] przy 240 RPM, 25 → 40 ms: J1 25,6 → 9,3; J2 18,8 → 9,2; J3 23,3 → 9,6; J4 15,0 → 9,1; J5 22,1 → 9,8; J6 13,2 → 8,3.
+Przy 60–120 RPM 25 ms jest zwykle o 0,3–1,6° lepsze niż 40 ms. 10 ms jest bezużyteczne od 60 RPM (uchyb 5–87° wału, poślizgi);
+60 i 80 ms nie są najlepsze w żadnej osi (poza J5 240 RPM w granicach szumu) i w każdym wierszu nieco gorsze od 40 ms.
+Przy 5–20 RPM różnice między wartościami są małe (dominują schodki napędu). Wniosek: najlepsze wyprzedzenie zależy przede wszystkim od
+prędkości, a mało od osi — ok. 25 ms do ~120–150 RPM wału (~30–36 °/s przegubu przy przełożeniu 25) i ok. 40 ms powyżej. Obecny harmonogram
+(tylko PTP, próg 21 °/s ≈ 87 RPM, 50 ms + Kp 12) przełącza wcześniej i na dłuższe wyprzedzenie niż wskazują te pomiary (Kp 12 nie był tu
+badany). Pomiar bez obciążenia, po 2 ruchy na komórkę — różnice przy dużych prędkościach (2–3×) są pewne, przy małych w granicach szumu.
